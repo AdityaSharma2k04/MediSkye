@@ -6,18 +6,21 @@ os.environ.setdefault(
     "test_jwt_secret_key_at_least_32_characters_long_for_unit_tests!"
 )
 
-import pytest
 import pytest_asyncio
 
 
-@pytest_asyncio.fixture(autouse=True, scope="session")
+@pytest_asyncio.fixture(autouse=True)
 async def setup_test_database():
     """
-    Create all tables in the test database before any test runs.
-    
-    This is required for CI where the database is an empty in-memory SQLite.
-    Locally, the file-based mediskye.db might already have these tables, which
-    is why tests pass locally but fail in CI.
+    Create all tables in the test database before each test.
+
+    Function-scoped (not session-scoped) to match pytest-asyncio's default
+    function-scoped event loop. Combined with StaticPool in database.py, the
+    in-memory SQLite DB shares one connection across the whole test session,
+    so re-running create_all is idempotent and safe.
+
+    Local file-based SQLite already has tables, so create_all is a no-op there.
+    CI uses :memory: with StaticPool, so this is what actually creates the schema.
     """
     from app.db.database import Base, engine
 
@@ -25,7 +28,3 @@ async def setup_test_database():
         await conn.run_sync(Base.metadata.create_all)
 
     yield
-
-    # Optional: drop tables after the session
-    async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.drop_all)
