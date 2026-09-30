@@ -1,0 +1,43 @@
+version: '3.8'
+
+services:
+  db:
+    image: postgres:15
+    environment:
+      POSTGRES_USER: mediskye
+      POSTGRES_PASSWORD: mediskye_password
+      POSTGRES_DB: mediskye_db
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    restart: unless-stopped
+
+  redis:
+    image: redis:7
+    ports:
+      - "6379:6379"
+    restart: unless-stopped
+
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - "8000:8000"
+    environment:
+      - GOOGLE_API_KEY=${GOOGLE_API_KEY}
+      - MEDISKYE_MAX_UPLOAD_MB=50
+      - ENV=production
+      - DATABASE_URL=postgresql+asyncpg://mediskye:mediskye_password@db:5432/mediskye_db
+      - REDIS_URL=redis://redis:6379/0
+    volumes:
+      - ./app/.vector_cache:/app/.vector_cache
+      - ./indexes:/app/indexes
+    depends_on:
+      - db
+      - redis
+    restart: unless-stopped
+
+volumes:
+  postgres_data:

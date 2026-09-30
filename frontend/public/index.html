@@ -1,0 +1,234 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>MediSkye AI — Medical Report Assistant</title>
+  <meta name="description" content="AI-powered medical report analysis and plain-language health assistance grounded in retrieval-augmented generation (RAG).">
+  <link rel="stylesheet" href="styles.css">
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🩺</text></svg>">
+</head>
+<body>
+
+  <!-- Navigation Bar -->
+  <header class="navbar" role="banner">
+    <div class="navbar-container">
+      <a href="#" class="logo" aria-label="MediSkye AI Home">
+        <div class="logo-icon">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M19 14c1.49-1.46 3-3.21 3-5.5A5.5 5.5 0 0 0 16.5 3c-1.76 0-3 .5-4.5 2-1.5-1.5-2.74-2-4.5-2A5.5 5.5 0 0 0 2 8.5c0 2.3 1.5 4.05 3 5.5l7 7Z"/>
+          </svg>
+        </div>
+        <span>MediSkye</span>
+        <span class="logo-badge">RAG AI</span>
+      </a>
+
+      <nav aria-label="Main Navigation">
+        <ul class="nav-menu">
+          <li>
+            <div class="status-pill" id="statusPill" title="FastAPI Backend Status">
+              <span class="status-dot"></span>
+              <span id="statusText">API Connected</span>
+            </div>
+          </li>
+          <li><a href="#about" class="nav-link" id="btnAbout">Disclaimer</a></li>
+          <li><a href="http://127.0.0.1:8000/docs" target="_blank" rel="noopener" class="nav-link">API Docs ↗</a></li>
+        </ul>
+      </nav>
+    </div>
+  </header>
+
+  <!-- Main Content Layout -->
+  <main class="main-wrapper" id="mainContent" role="main">
+    
+    <!-- Hero Header -->
+    <section class="page-header">
+      <h1 class="page-title">Understand your medical report in plain language.</h1>
+      <p class="page-subtitle">Upload a PDF diagnostic report — blood work, lipid panels, or imaging — and get clear, context-grounded medical explanations powered by AI.</p>
+    </section>
+
+    <div class="dashboard-grid">
+      
+      <!-- Left Column: Upload & Quick Actions -->
+      <aside class="sidebar-column" aria-label="Document Management">
+        
+        <!-- PDF Upload Card -->
+        <div class="card">
+          <div class="card-header">
+            <div>
+              <h2 class="card-title">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <path d="M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5L14.5 2z"/>
+                  <polyline points="14 2 14 8 20 8"/>
+                </svg>
+                Upload PDF Report
+              </h2>
+              <p class="card-subtitle">PDF format • Max size 10MB</p>
+            </div>
+          </div>
+
+          <!-- Drag and Drop Zone -->
+          <div class="dropzone" id="dropzone" role="button" tabindex="0" aria-label="PDF file drag and drop zone">
+            <div class="dropzone-icon">
+              <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+                <polyline points="17 8 12 3 7 8"/>
+                <line x1="12" y1="3" x2="12" y2="15"/>
+              </svg>
+            </div>
+            <div class="dropzone-title">Click to upload or drag & drop</div>
+            <div class="dropzone-text">Supports medical reports & lab tests</div>
+            <input type="file" id="fileInput" class="file-input" accept="application/pdf" aria-label="Upload PDF File">
+          </div>
+
+          <!-- File Upload Progress / Active File -->
+          <div class="file-preview hidden" id="filePreview">
+            <div class="file-info">
+              <div class="file-icon">
+                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <path d="M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5L14.5 2z"/>
+                  <polyline points="14 2 14 8 20 8"/>
+                </svg>
+              </div>
+              <div class="file-details">
+                <div class="file-name" id="fileName">report.pdf</div>
+                <div class="file-meta" id="fileMeta">Ready to index</div>
+              </div>
+            </div>
+            <button class="btn btn-ghost btn-sm" id="btnRemoveFile" title="Remove File" aria-label="Remove File">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <line x1="18" y1="6" x2="6" y2="18"/>
+                <line x1="6" y1="6" x2="18" y2="18"/>
+              </svg>
+            </button>
+          </div>
+
+          <div style="margin-top: 1rem;">
+            <button class="btn btn-primary" id="btnProcessPdf" style="width: 100%;" disabled>
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <circle cx="12" cy="12" r="10"/>
+                <polyline points="12 6 12 12 16 14"/>
+              </svg>
+              Process & Index Report
+            </button>
+          </div>
+        </div>
+
+        <!-- Sample Questions Card -->
+        <div class="card" style="margin-top: 1.25rem;">
+          <div class="card-header" style="margin-bottom: 0.75rem;">
+            <h3 class="card-title" style="font-size: 0.95rem;">Suggested Questions</h3>
+          </div>
+          <div class="chip-container">
+            <button class="chip-btn" data-query="Explain my Hemoglobin levels and what they indicate.">
+              <span>Explain my Hemoglobin levels</span>
+              <span class="chip-arrow">→</span>
+            </button>
+            <button class="chip-btn" data-query="Are my cholesterol or LDL numbers within normal range?">
+              <span>Are cholesterol & LDL normal?</span>
+              <span class="chip-arrow">→</span>
+            </button>
+            <button class="chip-btn" data-query="Summarize key findings and any abnormal values in this report.">
+              <span>Summarize abnormal values</span>
+              <span class="chip-arrow">→</span>
+            </button>
+            <button class="chip-btn" data-query="What follow-up questions should I ask my doctor?">
+              <span>Follow-up questions for doctor</span>
+              <span class="chip-arrow">→</span>
+            </button>
+          </div>
+        </div>
+
+      </aside>
+
+      <!-- Right Column: Interactive Medical Assistant Chat -->
+      <section class="main-column" aria-label="AI Medical Chat">
+        <div class="card chat-card">
+          
+          <!-- Chat Header -->
+          <div class="card-header" style="padding-bottom: 1rem; border-bottom: 1px solid var(--border-color);">
+            <div>
+              <h2 class="card-title">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#2563EB" stroke-width="2">
+                  <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>
+                </svg>
+                MediSkye Medical Assistant
+              </h2>
+              <p class="card-subtitle">Grounded explanations powered by Gemini Flash</p>
+            </div>
+            <button class="btn btn-ghost btn-sm" id="btnClearChat" title="Clear Chat History">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M3 6h18"/>
+                <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>
+              </svg>
+              Clear
+            </button>
+          </div>
+
+          <!-- Chat Messages Scroll Container -->
+          <div class="chat-messages" id="chatMessages" role="log" aria-live="polite">
+            
+            <!-- Default Welcome Message -->
+            <div class="message message-assistant">
+              <div class="avatar avatar-assistant">AI</div>
+              <div class="bubble bubble-assistant">
+                <p><strong>Hello! I'm MediSkye AI.</strong></p>
+                <p>Please upload your medical PDF report using the panel on the left. Once indexed, you can ask any question about your blood test, lab values, or diagnostic results.</p>
+                <div class="disclaimer-tag">
+                  <strong>⚠️ Note:</strong> MediSkye provides educational explanations and is not a replacement for professional medical consultation.
+                </div>
+              </div>
+            </div>
+
+          </div>
+
+          <!-- Loading Skeleton (Hidden by default) -->
+          <div class="skeleton-box hidden" id="chatSkeleton">
+            <div class="avatar avatar-assistant">AI</div>
+            <div class="skeleton-lines">
+              <div class="skeleton-line" style="width: 85%;"></div>
+              <div class="skeleton-line" style="width: 65%;"></div>
+              <div class="skeleton-line" style="width: 40%;"></div>
+            </div>
+          </div>
+
+          <!-- Chat Form Input -->
+          <form class="chat-input-wrapper" id="chatForm">
+            <textarea 
+              id="chatInput" 
+              class="chat-textarea" 
+              placeholder="Ask a medical question about your report..." 
+              rows="1" 
+              aria-label="Ask a medical question"></textarea>
+            <div class="chat-input-actions">
+              <span class="chat-input-hint">Press <strong>Enter</strong> to send • <strong>Shift+Enter</strong> for line break</span>
+              <button type="submit" class="btn btn-primary btn-sm" id="btnSendMessage">
+                <span>Send</span>
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <line x1="22" y1="2" x2="11" y2="13"/>
+                  <polygon points="22 2 15 22 11 13 2 9 22 2"/>
+                </svg>
+              </button>
+            </div>
+          </form>
+
+        </div>
+      </section>
+
+    </div>
+  </main>
+
+  <!-- Toast Notification Container -->
+  <div class="toast-container" id="toastContainer" role="region" aria-label="Notifications"></div>
+
+  <!-- Footer -->
+  <footer class="footer" role="contentinfo">
+    <div class="footer-container">
+      <div>© 2026 MediSkye AI. Educational medical assistance system.</div>
+      <div>Privacy First • Session Grounded • RAG Architecture</div>
+    </div>
+  </footer>
+
+  <script src="app.js"></script>
+</body>
+</html>

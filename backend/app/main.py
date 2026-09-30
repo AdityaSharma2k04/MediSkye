@@ -1,0 +1,83 @@
+from contextlib import asynccontextmanager
+from pathlib import Path
+from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
+from slowapi import _rate_limit_exceeded_handler
+from slowapi.errors import RateLimitExceeded
+from slowapi.middleware import SlowAPIMiddleware
+from app.core.limiter import limiter
+
+from app.api.v1.router import api_router
+from app.core.config import settings
+from app.core.logging import logger, setup_logging
+from app.middleware.error_handler import global_exception_handler
+from app.middleware.request_id import RequestIDMiddleware
+from app.middleware.security_headers import SecurityHeadersMiddleware
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # Startup Lifespan
+    COMPROMISED_FERNET_KEY = "UAgBIptmb50gZM94VLBKia38mASQ4w-5H6KCS_z7_YM="
+    if not settings.FERNET_KEY:
+        raise RuntimeError(
+            "FERNET_KEY environment variable is required. Generate one with: "
+            "python -c \"from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())\""
+        )
+    if settings.FERNET_KEY == COMPROMISED_FERNET_KEY:
+        raise RuntimeError(
+            "FERNET_KEY is set to the compromised key that was hardcoded in source. "
+            "Generate a new one and update .env before starting the app."
+        )
+    if not settings.JWT_SECRET_KEY or len(settings.JWT_SECRET_KEY) < 32:
+        raise RuntimeError(
+            "JWT_SECRET_KEY must be set and at least 32 characters. "
+            "Generate one with: python -c \"import secrets; print(secrets.token_urlsafe(32))\""
+        )
+    setup_logging()
+    logger.info(f"Starting {settings.PROJECT_NAME} v{settings.VERSION} [{settings.ENV}]")
+    
+    yield
+    
+    # Shutdown Lifespan
+    logger.info("Shutting down MediSkye AI backend gracefully.")
+
+
+app = FastAPI(
+    title=settings.PROJECT_NAME,
+    version=settings.VERSION,
+    openapi_url="/openapi.json" if settings.DEBUG else None,
+    docs_url="/docs" if settings.DEBUG else "/docs",
+    redoc_url="/redoc" if settings.DEBUG else None,
+    lifespan=lifespan,
+)
+
+# Rate Limiter Configuration
+app.state.limiter = limiter
+app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+
+# Global Exception Middleware
+app.add_exception_handler(Exception, global_exception_handler)
+
+# Custom Middlewares
+app.add_middleware(RequestIDMiddleware)
+app.add_middleware(SecurityHeadersMiddleware)
+app.add_middleware(SlowAPIMiddleware)
+
+# CORS Configuration
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=settings.ALLOWED_ORIGINS,
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+# API Router
+app.include_router(api_router, prefix=settings.API_V1_STR)
+
+# Static Files Mount for Frontend
+frontend_path = settings.BASE_DIR.parent / "frontend" / "dist"
+if frontend_path.exists():
+    app.mount("/static", StaticFiles(directory=str(frontend_path), html=True), name="static")

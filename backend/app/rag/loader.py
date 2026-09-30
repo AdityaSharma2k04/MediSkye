@@ -1,0 +1,409 @@
+"""
+PDF Loader with Vision-based table extraction.
+
+Extraction pipeline (tiered):
+  1. PyPDF2 — fast text extraction
+  2. PyMuPDF — better layout handling
+  3. Tesseract OCR — fallback for scanned PDFs
+  4. Gemini Vision — for pages with complex tables/medical matrices
+
+Pages detected as containing dense tables are rendered as images
+and sent to Gemini Flash Vision for structured Markdown extraction,
+which preserves exact lab values that text extractors often scramble.
+"""
+
+import io
+import os
+import base64
+import asyncio
+from typing import Optional
+
+from langchain_core.documents import Document
+from pypdf import PdfReader
+
+from app.core.config import settings
+from app.core.security import sanitize_text
+
+MIN_EXTRACTED_CHARS = 100
+
+
+class PDFExtractionError(Exception):
+    """Raised when a PDF yields too little readable text."""
+
+
+def _char_count(docs: list[Document]) -> int:
+    return sum(len(doc.page_content.strip()) for doc in docs)
+
+
+# ─── Image Processing & Classification ───────────────────────────────────
+
+async def classify_image_type(image_bytes: bytes) -> str:
+    def _compress():
+        import cv2
+        import numpy as np
+        nparr = np.frombuffer(image_bytes, np.uint8)
+        img = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
+        if img is None:
+            return image_bytes
+        h, w = img.shape[:2]
+        if max(h, w) > 512:
+            scale = 512 / max(h, w)
+            img = cv2.resize(img, (int(w * scale), int(h * scale)))
+        _, buffer = cv2.imencode(".jpg", img, [cv2.IMWRITE_JPEG_QUALITY, 30])
+        return buffer.tobytes()
+
+    compressed_bytes = await asyncio.to_thread(_compress)
+    from google import genai
+    from google.genai.types import Part
+    client = genai.Client(api_key=settings.GOOGLE_API_KEY)
+    
+    try:
+        image_part = Part.from_bytes(data=compressed_bytes, mime_type="image/jpeg")
+        response = await asyncio.to_thread(
+            client.models.generate_content,
+            model="gemini-3.8-flash",
+            contents=["Respond with exactly one word: 'XRAY' if this is a radiological scan, or 'DOCUMENT' if this is a text-heavy clinical report.", image_part],
+        )
+        result = sanitize_text(response.text or "").strip().upper()
+        if "XRAY" in result:
+            return "XRAY"
+        return "DOCUMENT"
+    except Exception as e:
+        print(f"Classification failed: {e}")
+        return "DOCUMENT"
+
+
+async def process_image_path(image_type: str, image_bytes: bytes, source_meta: str) -> Document:
+    if image_type == "XRAY":
+        def _apply_clahe():
+            import cv2
+            import numpy as np
+            nparr = np.frombuffer(image_bytes, np.uint8)
+            img = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
+            if img is None:
+                return image_bytes
+            lab = cv2.cvtColor(img, cv2.COLOR_BGR2LAB)
+            l_channel, a_channel, b_channel = cv2.split(lab)
+            clahe = cv2.createCLAHE(clipLimit=3.0, tileGridSize=(8, 8))
+            enhanced_l = clahe.apply(l_channel)
+            merged = cv2.merge([enhanced_l, a_channel, b_channel])
+            enhanced = cv2.cvtColor(merged, cv2.COLOR_LAB2BGR)
+            _, buffer = cv2.imencode(".png", enhanced)
+            return buffer.tobytes()
+        
+        enhanced_bytes = await asyncio.to_thread(_apply_clahe)
+        from google import genai
+        from google.genai.types import Part
+        client = genai.Client(api_key=settings.GOOGLE_API_KEY)
+        
+        try:
+            image_part = Part.from_bytes(data=enhanced_bytes, mime_type="image/png")
+            prompt = "You are an expert radiologist. Analyze this radiological scan and provide a detailed clinical observation summary. Be precise and medical."
+            response = await asyncio.to_thread(
+                client.models.generate_content,
+                model="gemini-3.8-flash",
+                contents=[prompt, image_part]
+            )
+            text = sanitize_text(response.text or "").strip()
+            return Document(page_content=text, metadata={"source": source_meta, "type": "xray"})
+        except Exception as e:
+            print(f"XRAY analysis failed: {e}")
+            return Document(page_content="", metadata={"source": source_meta, "type": "xray_error"})
+    else:
+        def _extract_ocr():
+            try:
+                import pytesseract
+                import cv2
+                import numpy as np
+                nparr = np.frombuffer(image_bytes, np.uint8)
+                img = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
+                if img is None:
+                    return ""
+                text = pytesseract.image_to_string(img)
+                return sanitize_text(text or "").strip()
+            except Exception as e:
+                print(f"OCR failed: {e}")
+                return ""
+                
+        text = await asyncio.to_thread(_extract_ocr)
+        return Document(page_content=text, metadata={"source": source_meta, "type": "document"})
+
+
+# ─── Standard Text Extractors ───────────────────────────────────────────
+
+def _extract_with_pypdf2(pdf_path: str) -> list[Document]:
+    reader = PdfReader(pdf_path)
+    docs: list[Document] = []
+
+    for index, page in enumerate(reader.pages, start=1):
+        text = sanitize_text(page.extract_text() or "")
+        if text:
+            docs.append(Document(page_content=text, metadata={"page": index, "source": "pypdf2"}))
+
+    return docs
+
+
+async def _extract_with_pymupdf(pdf_path: str) -> list[Document]:
+    try:
+        import fitz
+    except ImportError:
+        return []
+
+    docs: list[Document] = []
+    with fitz.open(pdf_path) as pdf:
+        for index, page in enumerate(pdf, start=1):
+            text = sanitize_text(page.get_text() or "")
+            if text and len(text) >= 50:
+                docs.append(Document(page_content=text, metadata={"page": index, "source": "pymupdf"}))
+            else:
+                # Text is less than 50 characters, assume scanned image or image wrapped in PDF
+                pix = page.get_pixmap(dpi=300)
+                img_bytes = pix.tobytes("png")
+                
+                image_type = await classify_image_type(img_bytes)
+                doc = await process_image_path(image_type, img_bytes, source_meta="pymupdf_fallback")
+                doc.metadata["page"] = index
+                docs.append(doc)
+
+    return docs
+
+
+def _extract_with_ocr(pdf_path: str) -> list[Document]:
+    try:
+        from pdf2image import convert_from_path
+        import pytesseract
+    except ImportError:
+        return []
+
+    try:
+        pytesseract.get_tesseract_version()
+    except Exception:
+        return []
+
+    docs: list[Document] = []
+    try:
+        images = convert_from_path(pdf_path)
+    except Exception:
+        return []
+
+    for index, image in enumerate(images, start=1):
+        text = sanitize_text(pytesseract.image_to_string(image) or "")
+        if text:
+            docs.append(Document(page_content=text, metadata={"page": index, "source": "ocr"}))
+
+    return docs
+
+
+# ─── Vision-based Table Detection & Extraction ──────────────────────────
+
+def _detect_table_pages(pdf_path: str) -> list[int]:
+    """
+    Detect pages likely containing complex tables/medical matrices.
+    Uses heuristics: high line-object count, embedded images, or
+    low text-to-area ratio indicating tabular layout.
+    
+    Returns 0-indexed page numbers.
+    """
+    try:
+        import fitz
+    except ImportError:
+        return []
+
+    table_pages = []
+    with fitz.open(pdf_path) as pdf:
+        for page_idx, page in enumerate(pdf):
+            # Count drawing operations (lines/rects = table grid indicators)
+            drawings = page.get_drawings()
+            line_count = sum(1 for d in drawings if d.get("type") in ("l", "re", "s"))
+            
+            # Count images on the page (could be scanned tables)
+            image_list = page.get_images(full=True)
+            
+            # Get text blocks for density analysis
+            text_blocks = page.get_text("blocks")
+            text_area = sum(
+                (b[2] - b[0]) * (b[3] - b[1]) for b in text_blocks if b[6] == 0  # text blocks only
+            )
+            page_area = page.rect.width * page.rect.height
+            text_density = text_area / page_area if page_area > 0 else 0
+            
+            # If the page already has clean, extractable text (>= 150 chars), digital extraction is preferred and complete
+            text_extracted = (page.get_text() or "").strip()
+            if len(text_extracted) >= 150:
+                continue
+
+            # Heuristics for scanned table detection:
+            # - Many line/rect drawings (table borders) OR
+            # - Has images AND low text density (scanned table) OR
+            # - Text density is very low but page has content (complex layout)
+            is_table_page = (
+                line_count > 15 or  # Lots of grid lines
+                (len(image_list) > 0 and text_density < 0.15) or  # Scanned content
+                (line_count > 8 and text_density < 0.3)  # Moderate lines + sparse text
+            )
+            
+            if is_table_page:
+                table_pages.append(page_idx)
+
+    return table_pages
+
+
+def _enhance_image_clahe(image_bytes: bytes) -> bytes:
+    """
+    Apply CLAHE (Contrast Limited Adaptive Histogram Equalization)
+    to improve contrast of scanned medical documents before Vision AI.
+    """
+    try:
+        import cv2
+        import numpy as np
+        
+        nparr = np.frombuffer(image_bytes, np.uint8)
+        img = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
+        if img is None:
+            return image_bytes
+        
+        # Convert to LAB color space
+        lab = cv2.cvtColor(img, cv2.COLOR_BGR2LAB)
+        l_channel, a_channel, b_channel = cv2.split(lab)
+        
+        # Apply CLAHE to the L channel
+        clahe = cv2.createCLAHE(clipLimit=3.0, tileGridSize=(8, 8))
+        enhanced_l = clahe.apply(l_channel)
+        
+        # Merge back
+        merged = cv2.merge([enhanced_l, a_channel, b_channel])
+        enhanced = cv2.cvtColor(merged, cv2.COLOR_LAB2BGR)
+        
+        # Encode back to PNG
+        _, buffer = cv2.imencode(".png", enhanced)
+        return buffer.tobytes()
+    except ImportError:
+        return image_bytes
+    except Exception:
+        return image_bytes
+
+
+def _extract_table_pages_with_vision(pdf_path: str, table_page_indices: list[int]) -> list[Document]:
+    """
+    Render flagged table pages as images, optionally enhance contrast,
+    and send to Gemini Flash Vision for structured Markdown extraction.
+    """
+    try:
+        import fitz
+        from google import genai
+        from google.genai.types import Part
+    except ImportError:
+        return []
+
+    docs: list[Document] = []
+    client = genai.Client(api_key=settings.GOOGLE_API_KEY)
+
+    VISION_PROMPT = """You are a precise medical document parser. Extract ALL content from this medical report page into well-structured Markdown.
+
+Rules:
+1. Preserve ALL numerical values exactly as shown (lab values, reference ranges, dates).
+2. Format tables using Markdown table syntax with proper headers and alignment.
+3. Include units (g/dL, mg/dL, mmol/L, etc.) exactly as shown.
+4. If there are multiple tables, separate them with headers.
+5. Include any notes, flags (H/L/Normal), or reference ranges.
+6. Do NOT add any interpretation — only extract what is visible.
+
+Output the structured Markdown extraction:"""
+
+    with fitz.open(pdf_path) as pdf:
+        for page_idx in table_page_indices:
+            if page_idx >= len(pdf):
+                continue
+                
+            page = pdf[page_idx]
+            
+            # Render page to image at 300 DPI for clarity
+            pix = page.get_pixmap(dpi=300)
+            img_bytes = pix.tobytes("png")
+            
+            # Apply CLAHE enhancement for better OCR/Vision results
+            img_bytes = _enhance_image_clahe(img_bytes)
+            
+            try:
+                # Send to Gemini Vision
+                image_part = Part.from_bytes(data=img_bytes, mime_type="image/png")
+                response = client.models.generate_content(
+                    model="gemini-3.8-flash",
+                    contents=[VISION_PROMPT, image_part],
+                )
+                
+                extracted_text = sanitize_text(response.text or "")
+                if extracted_text and len(extracted_text) > 20:
+                    docs.append(Document(
+                        page_content=extracted_text,
+                        metadata={
+                            "page": page_idx + 1,
+                            "source": "vision",
+                            "extraction_method": "gemini_vision_table",
+                        }
+                    ))
+            except Exception as e:
+                print(f"Vision extraction failed for page {page_idx + 1}: {e}")
+                # Fall back to standard text for this page
+                text = sanitize_text(page.get_text() or "")
+                if text:
+                    docs.append(Document(
+                        page_content=text,
+                        metadata={"page": page_idx + 1, "source": "pymupdf_fallback"}
+                    ))
+
+    return docs
+
+
+# ─── Main Extraction Pipeline ───────────────────────────────────────────
+
+async def extract_text_from_file(file_path: str, filename: str) -> list[Document]:
+    """
+    Enhanced extraction pipeline for PDFs and images.
+    """
+    ext = os.path.splitext(filename)[1].lower()
+    if ext in [".jpg", ".jpeg", ".png"]:
+        with open(file_path, "rb") as f:
+            image_bytes = f.read()
+        image_type = await classify_image_type(image_bytes)
+        doc = await process_image_path(image_type, image_bytes, source_meta="direct_image")
+        return [doc]
+        
+    # Phase 1: Detect table-heavy pages
+    table_pages = _detect_table_pages(file_path)
+    
+    # Phase 2: Extract table pages with Vision AI
+    vision_docs: list[Document] = []
+    if table_pages:
+        vision_docs = _extract_table_pages_with_vision(file_path, table_pages)
+    
+    vision_page_numbers = {d.metadata.get("page", -1) for d in vision_docs}
+    
+    # Phase 3: Standard extraction for non-table pages
+    best_docs: list[Document] = []
+
+    pypdf2_docs = _extract_with_pypdf2(file_path)
+    pymupdf_docs = await _extract_with_pymupdf(file_path)
+    ocr_docs = _extract_with_ocr(file_path)
+    
+    for docs in [pypdf2_docs, pymupdf_docs, ocr_docs]:
+        if _char_count(docs) > _char_count(best_docs):
+            best_docs = docs
+
+    # Filter out pages already handled by Vision
+    if vision_page_numbers:
+        best_docs = [d for d in best_docs if d.metadata.get("page", -1) not in vision_page_numbers]
+    
+    # Phase 4: Merge vision-extracted + standard-extracted docs
+    all_docs = vision_docs + best_docs
+    # Sort by page number for consistent ordering
+    all_docs.sort(key=lambda d: d.metadata.get("page", 0))
+
+    if _char_count(all_docs) < MIN_EXTRACTED_CHARS:
+        raise PDFExtractionError(
+            "Could not extract enough readable text from this PDF report. "
+            "The file may be scanned, encrypted, or low quality. "
+            "Try a text-based PDF or ensure Tesseract OCR is installed on the server."
+        )
+
+    return all_docs
