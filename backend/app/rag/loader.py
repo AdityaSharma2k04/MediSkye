@@ -61,7 +61,7 @@ async def classify_image_type(image_bytes: bytes) -> str:
         image_part = Part.from_bytes(data=compressed_bytes, mime_type="image/jpeg")
         response = await asyncio.to_thread(
             client.models.generate_content,
-            model="gemini-3.8-flash",
+            model=settings.GEMINI_MODEL,
             contents=["Respond with exactly one word: 'XRAY' if this is a radiological scan, or 'DOCUMENT' if this is a text-heavy clinical report.", image_part],
         )
         result = sanitize_text(response.text or "").strip().upper()
@@ -101,7 +101,7 @@ async def process_image_path(image_type: str, image_bytes: bytes, source_meta: s
             prompt = "You are an expert radiologist. Analyze this radiological scan and provide a detailed clinical observation summary. Be precise and medical."
             response = await asyncio.to_thread(
                 client.models.generate_content,
-                model="gemini-3.8-flash",
+                model=settings.GEMINI_MODEL,
                 contents=[prompt, image_part]
             )
             text = sanitize_text(response.text or "").strip()
@@ -328,7 +328,7 @@ Output the structured Markdown extraction:"""
                 # Send to Gemini Vision
                 image_part = Part.from_bytes(data=img_bytes, mime_type="image/png")
                 response = client.models.generate_content(
-                    model="gemini-3.8-flash",
+                    model=settings.GEMINI_MODEL,
                     contents=[VISION_PROMPT, image_part],
                 )
                 

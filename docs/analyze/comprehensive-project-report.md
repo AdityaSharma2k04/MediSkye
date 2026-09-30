@@ -99,7 +99,7 @@ MediSkye bridges this gap by acting as an **educational preliminary clinical int
 - **Cache & Rate Limiting Storage:**
   - `MockRedis`: In-memory dictionary stub (`backend/app/core/redis_client.py`). Real Redis 7 is defined in Docker Compose, but the application code does not instantiate a Redis connection pool.
 - **External Cloud APIs:**
-  - **Google Gemini API**: Invoked for `gemini-3.8-flash` (LLM generation, table parsing, image classification) and `models/gemini-embedding-2` (768/1536-dimensional vector embeddings).
+  - **Google Gemini API**: Invoked for `gemini-3.6-flash` (LLM generation, table parsing, image classification) and `models/gemini-embedding-2` (768/1536-dimensional vector embeddings).
 - **Deployment Environments:**
   - **Render**: Configured backend target via `backend/start.sh` (`uvicorn main:app --host=0.0.0.0 --port="${PORT:-10000}"`).
   - **Vercel / Netlify**: Production target for the static React build bundle (`frontend/dist`).
@@ -186,7 +186,7 @@ MediSkye/
 4. **Patient Context & Decryption:** The server resolves whether the target is the account holder or a dependent profile. PHI fields (`blood_type`, `pre_existing_conditions`, `current_medications`) are decrypted from the database via the Fernet type decorator. Dynamic age is calculated from `date_of_birth`.
 5. **Hybrid Retrieval:** `retrieve_relevant_docs` executes FAISS MMR search ($k=8, \text{fetch\_k}=24$) and BM25 search, fusing results via Reciprocal Rank Fusion ($k=60$).
 6. **Personalized Prompt Construction:** `build_prompt` injects patient age, biological sex, medications, pre-existing conditions, language preference, and retrieved report excerpts with strict anti-hallucination instructions.
-7. **Streaming Execution & Post-Processing:** `gemini-3.8-flash` generates response tokens streamed via SSE. If the model identifies out-of-range biomarkers, it appends a hidden JSON block:
+7. **Streaming Execution & Post-Processing:** `gemini-3.6-flash` generates response tokens streamed via SSE. If the model identifies out-of-range biomarkers, it appends a hidden JSON block:
    ```json
    { "abnormal_flags": ["Biomarker1", "Biomarker2"] }
    ```

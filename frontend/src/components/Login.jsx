@@ -13,7 +13,7 @@ export default function Login() {
   // Apply theme class for auth pages (they render outside ChatApp)
   useEffect(() => {
     const stored = localStorage.getItem('mediskye_theme');
-    const systemDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+    const systemDark = typeof window !== 'undefined' && window.matchMedia ? window.matchMedia('(prefers-color-scheme: dark)').matches : false;
     const isDark = stored ? stored === 'dark' : systemDark;
     if (isDark) {
       document.documentElement.classList.add('dark');
@@ -24,25 +24,33 @@ export default function Login() {
 
   const handleEmailContinue = (e) => {
     e.preventDefault();
-    if (!email) return;
+    const trimmed = email.trim();
+    if (!trimmed) return;
     setError('');
+    setEmail(trimmed);
     setStep('password');
   };
 
   const handleSubmit = async (e) => {
     e.preventDefault();
     setError('');
+    const trimmed = email.trim();
+    if (!trimmed) {
+      setError('Please enter your email address.');
+      setStep('email');
+      return;
+    }
     setLoading(true);
     try {
-      const data = await login(email, password);
+      const data = await login(trimmed, password);
       if (data.access_token) {
         const lastEmail = localStorage.getItem('mediskye_user_email');
-        if (lastEmail && lastEmail.toLowerCase() !== email.toLowerCase()) {
+        if (lastEmail && lastEmail.toLowerCase() !== trimmed.toLowerCase()) {
           localStorage.removeItem('mediskye_conversations');
           localStorage.removeItem('mediskye_session_id');
           localStorage.removeItem('mediskye_patient_id');
         }
-        localStorage.setItem('mediskye_user_email', email);
+        localStorage.setItem('mediskye_user_email', trimmed);
         localStorage.setItem('token', data.access_token);
         navigate('/');
       }

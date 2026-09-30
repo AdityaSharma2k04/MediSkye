@@ -69,7 +69,7 @@ async def extract_metrics(
         response = None
         for attempt in range(3):
             try:
-                response = client.models.generate_content(model="gemini-3.8-flash", contents=extract_prompt)
+                response = client.models.generate_content(model=settings.GEMINI_MODEL, contents=extract_prompt)
                 break
             except Exception as e:
                 if ("503" in str(e) or "429" in str(e)) and attempt < 2:

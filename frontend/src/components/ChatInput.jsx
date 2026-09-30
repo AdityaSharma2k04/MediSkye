@@ -127,13 +127,14 @@ export default function ChatInput({
           type="file"
           ref={fileInputRef}
           onChange={handleFileChange}
-          accept="application/pdf"
+          accept=".pdf,.jpg,.jpeg,.png"
           className="hidden"
         />
         <button
           type="button"
           onClick={() => fileInputRef.current?.click()}
-          title="Upload medical PDF report (50MB Max)"
+          title="Upload medical report (PDF, JPG, PNG · up to 50MB)"
+          aria-label="Upload medical report"
           className={`p-2 rounded-xl transition-colors shrink-0 ${
             darkMode
               ? 'text-zinc-400 hover:text-white hover:bg-zinc-800'

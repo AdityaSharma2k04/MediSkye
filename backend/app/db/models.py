@@ -68,6 +68,7 @@ class Document(Base):
     dependent_id = Column(UUID(as_uuid=True), ForeignKey("dependent_profiles.id", ondelete="SET NULL"), nullable=True)
     filename = Column(String, nullable=False)
     file_path = Column(String, nullable=True)  # Path to FAISS index or PDF
+    title = Column(String(60), nullable=True)  # User-defined or auto-generated chat title
     created_at = Column(DateTime, default=datetime.utcnow)
 
     owner = orm_relationship("User", back_populates="documents")
@@ -80,7 +81,7 @@ class Chat(Base):
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     user_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=False)
-    document_id = Column(UUID(as_uuid=True), ForeignKey("documents.id"), nullable=False)
+    document_id = Column(UUID(as_uuid=True), ForeignKey("documents.id"), nullable=True)  # Nullable: general-health chats have no document
     role = Column(String, nullable=False) # 'user' or 'ai'
     message = Column(String, nullable=False)
     created_at = Column(DateTime, default=datetime.utcnow)

@@ -19,7 +19,42 @@ router = APIRouter()
 
 
 import json
+from pydantic import BaseModel, Field
+from typing import Optional
 from fastapi.responses import StreamingResponse
+
+
+class RenameChatRequest(BaseModel):
+    title: str = Field(..., min_length=1, max_length=60, description="New chat title (max 60 chars)")
+
+
+@router.patch("/documents/{document_id}/title", tags=["RAG Query"])
+async def rename_document_title(
+    document_id: str,
+    body: RenameChatRequest,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Rename the title of a document/session (auth-gated to owner)."""
+    import uuid as uuid_mod
+    try:
+        doc_uuid = uuid_mod.UUID(document_id)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid document ID.")
+
+    result = await db.execute(
+        select(Document).filter(Document.id == doc_uuid, Document.user_id == current_user.id)
+    )
+    doc = result.scalars().first()
+    if not doc:
+        raise HTTPException(status_code=404, detail="Document not found or access denied.")
+
+    doc.title = body.title.strip()
+    db.add(doc)
+    await db.commit()
+    await db.refresh(doc)
+    return {"id": str(doc.id), "title": doc.title}
+
 
 @router.post("/query", tags=["RAG Query"])
 @limiter.limit(settings.RATE_LIMIT_QUERY)
@@ -30,46 +65,71 @@ async def query_bot(
     db: AsyncSession = Depends(get_db),
 ):
     import uuid
+    # ── Resolve document (may not exist for general-health queries) ──
+    doc = None
+    doc_id_valid = False
     try:
         doc_id = uuid.UUID(body.session_id)
+        doc_id_valid = True
     except ValueError:
-        raise HTTPException(status_code=400, detail="Invalid session/document ID.")
-        
-    result = await db.execute(select(Document).filter(Document.id == doc_id, Document.user_id == current_user.id))
-    doc = result.scalars().first()
+        pass  # Not a valid UUID → no document, treat as general-health
 
-    if not doc or not doc.file_path:
-        return QueryResponse(error="No PDF uploaded yet for this session or document not found.")
+    if doc_id_valid:
+        result = await db.execute(
+            select(Document).filter(Document.id == doc_id, Document.user_id == current_user.id)
+        )
+        doc = result.scalars().first()
 
-    # Record User Chat
-    user_chat = Chat(user_id=current_user.id, document_id=doc.id, role="user", message=body.query)
-    db.add(user_chat)
-    await db.commit()
+    has_document = doc is not None and bool(doc.file_path)
+
+    # ── Intent Routing (document-aware) ──
+    from app.rag.intent_router import classify_intent, QueryIntent
 
     if is_emergency_query(body.query):
         ai_msg = get_emergency_response()
-        ai_chat = Chat(user_id=current_user.id, document_id=doc.id, role="ai", message=ai_msg)
-        db.add(ai_chat)
+        # Log emergency without document requirement
+        if doc:
+            user_chat = Chat(user_id=current_user.id, document_id=doc.id, role="user", message=body.query)
+            db.add(user_chat)
+            ai_chat = Chat(user_id=current_user.id, document_id=doc.id, role="ai", message=ai_msg)
+            db.add(ai_chat)
+        else:
+            user_chat = Chat(user_id=current_user.id, document_id=None, role="user", message=body.query)
+            db.add(user_chat)
+            ai_chat = Chat(user_id=current_user.id, document_id=None, role="ai", message=ai_msg)
+            db.add(ai_chat)
         await db.commit()
-        
+
         async def emergency_stream():
             yield f'data: {json.dumps({"chunk": ai_msg})}\n\n'
             yield f'data: [DONE]\n\n'
         return StreamingResponse(emergency_stream(), media_type="text/event-stream")
 
-    # Intent Routing
-    from app.rag.intent_router import classify_intent, QueryIntent
-    intent = await classify_intent(body.query)
-    
+    # Record user chat message (document_id may be None)
+    user_chat = Chat(
+        user_id=current_user.id,
+        document_id=doc.id if doc else None,
+        role="user",
+        message=body.query
+    )
+    db.add(user_chat)
+    await db.commit()
+
+    intent = await classify_intent(body.query, has_document=has_document)
+
+    # Guard: if intent is DOCUMENT_QA but no document is linked, downgrade
+    if intent == QueryIntent.DOCUMENT_QA and not has_document:
+        intent = QueryIntent.GENERAL_HEALTH
+
     # ── Active Profile & PHI Resolution (User or Dependent) ──
     from app.db.models import DependentProfile
     from app.services.patient_service import calculate_age
-    
+
     active_profile = current_user
     active_dep_id = None
 
     target_patient_id = body.patient_id
-    if not target_patient_id and doc.dependent_id:
+    if not target_patient_id and doc and doc.dependent_id:
         target_patient_id = str(doc.dependent_id)
 
     if target_patient_id and target_patient_id.lower() != "self" and target_patient_id != str(current_user.id):
@@ -104,7 +164,7 @@ async def query_bot(
         full_text = ""
         try:
             client = genai.Client(api_key=settings.GOOGLE_API_KEY)
-            
+
             if intent == QueryIntent.GENERAL_HEALTH:
                 prompt = build_general_health_prompt(
                     user_query=body.query,
@@ -115,16 +175,16 @@ async def query_bot(
                     language_preference=language_preference,
                 )
                 yield f'data: {json.dumps({"sources": []})}\n\n'
-                
+
             else:
-                # DOCUMENT_QA
+                # DOCUMENT_QA — we know has_document is True at this point
                 from app.rag.retriever import load_hybrid_index
                 try:
                     vectorstore, bm25_index = load_hybrid_index(doc.file_path)
                 except Exception as e:
                     yield f'data: {json.dumps({"error": "Could not load document index."})}\n\n'
                     return
-                
+
                 docs = retrieve_relevant_docs(body.query, vectorstore, bm25_index)
                 prompt = build_prompt(
                     user_query=body.query,
@@ -135,7 +195,7 @@ async def query_bot(
                     current_medications=current_medications,
                     language_preference=language_preference,
                 )
-                
+
                 sources = [
                     SourceChunk(
                         title="Medical Report PDF",
@@ -149,11 +209,10 @@ async def query_bot(
 
             # Stream generation
             response = client.models.generate_content_stream(
-                model="gemini-3.8-flash",
+                model=settings.GEMINI_MODEL,
                 contents=prompt,
             )
 
-            
             for chunk in response:
                 if chunk.text:
                     full_text += chunk.text
@@ -162,7 +221,7 @@ async def query_bot(
             disclaimer = "\n\n" + append_disclaimer("").strip()
             yield f'data: {json.dumps({"chunk": disclaimer})}\n\n'
             full_text += disclaimer
-            
+
         except Exception as e:
             yield f'data: {json.dumps({"error": str(e)})}\n\n'
             return
@@ -182,19 +241,21 @@ async def query_bot(
                         specialists = await get_recommended_specialists(session, abnormal_flags)
                         if specialists:
                             yield f'data: {json.dumps({"specialists": specialists})}\n\n'
-                
-                # Strip the json block from full_text so it's not permanently saved in the chat log if desired.
-                # full_text = full_text.replace(match.group(0), "").strip() # Optional: keeping it might be useful for history.
             except Exception:
                 pass
 
-        # Record AI Chat - requires a new session because FastAPI generator can outlive the request context
+        # Record AI Chat
         from app.db.database import AsyncSessionLocal
         async with AsyncSessionLocal() as session:
-            ai_chat = Chat(user_id=current_user.id, document_id=doc.id, role="ai", message=full_text)
+            ai_chat = Chat(
+                user_id=current_user.id,
+                document_id=doc.id if doc else None,
+                role="ai",
+                message=full_text
+            )
             session.add(ai_chat)
             await session.commit()
-            
+
         yield f'data: [DONE]\n\n'
 
     return StreamingResponse(generate_response_stream(), media_type="text/event-stream")

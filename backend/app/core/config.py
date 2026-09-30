@@ -28,6 +28,7 @@ class Settings(BaseSettings):
 
     # Security & API Key
     GOOGLE_API_KEY: str = Field(default_factory=lambda: os.getenv("GOOGLE_API_KEY", ""))
+    GEMINI_MODEL: str = "gemini-3.6-flash"
     FERNET_KEY: str
     JWT_SECRET_KEY: str
     MEDISKYE_API_KEY: str = ""

@@ -1,14 +1,37 @@
 // API Service for FastAPI backend
 const API_BASE = 'http://127.0.0.1:8000';
 
+export function formatApiError(data, fallback = 'Request failed') {
+  if (!data) return fallback;
+  if (typeof data === 'string') return data;
+  if (data.detail) {
+    if (typeof data.detail === 'string') return data.detail;
+    if (Array.isArray(data.detail)) {
+      return data.detail
+        .map(err => {
+          const field = err.loc ? err.loc[err.loc.length - 1] : '';
+          const msg = err.msg || 'Invalid value';
+          return field && field !== 'body' ? `${field}: ${msg}` : msg;
+        })
+        .join('; ');
+    }
+    if (typeof data.detail === 'object') {
+      return data.detail.msg || data.detail.message || JSON.stringify(data.detail);
+    }
+  }
+  if (data.message && typeof data.message === 'string') return data.message;
+  return fallback;
+}
+
 function getAuthHeaders() {
   const token = localStorage.getItem('token');
   return token ? { 'Authorization': `Bearer ${token}` } : {};
 }
 
 export async function login(email, password) {
+  const normalizedEmail = (email || '').trim().toLowerCase();
   const formData = new URLSearchParams();
-  formData.append('username', email);
+  formData.append('username', normalizedEmail);
   formData.append('password', password);
 
   const res = await fetch(`${API_BASE}/login`, {
@@ -17,23 +40,28 @@ export async function login(email, password) {
     body: formData,
   });
   
-  const data = await res.json();
+  const data = await res.json().catch(() => null);
   if (!res.ok) {
-    throw new Error(data.detail || 'Login failed');
+    throw new Error(formatApiError(data, 'Login failed'));
   }
   return data;
 }
 
 export async function register(email, password, phi_consent_granted) {
+  const normalizedEmail = (email || '').trim().toLowerCase();
   const res = await fetch(`${API_BASE}/register`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ email, password, phi_consent_granted }),
+    body: JSON.stringify({ 
+      email: normalizedEmail, 
+      password, 
+      phi_consent_granted: Boolean(phi_consent_granted) 
+    }),
   });
   
-  const data = await res.json();
+  const data = await res.json().catch(() => null);
   if (!res.ok) {
-    throw new Error(data.detail || 'Registration failed');
+    throw new Error(formatApiError(data, 'Registration failed'));
   }
   return data;
 }
@@ -86,8 +114,9 @@ export async function uploadPdfReport(file, patientId = null) {
 }
 
 export async function sendQueryStream(queryText, documentId, language = 'English', onChunk, patientId = null) {
+  // documentId can be null for general-health queries (no PDF uploaded)
   const payload = {
-    session_id: documentId,
+    session_id: documentId || 'general-health-' + Date.now(), // dummy UUID-like string; backend checks document existence
     query: queryText,
     language: language,
   };
@@ -288,4 +317,18 @@ export async function getDocumentChats(docId) {
   return await res.json();
 }
 
-
+export async function renameChat(documentId, newTitle) {
+  const res = await fetch(`${API_BASE}/documents/${documentId}/title`, {
+    method: 'PATCH',
+    headers: {
+      'Content-Type': 'application/json',
+      ...getAuthHeaders(),
+    },
+    body: JSON.stringify({ title: newTitle }),
+  });
+  if (!res.ok) {
+    const errData = await res.json().catch(() => ({}));
+    throw new Error(errData.detail || 'Failed to rename chat');
+  }
+  return await res.json();
+}

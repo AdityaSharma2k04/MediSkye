@@ -6,7 +6,7 @@ import DocumentModal from './DocumentModal';
 import SettingsModal from './SettingsModal';
 import Profile from './Profile';
 import Toast from './Toast';
-import { uploadPdfReport, sendQueryStream, logout, getProfile, getDependents, getUserDocuments, getDocumentChats } from '../services/api';
+import { uploadPdfReport, sendQueryStream, logout, getProfile, getDependents, getUserDocuments, getDocumentChats, renameChat, deleteAccount } from '../services/api';
 import { useNavigate } from 'react-router-dom';
 
 // ── Theme helpers ──────────────────────────────────────────
@@ -29,6 +29,34 @@ function applyThemeToDOM(theme) {
   } else {
     document.documentElement.classList.remove('dark');
   }
+}
+
+// ── Auto-naming heuristics ─────────────────────────────────
+function cleanFilename(filename) {
+  // Strip extension
+  let name = filename.replace(/\.pdf$/i, '');
+  // Replace _ and - with spaces
+  name = name.replace(/[_-]+/g, ' ');
+  // Remove common noise words (case-insensitive)
+  name = name.replace(/\b(report|final|v\d+|rev|draft|scan|result|results|lab|blood|test|copy|sample|patient)\b/gi, '');
+  // Remove pure-digit segments
+  name = name.replace(/\b\d{4,}\b/g, '');
+  // Collapse spaces
+  name = name.replace(/\s{2,}/g, ' ').trim();
+  // Title-case
+  name = name.replace(/\w\S*/g, (w) => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase());
+  // Limit to 40 chars, truncate at word boundary
+  if (name.length > 40) {
+    name = name.slice(0, 40).replace(/\s+\S*$/, '');
+  }
+  return name || 'New Consultation';
+}
+
+function autoNameFromQuery(query) {
+  let name = query.trim();
+  if (name.length <= 40) return name;
+  const truncated = name.slice(0, 40).replace(/\s+\S*$/, '');
+  return truncated + '...';
 }
 
 export default function ChatApp() {
@@ -104,7 +132,7 @@ export default function ChatApp() {
       console.error('Failed to load conversations from localStorage:', e);
     }
     return [
-      { id: sessionId, title: 'Current Consultation', messages: [], pdf: null },
+      { id: sessionId, title: 'New Consultation', messages: [], pdf: null },
     ];
   });
 
@@ -120,7 +148,7 @@ export default function ChatApp() {
     }
   }, [conversations, currentUser]);
 
-  // Account switch isolation & pre-linked document loading: When currentUser loads, restore their specific conversations or fetch pre-linked documents
+  // Account switch isolation & pre-linked document loading
   useEffect(() => {
     if (currentUser?.id) {
       const lastUser = localStorage.getItem('mediskye_last_active_user');
@@ -151,11 +179,13 @@ export default function ChatApp() {
               }));
 
               const prelinkedPdf = { name: doc.filename, size: 8192 };
+              // Use server title if present, else clean filename heuristic
+              const autoTitle = doc.title || cleanFilename(doc.filename);
               const prelinkedConv = {
                 id: doc.id,
                 document_id: doc.id,
                 patient_id: doc.dependent_id || 'self',
-                title: doc.filename.replace(/\.pdf$/i, ''),
+                title: autoTitle,
                 messages: formattedMessages,
                 pdf: prelinkedPdf,
               };
@@ -171,7 +201,7 @@ export default function ChatApp() {
               });
               setSessionId(freshId);
               setActivePdf(null);
-              setConversations([{ id: freshId, title: 'Current Consultation', messages: [], pdf: null }]);
+              setConversations([{ id: freshId, title: 'New Consultation', messages: [], pdf: null }]);
             }
           }).catch(() => {
             const freshId = 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (c) => {
@@ -180,7 +210,7 @@ export default function ChatApp() {
             });
             setSessionId(freshId);
             setActivePdf(null);
-            setConversations([{ id: freshId, title: 'Current Consultation', messages: [], pdf: null }]);
+            setConversations([{ id: freshId, title: 'New Consultation', messages: [], pdf: null }]);
           });
         }
       }
@@ -213,12 +243,14 @@ export default function ChatApp() {
     const current = conversations.find((c) => c.id === sessionId);
     if (current && current.pdf) {
       setActivePdf(current.pdf);
+    } else if (current && !current.pdf) {
+      setActivePdf(null);
     }
   }, [sessionId, conversations]);
 
   const currentChat = conversations.find((c) => c.id === sessionId) || {
     id: sessionId,
-    title: 'Current Consultation',
+    title: 'New Consultation',
     messages: [],
   };
 
@@ -282,6 +314,9 @@ export default function ChatApp() {
       setActivePdf(pdfMeta);
       showToast('success', 'Report Processed', 'PDF indexed successfully. You can now ask questions or view Lab Metrics.');
 
+      // Auto-name: clean filename heuristic (B1 — no extra Gemini call)
+      const autoTitle = cleanFilename(file.name);
+
       setConversations((prev) =>
         prev.map((c) =>
           c.id === sessionId
@@ -289,17 +324,36 @@ export default function ChatApp() {
                 ...c,
                 document_id: newDocId,
                 patient_id: selectedPatientId,
-                title: file.name.replace(/\.pdf$/i, ''),
+                title: autoTitle,
                 pdf: pdfMeta,
               }
             : c
         )
+      );
+
+      // Update session to use the real document ID so queries route correctly
+      setSessionId(newDocId);
+      localStorage.setItem('mediskye_session_id', newDocId);
+      setConversations((prev) =>
+        prev.map((c) => (c.id === sessionId ? { ...c, id: newDocId } : c))
       );
     } catch (err) {
       showToast('error', 'Upload Failed', err.message);
     } finally {
       setIsGenerating(false);
     }
+  };
+
+  const handleRemoveFile = () => {
+    // Remove document from current conversation — downgrade to general session
+    setActivePdf(null);
+    setConversations((prev) =>
+      prev.map((c) =>
+        c.id === sessionId
+          ? { ...c, pdf: null, document_id: null }
+          : c
+      )
+    );
   };
 
   const handleSendMessage = async (userQuery) => {
@@ -312,12 +366,15 @@ export default function ChatApp() {
       timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
     };
 
+    // Auto-name from first message if title is still generic
     setConversations((prev) =>
       prev.map((c) =>
         c.id === sessionId
           ? {
               ...c,
-              title: c.messages.length === 0 ? userQuery.slice(0, 30) + '...' : c.title,
+              title: (c.title === 'New Consultation' || c.title === 'New chat')
+                ? autoNameFromQuery(userQuery)
+                : c.title,
               messages: [...c.messages, userMsgObj],
             }
           : c
@@ -327,26 +384,12 @@ export default function ChatApp() {
     setIsGenerating(true);
 
     try {
+      // Read document ID from current conversation
       let chatDocId = null;
       let chatPatientId = selectedPatientId;
-      setConversations((prev) => {
-        const chatObj = prev.find(c => c.id === sessionId);
-        chatDocId = chatObj?.document_id || null;
-        if (chatObj?.patient_id) chatPatientId = chatObj.patient_id;
-        return prev;
-      });
-
-      await new Promise(r => setTimeout(r, 0));
-
-      if (!chatDocId) {
-        const chatObj = conversations.find(c => c.id === sessionId);
-        chatDocId = chatObj?.document_id;
-        if (chatObj?.patient_id) chatPatientId = chatObj.patient_id;
-      }
-
-      if (!chatDocId) {
-        throw new Error('Please upload a PDF document first before asking questions.');
-      }
+      const chatObj = conversations.find(c => c.id === sessionId);
+      chatDocId = chatObj?.document_id || null;
+      if (chatObj?.patient_id) chatPatientId = chatObj.patient_id;
 
       const assistantMsgObj = {
         id: Date.now() + 1,
@@ -364,6 +407,7 @@ export default function ChatApp() {
         )
       );
 
+      // Send query — chatDocId may be null for general-health (no PDF)
       await sendQueryStream(userQuery, chatDocId, language, (chunk) => {
         setConversations((prev) =>
           prev.map((c) => {
@@ -454,8 +498,8 @@ export default function ChatApp() {
     showToast('info', 'Chat History Cleared');
   };
 
-  const handleDeleteChat = (id) => {
-    if (window.confirm("Are you sure you want to delete this chat?")) {
+  const handleDeleteChat = (id, skipConfirm = false) => {
+    const doDelete = () => {
       setConversations((prev) => {
         const newConversations = prev.filter((c) => c.id !== id);
         if (newConversations.length === 0) {
@@ -468,7 +512,6 @@ export default function ChatApp() {
           setActivePdf(null);
           return [{ id: newId, title: 'New Consultation', messages: [], pdf: null, patient_id: selectedPatientId }];
         }
-
         if (id === sessionId) {
           const nextChat = newConversations[0];
           setSessionId(nextChat.id);
@@ -478,6 +521,36 @@ export default function ChatApp() {
         return newConversations;
       });
       showToast('info', 'Chat Deleted');
+    };
+
+    if (skipConfirm) {
+      doDelete();
+    } else {
+      if (window.confirm('Are you sure you want to delete this chat?')) doDelete();
+    }
+  };
+
+  // B3 — inline rename handler
+  const handleRenameChat = async (id, newTitle) => {
+    const trimmed = newTitle.trim().slice(0, 60);
+    if (!trimmed) return;
+
+    // Optimistic local update
+    setConversations((prev) =>
+      prev.map((c) => (c.id === id ? { ...c, title: trimmed } : c))
+    );
+
+    // If it has a real document_id, persist to backend
+    const chat = conversations.find((c) => c.id === id);
+    if (chat?.document_id) {
+      try {
+        await renameChat(chat.document_id, trimmed);
+        showToast('success', 'Chat Renamed', `Renamed to "${trimmed}"`);
+      } catch (err) {
+        showToast('error', 'Rename Failed', err.message);
+      }
+    } else {
+      showToast('success', 'Chat Renamed', `Renamed to "${trimmed}"`);
     }
   };
 
@@ -486,6 +559,23 @@ export default function ChatApp() {
     setDarkMode(next);
     localStorage.setItem('mediskye_theme', next ? 'dark' : 'light');
   }, [darkMode]);
+
+  const handleDeleteAccount = async () => {
+    try {
+      await deleteAccount();
+      localStorage.removeItem('token');
+      localStorage.removeItem('mediskye_session_id');
+      localStorage.removeItem('mediskye_patient_id');
+      localStorage.removeItem('mediskye_conversations');
+      if (currentUser?.id) {
+        localStorage.removeItem(`mediskye_conversations_${currentUser.id}`);
+      }
+      setIsSettingsOpen(false);
+      navigate('/login');
+    } catch (err) {
+      showToast('error', 'Deletion Failed', err.message || 'Could not delete your account.');
+    }
+  };
 
   return (
     <div className={`flex h-screen w-screen overflow-hidden transition-colors duration-200 ${
@@ -498,6 +588,7 @@ export default function ChatApp() {
         activeSessionId={sessionId}
         onSelectChat={handleSelectChat}
         onDeleteChat={handleDeleteChat}
+        onRenameChat={handleRenameChat}
         onNewChat={handleNewChat}
         onOpenSettings={() => setIsSettingsOpen(true)}
         onOpenProfile={handleOpenProfile}
@@ -524,6 +615,7 @@ export default function ChatApp() {
           documentId={currentChat.document_id}
           showToast={showToast}
           darkMode={darkMode}
+          setDarkMode={handleSetDarkMode}
           currentUser={currentUser}
           dependents={dependents}
           selectedPatientId={selectedPatientId}
@@ -535,7 +627,7 @@ export default function ChatApp() {
           onSendMessage={handleSendMessage}
           onAttachFile={handleAttachFile}
           activeFile={activePdf}
-          onRemoveFile={() => setActivePdf(null)}
+          onRemoveFile={handleRemoveFile}
           isGenerating={isGenerating}
           onStopGeneration={() => setIsGenerating(false)}
           showToast={showToast}
@@ -556,7 +648,12 @@ export default function ChatApp() {
         darkMode={darkMode}
         setDarkMode={handleSetDarkMode}
         onClearAllChats={handleClearAllChats}
+        onDeleteAccount={handleDeleteAccount}
+        onProfileUpdated={(updated) => setCurrentUser(updated)}
+        language={language}
+        setLanguage={setLanguage}
         showToast={showToast}
+        currentUser={currentUser}
       />
 
       {isProfileOpen && (

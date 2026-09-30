@@ -1,5 +1,8 @@
 import React, { useRef, useEffect, useState } from 'react';
-import { Stethoscope, ArrowDown, Upload, FileText, Sparkles, Shield, Printer, Table, MessageSquare, AlertCircle, HeartPulse, User } from 'lucide-react';
+import {
+  Stethoscope, ArrowDown, Upload, FileText, Sparkles, Shield,
+  Printer, Table, MessageSquare, AlertCircle, HeartPulse, Sun, Moon, X
+} from 'lucide-react';
 import ChatMessage from './ChatMessage';
 import { fetchLabMetrics } from '../services/api';
 import PatientContextSelector from './PatientContextSelector';
@@ -15,6 +18,7 @@ export default function ChatWindow({
   documentId,
   showToast,
   darkMode,
+  setDarkMode,
   currentUser,
   dependents,
   selectedPatientId,
@@ -27,6 +31,11 @@ export default function ChatWindow({
   const [viewMode, setViewMode] = useState('chat');
   const [labMetrics, setLabMetrics] = useState([]);
   const [loadingMetrics, setLoadingMetrics] = useState(false);
+
+  // When activePdf is removed, reset to chat view
+  useEffect(() => {
+    if (!activePdf && viewMode === 'metrics') setViewMode('chat');
+  }, [activePdf]);
 
   const scrollToBottom = () => {
     if (scrollRef.current) {
@@ -69,12 +78,22 @@ export default function ChatWindow({
     window.print();
   };
 
-  const sampleQueries = [
-    { title: 'Explain Hemoglobin levels', query: 'Explain my Hemoglobin levels and what they indicate.' },
-    { title: 'Cholesterol & LDL Check', query: 'Are my cholesterol or LDL numbers within normal range?' },
-    { title: 'Summarize Abnormal Values', query: 'Summarize key findings and any abnormal values in this report.' },
-    { title: 'Follow-up Questions', query: 'What follow-up questions should I ask my doctor about this report?' },
+  // A1b: Context-aware suggestion cards
+  const emptyStateSuggestions = [
+    { title: 'Explain Hemoglobin levels', query: 'Explain Hemoglobin levels and what they indicate about health.' },
+    { title: 'Cholesterol & LDL — what do they mean?', query: 'What do Cholesterol and LDL levels mean, and what are healthy ranges?' },
+    { title: 'Common lab tests explained', query: 'What are the most common blood lab tests and what do they measure?' },
+    { title: 'When should I see a doctor?', query: 'When should I see a doctor about my lab results?' },
   ];
+
+  const loadedStateSuggestions = [
+    { title: 'What are my abnormal values?', query: 'What are my abnormal values in this report?' },
+    { title: 'Explain my first abnormal biomarker', query: 'Explain my first abnormal biomarker and what it means.' },
+    { title: 'Summarize for my doctor', query: 'Summarize this report for my doctor in plain language.' },
+    { title: 'What should I ask my doctor?', query: 'What should I ask my doctor based on this report?' },
+  ];
+
+  const sampleQueries = activePdf ? loadedStateSuggestions : emptyStateSuggestions;
 
   // Shared color helpers
   const cardBg = darkMode ? 'bg-[#121212]' : 'bg-white';
@@ -87,10 +106,14 @@ export default function ChatWindow({
   const isSelf = !selectedPatientId || selectedPatientId === 'self' || (currentUser && selectedPatientId === currentUser.id);
   const activeDependent = !isSelf ? dependents?.find(d => d.id === selectedPatientId) : null;
 
+  // A7: Welcome message
+  const firstName = currentUser?.full_name?.split(' ')[0] || null;
+
   return (
     <div className={`flex-1 flex flex-col h-full overflow-hidden relative transition-colors duration-200 ${
       darkMode ? 'bg-black text-slate-100' : 'bg-zinc-50 text-zinc-900'
     }`}>
+      {/* Header */}
       <header className={`flex items-center justify-between p-3.5 px-4 sm:px-6 border-b z-10 transition-colors duration-200 ${headerBg} ${cardBorder}`}>
         <div className="flex items-center gap-3">
           <div className={`w-7 h-7 rounded-lg flex items-center justify-center font-bold text-xs ${
@@ -111,60 +134,81 @@ export default function ChatWindow({
                 </span>
               )}
             </div>
-            <p className={`text-[10px] ${textSecondary}`}>
-              {darkMode ? 'Obsidian' : 'Light'} Theme • 50MB PDF Supported
-            </p>
+            <p className={`text-[10px] ${textSecondary}`}>AI Medical Assistant</p>
           </div>
         </div>
 
         <div className="flex items-center gap-2">
-          <div className={`flex items-center rounded-xl p-0.5 text-xs border ${
-            darkMode ? 'bg-zinc-900 border-zinc-800' : 'bg-zinc-100 border-zinc-200'
-          }`}>
+          {/* A4: Theme toggle in header (sun/moon icon) */}
+          {setDarkMode && (
             <button
-              onClick={() => setViewMode('chat')}
-              className={`px-3 py-1 rounded-lg transition-colors flex items-center gap-1.5 ${
-                viewMode === 'chat'
-                  ? darkMode
-                    ? 'bg-zinc-800 text-white font-medium'
-                    : 'bg-white text-zinc-900 font-medium shadow-sm'
-                  : darkMode
-                    ? 'text-zinc-400 hover:text-white'
-                    : 'text-zinc-500 hover:text-zinc-900'
+              onClick={() => setDarkMode(!darkMode)}
+              aria-label={darkMode ? 'Switch to light theme' : 'Switch to dark theme'}
+              className={`p-1.5 rounded-lg transition-colors ${
+                darkMode
+                  ? 'text-zinc-400 hover:text-white hover:bg-zinc-800'
+                  : 'text-zinc-500 hover:text-zinc-900 hover:bg-zinc-100'
               }`}
             >
-              <MessageSquare className="w-3.5 h-3.5" />
-              <span>Chat</span>
+              {darkMode ? <Sun className="w-4 h-4" /> : <Moon className="w-4 h-4" />}
             </button>
-            <button
-              onClick={loadMetrics}
-              className={`px-3 py-1 rounded-lg transition-colors flex items-center gap-1.5 ${
-                viewMode === 'metrics'
-                  ? darkMode
-                    ? 'bg-zinc-800 text-white font-medium'
-                    : 'bg-white text-zinc-900 font-medium shadow-sm'
-                  : darkMode
-                    ? 'text-zinc-400 hover:text-white'
-                    : 'text-zinc-500 hover:text-zinc-900'
-              }`}
-            >
-              <Table className="w-3.5 h-3.5" />
-              <span>Lab Metrics</span>
-            </button>
-          </div>
+          )}
 
-          <button
-            onClick={handlePrintDoctorSummary}
-            className={`px-3 py-1.5 rounded-xl text-xs flex items-center gap-1.5 transition-colors border ${
-              darkMode
-                ? 'bg-zinc-900 hover:bg-zinc-800 text-zinc-200 border-zinc-800'
-                : 'bg-white hover:bg-zinc-50 text-zinc-700 border-zinc-200'
-            }`}
-            title="Export 1-Click Printable Doctor Consultation Summary"
-          >
-            <Printer className="w-3.5 h-3.5" />
-            <span className="hidden sm:inline">Export Summary</span>
-          </button>
+          {/* A4: Lab Metrics + Export Summary only when a document is loaded */}
+          {activePdf && (
+            <>
+              <div className={`flex items-center rounded-xl p-0.5 text-xs border ${
+                darkMode ? 'bg-zinc-900 border-zinc-800' : 'bg-zinc-100 border-zinc-200'
+              }`}>
+                <button
+                  onClick={() => setViewMode('chat')}
+                  aria-label="Switch to chat view"
+                  className={`px-3 py-1 rounded-lg transition-colors flex items-center gap-1.5 ${
+                    viewMode === 'chat'
+                      ? darkMode
+                        ? 'bg-zinc-800 text-white font-medium'
+                        : 'bg-white text-zinc-900 font-medium shadow-sm'
+                      : darkMode
+                        ? 'text-zinc-400 hover:text-white'
+                        : 'text-zinc-500 hover:text-zinc-900'
+                  }`}
+                >
+                  <MessageSquare className="w-3.5 h-3.5" />
+                  <span>Chat</span>
+                </button>
+                <button
+                  onClick={loadMetrics}
+                  aria-label="View extracted lab metrics table"
+                  className={`px-3 py-1 rounded-lg transition-colors flex items-center gap-1.5 ${
+                    viewMode === 'metrics'
+                      ? darkMode
+                        ? 'bg-zinc-800 text-white font-medium'
+                        : 'bg-white text-zinc-900 font-medium shadow-sm'
+                      : darkMode
+                        ? 'text-zinc-400 hover:text-white'
+                        : 'text-zinc-500 hover:text-zinc-900'
+                  }`}
+                >
+                  <Table className="w-3.5 h-3.5" />
+                  <span>Lab Metrics</span>
+                </button>
+              </div>
+
+              <button
+                onClick={handlePrintDoctorSummary}
+                aria-label="Export printable doctor consultation summary"
+                className={`px-3 py-1.5 rounded-xl text-xs flex items-center gap-1.5 transition-colors border ${
+                  darkMode
+                    ? 'bg-zinc-900 hover:bg-zinc-800 text-zinc-200 border-zinc-800'
+                    : 'bg-white hover:bg-zinc-50 text-zinc-700 border-zinc-200'
+                }`}
+                title="Export 1-Click Printable Doctor Consultation Summary"
+              >
+                <Printer className="w-3.5 h-3.5" />
+                <span className="hidden sm:inline">Export Summary</span>
+              </button>
+            </>
+          )}
         </div>
       </header>
 
@@ -243,6 +287,7 @@ export default function ChatWindow({
             )}
           </div>
         ) : messages.length === 0 ? (
+          /* ── A1: EMPTY STATE ── */
           <div className="min-h-[72vh] flex flex-col items-center justify-center text-center max-w-2xl mx-auto py-8 animate-fade-in">
             <div className={`w-12 h-12 rounded-2xl flex items-center justify-center mb-5 ${
               darkMode ? 'bg-white text-black' : 'bg-zinc-900 text-white'
@@ -253,8 +298,12 @@ export default function ChatWindow({
             <h1 className={`text-2xl sm:text-3xl font-bold tracking-tight mb-2 ${textPrimary}`}>
               MediSkye AI Medical Assistant
             </h1>
+
+            {/* A7: Personal welcome message */}
             <p className={`text-sm mb-6 max-w-lg leading-relaxed ${textSecondary}`}>
-              Upload a diagnostic PDF report (up to <strong>50MB</strong>) — blood work, lipid panels, or imaging summaries — and get grounded medical explanations.
+              {firstName
+                ? `Welcome back, ${firstName}. Upload a report to get started, or ask a general health question.`
+                : 'Upload a medical report to get started, or ask a general health question below.'}
             </p>
 
             {/* Active Patient Lens Selector */}
@@ -269,15 +318,14 @@ export default function ChatWindow({
               />
             </div>
 
-
+            {/* A1 & A3: Dropzone when no document, compact chip when loaded */}
             {!activePdf ? (
               <div
-
                 onClick={() => {
                   const fileInput = document.querySelector('input[type="file"]');
                   if (fileInput) fileInput.click();
                 }}
-                className={`w-full p-6 border border-dashed rounded-2xl cursor-pointer transition-all duration-150 shadow-sm mb-8 group ${
+                className={`w-full p-6 border border-dashed rounded-2xl cursor-pointer transition-all duration-150 shadow-sm mb-6 group ${
                   darkMode
                     ? 'border-zinc-800 bg-[#121212] hover:border-zinc-700 hover:bg-zinc-900/50'
                     : 'border-zinc-300 bg-white hover:border-zinc-400 hover:bg-zinc-50'
@@ -292,31 +340,12 @@ export default function ChatWindow({
                   Upload Medical Report (PDF)
                 </div>
                 <div className={`text-xs ${textSecondary}`}>
-                  Drag & drop or click to select file • Supports files up to <strong>50MB</strong>
+                  Drag &amp; drop or click to select file • Supports files up to <strong>50MB</strong>
                 </div>
               </div>
-            ) : (
-              <div className={`w-full p-4 rounded-2xl flex items-center justify-between mb-8 text-xs border ${cardBg} ${cardBorder} ${textPrimary}`}>
-                <div className="flex items-center gap-3">
-                  <FileText className={`w-5 h-5 shrink-0 ${textSecondary}`} />
-                  <div className="text-left">
-                    <div className="font-medium">{activePdf.name}</div>
-                    <div className={`text-[10px] ${textSecondary}`}>Indexed & Ready for Questions</div>
-                  </div>
-                </div>
-                <button
-                  onClick={loadMetrics}
-                  className={`px-3 py-1 rounded-lg font-medium text-[11px] transition-colors ${
-                    darkMode
-                      ? 'bg-white text-black hover:bg-zinc-200'
-                      : 'bg-zinc-900 text-white hover:bg-zinc-800'
-                  }`}
-                >
-                  View Lab Metrics Table
-                </button>
-              </div>
-            )}
+            ) : null}
 
+            {/* A1b: Context-aware suggestion cards (work with AND without document) */}
             <div className="w-full grid grid-cols-1 sm:grid-cols-2 gap-3 text-left">
               {sampleQueries.map((item, idx) => (
                 <button
@@ -341,11 +370,24 @@ export default function ChatWindow({
 
             <div className={`mt-8 flex items-center gap-2 text-xs ${textMuted}`}>
               <Shield className="w-3.5 h-3.5" />
-              <span>HIPAA-inspired session privacy • Discarded on close</span>
+              {/* A6: No HIPAA claim */}
+              <span>End-to-end encrypted session • Discarded on close</span>
             </div>
           </div>
         ) : (
+          /* ── A1: LOADED STATE — show conversation ── */
           <div className="py-4">
+            {/* A1: Compact document chip above conversation */}
+            {activePdf && (
+              <div className={`mb-4 flex items-center gap-2 px-3 py-2 rounded-xl text-xs border w-fit ${
+                darkMode ? 'bg-zinc-900 border-zinc-800 text-zinc-300' : 'bg-zinc-50 border-zinc-200 text-zinc-600'
+              }`}>
+                <FileText className="w-3.5 h-3.5 shrink-0" />
+                <span className="font-medium truncate max-w-xs">{activePdf.name}</span>
+                {activePdf.pages && <span className="text-zinc-500">• {activePdf.pages} pages</span>}
+              </div>
+            )}
+
             {messages.map((msg, index) => (
               <ChatMessage
                 key={msg.id || index}
@@ -368,7 +410,7 @@ export default function ChatWindow({
                   <div className={`rounded-2xl rounded-tl-sm p-4 w-64 shadow-sm border ${cardBg} ${cardBorder}`}>
                     <div className={`flex items-center gap-2 mb-2 text-xs font-medium ${textSecondary}`}>
                       <Sparkles className="w-3.5 h-3.5 animate-spin" />
-                      <span>Retrieving chunks & generating response...</span>
+                      <span>Generating response...</span>
                     </div>
                     <div className="space-y-2">
                       <div className={`h-3 rounded w-full animate-shimmer ${darkMode ? 'bg-zinc-800' : 'bg-zinc-200'}`} />
@@ -383,6 +425,7 @@ export default function ChatWindow({
         )}
       </div>
 
+      {/* Printable summary (hidden from screen) */}
       <div id="printableSummary" className="hidden print:block">
         <div style={{ fontFamily: 'sans-serif', maxWidth: '800px', margin: '0 auto' }}>
           <h1 style={{ fontSize: '24px', fontWeight: 'bold', marginBottom: '4px' }}>MediSkye AI — Doctor Consultation Summary</h1>

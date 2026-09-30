@@ -99,6 +99,7 @@ async def get_my_documents(
             "id": str(doc.id),
             "filename": doc.filename,
             "file_path": doc.file_path,
+            "title": doc.title,  # nullable — frontend uses filename fallback
             "created_at": doc.created_at.isoformat() if doc.created_at else None,
             "dependent_id": str(doc.dependent_id) if doc.dependent_id else None
         }

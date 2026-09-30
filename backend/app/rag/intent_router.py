@@ -32,7 +32,7 @@ Categories:
 Rules:
 - If the query references "my", "this report", "my results", specific lab values, or uploaded documents, classify as DOCUMENT_QA.
 - If the query is educational or theoretical with no personal context, classify as GENERAL_HEALTH.
-- When in doubt between GENERAL_HEALTH and DOCUMENT_QA, choose DOCUMENT_QA (safer — it will ground the answer in the report).
+- When in doubt between GENERAL_HEALTH and DOCUMENT_QA, choose DOCUMENT_QA (safer — it will ground the answer in the report)
 
 Respond with ONLY the category name, nothing else.
 
@@ -41,15 +41,20 @@ User query: {query}
 Category:"""
 
 
-async def classify_intent(query: str) -> QueryIntent:
+async def classify_intent(query: str, has_document: bool = True) -> QueryIntent:
     """
     Classify user intent using a fast Gemini call.
     Falls back to DOCUMENT_QA on any error (safest default).
+
+    Args:
+        query: The user's query string.
+        has_document: Whether the current session has a linked document.
+                      If False, DOCUMENT_QA is always downgraded to GENERAL_HEALTH.
     """
     try:
         client = genai.Client(api_key=settings.GOOGLE_API_KEY)
         response = client.models.generate_content(
-            model="gemini-3.8-flash",
+            model=settings.GEMINI_MODEL,
             contents=CLASSIFICATION_PROMPT.format(query=query),
             config={
                 "temperature": 0.0,
@@ -64,12 +69,17 @@ async def classify_intent(query: str) -> QueryIntent:
         elif "GENERAL_HEALTH" in result:
             return QueryIntent.GENERAL_HEALTH
         elif "DOCUMENT_QA" in result:
+            # Downgrade to GENERAL_HEALTH if no document is present in session
+            if not has_document:
+                return QueryIntent.GENERAL_HEALTH
             return QueryIntent.DOCUMENT_QA
         else:
-            # Unknown classification — default to DOCUMENT_QA (safest)
+            # Unknown classification — default based on document availability
+            if not has_document:
+                return QueryIntent.GENERAL_HEALTH
             return QueryIntent.DOCUMENT_QA
 
     except Exception as e:
         print(f"Intent classification failed: {e}")
-        # On error, default to DOCUMENT_QA so the RAG pipeline still runs
-        return QueryIntent.DOCUMENT_QA
+        # On error, fall back based on document availability
+        return QueryIntent.DOCUMENT_QA if has_document else QueryIntent.GENERAL_HEALTH

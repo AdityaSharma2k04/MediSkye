@@ -15,7 +15,7 @@ export default function Register() {
   // Apply theme class for auth pages (they render outside ChatApp)
   useEffect(() => {
     const stored = localStorage.getItem('mediskye_theme');
-    const systemDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+    const systemDark = typeof window !== 'undefined' && window.matchMedia ? window.matchMedia('(prefers-color-scheme: dark)').matches : false;
     const isDark = stored ? stored === 'dark' : systemDark;
     if (isDark) {
       document.documentElement.classList.add('dark');
@@ -26,8 +26,15 @@ export default function Register() {
 
   const handleEmailContinue = (e) => {
     e.preventDefault();
-    if (!email) return;
+    const trimmedEmail = email.trim();
+    if (!trimmedEmail) return;
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailRegex.test(trimmedEmail)) {
+      setError('Please enter a valid email address.');
+      return;
+    }
     setError('');
+    setEmail(trimmedEmail);
     setStep('password');
   };
 
@@ -35,13 +42,33 @@ export default function Register() {
     e.preventDefault();
     setError('');
     setSuccess('');
+
+    const trimmedEmail = email.trim();
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!trimmedEmail || !emailRegex.test(trimmedEmail)) {
+      setError('Please enter a valid email address.');
+      setStep('email');
+      return;
+    }
+
+    if (!password || password.length < 8) {
+      setError('Password must be at least 8 characters.');
+      return;
+    }
+
+    if (password.length > 72) {
+      setError('Password cannot exceed 72 characters.');
+      return;
+    }
+
     if (!phiConsent) {
       setError('You must consent to PHI processing to register.');
       return;
     }
+
     setLoading(true);
     try {
-      await register(email, password, phiConsent);
+      await register(trimmedEmail, password, phiConsent);
       setSuccess('Account created! Redirecting to sign in…');
       setTimeout(() => {
         navigate('/login');
@@ -106,7 +133,10 @@ export default function Register() {
                 type="email"
                 required
                 value={email}
-                onChange={(e) => setEmail(e.target.value)}
+                onChange={(e) => {
+                  setEmail(e.target.value);
+                  if (error) setError('');
+                }}
                 placeholder="Email address"
                 autoFocus
                 autoComplete="email"
@@ -135,27 +165,41 @@ export default function Register() {
                 id="register-password"
                 type="password"
                 required
-                minLength={6}
+                minLength={8}
+                maxLength={72}
                 value={password}
-                onChange={(e) => setPassword(e.target.value)}
+                onChange={(e) => {
+                  setPassword(e.target.value);
+                  if (error) setError('');
+                }}
                 placeholder="Create a password"
                 autoFocus
                 autoComplete="new-password"
               />
             </div>
-            <p className="login-password-hint">Must be at least 6 characters</p>
+            <p className="login-password-hint">Must be 8 to 72 characters</p>
 
-            <label className="flex items-start gap-3 mt-4 mb-2 cursor-pointer group">
-              <div className="relative flex items-center justify-center mt-0.5">
+            <label className="flex items-start gap-3 mt-4 mb-2 cursor-pointer group select-none">
+              <div className="relative flex items-center justify-center mt-0.5 flex-shrink-0">
                 <input
+                  id="register-phi-consent"
                   type="checkbox"
                   checked={phiConsent}
-                  onChange={(e) => setPhiConsent(e.target.checked)}
-                  className="peer sr-only"
+                  onChange={(e) => {
+                    setPhiConsent(e.target.checked);
+                    if (error && error.includes('consent')) setError('');
+                  }}
+                  className="sr-only"
                 />
-                <div className="w-5 h-5 rounded bg-zinc-900 border border-zinc-700 peer-checked:bg-white peer-checked:border-white transition-colors flex items-center justify-center dark:bg-zinc-900 dark:border-zinc-700 dark:peer-checked:bg-white dark:peer-checked:border-white">
+                <div
+                  className={`w-5 h-5 rounded border transition-colors flex items-center justify-center ${
+                    phiConsent
+                      ? 'bg-zinc-900 border-zinc-900 dark:bg-white dark:border-white text-white dark:text-zinc-900'
+                      : 'bg-transparent border-zinc-400 dark:border-zinc-600 hover:border-zinc-500'
+                  }`}
+                >
                   <svg
-                    className={`w-3.5 h-3.5 text-black transform transition-transform ${phiConsent ? 'scale-100' : 'scale-0'}`}
+                    className={`w-3.5 h-3.5 transform transition-transform ${phiConsent ? 'scale-100' : 'scale-0'}`}
                     viewBox="0 0 24 24"
                     fill="none"
                     stroke="currentColor"
@@ -167,12 +211,12 @@ export default function Register() {
                   </svg>
                 </div>
               </div>
-              <span className="text-xs text-zinc-400 leading-relaxed group-hover:text-zinc-300 transition-colors">
+              <span className="text-xs text-zinc-600 dark:text-zinc-400 leading-relaxed group-hover:text-zinc-900 dark:group-hover:text-zinc-200 transition-colors">
                 I acknowledge and consent that my Protected Health Information (PHI) will be processed by Google Gemini for AI-driven insights.
               </span>
             </label>
 
-            <button type="submit" className="login-btn-primary" disabled={loading || !!success || !phiConsent}>
+            <button type="submit" className="login-btn-primary" disabled={loading || !!success}>
               {loading ? (
                 <span className="login-spinner" />
               ) : success ? (
