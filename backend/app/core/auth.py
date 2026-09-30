@@ -21,11 +21,24 @@ ACCESS_TOKEN_EXPIRE_MINUTES = 60 * 24 * 7 # 7 days
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/login")
 
-def verify_password(plain_password, hashed_password):
-    return pwd_context.verify(plain_password, hashed_password)
+def verify_password(plain_password: str, hashed_password: str) -> bool:
+    plain_bytes = plain_password.encode("utf-8")[:72]
+    return pwd_context.verify(plain_bytes, hashed_password)
 
-def get_password_hash(password):
-    return pwd_context.hash(password)
+def get_password_hash(password: str) -> str:
+    """
+    Hash a password with bcrypt.
+
+    bcrypt has a hard 72-byte limit. Some platform builds silently truncate;
+    others (notably Linux CI) raise ValueError. We truncate explicitly here for
+    consistent cross-platform behavior. The Pydantic schema also enforces
+    max_length=72 on user input, but this function is a last line of defense
+    for any code path that bypasses schema validation (e.g., tests, direct calls).
+    """
+    password_bytes = password.encode("utf-8")
+    if len(password_bytes) > 72:
+        password_bytes = password_bytes[:72]
+    return pwd_context.hash(password_bytes)
 
 def create_access_token(data: dict, expires_delta: Optional[timedelta] = None):
     to_encode = data.copy()
