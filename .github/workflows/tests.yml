@@ -42,11 +42,11 @@ jobs:
 
       - name: Run tests
         env:
-          FERNET_KEY: ${{ secrets.FERNET_KEY_TEST }}
-          JWT_SECRET_KEY: ${{ secrets.JWT_SECRET_KEY_TEST }}
-          GOOGLE_API_KEY: dummy-key-for-tests
-          DATABASE_URL: sqlite+aiosqlite:///:memory:
-          ENV: test
+          FERNET_KEY: "${{ secrets.FERNET_KEY_TEST }}"
+          JWT_SECRET_KEY: "${{ secrets.JWT_SECRET_KEY_TEST }}"
+          GOOGLE_API_KEY: "dummy-key-for-tests"
+          DATABASE_URL: "sqlite+aiosqlite:///:memory:"
+          ENV: "test"
         run: pytest tests -v -m "not integration"
 
   frontend-test:
