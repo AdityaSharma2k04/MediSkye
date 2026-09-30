@@ -2,7 +2,7 @@
 
 **Making medical reports understandable for everyone.**
 
-MediSkye is an AI-powered healthcare assistant that helps patients interpret diagnostic PDF reports — blood tests, lipid panels, imaging summaries, and more — in plain language. Upload a report, ask follow-up questions, and get cautious, context-grounded explanations powered by retrieval-augmented generation (RAG).
+MediSkye is an AI-powered healthcare assistant that helps patients interpret diagnostic reports — blood tests, lipid panels, imaging summaries, X-rays, and scanned documents — in plain language. Upload a report, ask follow-up questions, and get cautious, context-grounded explanations powered by retrieval-augmented generation (RAG).
 
 > **Disclaimer:** MediSkye is for educational and informational purposes only. It is **not** a substitute for professional medical advice, diagnosis, or treatment. Always consult a licensed healthcare provider.
 
@@ -13,15 +13,16 @@ MediSkye is an AI-powered healthcare assistant that helps patients interpret dia
 - [Live demo](#live-demo)
 - [What MediSkye does](#what-mediskye-does)
 - [System architecture](#system-architecture)
-- [End-to-end workflow](#end-to-end-workflow)
+- [End-to-end workflows](#end-to-end-workflows)
 - [Tech stack](#tech-stack)
 - [Project structure](#project-structure)
 - [Getting started](#getting-started)
 - [Environment variables](#environment-variables)
 - [API reference](#api-reference)
+- [Testing & CI](#testing--ci)
 - [Production deployment](#production-deployment)
 - [Security & reliability](#security--reliability)
-- [Enhancements shipped](#enhancements-shipped)
+- [What's shipped](#whats-shipped)
 - [Roadmap](#roadmap)
 - [Contributing](#contributing)
 
@@ -31,8 +32,9 @@ MediSkye is an AI-powered healthcare assistant that helps patients interpret dia
 
 | Service | URL |
 |---------|-----|
-| **Frontend** (React + Vite) | [mediskye-react.vercel.app](https://mediskye-react.vercel.app) (Example) |
-| **Backend** (FastAPI) | [mediskye-51pi.onrender.com](https://mediskye-51pi.onrender.com) |
+| **Frontend** (React + Vite) | [mediskye-react.vercel.app](https://mediskye-react.vercel.app) (example) |
+| **Backend** (FastAPI on Render) | [mediskye-51pi.onrender.com](https://mediskye-51pi.onrender.com) |
+| **CI** | GitHub Actions — runs on every push to `main` |
 
 <p align="center">
   <img width="900" alt="MediSkye screenshot" src="https://github.com/user-attachments/assets/10db611d-cb09-4bd6-bf4c-7e563b9f10b4" />
@@ -44,17 +46,19 @@ MediSkye is an AI-powered healthcare assistant that helps patients interpret dia
 
 Millions of people receive lab results but struggle to understand them. MediSkye closes that gap by:
 
-1. **Extracting text** from uploaded medical PDFs (text-based, layout-heavy, or scanned).
-2. **Indexing the report** into a searchable vector store (FAISS + Google embeddings).
-3. **Retrieving relevant sections** when you ask a question (MMR search over report chunks).
-4. **Generating a plain-language answer** with Gemini Flash (`gemini-flash-latest`), grounded in your report.
-5. **Applying safety guardrails** — emergency detection, no definitive diagnoses, mandatory disclaimers.
+1. **Extracting text** from uploaded documents — clean PDFs, scanned PDFs (via Tesseract OCR), images, and radiological scans (via Gemini Vision).
+2. **Indexing the report** into a hybrid search store — FAISS (semantic) + BM25 (keyword), fused with Reciprocal Rank Fusion.
+3. **Retrieving relevant sections** when you ask a question, with MMR diversity and page-level citations.
+4. **Generating a plain-language answer** with Gemini 3.8 Flash, grounded in your report and personalized using your profile.
+5. **Applying safety guardrails** — zero-cost emergency detection, intent classification, no definitive diagnoses, mandatory disclaimers.
+6. **Recommending specialists** — algorithmic triage by category (cardiology, endocrinology, nephrology, etc.), never fake doctor data.
 
 **Typical questions MediSkye can help with:**
 
 - "Is my hemoglobin within the normal range?"
 - "What does elevated LDL cholesterol mean?"
 - "Can you explain my liver function test results?"
+- "Given my diabetes, is this HbA1c concerning?"
 
 ---
 
@@ -62,102 +66,138 @@ Millions of people receive lab results but struggle to understand them. MediSkye
 
 ```mermaid
 flowchart TB
-    subgraph Client["Client Layer"]
-        UI["React Frontend<br/>Vite / Tailwind"]
+    subgraph Client["Client Layer — React 18 + Vite"]
+        UI["Chat UI + Sidebar"]
+        SET["Settings Modal"]
+        PROF["Profile & Caregiver Hub"]
     end
 
     subgraph API["API Layer — FastAPI"]
+        AUTH["/register · /login · /logout"]
+        USER["/users/me · /users/me/dependents"]
         UP["POST /upload"]
-        Q["POST /query"]
-        G["guards.py<br/>auth · size · PDF check"]
-        RL["slowapi<br/>rate limiting"]
+        Q["POST /query (SSE)"]
+        MET["POST /extract-metrics"]
     end
 
-    subgraph RAG["RAG Pipeline"]
-        L["loader.py<br/>PyPDF2 → PyMuPDF → OCR"]
-        E["embedder.py<br/>Google gemini-embedding-2"]
-        R["retriever.py<br/>FAISS + MMR k=8"]
-        P["prompt_builder.py"]
-        S["safety.py<br/>emergency · disclaimer"]
+    subgraph MW["Middleware"]
+        RID["RequestIDMiddleware"]
+        SEC["SecurityHeadersMiddleware"]
+        RL["slowapi rate limiting"]
+        ERR["global_exception_handler"]
+    end
+
+    subgraph Extract["Multimodal Ingestion"]
+        CLASS["Image classifier<br/>(X-ray vs document)"]
+        CLAHE["OpenCV CLAHE"]
+        VIS["Gemini 3.8 Flash Vision"]
+        OCR["PyPDF2 → PyMuPDF → Tesseract"]
+    end
+
+    subgraph RAG["Hybrid RAG"]
+        EMERG["Emergency regex gate"]
+        INTENT["Intent router"]
+        FAISS_IDX[("FAISS vectors")]
+        BM25_IDX[("BM25 keyword")]
+        RRF["Reciprocal Rank Fusion<br/>k=60"]
+        SPEC["Specialist router"]
+    end
+
+    subgraph Store["Persistence"]
+        DB[("PostgreSQL / SQLite<br/>Users · Dependents · Docs · Chats")]
+        ENC["Fernet symmetric encryption"]
+        AUDIT[("AuditLog")]
+        REDIS[("Redis<br/>token blocklist · rate limits")]
     end
 
     subgraph External["External Services"]
-        GEM["Google Gemini Flash"]
+        GEMGEN["Google Gemini 3.8 Flash"]
+        GEMEMB["gemini-embedding-2"]
     end
 
-    subgraph Store["Session Store (in-memory)"]
-        VS[("vectorstores[session_id]")]
-    end
-
-    UI -->|"PDF + X-Session-ID"| UP
-    UI -->|"JSON query + session_id"| Q
-    UP --> G --> RL --> L --> E --> R
-    L --> VS
-    Q --> G --> RL --> S
-    S -->|"emergency?"| UI
-    Q --> R --> VS
-    R --> P --> GEM --> S --> UI
+    UI --> RID --> SEC --> RL
+    RL --> AUTH & USER & UP & Q & MET
+    AUTH --> REDIS
+    USER --> ENC --> DB
+    USER --> AUDIT
+    UP --> CLASS
+    CLASS -->|X-ray| CLAHE --> VIS
+    CLASS -->|PDF| OCR & VIS
+    VIS & OCR --> FAISS_IDX & BM25_IDX
+    UP --> AUDIT
+    Q --> EMERG
+    EMERG -->|Emergency| UI
+    EMERG -->|Clinical| INTENT
+    INTENT --> FAISS_IDX & BM25_IDX
+    FAISS_IDX & BM25_IDX --> RRF
+    RRF --> GEMGEN
+    GEMGEN --> SPEC --> DB
+    GEMGEN -->|"text/event-stream"| UI
 ```
 
 ---
 
-## End-to-end workflow
+## End-to-end workflows
 
 ### Upload workflow
 
 ```mermaid
 sequenceDiagram
     actor User
-    participant ST as React UI
-    participant API as FastAPI Backend
-    participant Guard as guards.py
-    participant Load as loader.py
-    participant Ret as retriever.py
+    participant UI as React UI
+    participant API as FastAPI
+    participant Val as PDF/Image validator
+    participant Ext as Multimodal extractor
+    participant Idx as FAISS + BM25 indexer
 
-    User->>ST: Upload PDF report
-    ST->>ST: Generate / reuse session_id (UUID)
-    ST->>API: POST /upload<br/>file + X-Session-ID + X-API-Key
-
-    API->>Guard: Validate API key (if configured)
-    Guard->>Guard: Check PDF magic bytes (%PDF)
-    Guard->>Guard: Enforce max file size
-
-    API->>Load: Extract text (PyPDF2 → PyMuPDF → OCR)
-    alt Extraction fails [under 100 chars]
-        Load-->>API: PDFExtractionError
-        API-->>ST: HTTP 422 + clear message
-    else Extraction succeeds
-        Load->>Ret: Chunk pages → embed → FAISS index
-        Ret->>API: Store in vectorstores[session_id]
-        API-->>ST: 200 OK
-        ST-->>User: Report ready for questions
+    User->>UI: Upload report
+    UI->>API: POST /upload (multipart) + JWT
+    API->>API: Verify token (get_current_user)
+    API->>Val: Size + extension + magic bytes
+    Val-->>API: OK
+    API->>API: Persist Document row (encrypted PHI)
+    API->>Ext: Tiered extraction
+    alt Image (X-ray or document)
+        Ext->>Ext: Gemini Vision classification + CLAHE
+    else PDF
+        Ext->>Ext: Table detection → Vision or OCR
     end
+    Ext->>Idx: Chunk 1200/200 → embed → FAISS + BM25
+    Idx->>API: Index persisted to disk
+    API->>API: Audit log entry
+    API-->>UI: 200 OK + document metadata
+    UI-->>User: Report ready
 ```
 
-### Query workflow
+### Query workflow (streaming)
 
 ```mermaid
 sequenceDiagram
     actor User
-    participant ST as React UI
-    participant API as FastAPI Backend
+    participant UI as React UI
+    participant API as FastAPI
     participant Safe as safety.py
-    participant Ret as retriever.py
-    participant LLM as Gemini Flash
+    participant Ret as Hybrid retriever
+    participant LLM as Gemini 3.8 Flash
 
-    User->>ST: Type medical question
-    ST->>API: POST /query<br/>{ session_id, query }
-
-    API->>Safe: Check emergency keywords
-    alt Emergency detected
-        Safe-->>ST: Call emergency services message
-    else Normal query
-        API->>Ret: MMR search (k=8, fetch_k=24)
-        Ret->>API: Top chunks with page metadata
-        API->>LLM: Grounded prompt + report excerpts
-        LLM->>Safe: Append medical disclaimer
-        Safe-->>ST: Final response
-        ST-->>User: Display in chat history
+    User->>UI: Ask a question
+    UI->>API: POST /query (JSON) + JWT
+    API->>Safe: is_emergency_query()?
+    alt Emergency
+        Safe-->>UI: Immediate advisory (no LLM cost)
+    else Normal
+        API->>API: classify_intent() (GENERAL vs DOC_QA)
+        API->>API: Decrypt patient context (Fernet)
+        API->>Ret: FAISS MMR (k=8, fetch_k=24) + BM25
+        Ret->>Ret: Reciprocal Rank Fusion (k=60)
+        Ret-->>API: Top chunks + page metadata
+        API->>LLM: Grounded prompt + excerpts + profile
+        LLM-->>API: Token stream
+        API-->>UI: SSE chunks (text/event-stream)
+        API->>API: Parse abnormal_flags → specialist router
+        API-->>UI: SSE specialists event
+        API->>API: Persist chat + audit log
+        UI-->>User: Rendered answer with citations
     end
 ```
 
@@ -167,15 +207,28 @@ sequenceDiagram
 
 | Layer | Technology | Purpose |
 |-------|------------|---------|
-| Frontend | React + Vite + Tailwind | Upload UI, chat interface, session management |
-| Backend | [FastAPI](https://fastapi.tiangolo.com/) | REST API, validation, middleware |
-| LLM | Gemini Flash (`gemini-flash-latest`) | Plain-language medical explanations |
-| Embeddings | Google `gemini-embedding-2` | Vector encoding for RAG |
-| Vector DB | FAISS | Similarity search over report chunks |
-| Retrieval | MMR (Max Marginal Relevance) | Diverse, relevant chunk selection |
-| PDF parsing | PyPDF2, PyMuPDF, Tesseract OCR | Text + layout + scanned PDF support |
-| Rate limiting | slowapi | Abuse and cost protection |
-| Deployment | Render (API) + Vercel (UI) | Production hosting |
+| **Frontend** | React 18 + Vite + Tailwind CSS | Upload UI, streaming chat, session management |
+| **Routing** | React Router DOM 7 | Protected routes, auth boundaries |
+| **Markdown** | react-markdown + remark-gfm | Render tables and formatted LLM output |
+| **Backend** | FastAPI + Uvicorn (Python 3.12) | Async REST + SSE streaming |
+| **Validation** | Pydantic v2 + pydantic-settings | Request/response schemas + env config |
+| **ORM** | SQLAlchemy 2.0 (async) | Users, dependents, documents, chats, audit |
+| **Migrations** | Alembic | Versioned schema changes |
+| **Database** | PostgreSQL 15 (prod) · SQLite (dev) | Persistent storage |
+| **LLM** | Google Gemini 3.8 Flash | Plain-language explanations + Vision |
+| **Embeddings** | `gemini-embedding-2` | 768/1536-dim vectors for RAG |
+| **Vector store** | FAISS (CPU) | Semantic similarity search |
+| **Keyword search** | rank_bm25 | Sparse retrieval for exact numeric matches |
+| **Fusion** | Reciprocal Rank Fusion (k=60) | Combine dense + sparse rankings |
+| **Auth** | bcrypt + JWT (pyjwt) | Password hashing + stateless sessions |
+| **Encryption** | cryptography (Fernet) | Field-level PHI encryption at rest |
+| **Cache / blocklist** | Redis | JWT revocation + rate-limit storage |
+| **Rate limiting** | slowapi | Abuse protection (5/min upload, 30/min query) |
+| **PDF parsing** | PyPDF2 · PyMuPDF · Tesseract OCR | Tiered extraction (text → layout → scanned) |
+| **Image processing** | OpenCV (CLAHE) + Pillow | Contrast enhancement for X-rays |
+| **Testing** | pytest · pytest-asyncio · pytest-mock · Vitest | Backend + frontend suites |
+| **CI** | GitHub Actions | Automated tests on every push |
+| **Deployment** | Render (API) + Vercel (UI) | Production hosting |
 
 ---
 
@@ -183,22 +236,83 @@ sequenceDiagram
 
 ```
 MediSkye/
+├── .github/
+│   └── workflows/
+│       └── tests.yml                    # CI: backend + frontend test jobs
 ├── backend/
-│   ├── main.py                 # FastAPI app — /upload, /query
-│   ├── start.sh                # Render start command
-│   ├── requirements.txt
-│   └── rag/
-│       ├── loader.py           # Tiered PDF extraction
-│       ├── embedder.py         # Google Generative AI embeddings
-│       ├── retriever.py        # FAISS index + MMR retrieval
-│       ├── prompt_builder.py   # Grounded LLM prompts
-│       ├── guards.py           # Auth, upload limits, PDF validation
-│       └── safety.py           # Emergency gate + disclaimers
+│   ├── alembic/
+│   │   └── versions/                    # Schema migrations
+│   ├── app/
+│   │   ├── api/v1/
+│   │   │   ├── endpoints/               # auth, user, upload, query, metrics, health
+│   │   │   └── router.py
+│   │   ├── core/
+│   │   │   ├── audit.py                 # Async audit logging
+│   │   │   ├── auth.py                  # bcrypt + JWT
+│   │   │   ├── config.py                # Pydantic BaseSettings
+│   │   │   ├── limiter.py               # slowapi setup
+│   │   │   ├── logging.py               # Structured logging
+│   │   │   ├── redis_client.py          # Redis connection
+│   │   │   └── security.py              # API key + sanitization
+│   │   ├── db/
+│   │   │   ├── database.py              # Async engine + session factory
+│   │   │   ├── encryption.py            # EncryptedString (Fernet)
+│   │   │   └── models.py                # User, Dependent, Document, Chat, AuditLog
+│   │   ├── middleware/
+│   │   │   ├── error_handler.py
+│   │   │   ├── request_id.py
+│   │   │   └── security_headers.py      # CSP, HSTS, X-Frame-Options
+│   │   ├── rag/
+│   │   │   ├── embedder.py              # gemini-embedding-2 wrapper
+│   │   │   ├── hybrid_search.py         # BM25 + RRF
+│   │   │   ├── intent_router.py         # GENERAL_HEALTH vs DOCUMENT_QA
+│   │   │   ├── loader.py                # Multimodal extraction
+│   │   │   ├── prompt_builder.py        # Grounded prompts
+│   │   │   ├── retriever.py             # FAISS + MMR
+│   │   │   ├── safety.py                # Emergency gate + disclaimers
+│   │   │   └── specialist_router.py     # Specialty categorization
+│   │   ├── schemas/                     # Pydantic request/response models
+│   │   ├── services/                    # PDF validation, age calc
+│   │   └── main.py                      # FastAPI app + lifespan
+│   ├── tests/
+│   │   ├── conftest.py                  # DB fixture, TEST_PASSWORD
+│   │   ├── test_account_deletion_cleanup.py
+│   │   ├── test_auth_secret.py
+│   │   ├── test_config_validation.py
+│   │   ├── test_health.py
+│   │   ├── test_password_validation.py
+│   │   ├── test_phase7_dependents.py
+│   │   ├── test_query_general_health.py
+│   │   ├── test_security.py
+│   │   └── test_upload.py
+│   ├── scripts/
+│   │   └── wipe_test_phi.py             # Clear test PHI after key rotation
+│   ├── alembic.ini
+│   ├── Dockerfile
+│   ├── docker-compose.yml               # Postgres + Redis + API
+│   ├── pyproject.toml                   # pytest config + markers
+│   ├── requirements.txt                 # Runtime deps
+│   ├── requirements-dev.txt             # Dev + test deps
+│   └── start.sh
 ├── frontend/
-│   ├── src/                    # React components and pages
-│   ├── package.json            # Node dependencies
-│   └── vite.config.js          # Vite configuration
-├── .env                        # Local secrets (not committed)
+│   ├── src/
+│   │   ├── components/                  # ChatApp, ChatWindow, ChatInput, etc.
+│   │   ├── services/                    # api.js, speech.js
+│   │   ├── test/
+│   │   │   ├── setup.js                 # Vitest + jest-dom
+│   │   │   ├── smoke.test.jsx
+│   │   │   ├── ChatMessage.test.jsx
+│   │   │   └── SettingsModal.test.jsx
+│   │   ├── App.jsx
+│   │   └── main.jsx
+│   ├── package.json
+│   ├── vitest.config.js
+│   └── vite.config.js
+├── docs/
+├── flaws/                               # Historical flaw tracker
+├── future-plans/
+├── benchmarks.md                        # RAG retrieval math
+├── Makefile                             # make test, make test-fast, etc.
 ├── .gitignore
 └── README.md
 ```
@@ -209,41 +323,67 @@ MediSkye/
 
 ### Prerequisites
 
-- **Python 3.10+**
-- **Google API key** with Gemini API enabled — [Get one here](https://aistudio.google.com/apikey)
+- **Python 3.12+**
+- **Node 22+** (for frontend + CI)
+- **Google API key** with Gemini API enabled — [get one](https://aistudio.google.com/apikey)
 - **Git**
-- **Optional:** [Tesseract OCR](https://github.com/tesseract-ocr/tesseract) for scanned/image-based PDFs
+- **Optional:** [Tesseract OCR](https://github.com/tesseract-ocr/tesseract) for scanned PDFs
+- **Optional:** Redis (falls back to in-memory for dev)
 
 ### 1. Clone the repository
 
 ```bash
-git clone https://github.com/Ujjwal0207/MediSkye.git
+git clone https://github.com/AdityaSharma2k04/MediSkye.git
 cd MediSkye
 ```
 
 ### 2. Configure environment
 
-Create a `.env` file in the **project root**:
+Create `backend/.env`:
 
 ```env
+# Required
 GOOGLE_API_KEY=your-google-api-key
+FERNET_KEY=generate-with-command-below
+JWT_SECRET_KEY=generate-with-command-below
 
-# Recommended for production
-MEDISKYE_API_KEY=your-shared-secret-key
-MEDISKYE_MAX_UPLOAD_MB=10
+# Optional
+DATABASE_URL=sqlite+aiosqlite:///./mediskye.db
+REDIS_URL=redis://localhost:6379/0
+ENV=development
+DEBUG=false
 ```
+
+**Generate the required secrets:**
+
+```bash
+# Fernet key (for PHI encryption)
+python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
+
+# JWT secret (32+ chars)
+python -c "import secrets; print(secrets.token_urlsafe(32))"
+```
+
+> **Note:** The app refuses to start if `FERNET_KEY` or `JWT_SECRET_KEY` are missing or set to the old compromised default. This is by design (Phase 0 hardening).
 
 ### 3. Run the backend
 
 ```bash
 cd backend
 python -m venv .venv
-source .venv/bin/activate        # Windows: .venv\Scripts\activate
-pip install -r requirements.txt
-uvicorn main:app --reload --host 0.0.0.0 --port 8000
+.\.venv\Scripts\activate          # Windows
+# source .venv/bin/activate       # macOS/Linux
+
+pip install -r requirements-dev.txt
+
+# Apply migrations
+alembic upgrade head
+
+# Start server
+uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
 ```
 
-Backend runs at **http://localhost:8000**. Interactive API docs: **http://localhost:8000/docs**.
+Backend: **http://localhost:8000** — API docs: **http://localhost:8000/docs**
 
 ### 4. Run the frontend (new terminal)
 
@@ -253,15 +393,15 @@ npm install
 npm run dev
 ```
 
-Frontend opens at **http://localhost:3000**.
+Frontend: **http://localhost:3000**
 
 ### 5. Use the app
 
-1. Open the React UI in your browser.
-2. Upload a PDF medical report.
-3. Wait for the success confirmation.
-4. Ask a question about your report.
-5. Review the AI response and chat history.
+1. Register an account (PHI consent required)
+2. Upload a report (PDF, JPG, or PNG)
+3. Wait for indexing to complete
+4. Ask a question
+5. Review the streamed answer with citations
 
 ---
 
@@ -269,78 +409,112 @@ Frontend opens at **http://localhost:3000**.
 
 | Variable | Required | Default | Description |
 |----------|----------|---------|-------------|
-| `GOOGLE_API_KEY` | Yes | — | Google Generative AI key for Gemini + embeddings |
-| `MEDISKYE_API_KEY` | No | — | Shared API key; when set, all requests must send `X-API-Key` |
-| `MEDISKYE_MAX_UPLOAD_MB` | No | `10` | Maximum PDF upload size in megabytes |
-| `MEDISKYE_API_URL` | No | Render URL | Backend URL used by the Streamlit frontend |
+| `GOOGLE_API_KEY` | ✅ Yes | — | Gemini 3.8 Flash + embedding API key |
+| `FERNET_KEY` | ✅ Yes | — | Fernet key for PHI field encryption |
+| `JWT_SECRET_KEY` | ✅ Yes | — | HS256 secret for JWT signing (32+ chars) |
+| `DATABASE_URL` | No | `sqlite+aiosqlite:///./mediskye.db` | Async SQLAlchemy DSN |
+| `REDIS_URL` | No | `redis://localhost:6379/0` | Redis for token blocklist + rate limits |
+| `ENV` | No | `development` | `development` / `production` |
+| `DEBUG` | No | `false` | Enables SQL echo + verbose logs |
+| `MEDISKYE_MAX_UPLOAD_MB` | No | `50` | Max upload size in MB |
+| `MAX_PDF_PAGES` | No | `50` | Max pages per PDF |
+| `ALLOWED_ORIGINS` | No | localhost | Comma-separated CORS origins |
 
-### Frontend deployment (production)
+### GitHub Actions secrets (for CI)
 
-Configure your production API URL in your frontend's environment or `api.js` to point to `https://mediskye-51pi.onrender.com`.
-
-### Render environment (production backend)
-
-Set `GOOGLE_API_KEY`, `MEDISKYE_API_KEY`, and optionally `MEDISKYE_MAX_UPLOAD_MB` in the Render dashboard.
+| Secret | Purpose |
+|--------|---------|
+| `FERNET_KEY_TEST` | Throwaway Fernet key for CI runs |
+| `JWT_SECRET_KEY_TEST` | Throwaway JWT secret for CI runs |
 
 ---
 
 ## API reference
 
-### `POST /upload`
+### Authentication
 
-Upload and index a medical PDF for the current session.
-
-**Headers**
-
-| Header | Required | Description |
+| Method | Endpoint | Description |
 |--------|----------|-------------|
-| `X-Session-ID` | Yes | UUID v4 session identifier |
-| `X-API-Key` | If configured | Must match `MEDISKYE_API_KEY` |
+| `POST` | `/register` | Create account (email, password, PHI consent) |
+| `POST` | `/login` | OAuth2 password flow → JWT |
+| `POST` | `/logout` | Revoke current token (Redis blocklist) |
 
-**Body:** `multipart/form-data` with field `file` (PDF)
+### User & dependents
 
-**Rate limit:** 5 requests / minute / IP
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| `GET` | `/users/me` | Current user profile |
+| `PUT` | `/users/me` | Update profile fields |
+| `DELETE` | `/users/me` | Delete account + all data (GDPR/CCPA) |
+| `GET` | `/users/me/dependents` | List caregiver profiles |
+| `POST` | `/users/me/dependents` | Create dependent profile |
+| `PATCH` | `/users/me/dependents/{id}` | Update dependent |
+| `DELETE` | `/users/me/dependents/{id}` | Delete dependent + linked docs |
 
-**Success (200)**
+### Reports & chat
 
-```json
-{ "message": "PDF uploaded and processed successfully." }
-```
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| `POST` | `/upload` | Upload PDF/JPG/PNG (multipart) — rate limited 5/min |
+| `POST` | `/query` | Ask a question — SSE stream — rate limited 30/min |
+| `POST` | `/extract-metrics` | Structured lab metric extraction |
 
-**Errors:** `400` invalid PDF · `401` bad API key · `413` file too large · `422` extraction failed · `429` rate limited
+### Health
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| `GET` | `/health` | Liveness + version info |
+| `GET` | `/ready` | Readiness probe (DB + Redis) |
 
 ---
 
-### `POST /query`
+## Testing & CI
 
-Ask a question about the uploaded report.
+### Run tests locally
 
-**Headers**
+```bash
+# Backend
+cd backend
+pytest tests -v
 
-| Header | Required | Description |
-|--------|----------|-------------|
-| `X-API-Key` | If configured | Must match `MEDISKYE_API_KEY` |
+# Fast (stop on first failure, show slowest)
+pytest tests -x --durations=5
 
-**Body (JSON)**
+# Skip integration tests
+pytest tests -v -m "not integration"
 
-```json
-{
-  "session_id": "550e8400-e29b-41d4-a716-446655440000",
-  "query": "Is my hemoglobin normal?"
-}
+# Frontend
+cd frontend
+npm test
 ```
 
-**Rate limit:** 20 requests / minute / IP
+### CI pipeline
 
-**Success (200)**
+Every push to `main` triggers `.github/workflows/tests.yml`:
 
-```json
-{
-  "response": "Your hemoglobin is ... **Disclaimer:** This response is for educational purposes only..."
-}
-```
+- **`backend-test`** — Python 3.12, installs tesseract + poppler, runs `pytest -m "not integration"` with throwaway `FERNET_KEY` and `JWT_SECRET_KEY`
+- **`frontend-test`** — Node 22, runs `npm ci` + `vitest run`
 
-**Errors:** `400` invalid session · `401` bad API key · `429` rate limited · `{ "error": "No PDF uploaded yet for this session." }`
+Both jobs must pass for a green build. Typical runtime: ~2–3 minutes.
+
+### Test markers
+
+| Marker | Purpose |
+|--------|---------|
+| `unit` | Fast, no external deps |
+| `integration` | Requires network/Gemini — skipped in CI |
+| `slow` | Runs > 1 second |
+
+### What's covered
+
+- ✅ Auth (JWT encode/decode, secret isolation, password validation, bcrypt 72-byte truncation)
+- ✅ Startup guards (refuses to boot with compromised/missing keys)
+- ✅ PHI encryption (raw SQL shows ciphertext, ORM shows plaintext)
+- ✅ Account deletion cleanup (FAISS + BM25 files both removed)
+- ✅ Dependent profiles (create, encrypt, retrieve, cross-user isolation)
+- ✅ Upload validation (auth required, non-PDF rejected, empty file rejected)
+- ✅ Constant-time API key comparison
+- ✅ Prompt builder sanity (general health prompt returns non-empty)
 
 ---
 
@@ -348,26 +522,35 @@ Ask a question about the uploaded report.
 
 ### Backend — Render
 
-1. Create a **Web Service** connected to this repo.
-2. Set **Root Directory** to `backend`.
-3. **Build command:** `pip install -r requirements.txt`
-4. **Start command:** `uvicorn main:app --host 0.0.0.0 --port $PORT`
-5. Add environment variables (see table above).
-6. **Optional (OCR):** Add Tesseract to the build environment for scanned PDF support.
+1. Create a **Web Service** connected to this repo
+2. Set **Root Directory** to `backend`
+3. **Build command:** `pip install -r requirements-dev.txt`
+4. **Start command:** `uvicorn app.main:app --host 0.0.0.0 --port $PORT`
+5. Add environment variables:
+   - `GOOGLE_API_KEY`
+   - `FERNET_KEY`
+   - `JWT_SECRET_KEY`
+   - `DATABASE_URL` (Postgres DSN — `postgresql+asyncpg://...`)
+   - `REDIS_URL`
+   - `ENV=production`
+6. **Optional (OCR):** install Tesseract on the build environment
 
 ### Frontend — Vercel or Netlify
 
-1. Connect your GitHub repository to Vercel/Netlify.
-2. Set the build command to `npm run build` and output directory to `dist`.
-3. Update the API base URL in `src/services/api.js` to your deployed backend URL.
+1. Connect the GitHub repo
+2. Build command: `npm run build`, output: `dist`
+3. Set `VITE_API_URL` env var to your deployed backend URL
 
 ### Production checklist
 
 - [ ] `GOOGLE_API_KEY` set on Render
-- [ ] API URL updated in the React frontend
-- [ ] `MEDISKYE_MAX_UPLOAD_MB` configured appropriately
+- [ ] `FERNET_KEY` set (never the old compromised value)
+- [ ] `JWT_SECRET_KEY` set (32+ chars, never `GOOGLE_API_KEY`)
+- [ ] `DATABASE_URL` points to Postgres
+- [ ] `REDIS_URL` set (real Redis, not mock)
+- [ ] `ALLOWED_ORIGINS` tightened to frontend domain (no wildcard)
 - [ ] Tesseract installed if expecting scanned PDFs
-- [ ] CORS origins tightened if you add a custom domain (currently `*`)
+- [ ] `alembic upgrade head` run on deploy
 
 ---
 
@@ -375,44 +558,82 @@ Ask a question about the uploaded report.
 
 | Feature | Implementation |
 |---------|----------------|
-| Session isolation | Each browser session gets a UUID; vector stores are keyed by `session_id` |
-| Query privacy | Questions sent via `POST` JSON body — never in URL query strings |
-| API authentication | Optional shared key via `X-API-Key` header |
-| Upload validation | PDF magic-byte check + configurable size limit |
-| Rate limiting | 5 uploads/min, 20 queries/min per IP |
-| Medical safety | Emergency keyword short-circuit, cautious prompts, mandatory disclaimer |
-| Temp file cleanup | Uploaded PDFs deleted after processing |
-| Extraction guard | Fails loudly if PDF yields insufficient text (no silent empty index) |
+| **PHI encryption at rest** | Fernet (AES-128-CBC + HMAC-SHA256) on sensitive columns |
+| **Field-level isolation** | `EncryptedString` type decorator on SQLAlchemy models |
+| **Password hashing** | bcrypt with explicit 72-byte truncation (cross-platform safe) |
+| **Auth** | JWT (HS256) with dedicated secret; not the Google API key |
+| **Token revocation** | Redis-backed blocklist on logout |
+| **Startup guards** | Refuses to boot with missing/compromised secrets |
+| **Constant-time comparison** | `secrets.compare_digest` for API key checks |
+| **Request tracing** | `X-Request-ID` propagated through middleware |
+| **Security headers** | CSP, HSTS, X-Frame-Options via middleware |
+| **Rate limiting** | 5 uploads/min, 30 queries/min per IP via slowapi |
+| **Audit logging** | Async — every auth event, upload, deletion logged with user + IP |
+| **Right to erasure** | `DELETE /users/me` clears DB rows + on-disk FAISS/BMC25 files |
+| **Upload validation** | Size + extension + `%PDF` magic bytes + PyMuPDF decryption check |
+| **Prompt injection resistance** | Untrusted content delimited in prompt tags |
+| **Emergency fast path** | Zero-cost regex gate before LLM call |
+| **Medical safety** | No definitive diagnoses, mandatory disclaimer on every response |
 
-**Known limitation:** Vector stores are in-memory and reset on server restart or Render cold start. Users must re-upload after a cold start. Persistent storage is planned.
+### Known limitations
+
+- **In-memory caching** — vector stores rehydrate from disk on each query (pgvector migration planned)
+- **Single-instance scaling** — FAISS/BM25 indexes live on local disk; horizontal scale requires pgvector
+- **No async upload queue** — large PDFs block the request for 15–45s (ARQ planned)
+- **No cost controls yet** — per-user token budgets planned for Phase 3
 
 ---
 
-## Enhancements shipped
+## What's shipped
 
-MediSkye has gone through two major hardening passes:
+### Phase 0 — Critical security remediation
 
-### Enhancement 1 — Security & medical safety
+| Area | Fix |
+|------|-----|
+| Startup safety | App refuses to boot without `FERNET_KEY` or `JWT_SECRET_KEY` |
+| Key isolation | Dedicated JWT secret (was reusing `GOOGLE_API_KEY`) |
+| Hardcoded secret | Removed committed Fernet key; added compromised-key kill-switch |
+| Timing attacks | `secrets.compare_digest` for API key comparison |
+| PHI cleanup | Account deletion now removes orphaned BM25 `.pkl` files |
+| Missing import | Fixed `build_general_health_prompt` NameError crash |
+
+### Phase 1.1 — CI + test infrastructure
 
 | Area | Improvement |
 |------|-------------|
-| Multi-user privacy | Per-session vector stores instead of one shared global index |
-| Query privacy | Switched from `GET /query` to `POST /query` with JSON body |
-| Disk hygiene | Temp PDF files deleted after every upload |
-| Medical safety | Emergency detection, safer prompts (no definitive diagnoses), mandatory disclaimer on every response |
+| CI pipeline | GitHub Actions runs backend + frontend tests on every push |
+| Requirements split | `requirements.txt` (runtime) vs `requirements-dev.txt` (test) |
+| Test markers | `unit`, `integration`, `slow` registered in `pyproject.toml` |
+| Frontend testing | Vitest + React Testing Library + jsdom setup |
+| Makefile | `make test`, `make test-fast`, `make test-ci` |
+| bcrypt fix | Truncate to 72 bytes before hashing (cross-platform) |
+| Greenlet fix | `sqlalchemy[asyncio]` extra added to requirements |
 
-### Enhancement 2 — Production guards & RAG quality
+### Phase 1.5 — UX & polish
 
 | Area | Improvement |
 |------|-------------|
-| API protection | Optional API key auth, rate limiting, PDF validation, upload size caps |
-| PDF extraction | Tiered pipeline: PyPDF2 → PyMuPDF → Tesseract OCR fallback |
-| Empty PDF handling | HTTP 422 error when extraction yields too little text |
-| Chunking | Increased to 1200 chars / 200 overlap with page metadata preserved |
-| Retrieval | MMR search with 8 diverse chunks (was 3 similar chunks) |
-| Documentation | README aligned with actual stack (`gemini-flash-latest`, `gemini-embedding-2`) |
+| Markdown rendering | Replaced hand-rolled parser with `react-markdown` + `remark-gfm` — tables render properly |
+| Settings rewrite | Account, Preferences, Security, Data & Privacy, About sections |
+| Chat naming | Auto-named chats from document title or first query |
+| Chat rename | 3-dot menu with inline rename |
+| Delete confirmations | Type-to-confirm for destructive actions |
+| Account wiring | Profile fields (name, DOB, sex, blood type) save on blur |
+| Delete account | Direct `DELETE /users/me` with email confirmation |
+| Header cleanup | Removed "Obsidian Theme" and "50MB PDF" from subtitle |
+| HIPAA badge | Replaced with `End-to-end encrypted` (accurate claim) |
+| Image support | Upload accepts PDF, JPG, PNG (was PDF only) |
+| Fake data removed | Deleted placeholder doctor names, emails, phones |
+| Specialist output | Generic category recommendations only |
 
-**Curious about the RAG math?** Read our [Medical RAG Benchmarks](benchmarks.md) to see exactly why `1200/200` chunking and `MMR k=8` outperforms naive retrieval on complex lab reports.
+### Also shipped
+
+- **Caregiver / dependent mode** — separate profiles per family member with scoped encryption
+- **Multi-tier PDF extraction** — PyPDF2 → PyMuPDF → Tesseract OCR with automatic fallback
+- **X-ray ingestion** — OpenCV CLAHE + Gemini Vision for radiological analysis
+- **Hybrid retrieval** — FAISS MMR (k=8, fetch_k=24) + BM25 fused with RRF (k=60)
+- **Structured lab metrics** — `POST /extract-metrics` for tabular biomarker JSON
+- **Voice dictation** — Web Speech API for hands-free queries
 
 ---
 
@@ -420,11 +641,16 @@ MediSkye has gone through two major hardening passes:
 
 | Phase | Status | Description |
 |-------|--------|-------------|
-| **Phase 1** | ✅ Complete | AI report chatbot with RAG |
-| **Phase 2** | Planned | Medical triage — emergency vs routine vs self-care |
-| **Phase 3** | Planned | Doctor recommendation by specialty and location |
-| **Phase 4** | Planned | Helper/assisted mode for elderly patients |
-| **Phase 5** | Planned | Mobile apps and SMS/low-bandwidth access |
+| **0 — Security baseline** | ✅ Complete | Fernet, JWT isolation, kill-switches, bcrypt, timing-safe checks |
+| **1.1 — CI + tests** | ✅ Complete | GitHub Actions, pytest + Vitest, requirements split |
+| **1.5 — UX polish** | ✅ Complete | Markdown, settings, chat naming, delete confirmations |
+| **2 — Patient memory** | 🔜 In progress | Cross-conversation facts, multi-doc chats, personalized context |
+| **3 — Multimodal images** | Planned | Smart routing: OCR for screenshots, Vision for photos and handwriting |
+| **4 — Architecture scale** | Planned | pgvector migration, ARQ async ingestion, real Redis |
+| **5 — Production hardening** | Planned | Cost controls, prompt-injection eval suite, observability, WCAG AA |
+| **6 — Compliance** | Planned | Data export, HIPAA BAA, disaster recovery runbook |
+| **7 — Longitudinal trends** | Planned | Weight/HbA1c/BP tracking with chart views |
+| **8 — Mobile + SMS** | Planned | Low-bandwidth access for elderly patients |
 
 ---
 
@@ -432,11 +658,12 @@ MediSkye has gone through two major hardening passes:
 
 Contributions are welcome. To propose a change:
 
-1. Fork the repository.
+1. Fork the repository
 2. Create a feature branch: `git checkout -b feature/your-feature`
-3. Commit your changes and open a pull request.
+3. Run tests: `cd backend && pytest tests -v` and `cd frontend && npm test`
+4. Commit and open a pull request — CI must be green
 
-Ideas we'd love help with: persistent vector storage, hybrid retrieval, triage logic, UI/UX improvements, and test coverage.
+Ideas we'd love help with: patient memory design, pgvector migration, prompt-injection eval suite, WCAG accessibility, frontend state management.
 
 ---
 
@@ -445,19 +672,3 @@ Ideas we'd love help with: persistent vector storage, hybrid retrieval, triage l
 MediSkye is intended for **educational and informational use**. It must not be used as a replacement for qualified medical professionals. The authors are not liable for medical decisions made based on AI-generated content.
 
 Always seek advice from a licensed doctor for diagnosis and treatment.
-
-
-
-
-cd backend
-python -m venv .venv
-.\.venv\Scripts\activate
-pip install -r requirements.txt
-uvicorn main:app --reload --host 0.0.0.0 --port 8000
-
-
-
-cd frontend
-npm install
-npm run dev
-# MediSkye
