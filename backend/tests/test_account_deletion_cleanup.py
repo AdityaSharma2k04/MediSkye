@@ -10,6 +10,7 @@ from app.main import app
 from app.db.database import AsyncSessionLocal
 from app.db.models import User, Document
 from app.core.config import settings
+from tests.conftest import TEST_PASSWORD
 
 
 @pytest.mark.anyio
@@ -20,7 +21,7 @@ async def test_account_deletion_cleans_faiss_and_bm25():
         email = f"delete_user_{uuid.uuid4().hex[:8]}@example.com"
         reg_res = await ac.post("/register", json={
             "email": email,
-            "password": "SecurePassword123!",
+            "password": TEST_PASSWORD,
             "phi_consent_granted": True,
         })
         assert reg_res.status_code == 200, reg_res.text
@@ -28,7 +29,7 @@ async def test_account_deletion_cleans_faiss_and_bm25():
         # 2. Login
         login_res = await ac.post("/login", data={
             "username": email,
-            "password": "SecurePassword123!",
+            "password": TEST_PASSWORD,
         })
         assert login_res.status_code == 200
         token = login_res.json()["access_token"]
@@ -82,14 +83,14 @@ async def test_account_deletion_resilient_to_missing_files():
         email = f"delete_user_partial_{uuid.uuid4().hex[:8]}@example.com"
         reg_res = await ac.post("/register", json={
             "email": email,
-            "password": "SecurePassword123!",
+            "password": TEST_PASSWORD,
             "phi_consent_granted": True,
         })
         assert reg_res.status_code == 200
 
         login_res = await ac.post("/login", data={
             "username": email,
-            "password": "SecurePassword123!",
+            "password": TEST_PASSWORD,
         })
         token = login_res.json()["access_token"]
         headers = {"Authorization": f"Bearer {token}"}

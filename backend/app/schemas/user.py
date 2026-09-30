@@ -1,11 +1,15 @@
-from pydantic import BaseModel, EmailStr
+from pydantic import BaseModel, EmailStr, Field
 from typing import Optional
 from uuid import UUID
 from datetime import datetime, date
 
 class UserCreate(BaseModel):
     email: EmailStr
-    password: str
+    password: str = Field(
+        min_length=8,
+        max_length=72,
+        description="Password must be 8-72 characters (bcrypt limit)."
+    )
     phi_consent_granted: bool
 
 class UserUpdate(BaseModel):

@@ -6,6 +6,9 @@ os.environ.setdefault(
     "test_jwt_secret_key_at_least_32_characters_long_for_unit_tests!"
 )
 
+# Shared test password — must be ≤72 bytes for bcrypt compatibility across OSes.
+TEST_PASSWORD = "TestPassword123!"
+
 import pytest_asyncio
 
 

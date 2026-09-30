@@ -9,6 +9,7 @@ from app.services.patient_service import calculate_age
 from app.db.database import AsyncSessionLocal
 from app.db.models import DependentProfile, AuditLog
 from sqlalchemy import text
+from tests.conftest import TEST_PASSWORD
 
 def test_calculate_age_utility():
     # Born exactly 25 years ago
@@ -27,7 +28,7 @@ async def test_phase7_dependents_full_lifecycle():
         email = f"caregiver_{uuid.uuid4().hex[:8]}@example.com"
         reg_res = await ac.post("/register", json={
             "email": email,
-            "password": "SecurePassword123!",
+            "password": TEST_PASSWORD,
             "phi_consent_granted": True,
         })
         assert reg_res.status_code == 200, reg_res.text
@@ -35,7 +36,7 @@ async def test_phase7_dependents_full_lifecycle():
         # 2. Login to get token
         login_res = await ac.post("/login", data={
             "username": email,
-            "password": "SecurePassword123!",
+            "password": TEST_PASSWORD,
         })
         assert login_res.status_code == 200
         token = login_res.json()["access_token"]

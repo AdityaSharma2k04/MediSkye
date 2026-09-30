@@ -7,12 +7,13 @@ from app.main import app
 from app.core.auth import get_password_hash
 from app.db.database import AsyncSessionLocal
 from app.db.models import User
+from tests.conftest import TEST_PASSWORD
 
 
 async def get_authenticated_headers(
     ac: AsyncClient,
     email: str = "report1@test.com",
-    password: str = "SecurePassword123!"
+    password: str = TEST_PASSWORD
 ) -> dict:
     """Ensures test user exists in DB and returns valid auth headers via login."""
     async with AsyncSessionLocal() as session:
@@ -26,7 +27,10 @@ async def get_authenticated_headers(
                 consent_timestamp=datetime.utcnow()
             )
             session.add(user)
-            await session.commit()
+        else:
+            user.hashed_password = get_password_hash(password)
+            session.add(user)
+        await session.commit()
 
     login_res = await ac.post("/login", data={
         "username": email,
