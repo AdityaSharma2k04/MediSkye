@@ -17,7 +17,7 @@ google-genai
 faiss-cpu
 rank_bm25
 opencv-python-headless
-sqlalchemy
+sqlalchemy[asyncio]
 asyncpg
 alembic
 passlib[bcrypt]
