@@ -1,4 +1,6 @@
 import React, { useState } from 'react';
+import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
 import {
   Stethoscope,
   Copy,
@@ -9,7 +11,6 @@ import {
   ThumbsDown,
   RotateCcw,
   Share2,
-  AlertTriangle,
   User,
   ShieldCheck,
 } from 'lucide-react';
@@ -68,105 +69,8 @@ export default function ChatMessage({ message, onRegenerate, onSelectSource, sho
     );
   }
 
-  const renderFormattedText = (text) => {
-    if (!text) return null;
-
-    // Hide the abnormal_flags JSON block from the user interface
-    const cleanText = text.replace(/```json\s*\{.*"abnormal_flags"[\s\S]*?\}\s*```/is, '');
-
-    const lines = cleanText.split('\n');
-    let inList = false;
-    let listItems = [];
-
-    const elements = [];
-
-    lines.forEach((line, idx) => {
-      let trimmed = line.trim();
-
-      if (trimmed.startsWith('### ')) {
-        elements.push(
-          <h3 key={idx} className={`font-semibold text-base mt-3 mb-1.5 ${darkMode ? 'text-zinc-100' : 'text-zinc-900'}`}>
-            {trimmed.replace('### ', '')}
-          </h3>
-        );
-        return;
-      }
-
-      if (trimmed.startsWith('## ')) {
-        elements.push(
-          <h2 key={idx} className={`font-bold text-lg mt-4 mb-2 ${darkMode ? 'text-zinc-100' : 'text-zinc-900'}`}>
-            {trimmed.replace('## ', '')}
-          </h2>
-        );
-        return;
-      }
-
-      if (trimmed.startsWith('- ') || trimmed.startsWith('* ')) {
-        const content = trimmed.substring(2);
-        listItems.push(
-          <li key={idx} className="mb-1">
-            {parseBoldItalic(content)}
-          </li>
-        );
-        inList = true;
-        return;
-      }
-
-      if (inList) {
-        elements.push(
-          <ul key={`ul-${idx}`} className={`list-disc list-inside space-y-1 my-2 ${darkMode ? 'text-zinc-300' : 'text-zinc-700'}`}>
-            {listItems}
-          </ul>
-        );
-        inList = false;
-        listItems = [];
-      }
-
-      if (trimmed.startsWith('**Disclaimer:**') || trimmed.startsWith('Disclaimer:')) {
-        elements.push(
-          <div key={idx} className={`mt-4 p-3 rounded-xl text-xs flex items-start gap-2 border ${
-            darkMode
-              ? 'bg-zinc-800/60 border-zinc-700 text-zinc-300'
-              : 'bg-zinc-50 border-zinc-200 text-zinc-700'
-          }`}>
-            <AlertTriangle className={`w-3.5 h-3.5 shrink-0 mt-0.5 ${darkMode ? 'text-zinc-500' : 'text-zinc-400'}`} />
-            <div>
-              <strong className="font-medium">Medical Disclaimer:</strong> {trimmed.replace(/\*\*Disclaimer:\*\*/, '').replace(/Disclaimer:/, '')}
-            </div>
-          </div>
-        );
-        return;
-      }
-
-      if (trimmed.length > 0) {
-        elements.push(
-          <p key={idx} className={`mb-2 leading-relaxed ${darkMode ? 'text-zinc-200' : 'text-zinc-800'}`}>
-            {parseBoldItalic(trimmed)}
-          </p>
-        );
-      }
-    });
-
-    if (inList) {
-      elements.push(
-        <ul key="ul-end" className={`list-disc list-inside space-y-1 my-2 ${darkMode ? 'text-zinc-300' : 'text-zinc-700'}`}>
-          {listItems}
-        </ul>
-      );
-    }
-
-    return elements;
-  };
-
-  const parseBoldItalic = (str) => {
-    const parts = str.split(/(\*\*.*?\*\*)/g);
-    return parts.map((part, i) => {
-      if (part.startsWith('**') && part.endsWith('**')) {
-        return <strong key={i} className={`font-semibold ${darkMode ? 'text-zinc-100' : 'text-zinc-900'}`}>{part.slice(2, -2)}</strong>;
-      }
-      return part;
-    });
-  };
+  // Hide the abnormal_flags JSON block from the user interface
+  const content = (message?.text || '').replace(/```json\s*\{.*"abnormal_flags"[\s\S]*?\}\s*```/is, '');
 
   // Common button styles for the action bar
   const actionBtn = `p-1.5 rounded-lg transition-colors ${
@@ -206,7 +110,9 @@ export default function ChatMessage({ message, onRegenerate, onSelectSource, sho
           </div>
 
           <div className={`prose max-w-none ${darkMode ? 'prose-invert text-zinc-200' : 'text-zinc-800'}`}>
-            {renderFormattedText(message.text)}
+            <ReactMarkdown remarkPlugins={[remarkGfm]}>
+              {content}
+            </ReactMarkdown>
           </div>
 
           {message.sources && message.sources.length > 0 && (
