@@ -17,8 +17,6 @@ google-genai
 faiss-cpu
 rank_bm25
 opencv-python-headless
-pytest
-httpx
 sqlalchemy
 asyncpg
 alembic
