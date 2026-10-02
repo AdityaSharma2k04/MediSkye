@@ -1,4 +1,4 @@
-import fitz  # PyMuPDF
+import pymupdf as fitz  # PyMuPDF (package renamed from 'fitz')
 from fastapi import HTTPException, status
 from app.core.config import settings
 

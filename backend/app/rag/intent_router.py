@@ -12,8 +12,11 @@ intelligently skips FAISS for general questions to save latency and tokens.
 """
 
 from enum import Enum
+import logging
 from google import genai
 from app.core.config import settings
+
+logger = logging.getLogger(__name__)
 
 
 class QueryIntent(str, Enum):
@@ -80,6 +83,6 @@ async def classify_intent(query: str, has_document: bool = True) -> QueryIntent:
             return QueryIntent.DOCUMENT_QA
 
     except Exception as e:
-        print(f"Intent classification failed: {e}")
+        logger.warning("Intent classification failed: %s", e)
         # On error, fall back based on document availability
         return QueryIntent.DOCUMENT_QA if has_document else QueryIntent.GENERAL_HEALTH

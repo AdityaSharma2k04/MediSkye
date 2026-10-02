@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import Sidebar from './Sidebar';
 import ChatWindow from './ChatWindow';
 import ChatInput from './ChatInput';
@@ -6,8 +6,22 @@ import DocumentModal from './DocumentModal';
 import SettingsModal from './SettingsModal';
 import Profile from './Profile';
 import Toast from './Toast';
-import { uploadPdfReport, sendQueryStream, logout, getProfile, getDependents, getUserDocuments, getDocumentChats, renameChat, deleteAccount } from '../services/api';
+import MemoryConsentModal from './MemoryConsentModal';
+import {
+  uploadPdfReport,
+  sendQueryStream,
+  logout,
+  getProfile,
+  getDependents,
+  getUserDocuments,
+  getDocumentChats,
+  renameChat,
+  deleteAccount,
+  updateProfile,
+  detachChatDocument,
+} from '../services/api';
 import { useNavigate } from 'react-router-dom';
+import { logger } from '../services/logger';
 
 // ── Theme helpers ──────────────────────────────────────────
 function getSystemTheme() {
@@ -15,12 +29,17 @@ function getSystemTheme() {
   return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
 }
 
-function getInitialTheme() {
+function getStoredThemePreference() {
   try {
     const stored = localStorage.getItem('mediskye_theme');
-    if (stored === 'dark' || stored === 'light') return stored;
+    if (stored === 'dark' || stored === 'light' || stored === 'system') return stored;
   } catch {}
-  return getSystemTheme();
+  return 'system';
+}
+
+function resolveDarkMode(preference) {
+  if (preference === 'system') return getSystemTheme() === 'dark';
+  return preference === 'dark';
 }
 
 function applyThemeToDOM(theme) {
@@ -63,8 +82,19 @@ export default function ChatApp() {
   const navigate = useNavigate();
 
   const handleLogout = async () => {
+    // Clear the JWT blocklist server-side, then wipe all local auth/PHI state.
     await logout();
-    navigate('/login');
+    // Reset in-memory global state so a re-mount (or a deferred navigation)
+    // cannot render stale patient data from the previous session.
+    setCurrentUser(null);
+    setDependents([]);
+    setSelectedPatientId('self');
+    setConversations([]);
+    setActivePdf(null);
+    setSessionId(null);
+    setIsSettingsOpen(false);
+    setIsProfileOpen(false);
+    navigate('/login', { replace: true });
   };
 
   const [sessionId, setSessionId] = useState(() => {
@@ -79,17 +109,30 @@ export default function ChatApp() {
   });
   const [profileInitialTab, setProfileInitialTab] = useState('profile');
 
-  // ── Theme state: auto-detects system, persists choice ──
-  const [darkMode, setDarkMode] = useState(() => getInitialTheme() === 'dark');
+  // ── Theme state: 'light' | 'dark' | 'system' — the raw preference is persisted ──
+  const [themePreference, setThemePreference] = useState(() => getStoredThemePreference());
+  const [darkMode, setDarkMode] = useState(() => resolveDarkMode(getStoredThemePreference()));
   const [language, setLanguage] = useState('English');
 
-  const [isSidebarOpen, setIsSidebarOpen] = useState(true);
+  const [sidebarOpen, setSidebarOpen] = useState(() => {
+    if (typeof window !== 'undefined' && window.innerWidth < 768) {
+      return false;
+    }
+    return localStorage.getItem('mediskye_sidebar_open') !== 'false';
+  });
+
+  const toggleSidebar = () => {
+    const next = !sidebarOpen;
+    setSidebarOpen(next);
+    localStorage.setItem('mediskye_sidebar_open', String(next));
+  };
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [isProfileOpen, setIsProfileOpen] = useState(false);
   const [selectedSource, setSelectedSource] = useState(null);
 
   const [activePdf, setActivePdf] = useState(null);
   const [isGenerating, setIsGenerating] = useState(false);
+  const abortControllerRef = useRef(null);
   const [toasts, setToasts] = useState([]);
 
   // Load User & Dependents on Mount
@@ -110,7 +153,7 @@ export default function ChatApp() {
         setDependents(depsRes);
       }
     } catch (e) {
-      console.error('Failed to load patient context:', e);
+      logger.error('Failed to load patient context:', e);
     }
   }, []);
 
@@ -129,7 +172,7 @@ export default function ChatApp() {
         }
       }
     } catch (e) {
-      console.error('Failed to load conversations from localStorage:', e);
+      logger.error('Failed to load conversations from localStorage:', e);
     }
     return [
       { id: sessionId, title: 'New Consultation', messages: [], pdf: null },
@@ -144,7 +187,7 @@ export default function ChatApp() {
         localStorage.setItem(`mediskye_conversations_${currentUser.id}`, JSON.stringify(conversations));
       }
     } catch (e) {
-      console.error('Failed to save conversations to localStorage:', e);
+      logger.error('Failed to save conversations to localStorage:', e);
     }
   }, [conversations, currentUser]);
 
@@ -218,30 +261,65 @@ export default function ChatApp() {
     }
   }, [currentUser]);
 
-  // ── Apply theme to DOM and persist ──
+  // ── Apply theme to DOM and persist the raw preference (incl. 'system') ──
   useEffect(() => {
-    const theme = darkMode ? 'dark' : 'light';
-    applyThemeToDOM(theme);
-    localStorage.setItem('mediskye_theme', theme);
-  }, [darkMode]);
+    const isDark = resolveDarkMode(themePreference);
+    setDarkMode(isDark);
+    applyThemeToDOM(isDark ? 'dark' : 'light');
+    try {
+      localStorage.setItem('mediskye_theme', themePreference);
+    } catch (e) {
+      logger.error('Failed to persist theme preference:', e);
+    }
+  }, [themePreference]);
 
-  // ── Listen for OS theme changes (if user hasn't manually overridden) ──
+  // ── Follow OS theme changes only while the preference is 'system' ──
   useEffect(() => {
     const mq = window.matchMedia('(prefers-color-scheme: dark)');
     const handler = (e) => {
-      const stored = localStorage.getItem('mediskye_theme');
-      if (!stored) {
+      if (themePreference === 'system') {
         setDarkMode(e.matches);
+        applyThemeToDOM(e.matches ? 'dark' : 'light');
       }
     };
     mq.addEventListener('change', handler);
     return () => mq.removeEventListener('change', handler);
-  }, []);
+  }, [themePreference]);
+
+  // Memory consent prompt on first chat
+  const [showMemoryConsentModal, setShowMemoryConsentModal] = useState(false);
+
+  useEffect(() => {
+    if (currentUser && currentUser.memory_consent_granted === false) {
+      const alreadyPrompted = sessionStorage.getItem('mediskye_consent_prompted');
+      if (!alreadyPrompted) {
+        setShowMemoryConsentModal(true);
+      }
+    }
+  }, [currentUser]);
+
+  const handleAllowMemory = async () => {
+    try {
+      const updated = await updateProfile({ memory_consent_granted: true });
+      setCurrentUser(updated);
+      setShowMemoryConsentModal(false);
+      showToast('success', 'Memory Enabled', 'MediSkye will remember key health context across sessions.');
+    } catch (err) {
+      showToast('error', 'Update Failed', err.message);
+    }
+  };
+
+  const handleSkipMemory = () => {
+    sessionStorage.setItem('mediskye_consent_prompted', 'true');
+    setShowMemoryConsentModal(false);
+  };
 
   // Restore active PDF state if present in current chat
   useEffect(() => {
     const current = conversations.find((c) => c.id === sessionId);
-    if (current && current.pdf) {
+    if (current && Array.isArray(current.documents) && current.documents.length > 0) {
+      setActivePdf(current.documents[0]);
+    } else if (current && current.pdf) {
       setActivePdf(current.pdf);
     } else if (current && !current.pdf) {
       setActivePdf(null);
@@ -252,6 +330,7 @@ export default function ChatApp() {
     id: sessionId,
     title: 'New Consultation',
     messages: [],
+    documents: [],
   };
 
   const messages = currentChat.messages || [];
@@ -306,11 +385,10 @@ export default function ChatApp() {
     showToast('info', 'Uploading PDF Report', 'Extracting text and creating vector embeddings...');
     setIsGenerating(true);
 
-    const pdfMeta = { name: file.name, size: file.size };
-
     try {
-      const data = await uploadPdfReport(file, selectedPatientId);
+      const data = await uploadPdfReport(file, selectedPatientId, sessionId);
       const newDocId = data.document_id;
+      const pdfMeta = { id: newDocId, name: file.name, filename: file.name, size: file.size };
       setActivePdf(pdfMeta);
       showToast('success', 'Report Processed', 'PDF indexed successfully. You can now ask questions or view Lab Metrics.');
 
@@ -318,24 +396,21 @@ export default function ChatApp() {
       const autoTitle = cleanFilename(file.name);
 
       setConversations((prev) =>
-        prev.map((c) =>
-          c.id === sessionId
-            ? {
-                ...c,
-                document_id: newDocId,
-                patient_id: selectedPatientId,
-                title: autoTitle,
-                pdf: pdfMeta,
-              }
-            : c
-        )
-      );
-
-      // Update session to use the real document ID so queries route correctly
-      setSessionId(newDocId);
-      localStorage.setItem('mediskye_session_id', newDocId);
-      setConversations((prev) =>
-        prev.map((c) => (c.id === sessionId ? { ...c, id: newDocId } : c))
+        prev.map((c) => {
+          if (c.id !== sessionId) return c;
+          const currentDocs = Array.isArray(c.documents)
+            ? c.documents
+            : (c.pdf ? [{ id: c.document_id || 'doc-1', name: c.pdf.name, filename: c.pdf.name }] : []);
+          const updatedDocs = [...currentDocs.filter((d) => d.id !== newDocId), pdfMeta];
+          return {
+            ...c,
+            document_id: newDocId,
+            patient_id: selectedPatientId,
+            title: (c.title === 'New Consultation' || c.title === 'New chat') ? autoTitle : c.title,
+            pdf: pdfMeta,
+            documents: updatedDocs,
+          };
+        })
       );
     } catch (err) {
       showToast('error', 'Upload Failed', err.message);
@@ -344,44 +419,75 @@ export default function ChatApp() {
     }
   };
 
+  const handleDetachDocument = async (docId) => {
+    try {
+      await detachChatDocument(sessionId, docId).catch(() => {});
+      const current = conversations.find((c) => c.id === sessionId);
+      const remainingDocs = (current?.documents || []).filter((d) => d.id !== docId);
+      const nextActivePdf = remainingDocs.length > 0 ? remainingDocs[0] : null;
+      // Side effects must live OUTSIDE the state updater (which may run twice).
+      setActivePdf(nextActivePdf);
+      setConversations((prev) =>
+        prev.map((c) =>
+          c.id === sessionId
+            ? {
+                ...c,
+                documents: remainingDocs,
+                pdf: nextActivePdf,
+                document_id: nextActivePdf ? nextActivePdf.id : null,
+              }
+            : c
+        )
+      );
+      showToast('info', 'Report Detached', 'Document detached from this consultation.');
+    } catch (err) {
+      showToast('error', 'Detach Failed', err.message);
+    }
+  };
+
   const handleRemoveFile = () => {
-    // Remove document from current conversation — downgrade to general session
+    // Remove all documents from current conversation — downgrade to general session
     setActivePdf(null);
     setConversations((prev) =>
       prev.map((c) =>
         c.id === sessionId
-          ? { ...c, pdf: null, document_id: null }
+          ? { ...c, pdf: null, document_id: null, documents: [] }
           : c
       )
     );
   };
 
-  const handleSendMessage = async (userQuery) => {
+  const handleSendMessage = async (userQuery, options = {}) => {
     if (!userQuery || isGenerating) return;
+    const { appendUserMessage = true } = options;
 
-    const userMsgObj = {
-      id: Date.now(),
-      sender: 'user',
-      text: userQuery,
-      timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-    };
+    if (appendUserMessage) {
+      const userMsgObj = {
+        id: Date.now(),
+        sender: 'user',
+        text: userQuery,
+        timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+      };
 
-    // Auto-name from first message if title is still generic
-    setConversations((prev) =>
-      prev.map((c) =>
-        c.id === sessionId
-          ? {
-              ...c,
-              title: (c.title === 'New Consultation' || c.title === 'New chat')
-                ? autoNameFromQuery(userQuery)
-                : c.title,
-              messages: [...c.messages, userMsgObj],
-            }
-          : c
-      )
-    );
+      // Auto-name from first message if title is still generic
+      setConversations((prev) =>
+        prev.map((c) =>
+          c.id === sessionId
+            ? {
+                ...c,
+                title: (c.title === 'New Consultation' || c.title === 'New chat')
+                  ? autoNameFromQuery(userQuery)
+                  : c.title,
+                messages: [...c.messages, userMsgObj],
+              }
+            : c
+        )
+      );
+    }
 
     setIsGenerating(true);
+    const controller = new AbortController();
+    abortControllerRef.current = controller;
 
     try {
       // Read document ID from current conversation
@@ -395,6 +501,8 @@ export default function ChatApp() {
         id: Date.now() + 1,
         sender: 'assistant',
         text: '',
+        status: 'Analyzing your question...',
+        isStreaming: true,
         sources: [],
         timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
       };
@@ -407,53 +515,103 @@ export default function ChatApp() {
         )
       );
 
-      // Send query — chatDocId may be null for general-health (no PDF)
-      await sendQueryStream(userQuery, chatDocId, language, (chunk) => {
+      // Send query — route through sessionId so backend searches ALL attached docs
+      await sendQueryStream(userQuery, chatDocId || sessionId, language, (chunk) => {
         setConversations((prev) =>
           prev.map((c) => {
             if (c.id !== sessionId) return c;
             const newMsgs = [...c.messages];
             const lastMsg = { ...newMsgs[newMsgs.length - 1] };
 
-            if (chunk.sources) {
+            if (chunk.stage && chunk.message) {
+              lastMsg.status = chunk.message;
+            } else if (chunk.metrics) {
+              lastMsg.metrics = chunk.metrics;
+            } else if (chunk.sources) {
               lastMsg.sources = chunk.sources;
             } else if (chunk.specialists) {
               lastMsg.specialists = chunk.specialists;
             } else if (chunk.chunk) {
-              lastMsg.text += chunk.chunk;
+              lastMsg.text = (lastMsg.text || '') + chunk.chunk;
+              lastMsg.status = null;
             } else if (chunk.error) {
-              lastMsg.text = `⚠️ **Error:** ${chunk.error}`;
+              lastMsg.error = chunk.error || 'Something went wrong. Tap to retry.';
+              lastMsg.status = null;
+              lastMsg.isStreaming = false;
             }
 
             newMsgs[newMsgs.length - 1] = lastMsg;
             return { ...c, messages: newMsgs };
           })
         );
-      }, chatPatientId);
+      }, chatPatientId, controller.signal);
 
     } catch (err) {
-      showToast('error', 'Query Error', err.message);
-      const errorMsgObj = {
-        id: Date.now() + 1,
-        sender: 'assistant',
-        text: `⚠️ **Error:** ${err.message}`,
-        timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-      };
-      setConversations((prev) =>
-        prev.map((c) =>
-          c.id === sessionId ? { ...c, messages: [...c.messages, errorMsgObj] } : c
-        )
-      );
+      if (err && err.name === 'AbortError') {
+        // User stopped generation — keep any partial text, skip the error toast.
+      } else {
+        showToast('error', 'Query Error', err.message);
+        setConversations((prev) =>
+          prev.map((c) => {
+            if (c.id !== sessionId) return c;
+            const newMsgs = [...c.messages];
+            if (newMsgs.length > 0 && newMsgs[newMsgs.length - 1].sender === 'assistant') {
+              const lastMsg = { ...newMsgs[newMsgs.length - 1] };
+              lastMsg.error = err.message;
+              lastMsg.status = null;
+              lastMsg.isStreaming = false;
+              newMsgs[newMsgs.length - 1] = lastMsg;
+            }
+            return { ...c, messages: newMsgs };
+          })
+        );
+      }
     } finally {
+      setConversations((prev) =>
+        prev.map((c) => {
+          if (c.id !== sessionId) return c;
+          const newMsgs = [...c.messages];
+          if (newMsgs.length > 0 && newMsgs[newMsgs.length - 1].sender === 'assistant') {
+            const lastMsg = { ...newMsgs[newMsgs.length - 1] };
+            lastMsg.isStreaming = false;
+            lastMsg.status = null;
+            newMsgs[newMsgs.length - 1] = lastMsg;
+          }
+          return { ...c, messages: newMsgs };
+        })
+      );
       setIsGenerating(false);
+      abortControllerRef.current = null;
     }
   };
 
-  const handleRegenerate = () => {
-    const lastUserMsg = [...messages].reverse().find((m) => m.sender === 'user');
-    if (lastUserMsg) {
-      handleSendMessage(lastUserMsg.text);
+  const handleStopGeneration = () => {
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort();
+      abortControllerRef.current = null;
     }
+    setIsGenerating(false);
+  };
+
+  const handleRegenerate = () => {
+    if (isGenerating) return;
+    const lastUserMsg = [...messages].reverse().find((m) => m.sender === 'user');
+    if (!lastUserMsg) return;
+
+    // Drop ONLY the trailing assistant message; the user's question is preserved.
+    setConversations((prev) =>
+      prev.map((c) => {
+        if (c.id !== sessionId) return c;
+        const msgs = [...c.messages];
+        if (msgs.length > 0 && msgs[msgs.length - 1].sender === 'assistant') {
+          msgs.pop();
+        }
+        return { ...c, messages: msgs };
+      })
+    );
+
+    // Re-stream the same question WITHOUT appending a duplicate user bubble.
+    handleSendMessage(lastUserMsg.text, { appendUserMessage: false });
   };
 
   const handleNewChat = () => {
@@ -555,10 +713,11 @@ export default function ChatApp() {
   };
 
   const handleSetDarkMode = useCallback((val) => {
-    const next = typeof val === 'function' ? val(darkMode) : val;
-    setDarkMode(next);
-    localStorage.setItem('mediskye_theme', next ? 'dark' : 'light');
-  }, [darkMode]);
+    const currentDark = resolveDarkMode(themePreference);
+    const nextDark = typeof val === 'function' ? val(currentDark) : val;
+    // An explicit light/dark toggle opts out of 'system' tracking.
+    setThemePreference(nextDark ? 'dark' : 'light');
+  }, [themePreference]);
 
   const handleDeleteAccount = async () => {
     try {
@@ -578,33 +737,56 @@ export default function ChatApp() {
   };
 
   return (
-    <div className={`flex h-screen w-screen overflow-hidden transition-colors duration-200 ${
+    <div className={`relative flex h-screen w-screen overflow-hidden transition-colors duration-200 ${
       darkMode ? 'bg-black text-slate-100' : 'bg-zinc-50 text-zinc-900'
     }`}>
-      <Sidebar
-        isOpen={isSidebarOpen}
-        onToggle={() => setIsSidebarOpen(!isSidebarOpen)}
-        conversations={conversations}
-        activeSessionId={sessionId}
-        onSelectChat={handleSelectChat}
-        onDeleteChat={handleDeleteChat}
-        onRenameChat={handleRenameChat}
-        onNewChat={handleNewChat}
-        onOpenSettings={() => setIsSettingsOpen(true)}
-        onOpenProfile={handleOpenProfile}
-        darkMode={darkMode}
-        setDarkMode={handleSetDarkMode}
-        activePdf={activePdf}
-        language={language}
-        setLanguage={setLanguage}
-        onLogout={handleLogout}
-        currentUser={currentUser}
-      />
+      {/* Mobile overlay backdrop when open on < 768px */}
+      {sidebarOpen && (
+        <div
+          data-testid="sidebar-backdrop"
+          className="fixed inset-0 bg-black/50 z-30 md:hidden"
+          onClick={toggleSidebar}
+        />
+      )}
 
-      <main className={`flex-1 flex flex-col h-full overflow-hidden relative transition-colors duration-200 ${
-        darkMode ? 'bg-black' : 'bg-zinc-50'
-      }`}>
+      {/* Sidebar container with DeepSeek-style GPU-accelerated slide */}
+      <div
+        data-testid="sidebar-wrapper"
+        className={`fixed inset-y-0 left-0 z-40 w-72 flex-shrink-0 transition-transform duration-250 ease-in-out ${
+          sidebarOpen ? 'translate-x-0' : '-translate-x-full'
+        }`}
+        style={{ transitionDuration: '250ms' }}
+      >
+        <Sidebar
+          isOpen={sidebarOpen}
+          onToggle={toggleSidebar}
+          conversations={conversations}
+          activeSessionId={sessionId}
+          onSelectChat={handleSelectChat}
+          onDeleteChat={handleDeleteChat}
+          onRenameChat={handleRenameChat}
+          onNewChat={handleNewChat}
+          onOpenSettings={() => setIsSettingsOpen(true)}
+          onOpenProfile={handleOpenProfile}
+          darkMode={darkMode}
+          setDarkMode={handleSetDarkMode}
+          activePdf={activePdf}
+          language={language}
+          setLanguage={setLanguage}
+          onLogout={handleLogout}
+          currentUser={currentUser}
+        />
+      </div>
+
+      <main
+        className={`flex-1 flex flex-col h-full overflow-hidden relative transition-all duration-250 ease-in-out ${
+          sidebarOpen ? 'md:ml-72' : 'md:ml-0'
+        } ${darkMode ? 'bg-black' : 'bg-zinc-50'}`}
+        style={{ transitionDuration: '250ms' }}
+      >
         <ChatWindow
+          sidebarOpen={sidebarOpen}
+          toggleSidebar={toggleSidebar}
           messages={messages}
           isGenerating={isGenerating}
           onRegenerate={handleRegenerate}
@@ -612,6 +794,14 @@ export default function ChatApp() {
           onSelectSampleQuery={handleSendMessage}
           onAttachFile={handleAttachFile}
           activePdf={activePdf}
+          attachedDocuments={Array.isArray(currentChat.documents) && currentChat.documents.length > 0
+            ? currentChat.documents
+            : (activePdf ? [{ id: currentChat.document_id || 'doc-1', name: activePdf.name, filename: activePdf.name }] : [])}
+          onDetachDocument={handleDetachDocument}
+          onOpenUpload={() => {
+            const fileInput = document.querySelector('input[type="file"]');
+            if (fileInput) fileInput.click();
+          }}
           documentId={currentChat.document_id}
           showToast={showToast}
           darkMode={darkMode}
@@ -629,7 +819,7 @@ export default function ChatApp() {
           activeFile={activePdf}
           onRemoveFile={handleRemoveFile}
           isGenerating={isGenerating}
-          onStopGeneration={() => setIsGenerating(false)}
+          onStopGeneration={handleStopGeneration}
           showToast={showToast}
           darkMode={darkMode}
           currentUser={currentUser}
@@ -647,6 +837,8 @@ export default function ChatApp() {
         onClose={() => setIsSettingsOpen(false)}
         darkMode={darkMode}
         setDarkMode={handleSetDarkMode}
+        themePreference={themePreference}
+        setThemePreference={setThemePreference}
         onClearAllChats={handleClearAllChats}
         onDeleteAccount={handleDeleteAccount}
         onProfileUpdated={(updated) => setCurrentUser(updated)}
@@ -665,6 +857,13 @@ export default function ChatApp() {
           onProfileUpdated={refreshPatientContext}
         />
       )}
+
+      <MemoryConsentModal
+        isOpen={showMemoryConsentModal}
+        onAllow={handleAllowMemory}
+        onSkip={handleSkipMemory}
+        darkMode={darkMode}
+      />
 
       <Toast toasts={toasts} onDismiss={dismissToast} />
     </div>

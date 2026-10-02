@@ -1,5 +1,5 @@
 import uuid
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, UTC
 from typing import Optional
 import jwt
 from passlib.context import CryptContext
@@ -42,11 +42,16 @@ def get_password_hash(password: str) -> str:
 
 def create_access_token(data: dict, expires_delta: Optional[timedelta] = None):
     to_encode = data.copy()
-    if expires_delta:
-        expire = datetime.utcnow() + expires_delta
-    else:
-        expire = datetime.utcnow() + timedelta(minutes=15)
-    to_encode.update({"exp": expire, "jti": str(uuid.uuid4())})
+    now = datetime.now(UTC)
+    # Default to the configured lifetime (7 days) instead of an unconfigured
+    # 15-minute value that was logging users out mid-session.
+    lifetime = expires_delta if expires_delta is not None else timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
+    expire = now + lifetime
+    to_encode.update({
+        "exp": expire,
+        "iat": now.timestamp(),
+        "jti": str(uuid.uuid4()),
+    })
     encoded_jwt = jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
     return encoded_jwt
 
@@ -69,6 +74,16 @@ async def get_current_user(token: str = Depends(oauth2_scheme), db: AsyncSession
     is_blocked = await redis_client.get(f"blocked_token:{jti}")
     if is_blocked:
         raise credentials_exception
+
+    # Check if user signed out of all devices
+    revoked_at = await redis_client.get(f"user_revoked_at:{email}")
+    if revoked_at is not None:
+        iat = payload.get("iat")
+        try:
+            if iat is None or float(iat) <= float(revoked_at):
+                raise credentials_exception
+        except (ValueError, TypeError):
+            raise credentials_exception
     
     result = await db.execute(select(User).filter(User.email == email))
     user = result.scalars().first()

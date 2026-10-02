@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { User, Users, ChevronDown, Check, Plus, HeartPulse } from 'lucide-react';
+import { User, ChevronDown, Check, Plus, HeartPulse } from 'lucide-react';
 
 export default function PatientContextSelector({
   currentUser,

@@ -5,6 +5,8 @@ os.environ.setdefault(
     "JWT_SECRET_KEY",
     "test_jwt_secret_key_at_least_32_characters_long_for_unit_tests!"
 )
+os.environ.setdefault("DATABASE_URL", "sqlite+aiosqlite:///:memory:")
+os.environ.setdefault("ENV", "test")
 
 # Shared test password — must be ≤72 bytes for bcrypt compatibility across OSes.
 TEST_PASSWORD = "TestPassword123!"

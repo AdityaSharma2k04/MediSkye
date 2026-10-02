@@ -1,6 +1,8 @@
 import uuid
-from typing import List
+import logging
+from typing import List, Optional
 from uuid import UUID
+from datetime import datetime, UTC
 from pathlib import Path
 import shutil
 import os
@@ -9,12 +11,22 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 
 from app.db.database import get_db
-from app.db.models import User, DependentProfile, Document, Chat
-from app.core.auth import get_current_user
-from app.schemas.user import UserResponse, UserUpdate
+from app.db.models import User, DependentProfile, Document, Chat, PatientFact
+from app.core.auth import get_current_user, verify_password, get_password_hash
+from app.schemas.user import (
+    UserResponse,
+    UserUpdate,
+    PasswordChange,
+    MemoryConsentRequest,
+    PatientFactResponse,
+    PatientFactCreate,
+    PatientFactUpdate,
+)
 from app.schemas.dependent import DependentCreate, DependentUpdate, DependentResponse
 from app.core.audit import log_audit
 from app.services.patient_service import calculate_age
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(tags=["Users & Dependents"])
 
@@ -25,6 +37,7 @@ async def read_user_me(current_user: User = Depends(get_current_user)):
     return user_res
 
 @router.put("/users/me", response_model=UserResponse)
+@router.patch("/users/me", response_model=UserResponse)
 async def update_user_me(
     request: Request,
     user_update: UserUpdate,
@@ -44,6 +57,25 @@ async def update_user_me(
     user_res.calculated_age = calculate_age(current_user.date_of_birth)
     return user_res
 
+
+@router.post("/users/me/password")
+async def change_password(
+    body: PasswordChange,
+    request: Request,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Change the current user's password after verifying their existing password."""
+    if not verify_password(body.current_password, current_user.hashed_password):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Current password is incorrect",
+        )
+    current_user.hashed_password = get_password_hash(body.new_password)
+    await db.commit()
+    await log_audit(db, "PASSWORD_CHANGED", current_user.id, "change_password", request.client.host)
+    return {"message": "Password changed successfully"}
+
 @router.delete("/users/me", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_user_me(
     request: Request,
@@ -60,7 +92,7 @@ async def delete_user_me(
                 if os.path.exists(doc.file_path):
                     shutil.rmtree(doc.file_path)
             except Exception as e:
-                print(f"Error removing physical files for doc {doc.id}: {e}")
+                logger.error("Error removing physical files for doc %s: %s", doc.id, e)
                 
             # Delete corresponding BM25 index pickle file even if FAISS directory was missing
             try:
@@ -69,7 +101,7 @@ async def delete_user_me(
             except FileNotFoundError:
                 pass
             except Exception as e:
-                print(f"Error removing BM25 index for doc {doc.id}: {e}")
+                logger.error("Error removing BM25 index for doc %s: %s", doc.id, e)
                 
     await db.execute(Chat.__table__.delete().where(Chat.user_id == current_user.id))
     await db.execute(Document.__table__.delete().where(Document.user_id == current_user.id))
@@ -176,6 +208,10 @@ async def create_dependent(
         pre_existing_conditions=dependent_in.pre_existing_conditions,
         known_allergies=dependent_in.known_allergies,
         current_medications=dependent_in.current_medications,
+        height_cm=dependent_in.height_cm,
+        diet_type=dependent_in.diet_type,
+        activity_level=dependent_in.activity_level,
+        occupation=dependent_in.occupation,
     )
     db.add(dep)
     await db.commit()
@@ -240,3 +276,219 @@ async def delete_dependent(
     await db.delete(dep)
     await db.commit()
     return None
+
+
+# ==========================================
+# Patient Memory & Facts Endpoints
+# ==========================================
+
+@router.post("/users/me/memory/consent")
+@router.post("/memory/consent")
+async def update_memory_consent(
+    request: Request,
+    body: MemoryConsentRequest,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Enable or disable long-term memory extraction and cross-session personalization."""
+    current_user.memory_consent_granted = body.consent
+    db.add(current_user)
+    await db.commit()
+    await db.refresh(current_user)
+    await log_audit(
+        db,
+        "MEMORY_CONSENT_GRANTED" if body.consent else "MEMORY_CONSENT_REVOKED",
+        current_user.id,
+        "memory_consent",
+        request.client.host,
+    )
+    return {
+        "status": "success",
+        "memory_consent_granted": current_user.memory_consent_granted,
+    }
+
+
+@router.get("/users/me/memory/status")
+@router.get("/memory/status")
+async def get_memory_status(
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Get the current memory consent status and total number of remembered facts."""
+    res = await db.execute(
+        select(PatientFact).filter(
+            PatientFact.user_id == current_user.id,
+            PatientFact.is_active == True,
+        )
+    )
+    facts = res.scalars().all()
+    return {
+        "memory_consent_granted": current_user.memory_consent_granted,
+        "fact_count": len(facts),
+    }
+
+
+@router.get("/users/me/facts", response_model=List[PatientFactResponse])
+@router.get("/users/me/memory/facts", response_model=List[PatientFactResponse])
+@router.get("/memory/facts", response_model=List[PatientFactResponse])
+async def get_user_facts(
+    dependent_id: Optional[str] = None,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Retrieve all active structured health facts remembered for the user or dependent."""
+    filters = [
+        PatientFact.user_id == current_user.id,
+        PatientFact.is_active.is_(True),
+    ]
+    if dependent_id:
+        try:
+            dep_uuid = UUID(dependent_id)
+            filters.append(PatientFact.dependent_id == dep_uuid)
+        except ValueError:
+            pass
+    else:
+        filters.append(PatientFact.dependent_id.is_(None))
+
+    res = await db.execute(
+        select(PatientFact)
+        .filter(*filters)
+        .order_by(
+            PatientFact.is_user_verified.desc(),
+            PatientFact.confidence.desc(),
+            PatientFact.last_seen_at.desc(),
+        )
+    )
+    facts = res.scalars().all()
+    return [PatientFactResponse.model_validate(f) for f in facts]
+
+
+@router.post("/users/me/facts", response_model=PatientFactResponse, status_code=status.HTTP_201_CREATED)
+async def create_user_fact(
+    body: PatientFactCreate,
+    request: Request,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Manually add a health fact for the current user or their dependent."""
+    dep_uuid = None
+    if body.dependent_id:
+        dep_res = await db.execute(
+            select(DependentProfile).filter(
+                DependentProfile.id == body.dependent_id,
+                DependentProfile.user_id == current_user.id,
+            )
+        )
+        dep = dep_res.scalars().first()
+        if not dep:
+            raise HTTPException(status_code=404, detail="Dependent profile not found.")
+        dep_uuid = dep.id
+
+    now = datetime.now(UTC)
+    new_fact = PatientFact(
+        user_id=current_user.id,
+        dependent_id=dep_uuid,
+        fact_type=body.fact_type,
+        fact_text=body.fact_text,
+        confidence=body.confidence if body.confidence is not None else 1.0,
+        is_active=True,
+        is_user_verified=True,
+        source_type=body.source_type or "user_edit",
+        source_id=None,
+        source_excerpt=body.source_excerpt,
+        first_seen_at=now,
+        last_seen_at=now,
+        created_at=now,
+    )
+    db.add(new_fact)
+    await db.commit()
+    await db.refresh(new_fact)
+
+    await log_audit(db, "FACT_CREATED_MANUAL", current_user.id, f"fact_{new_fact.id}", request.client.host)
+    return PatientFactResponse.model_validate(new_fact)
+
+
+@router.patch("/users/me/facts/{fact_id}", response_model=PatientFactResponse)
+async def update_user_fact(
+    fact_id: UUID,
+    body: PatientFactUpdate,
+    request: Request,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Update a specific remembered health fact (auth-gated, cross-user returns 404)."""
+    res = await db.execute(
+        select(PatientFact).filter(
+            PatientFact.id == fact_id,
+            PatientFact.user_id == current_user.id,
+        )
+    )
+    fact = res.scalars().first()
+    if not fact:
+        raise HTTPException(status_code=404, detail="Fact not found.")
+
+    update_data = body.model_dump(exclude_unset=True)
+    for field, val in update_data.items():
+        setattr(fact, field, val)
+
+    fact.last_seen_at = datetime.now(UTC)
+    db.add(fact)
+    await db.commit()
+    await db.refresh(fact)
+
+    await log_audit(db, "FACT_UPDATED", current_user.id, f"fact_{fact_id}", request.client.host)
+    return PatientFactResponse.model_validate(fact)
+
+
+@router.delete("/users/me/facts/{fact_id}")
+@router.delete("/users/me/memory/facts/{fact_id}")
+@router.delete("/memory/facts/{fact_id}")
+async def delete_memory_fact(
+    fact_id: UUID,
+    request: Request,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Soft delete a specific remembered health fact (auth-gated, cross-user returns 404)."""
+    res = await db.execute(
+        select(PatientFact).filter(
+            PatientFact.id == fact_id,
+            PatientFact.user_id == current_user.id,
+        )
+    )
+    fact = res.scalars().first()
+    if not fact:
+        raise HTTPException(status_code=404, detail="Fact not found.")
+
+    fact.is_active = False
+    fact.last_seen_at = datetime.now(UTC)
+    await db.commit()
+    await log_audit(db, "FACT_DELETED", current_user.id, f"fact_{fact_id}", request.client.host)
+    return {"message": "Fact deleted successfully", "id": str(fact_id)}
+
+
+@router.delete("/users/me/memory/facts")
+@router.delete("/memory/facts")
+async def clear_all_memory_facts(
+    request: Request,
+    dependent_id: Optional[str] = None,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Soft delete all remembered health facts for the user or dependent."""
+    filters = [PatientFact.user_id == current_user.id]
+    if dependent_id:
+        try:
+            dep_uuid = UUID(dependent_id)
+            filters.append(PatientFact.dependent_id == dep_uuid)
+        except ValueError:
+            pass
+
+    res = await db.execute(select(PatientFact).filter(*filters))
+    facts = res.scalars().all()
+    for f in facts:
+        f.is_active = False
+    await db.commit()
+    await log_audit(db, "ALL_FACTS_CLEARED", current_user.id, "memory", request.client.host)
+    return {"message": "All memory facts cleared successfully", "count": len(facts)}
+

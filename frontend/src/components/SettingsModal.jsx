@@ -12,15 +12,46 @@ import {
   Download,
   Trash2,
   UserX,
-  LogOut,
   Lock,
   Eye,
   EyeOff,
   ExternalLink,
+  Brain,
+  Activity,
 } from 'lucide-react';
 import ConfirmModal from './ConfirmModal';
-import { updateProfile } from '../services/api';
+import HealthProfile from './HealthProfile';
+import {
+  getProfile,
+  updateProfile,
+  changePassword,
+  updateMemoryConsent,
+  getMemoryFacts,
+  deleteMemoryFact,
+  clearAllMemoryFacts,
+} from '../services/api';
+import { logger } from '../services/logger';
 
+function getCategoryBadgeStyle(type = '') {
+  const t = (type || '').toLowerCase();
+  switch (t) {
+    case 'condition':
+      return 'bg-rose-500/10 text-rose-400 border-rose-500/20';
+    case 'medication':
+      return 'bg-blue-500/10 text-blue-400 border-blue-500/20';
+    case 'weight':
+      return 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20';
+    case 'sport_hobby':
+    case 'lifestyle':
+      return 'bg-purple-500/10 text-purple-400 border-purple-500/20';
+    case 'allergy':
+      return 'bg-amber-500/10 text-amber-400 border-amber-500/20';
+    case 'measurement':
+      return 'bg-cyan-500/10 text-cyan-400 border-cyan-500/20';
+    default:
+      return 'bg-zinc-500/10 text-zinc-400 border-zinc-500/20';
+  }
+}
 
 const APP_VERSION = '2.0.0';
 
@@ -82,9 +113,10 @@ function ChangePasswordModal({ isOpen, onClose, darkMode, showToast }) {
   const [confirm, setConfirm] = useState('');
   const [showCurrent, setShowCurrent] = useState(false);
   const [showNext, setShowNext] = useState(false);
+  const [loading, setLoading] = useState(false);
 
   useEffect(() => {
-    if (!isOpen) { setCurrent(''); setNext(''); setConfirm(''); }
+    if (!isOpen) { setCurrent(''); setNext(''); setConfirm(''); setLoading(false); }
   }, [isOpen]);
 
   useEffect(() => {
@@ -97,6 +129,20 @@ function ChangePasswordModal({ isOpen, onClose, darkMode, showToast }) {
   if (!isOpen) return null;
 
   const canSave = current && next.length >= 8 && next === confirm;
+
+  const handleSave = async () => {
+    if (!canSave || loading) return;
+    setLoading(true);
+    try {
+      await changePassword(current, next);
+      if (showToast) showToast('success', 'Password Changed', 'Password changed successfully');
+      onClose();
+    } catch (err) {
+      if (showToast) showToast('error', 'Password Change Failed', err.message);
+    } finally {
+      setLoading(false);
+    }
+  };
 
   return (
     <div
@@ -125,6 +171,7 @@ function ChangePasswordModal({ isOpen, onClose, darkMode, showToast }) {
                 type={showCurrent ? 'text' : 'password'}
                 value={current}
                 onChange={(e) => setCurrent(e.target.value)}
+                aria-label="Current password"
                 className={inputClass(darkMode) + ' pr-9'}
               />
               <button type="button" onClick={() => setShowCurrent(!showCurrent)} aria-label="Toggle password visibility" className={`absolute right-2.5 top-2 ${darkMode ? 'text-zinc-500 hover:text-zinc-300' : 'text-zinc-400 hover:text-zinc-600'}`}>
@@ -138,6 +185,7 @@ function ChangePasswordModal({ isOpen, onClose, darkMode, showToast }) {
                 type={showNext ? 'text' : 'password'}
                 value={next}
                 onChange={(e) => setNext(e.target.value)}
+                aria-label="New password"
                 className={inputClass(darkMode) + ' pr-9'}
               />
               <button type="button" onClick={() => setShowNext(!showNext)} aria-label="Toggle password visibility" className={`absolute right-2.5 top-2 ${darkMode ? 'text-zinc-500 hover:text-zinc-300' : 'text-zinc-400 hover:text-zinc-600'}`}>
@@ -150,6 +198,7 @@ function ChangePasswordModal({ isOpen, onClose, darkMode, showToast }) {
               type="password"
               value={confirm}
               onChange={(e) => setConfirm(e.target.value)}
+              aria-label="Confirm new password"
               className={inputClass(darkMode)}
             />
             {confirm && next !== confirm && (
@@ -160,11 +209,11 @@ function ChangePasswordModal({ isOpen, onClose, darkMode, showToast }) {
         <div className={`px-5 py-3 flex justify-end gap-2 border-t ${darkMode ? 'border-zinc-800 bg-zinc-950' : 'border-zinc-100 bg-zinc-50'}`}>
           <button onClick={onClose} className={`px-4 py-2 text-xs rounded-xl border ${darkMode ? 'border-zinc-700 text-zinc-300 hover:bg-zinc-800' : 'border-zinc-200 text-zinc-600 hover:bg-zinc-100'}`}>Cancel</button>
           <button
-            disabled={!canSave}
-            onClick={() => { if (showToast) showToast('info', 'Password change is not yet wired to the backend.'); onClose(); }}
-            className={`px-4 py-2 text-xs font-medium rounded-xl text-white transition-colors ${canSave ? 'bg-zinc-900 hover:bg-zinc-800 dark:bg-zinc-100 dark:text-zinc-900 dark:hover:bg-zinc-200' : 'bg-zinc-500 opacity-50 cursor-not-allowed'}`}
+            disabled={!canSave || loading}
+            onClick={handleSave}
+            className={`px-4 py-2 text-xs font-medium rounded-xl text-white transition-colors ${canSave && !loading ? 'bg-zinc-900 hover:bg-zinc-800 dark:bg-zinc-100 dark:text-zinc-900 dark:hover:bg-zinc-200' : 'bg-zinc-500 opacity-50 cursor-not-allowed'}`}
           >
-            Save
+            {loading ? 'Saving...' : 'Save'}
           </button>
         </div>
       </div>
@@ -216,6 +265,8 @@ export default function SettingsModal({
   onClose,
   darkMode,
   setDarkMode,
+  themePreference,
+  setThemePreference,
   onClearAllChats,
   onDeleteAccount,
   language,
@@ -229,6 +280,21 @@ export default function SettingsModal({
   const [showDisclaimer, setShowDisclaimer] = useState(false);
   const [showClearConfirm, setShowClearConfirm] = useState(false);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [showClearMemoryConfirm, setShowClearMemoryConfirm] = useState(false);
+
+  // Patient Memory State
+  const [memoryConsent, setMemoryConsent] = useState(currentUser?.memory_consent_granted ?? false);
+  const [loadingMemory, setLoadingMemory] = useState(false);
+  const [memoryFacts, setMemoryFacts] = useState([]);
+  const [deletingFactId, setDeletingFactId] = useState(null);
+
+  // Keep the latest callback in a ref so the load effect can call it without
+  // being listed as a dependency (the parent passes a fresh inline function
+  // each render, which would otherwise re-run the effect forever).
+  const onProfileUpdatedRef = useRef(onProfileUpdated);
+  useEffect(() => {
+    onProfileUpdatedRef.current = onProfileUpdated;
+  }, [onProfileUpdated]);
 
   // Profile fields (synced with currentUser and persisted via PUT /users/me on blur)
   const [fullName, setFullName] = useState(currentUser?.full_name || '');
@@ -242,8 +308,90 @@ export default function SettingsModal({
       setDob(currentUser.date_of_birth || '');
       setBioSex(currentUser.biological_sex || 'Prefer not to say');
       setBloodType(currentUser.blood_type || 'Unknown');
+      if (typeof currentUser.memory_consent_granted === 'boolean') {
+        setMemoryConsent(currentUser.memory_consent_granted);
+      }
     }
   }, [currentUser]);
+
+  useEffect(() => {
+    if (!isOpen) return;
+    async function loadSettingsData() {
+      try {
+        setLoadingMemory(true);
+        const profilePromise = typeof getProfile === 'function' ? Promise.resolve(getProfile()).catch(() => null) : Promise.resolve(null);
+        const factsPromise = typeof getMemoryFacts === 'function' ? Promise.resolve(getMemoryFacts()).catch(() => []) : Promise.resolve([]);
+        const [profile, facts] = await Promise.all([profilePromise, factsPromise]);
+        if (profile) {
+          if (typeof profile.memory_consent_granted === 'boolean') {
+            setMemoryConsent(profile.memory_consent_granted);
+          }
+          if (profile.full_name !== undefined) setFullName(profile.full_name || '');
+          if (profile.date_of_birth !== undefined) setDob(profile.date_of_birth || '');
+          if (profile.biological_sex !== undefined) setBioSex(profile.biological_sex || 'Prefer not to say');
+          if (profile.blood_type !== undefined) setBloodType(profile.blood_type || 'Unknown');
+          if (onProfileUpdatedRef.current) {
+            onProfileUpdatedRef.current(profile);
+          }
+        }
+        if (Array.isArray(facts)) {
+          setMemoryFacts(facts);
+        }
+      } catch (err) {
+        logger.error('Error fetching settings data:', err);
+      } finally {
+        setLoadingMemory(false);
+      }
+    }
+    loadSettingsData();
+  }, [isOpen]);
+
+  const handleToggleMemoryConsent = async () => {
+    const nextVal = !memoryConsent;
+    setMemoryConsent(nextVal);
+    try {
+      await updateMemoryConsent(nextVal);
+      if (showToast) {
+        showToast(
+          'success',
+          nextVal ? 'Memory Enabled' : 'Memory Disabled',
+          nextVal
+            ? 'MediSkye will remember key clinical facts across sessions.'
+            : 'MediSkye will no longer store or recall facts across sessions.'
+        );
+      }
+      if (onProfileUpdated) {
+        onProfileUpdated({ ...currentUser, memory_consent_granted: nextVal });
+      }
+    } catch (err) {
+      setMemoryConsent(!nextVal);
+      if (showToast) showToast('error', 'Update Failed', err.message);
+    }
+  };
+
+  const handleDeleteFact = async (factId) => {
+    setDeletingFactId(factId);
+    try {
+      await deleteMemoryFact(factId);
+      setMemoryFacts((prev) => prev.filter((f) => f.id !== factId));
+      if (showToast) showToast('success', 'Fact Removed', 'Health fact removed from memory.');
+    } catch (err) {
+      if (showToast) showToast('error', 'Delete Failed', err.message);
+    } finally {
+      setDeletingFactId(null);
+    }
+  };
+
+  const handleClearAllFacts = async () => {
+    try {
+      await clearAllMemoryFacts();
+      setMemoryFacts([]);
+      setShowClearMemoryConfirm(false);
+      if (showToast) showToast('info', 'Memory Cleared', 'All remembered health facts have been wiped.');
+    } catch (err) {
+      if (showToast) showToast('error', 'Clear Failed', err.message);
+    }
+  };
 
   const saveAccountField = async (fieldKey, value, setter) => {
     const backendKeyMap = {
@@ -286,19 +434,37 @@ export default function SettingsModal({
   const modalRef = useRef(null);
   const closeRef = useRef(null);
 
-  // Sync theme toggle with parent darkMode
+  // Sync theme toggle with parent preference (falls back to resolved darkMode)
   useEffect(() => {
-    setTheme(darkMode ? 'dark' : 'light');
-  }, [darkMode]);
+    if (themePreference) setTheme(themePreference);
+    else setTheme(darkMode ? 'dark' : 'light');
+  }, [themePreference, darkMode]);
 
-  // Apply theme selection
+  // Apply theme selection — persist 'system' as-is when the parent supports it
   const applyTheme = (t) => {
     setTheme(t);
-    if (t === 'dark') setDarkMode(true);
-    else if (t === 'light') setDarkMode(false);
-    else {
+    if (setThemePreference) {
+      setThemePreference(t);
+    } else if (t === 'dark') {
+      setDarkMode(true);
+    } else if (t === 'light') {
+      setDarkMode(false);
+    } else {
       const sys = window.matchMedia('(prefers-color-scheme: dark)').matches;
       setDarkMode(sys);
+    }
+  };
+
+  const handleLanguageChange = async (value) => {
+    const previous = language;
+    if (setLanguage) setLanguage(value);
+    try {
+      const updated = await updateProfile({ language_preference: value });
+      if (onProfileUpdated) onProfileUpdated(updated);
+      if (showToast) showToast('success', 'Language Updated', 'Your language preference has been saved.');
+    } catch (err) {
+      if (setLanguage && previous) setLanguage(previous);
+      if (showToast) showToast('error', 'Update Failed', err.message || 'Could not save language preference.');
     }
   };
 
@@ -335,7 +501,7 @@ export default function SettingsModal({
       >
         <div
           ref={modalRef}
-          className={`${base} rounded-2xl shadow-2xl border max-w-md w-full max-h-[88vh] flex flex-col overflow-hidden`}
+          className={`${base} rounded-2xl shadow-2xl border max-w-lg w-full max-h-[88vh] flex flex-col overflow-hidden`}
           onMouseDown={(e) => e.stopPropagation()}
         >
           {/* Header */}
@@ -375,10 +541,12 @@ export default function SettingsModal({
                     className={inputClass(darkMode) + ' flex-1 opacity-60 cursor-not-allowed'}
                   />
                   <button
-                    className={`text-[11px] px-2.5 py-1.5 rounded-lg border whitespace-nowrap transition-colors ${darkMode ? 'border-zinc-700 text-zinc-300 hover:bg-zinc-800' : 'border-zinc-200 text-zinc-600 hover:bg-zinc-50'}`}
-                    onClick={() => showToast && showToast('info', 'Email change coming soon')}
+                    type="button"
+                    disabled
+                    title="Coming soon — contact support to change your email"
+                    className={`text-[11px] px-2.5 py-1.5 rounded-lg border whitespace-nowrap cursor-not-allowed opacity-50 ${darkMode ? 'border-zinc-700 text-zinc-500' : 'border-zinc-200 text-zinc-400'}`}
                   >
-                    Change
+                    Change email
                   </button>
                 </div>
               </Field>
@@ -428,7 +596,7 @@ export default function SettingsModal({
               <Field label="Language" darkMode={darkMode}>
                 <select
                   value={language || 'English'}
-                  onChange={(e) => setLanguage && setLanguage(e.target.value)}
+                  onChange={(e) => handleLanguageChange(e.target.value)}
                   className={selectClass(darkMode)}
                 >
                   {LANGUAGES.map((l) => <option key={l.code} value={l.code}>{l.label}</option>)}
@@ -458,6 +626,133 @@ export default function SettingsModal({
               </Field>
             </Section>
 
+            {/* ── PATIENT MEMORY ── */}
+            <Section title="Patient Memory" icon={Brain} darkMode={darkMode}>
+              <div className="space-y-3">
+                {/* Consent Toggle Switch */}
+                <div className={`p-3.5 rounded-xl border flex items-center justify-between gap-3 ${
+                  darkMode ? 'bg-zinc-950 border-zinc-800' : 'bg-zinc-50 border-zinc-200'
+                }`}>
+                  <div className="space-y-0.5 pr-2">
+                    <div className="flex items-center gap-2">
+                      <span className="text-xs font-semibold">Cross-Session Memory</span>
+                      <span className={`text-[10px] px-1.5 py-0.2 rounded-full font-medium border ${
+                        memoryConsent
+                          ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20'
+                          : 'bg-zinc-500/10 text-zinc-400 border-zinc-500/20'
+                      }`}>
+                        {memoryConsent ? 'Active' : 'Disabled'}
+                      </span>
+                    </div>
+                    <p className={`text-[11px] leading-relaxed ${darkMode ? 'text-zinc-400' : 'text-zinc-500'}`}>
+                      Allow MediSkye to remember clinical facts across sessions (conditions, medications, lab trends, lifestyle).
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    role="switch"
+                    aria-checked={memoryConsent}
+                    onClick={handleToggleMemoryConsent}
+                    className={`relative inline-flex h-5 w-9 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none ${
+                      memoryConsent ? 'bg-emerald-500' : darkMode ? 'bg-zinc-700' : 'bg-zinc-300'
+                    }`}
+                  >
+                    <span
+                      className={`pointer-events-none inline-block h-4 w-4 transform rounded-full bg-white shadow-lg ring-0 transition duration-200 ease-in-out ${
+                        memoryConsent ? 'translate-x-4' : 'translate-x-0'
+                      }`}
+                    />
+                  </button>
+                </div>
+
+                {/* Facts Browser */}
+                <div className={`p-3.5 rounded-xl border ${
+                  darkMode ? 'bg-zinc-950 border-zinc-800' : 'bg-zinc-50 border-zinc-200'
+                }`}>
+                  <div className="flex items-center justify-between mb-2">
+                    <div className="flex items-center gap-2">
+                      <span className="text-xs font-medium">Remembered Facts</span>
+                      <span className={`text-[10px] px-2 py-0.5 rounded-full font-medium ${
+                        darkMode ? 'bg-zinc-800 text-zinc-300' : 'bg-zinc-200 text-zinc-700'
+                      }`}>
+                        {memoryFacts.length}
+                      </span>
+                    </div>
+                    {memoryFacts.length > 0 && (
+                      <button
+                        type="button"
+                        onClick={() => setShowClearMemoryConfirm(true)}
+                        className="text-[11px] text-red-400 hover:text-red-300 transition-colors"
+                      >
+                        Clear memory
+                      </button>
+                    )}
+                  </div>
+
+                  {loadingMemory ? (
+                    <div className="py-4 text-center text-xs text-zinc-500">Loading remembered facts...</div>
+                  ) : memoryFacts.length === 0 ? (
+                    <p className={`text-[11px] py-1 leading-relaxed ${darkMode ? 'text-zinc-500' : 'text-zinc-400'}`}>
+                      {memoryConsent
+                        ? 'No clinical facts remembered yet. As you consult with MediSkye or upload reports, key findings will appear here.'
+                        : 'Memory is currently disabled. Enable memory above to allow MediSkye to remember clinical context across chats.'}
+                    </p>
+                  ) : (
+                    <div className="space-y-2 mt-2 max-h-56 overflow-y-auto pr-1">
+                      {memoryFacts.map((fact) => {
+                        const catStyle = getCategoryBadgeStyle(fact.fact_type || fact.category);
+                        return (
+                          <div
+                            key={fact.id}
+                            className={`p-2.5 rounded-lg border text-xs flex items-start justify-between gap-2.5 ${
+                              darkMode ? 'bg-zinc-900 border-zinc-800' : 'bg-white border-zinc-200'
+                            }`}
+                          >
+                            <div className="space-y-1 flex-1 min-w-0">
+                              <div className="flex items-center gap-1.5 flex-wrap">
+                                <span className={`text-[10px] font-medium px-1.5 py-0.5 rounded border uppercase tracking-wider ${catStyle}`}>
+                                  {fact.fact_type || fact.category}
+                                </span>
+                                {fact.source_type && (
+                                  <span className="text-[10px] text-zinc-500">
+                                    • {fact.source_type.replace('_', ' ')}
+                                  </span>
+                                )}
+                              </div>
+                              <p className={`text-xs font-medium break-words ${darkMode ? 'text-zinc-200' : 'text-zinc-800'}`}>
+                                {fact.fact_text || fact.fact_value}
+                              </p>
+                            </div>
+                            <button
+                              type="button"
+                              disabled={deletingFactId === fact.id}
+                              onClick={() => handleDeleteFact(fact.id)}
+                              className={`p-1 rounded-md text-zinc-400 hover:text-red-400 transition-colors shrink-0 ${
+                                darkMode ? 'hover:bg-zinc-800' : 'hover:bg-zinc-100'
+                              }`}
+                              title="Delete fact"
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                            </button>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+              </div>
+            </Section>
+
+            {/* ── HEALTH PROFILE ── */}
+            <Section title="Health Profile" icon={Activity} darkMode={darkMode}>
+              <HealthProfile
+                currentUser={currentUser}
+                onProfileUpdated={onProfileUpdated}
+                darkMode={darkMode}
+                showToast={showToast}
+              />
+            </Section>
+
             {/* ── SECURITY ── */}
             <Section title="Security" icon={Lock} darkMode={darkMode}>
               <div className="flex flex-col gap-2">
@@ -468,15 +763,6 @@ export default function SettingsModal({
                   }`}
                 >
                   <span className="flex items-center gap-2"><Lock className="w-3.5 h-3.5" /> Change password</span>
-                  <span className={`text-[10px] ${darkMode ? 'text-zinc-500' : 'text-zinc-400'}`}>→</span>
-                </button>
-                <button
-                  onClick={() => showToast && showToast('info', 'Sign out of all devices coming soon')}
-                  className={`w-full flex items-center justify-between px-3 py-2.5 rounded-xl border text-xs transition-colors ${
-                    darkMode ? 'border-zinc-700 text-zinc-300 hover:bg-zinc-800' : 'border-zinc-200 text-zinc-700 hover:bg-zinc-50'
-                  }`}
-                >
-                  <span className="flex items-center gap-2"><LogOut className="w-3.5 h-3.5" /> Sign out of all devices</span>
                   <span className={`text-[10px] ${darkMode ? 'text-zinc-500' : 'text-zinc-400'}`}>→</span>
                 </button>
               </div>
@@ -529,11 +815,15 @@ export default function SettingsModal({
                 <ExternalLink className="w-3 h-3 opacity-50" />
               </button>
               <button
-                onClick={() => showToast && showToast('info', 'Privacy policy coming soon')}
-                className={`w-full flex items-center justify-between px-3 py-2.5 rounded-xl border text-xs transition-colors ${darkMode ? 'border-zinc-800 text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800' : 'border-zinc-100 text-zinc-500 hover:text-zinc-700 hover:bg-zinc-50'}`}
+                type="button"
+                disabled
+                title="Policy coming soon"
+                className={`w-full flex items-center justify-between px-3 py-2.5 rounded-xl border text-xs cursor-not-allowed opacity-50 ${darkMode ? 'border-zinc-800 text-zinc-500' : 'border-zinc-100 text-zinc-400'}`}
               >
                 <span className="flex items-center gap-2"><Info className="w-3.5 h-3.5" /> Privacy policy</span>
-                <ExternalLink className="w-3 h-3 opacity-50" />
+                <span className={`text-[10px] px-1.5 py-0.5 rounded border ${darkMode ? 'border-zinc-700 text-zinc-500' : 'border-zinc-200 text-zinc-400'}`}>
+                  Coming soon
+                </span>
               </button>
             </Section>
           </div>
@@ -576,6 +866,18 @@ export default function SettingsModal({
         body="All chat history, uploaded report references, and patient context will be permanently deleted. This cannot be undone. Your account and profile will remain intact."
         confirmLabel="Delete everything"
         requireTyping="DELETE"
+        closeable={false}
+        darkMode={darkMode}
+      />
+
+      <ConfirmModal
+        isOpen={showClearMemoryConfirm}
+        onClose={() => setShowClearMemoryConfirm(false)}
+        onConfirm={handleClearAllFacts}
+        title="Clear remembered health facts?"
+        body="This will permanently delete all clinical facts remembered about you across conversations. Chat history will not be deleted, but future questions will not reference past medical history."
+        confirmLabel="Clear memory"
+        requireTyping="CLEAR"
         closeable={false}
         darkMode={darkMode}
       />

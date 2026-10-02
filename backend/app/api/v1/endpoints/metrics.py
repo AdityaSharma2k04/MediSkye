@@ -1,5 +1,6 @@
 import json
 import uuid
+import logging
 from fastapi import APIRouter, Depends, Header, Request, HTTPException
 from google import genai
 from slowapi import Limiter
@@ -16,6 +17,8 @@ from app.db.models import User, Document
 from app.schemas.upload import MetricsResponse, LabMetricItem
 from app.rag.retriever import retrieve_relevant_docs
 from app.rag.embedder import get_embedder
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
@@ -87,5 +90,5 @@ async def extract_metrics(
         metrics = [LabMetricItem(**item) for item in parsed]
         return MetricsResponse(metrics=metrics)
     except Exception as err:
-        print("Metrics extraction error:", err)
+        logger.error("Metrics extraction error: %s", err)
         return MetricsResponse(metrics=[])

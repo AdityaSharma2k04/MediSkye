@@ -1,4 +1,5 @@
 // Speech Service - Web Speech API (Voice-to-Text & Text-to-Speech)
+import { logger } from './logger';
 
 export function startSpeechRecognition(onResult, onError, onEnd) {
   const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
@@ -34,7 +35,8 @@ export function startSpeechRecognition(onResult, onError, onEnd) {
 
 export function speakText(text, onEnd) {
   if (!('speechSynthesis' in window)) {
-    alert('Text-to-speech is not supported in this browser.');
+    logger.warn('Text-to-speech is not supported in this browser.');
+    if (onEnd) onEnd();
     return;
   }
 

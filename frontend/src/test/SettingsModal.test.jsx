@@ -5,8 +5,18 @@ import SettingsModal from '../components/SettingsModal';
 import * as api from '../services/api';
 
 vi.mock('../services/api', () => ({
+  getProfile: vi.fn().mockResolvedValue(null),
   updateProfile: vi.fn(),
+  changePassword: vi.fn(),
   deleteAccount: vi.fn(),
+  getMemoryStatus: vi.fn().mockResolvedValue({ memory_consent_granted: false, fact_count: 0 }),
+  getMemoryFacts: vi.fn().mockResolvedValue([]),
+  getFacts: vi.fn().mockResolvedValue([]),
+  createFact: vi.fn(),
+  updateFact: vi.fn(),
+  deleteFact: vi.fn(),
+  updateMemoryConsent: vi.fn(),
+  clearAllMemoryFacts: vi.fn(),
 }));
 
 describe('SettingsModal Account fields & Deletion', () => {
@@ -140,5 +150,151 @@ describe('SettingsModal Account fields & Deletion', () => {
     // Confirm deletion
     fireEvent.click(confirmActionBtn);
     expect(onDeleteAccount).toHaveBeenCalledTimes(1);
+  });
+
+  it('fetches profile and facts on modal open, asserts toggle shows correct state and facts list renders', async () => {
+    const mockFacts = [
+      { id: 'fact-1', fact_type: 'condition', fact_text: 'Asthma diagnosed 2020', confidence: 1.0, is_user_verified: true, source_type: 'user_edit' },
+      { id: 'fact-2', fact_type: 'allergy', fact_text: 'Penicillin allergy', confidence: 1.0, is_user_verified: true, source_type: 'user_edit' },
+    ];
+    api.getProfile.mockResolvedValueOnce({
+      ...mockUser,
+      memory_consent_granted: true,
+      diet_type: 'vegan',
+      activity_level: 'moderate',
+    });
+    api.getMemoryFacts.mockResolvedValueOnce(mockFacts);
+
+    render(
+      <SettingsModal
+        isOpen={true}
+        onClose={vi.fn()}
+        darkMode={false}
+        currentUser={null}
+      />
+    );
+
+    // Verify GET /users/me and GET /users/me/facts were called
+    await waitFor(() => {
+      expect(api.getProfile).toHaveBeenCalled();
+      expect(api.getMemoryFacts).toHaveBeenCalled();
+    });
+
+    // Memory toggle should show 'Active'
+    await waitFor(() => {
+      expect(screen.getByText('Active')).toBeInTheDocument();
+    });
+
+    // Facts list should render facts
+    expect(screen.getByText('Asthma diagnosed 2020')).toBeInTheDocument();
+    expect(screen.getByText('Penicillin allergy')).toBeInTheDocument();
+  });
+
+  it('wires change password modal to changePassword API and shows success toast on save', async () => {
+    const showToast = vi.fn();
+    api.changePassword.mockResolvedValueOnce({ message: 'Password changed successfully' });
+
+    render(
+      <SettingsModal
+        isOpen={true}
+        onClose={vi.fn()}
+        darkMode={false}
+        currentUser={mockUser}
+        showToast={showToast}
+      />
+    );
+
+    // Open change password submodal
+    const changePwdBtn = screen.getByRole('button', { name: /change password/i });
+    fireEvent.click(changePwdBtn);
+
+    expect(screen.getByRole('dialog', { name: /change password/i })).toBeInTheDocument();
+
+    const currentInput = screen.getByLabelText('Current password');
+    const newInput = screen.getByLabelText('New password');
+    const confirmInput = screen.getByLabelText('Confirm new password');
+
+    fireEvent.change(currentInput, { target: { value: 'OldPassword123!' } });
+    fireEvent.change(newInput, { target: { value: 'NewPassword123!' } });
+    fireEvent.change(confirmInput, { target: { value: 'NewPassword123!' } });
+
+    const saveBtn = screen.getByRole('button', { name: 'Save' });
+    expect(saveBtn).toBeEnabled();
+    fireEvent.click(saveBtn);
+
+    await waitFor(() => {
+      expect(api.changePassword).toHaveBeenCalledWith('OldPassword123!', 'NewPassword123!');
+      expect(showToast).toHaveBeenCalledWith('success', 'Password Changed', expect.any(String));
+    });
+  });
+
+  it('persists the language preference via updateProfile', async () => {
+    const showToast = vi.fn();
+    const setLanguage = vi.fn();
+    const onProfileUpdated = vi.fn();
+    api.updateProfile.mockResolvedValueOnce({ ...mockUser, language_preference: 'Spanish' });
+
+    render(
+      <SettingsModal
+        isOpen={true}
+        onClose={vi.fn()}
+        darkMode={false}
+        currentUser={mockUser}
+        language="English"
+        setLanguage={setLanguage}
+        showToast={showToast}
+        onProfileUpdated={onProfileUpdated}
+      />
+    );
+
+    const select = screen.getByDisplayValue('English (US)');
+    fireEvent.change(select, { target: { value: 'Spanish' } });
+
+    expect(setLanguage).toHaveBeenCalledWith('Spanish');
+    await waitFor(() => {
+      expect(api.updateProfile).toHaveBeenCalledWith({ language_preference: 'Spanish' });
+    });
+    await waitFor(() => {
+      expect(showToast).toHaveBeenCalledWith('success', 'Language Updated', expect.any(String));
+      expect(onProfileUpdated).toHaveBeenCalledWith(expect.objectContaining({ language_preference: 'Spanish' }));
+    });
+  });
+
+  it('persists the System theme preference without collapsing it to dark/light', () => {
+    const setThemePreference = vi.fn();
+
+    render(
+      <SettingsModal
+        isOpen={true}
+        onClose={vi.fn()}
+        darkMode={false}
+        setDarkMode={vi.fn()}
+        themePreference="light"
+        setThemePreference={setThemePreference}
+        currentUser={mockUser}
+      />
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: /system/i }));
+    expect(setThemePreference).toHaveBeenCalledWith('system');
+  });
+
+  it('renders Change email and Privacy policy as disabled with tooltips', () => {
+    render(
+      <SettingsModal
+        isOpen={true}
+        onClose={vi.fn()}
+        darkMode={false}
+        currentUser={mockUser}
+      />
+    );
+
+    const emailBtn = screen.getByRole('button', { name: /change email/i });
+    expect(emailBtn).toBeDisabled();
+    expect(emailBtn).toHaveAttribute('title', 'Coming soon — contact support to change your email');
+
+    const privacyBtn = screen.getByRole('button', { name: /privacy policy/i });
+    expect(privacyBtn).toBeDisabled();
+    expect(privacyBtn).toHaveAttribute('title', 'Policy coming soon');
   });
 });

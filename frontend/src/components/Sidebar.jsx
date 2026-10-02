@@ -15,6 +15,7 @@ import {
   Pencil,
   Check,
   X,
+  LogOut,
 } from 'lucide-react';
 import ConfirmModal from './ConfirmModal';
 
@@ -51,6 +52,7 @@ export default function Sidebar({
 }) {
   const [searchQuery, setSearchQuery] = useState('');
   const [pendingDeleteId, setPendingDeleteId] = useState(null);
+  const [pendingLogout, setPendingLogout] = useState(false);
   const [openMenuId, setOpenMenuId] = useState(null);
   const [renamingId, setRenamingId] = useState(null);
   const [renameValue, setRenameValue] = useState('');
@@ -108,11 +110,11 @@ export default function Sidebar({
   return (
     <>
       <aside
-        className={`fixed lg:static inset-y-0 left-0 z-40 flex flex-col transition-all duration-300 ease-in-out border-r ${
+        className={`w-72 h-full flex flex-col border-r ${
           darkMode
             ? 'bg-[#09090B] border-zinc-800/80'
             : 'bg-white border-zinc-200'
-        } ${isOpen ? 'w-64 sm:w-72' : 'w-0 lg:w-16 overflow-hidden'}`}
+        }`}
       >
         <div className={`p-4 flex items-center justify-between border-b ${darkMode ? 'border-zinc-800/80' : 'border-zinc-200'}`}>
           {isOpen ? (
@@ -201,12 +203,10 @@ export default function Sidebar({
                   const displayTitle = chat.title || 'New Consultation';
 
                   return (
-                    <div key={chat.id} className="relative group flex items-center w-full" ref={openMenuId === chat.id ? menuRef : null}>
+                    <div key={chat.id} className="relative group flex items-center w-full min-w-0" ref={openMenuId === chat.id ? menuRef : null}>
                       {isRenaming ? (
-                        /* Inline rename input */
-                        <div className={`flex-1 flex items-center gap-1 p-1.5 rounded-xl border ${
-                          darkMode ? 'bg-zinc-800 border-zinc-700' : 'bg-zinc-50 border-zinc-300'
-                        }`}>
+                        /* Inline rename row — replaces the title in place, inside the chat item */
+                        <div className="flex-1 flex items-center gap-1 min-w-0">
                           <input
                             ref={renameInputRef}
                             type="text"
@@ -217,14 +217,23 @@ export default function Sidebar({
                               if (e.key === 'Escape') cancelRename();
                             }}
                             maxLength={60}
-                            className={`flex-1 text-xs bg-transparent focus:outline-none ${
-                              darkMode ? 'text-white' : 'text-zinc-900'
-                            }`}
+                            aria-label="Rename chat"
+                            className="flex-1 min-w-0 text-xs bg-gray-800 text-white px-2 py-1 rounded border border-gray-600 focus:outline-none focus:border-blue-500"
                           />
-                          <button onClick={() => commitRename(chat.id)} aria-label="Confirm rename" className="text-emerald-400 hover:text-emerald-300 p-0.5">
+                          <button
+                            type="button"
+                            onClick={() => commitRename(chat.id)}
+                            aria-label="Confirm rename"
+                            className="shrink-0 p-1 rounded text-emerald-400 hover:text-emerald-300 hover:bg-zinc-700/50 transition-colors"
+                          >
                             <Check className="w-3.5 h-3.5" />
                           </button>
-                          <button onClick={cancelRename} aria-label="Cancel rename" className={`p-0.5 ${darkMode ? 'text-zinc-500 hover:text-zinc-300' : 'text-zinc-400 hover:text-zinc-600'}`}>
+                          <button
+                            type="button"
+                            onClick={cancelRename}
+                            aria-label="Cancel rename"
+                            className="shrink-0 p-1 rounded text-zinc-400 hover:text-zinc-200 hover:bg-zinc-700/50 transition-colors"
+                          >
                             <X className="w-3.5 h-3.5" />
                           </button>
                         </div>
@@ -335,6 +344,18 @@ export default function Sidebar({
                 <span>Settings</span>
               </button>
 
+              <button
+                onClick={() => setPendingLogout(true)}
+                className={`w-full flex items-center gap-2 p-2 rounded-xl text-xs transition-colors ${
+                  darkMode
+                    ? 'text-zinc-400 hover:bg-zinc-900 hover:text-white'
+                    : 'text-zinc-500 hover:bg-zinc-100 hover:text-zinc-900'
+                }`}
+              >
+                <LogOut className="w-3.5 h-3.5 text-red-400" />
+                <span>Log out</span>
+              </button>
+
               {/* A6: End-to-end encrypted badge (not HIPAA claim) */}
               <div className="pt-2 flex items-center gap-2.5 px-2">
                 <div className={`w-6 h-6 rounded-full flex items-center justify-center font-bold text-xs ${darkMode ? 'bg-zinc-800 text-zinc-300' : 'bg-zinc-100 text-zinc-600'}`}>
@@ -362,6 +383,22 @@ export default function Sidebar({
         title="Delete this conversation?"
         body="This will permanently delete the chat history and any patient context linked to this session. This action cannot be undone."
         confirmLabel="Delete"
+        requireTyping={null}
+        closeable={true}
+        darkMode={darkMode}
+      />
+
+      {/* Logout confirmation modal */}
+      <ConfirmModal
+        isOpen={pendingLogout}
+        onClose={() => setPendingLogout(false)}
+        onConfirm={() => {
+          setPendingLogout(false);
+          if (onLogout) onLogout();
+        }}
+        title="Log out of MediSkye?"
+        body="You will be returned to the login screen and any locally cached health data on this device will be cleared."
+        confirmLabel="Log out"
         requireTyping={null}
         closeable={true}
         darkMode={darkMode}

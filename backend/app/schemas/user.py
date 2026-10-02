@@ -1,4 +1,4 @@
-from pydantic import BaseModel, EmailStr, Field
+from pydantic import BaseModel, EmailStr, Field, ConfigDict
 from typing import Optional
 from uuid import UUID
 from datetime import datetime, date
@@ -23,6 +23,11 @@ class UserUpdate(BaseModel):
     language_preference: Optional[str] = None
     emergency_contact_name: Optional[str] = None
     emergency_contact_phone: Optional[str] = None
+    height_cm: Optional[float] = None
+    diet_type: Optional[str] = None
+    activity_level: Optional[str] = None
+    occupation: Optional[str] = None
+    memory_consent_granted: Optional[bool] = None
 
 class UserResponse(BaseModel):
     id: UUID
@@ -40,12 +45,61 @@ class UserResponse(BaseModel):
     language_preference: Optional[str] = "English"
     emergency_contact_name: Optional[str] = None
     emergency_contact_phone: Optional[str] = None
+    height_cm: Optional[float] = None
+    diet_type: Optional[str] = None
+    activity_level: Optional[str] = None
+    occupation: Optional[str] = None
+    memory_consent_granted: bool = False
 
-    class Config:
-        from_attributes = True
-
+    model_config = ConfigDict(from_attributes=True)
 
 
 class Token(BaseModel):
     access_token: str
     token_type: str
+
+
+class MemoryConsentRequest(BaseModel):
+    consent: bool
+
+
+class PasswordChange(BaseModel):
+    current_password: str = Field(min_length=8, max_length=72)
+    new_password: str = Field(min_length=8, max_length=72)
+
+
+class PatientFactCreate(BaseModel):
+    fact_type: str = Field(..., description="condition|medication|allergy|family_history|symptom|lifestyle|measurement|procedure|weight|sport_hobby")
+    fact_text: str
+    confidence: Optional[float] = 1.0
+    source_type: Optional[str] = "user_edit"
+    source_excerpt: Optional[str] = None
+    dependent_id: Optional[UUID] = None
+
+
+class PatientFactUpdate(BaseModel):
+    fact_type: Optional[str] = None
+    fact_text: Optional[str] = None
+    confidence: Optional[float] = None
+    is_active: Optional[bool] = None
+    is_user_verified: Optional[bool] = None
+
+
+class PatientFactResponse(BaseModel):
+    id: UUID
+    user_id: UUID
+    dependent_id: Optional[UUID] = None
+    fact_type: str
+    fact_text: str
+    confidence: float = 1.0
+    is_active: bool = True
+    is_user_verified: bool = False
+    source_type: str = "chat"
+    source_id: Optional[str] = None
+    source_excerpt: Optional[str] = None
+    first_seen_at: Optional[datetime] = None
+    last_seen_at: Optional[datetime] = None
+    created_at: Optional[datetime] = None
+
+    model_config = ConfigDict(from_attributes=True)
+

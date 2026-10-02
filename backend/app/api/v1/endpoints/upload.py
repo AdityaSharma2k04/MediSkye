@@ -27,6 +27,7 @@ async def upload_file(
     request: Request,
     file: UploadFile = File(...),
     patient_id: Optional[str] = Form(None),
+    chat_id: Optional[str] = Form(None),
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
@@ -59,6 +60,22 @@ async def upload_file(
     db.add(doc)
     await db.commit()
     await db.refresh(doc)
+
+    # If active chat_id provided, link document to active chat session via ChatDocument
+    if chat_id:
+        try:
+            c_uuid = uuid.UUID(chat_id)
+            from app.db.models import ChatDocument, Chat
+            chat_res = await db.execute(
+                select(Chat).filter(Chat.id == c_uuid, Chat.user_id == current_user.id)
+            )
+            chat_obj = chat_res.scalars().first()
+            if chat_obj:
+                cd = ChatDocument(chat_id=chat_obj.id, document_id=doc.id)
+                db.add(cd)
+                await db.commit()
+        except (ValueError, Exception):
+            pass
 
     tmp_path = None
     try:

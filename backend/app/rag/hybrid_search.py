@@ -8,11 +8,14 @@ using RRF to get the best of keyword-exact and semantic-meaning retrieval.
 
 import pickle
 import re
+import logging
 from pathlib import Path
 from typing import Optional
 
 from langchain_core.documents import Document
 from rank_bm25 import BM25Okapi
+
+logger = logging.getLogger(__name__)
 
 
 # ─── Tokenizer ──────────────────────────────────────────────────────────
@@ -89,5 +92,5 @@ def load_bm25_index(index_path: str) -> Optional[BM25Index]:
             with open(bm25_path, "rb") as f:
                 return pickle.load(f)
         except Exception as e:
-            print(f"Warning: Could not load BM25 index from {bm25_path}: {e}")
+            logger.warning("Could not load BM25 index from %s: %s", bm25_path, e)
     return None

@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
-import { User, Users, HeartPulse, Save, X, Trash2, Edit2, Plus, Shield, Calendar, Phone } from 'lucide-react';
-import { getProfile, updateProfile, deleteAccount, getDependents, createDependent, updateDependent, deleteDependent } from '../services/api';
+import { User, Users, HeartPulse, Save, X, Trash2, Edit2, Plus, Shield, Phone, Activity } from 'lucide-react';
+import { getProfile, updateProfile, deleteAccount, getDependents, createDependent, updateDependent, deleteDependent, createMemoryFact, getMemoryFacts } from '../services/api';
+import { logger } from '../services/logger';
 
 const Input = ({ label, name, type = 'text', placeholder = '', value, onChange, darkMode, required = false }) => (
   <div className="mb-4">
@@ -78,6 +79,24 @@ const SEX_OPTIONS = ['Male', 'Female', 'Other', 'Prefer not to say'];
 const RELATIONSHIP_OPTIONS = ['Father', 'Mother', 'Daughter', 'Son', 'Spouse', 'Child', 'Grandparent', 'Other'];
 const LANGUAGE_OPTIONS = ['English', 'Spanish', 'Hindi', 'French', 'German'];
 
+const DIET_OPTIONS = [
+  { value: 'vegetarian', label: 'Vegetarian' },
+  { value: 'non_vegetarian', label: 'Non-Vegetarian' },
+  { value: 'vegan', label: 'Vegan' },
+  { value: 'eggetarian', label: 'Eggetarian' },
+  { value: 'jain', label: 'Jain' },
+  { value: 'pescatarian', label: 'Pescatarian' },
+  { value: 'other', label: 'Other' },
+];
+
+const ACTIVITY_OPTIONS = [
+  { value: 'sedentary', label: 'Sedentary (little to no exercise)' },
+  { value: 'light', label: 'Light (exercise 1-3 days/week)' },
+  { value: 'moderate', label: 'Moderate (exercise 3-5 days/week)' },
+  { value: 'active', label: 'Active (hard exercise 6-7 days/week)' },
+  { value: 'very_active', label: 'Very Active (physical job or athlete)' },
+];
+
 export default function Profile({ onClose, showToast, darkMode, initialTab = 'profile', onProfileUpdated }) {
   const [activeTab, setActiveTab] = useState(initialTab); // 'profile' or 'dependents'
   const [loading, setLoading] = useState(true);
@@ -95,6 +114,11 @@ export default function Profile({ onClose, showToast, darkMode, initialTab = 'pr
     language_preference: 'English',
     emergency_contact_name: '',
     emergency_contact_phone: '',
+    height_cm: '',
+    weight: '',
+    diet_type: '',
+    activity_level: '',
+    occupation: '',
   });
 
   // Dependents List & Form State
@@ -110,15 +134,31 @@ export default function Profile({ onClose, showToast, darkMode, initialTab = 'pr
     pre_existing_conditions: '',
     known_allergies: '',
     current_medications: '',
+    height_cm: '',
+    weight: '',
+    diet_type: '',
+    activity_level: '',
+    occupation: '',
   });
 
   useEffect(() => {
     async function loadData() {
       try {
-        const [profileData, depsData] = await Promise.all([
+        const [profileData, depsData, factsData] = await Promise.all([
           getProfile().catch(() => null),
           getDependents().catch(() => []),
+          getMemoryFacts().catch(() => []),
         ]);
+
+        let initialWeight = '';
+        if (Array.isArray(factsData)) {
+          const weightFacts = factsData.filter(f => (f.fact_type || f.category) === 'weight');
+          if (weightFacts.length > 0) {
+            const rawVal = weightFacts[0].fact_text || weightFacts[0].fact_value || '';
+            const match = rawVal.match(/([\d.]+)/);
+            if (match) initialWeight = match[1];
+          }
+        }
 
         if (profileData) {
           setFormData({
@@ -132,6 +172,11 @@ export default function Profile({ onClose, showToast, darkMode, initialTab = 'pr
             language_preference: profileData.language_preference || 'English',
             emergency_contact_name: profileData.emergency_contact_name || '',
             emergency_contact_phone: profileData.emergency_contact_phone || '',
+            height_cm: profileData.height_cm !== null && profileData.height_cm !== undefined ? String(profileData.height_cm) : '',
+            weight: initialWeight,
+            diet_type: profileData.diet_type || '',
+            activity_level: profileData.activity_level || '',
+            occupation: profileData.occupation || '',
           });
         }
 
@@ -158,10 +203,30 @@ export default function Profile({ onClose, showToast, darkMode, initialTab = 'pr
     try {
       const payload = {};
       for (const key in formData) {
-        payload[key] = formData[key] ? formData[key] : null;
+        if (key === 'weight') continue; // weight logged separately as fact
+        if (key === 'height_cm') {
+          payload[key] = formData[key] ? parseFloat(formData[key]) : null;
+        } else {
+          payload[key] = formData[key] ? formData[key] : null;
+        }
       }
       const updatedUser = await updateProfile(payload);
-      showToast('success', 'Profile Saved', 'Your personal and medical information has been updated.');
+
+      // If user supplied or updated weight, log as dynamic weight fact
+      if (formData.weight && formData.weight.trim()) {
+        try {
+          await createMemoryFact({
+            fact_type: 'weight',
+            fact_text: `${formData.weight.trim()} kg`,
+            confidence: 1.0,
+            source_type: 'user_edit',
+          });
+        } catch (e) {
+          logger.warn('Could not record weight fact:', e);
+        }
+      }
+
+      showToast('success', 'Profile Saved', 'Your personal, lifestyle, and medical information has been updated.');
       if (onProfileUpdated) onProfileUpdated(updatedUser);
       onClose();
     } catch (error) {
@@ -199,12 +264,30 @@ export default function Profile({ onClose, showToast, darkMode, initialTab = 'pr
       pre_existing_conditions: '',
       known_allergies: '',
       current_medications: '',
+      height_cm: '',
+      weight: '',
+      diet_type: '',
+      activity_level: '',
+      occupation: '',
     });
     setIsEditingDependent(true);
   };
 
-  const handleStartEditDependent = (dep) => {
+  const handleStartEditDependent = async (dep) => {
     setEditingDependentId(dep.id);
+
+    // Fetch existing weight facts for dependent
+    let depWeight = '';
+    try {
+      const depFacts = await getMemoryFacts(dep.id);
+      const weightFacts = depFacts.filter(f => (f.fact_type || f.category) === 'weight');
+      if (weightFacts.length > 0) {
+        const rawVal = weightFacts[0].fact_text || weightFacts[0].fact_value || '';
+        const match = rawVal.match(/([\d.]+)/);
+        if (match) depWeight = match[1];
+      }
+    } catch (e) {}
+
     setDependentForm({
       relationship: dep.relationship || 'Other',
       full_name: dep.full_name || '',
@@ -214,6 +297,11 @@ export default function Profile({ onClose, showToast, darkMode, initialTab = 'pr
       pre_existing_conditions: dep.pre_existing_conditions || '',
       known_allergies: dep.known_allergies || '',
       current_medications: dep.current_medications || '',
+      height_cm: dep.height_cm !== null && dep.height_cm !== undefined ? String(dep.height_cm) : '',
+      weight: depWeight,
+      diet_type: dep.diet_type || '',
+      activity_level: dep.activity_level || '',
+      occupation: dep.occupation || '',
     });
     setIsEditingDependent(true);
   };
@@ -232,19 +320,42 @@ export default function Profile({ onClose, showToast, darkMode, initialTab = 'pr
     setSaving(true);
     try {
       const payload = { ...dependentForm };
+      delete payload.weight; // weight logged separately
+      if (payload.height_cm) {
+        payload.height_cm = parseFloat(payload.height_cm);
+      } else {
+        payload.height_cm = null;
+      }
       for (const k in payload) {
         if (!payload[k]) payload[k] = null;
       }
 
+      let savedDep = null;
       if (editingDependentId) {
-        const updated = await updateDependent(editingDependentId, payload);
-        setDependents(prev => prev.map(d => d.id === editingDependentId ? updated : d));
-        showToast('success', 'Dependent Updated', `Updated profile for ${updated.full_name}.`);
+        savedDep = await updateDependent(editingDependentId, payload);
+        setDependents(prev => prev.map(d => d.id === editingDependentId ? savedDep : d));
+        showToast('success', 'Dependent Updated', `Updated profile for ${savedDep.full_name}.`);
       } else {
-        const created = await createDependent(payload);
-        setDependents(prev => [...prev, created]);
-        showToast('success', 'Dependent Added', `Added ${created.full_name} (${created.relationship}).`);
+        savedDep = await createDependent(payload);
+        setDependents(prev => [...prev, savedDep]);
+        showToast('success', 'Dependent Added', `Added ${savedDep.full_name} (${savedDep.relationship}).`);
       }
+
+      // Record weight fact if supplied
+      if (dependentForm.weight && dependentForm.weight.trim() && savedDep?.id) {
+        try {
+          await createMemoryFact({
+            fact_type: 'weight',
+            fact_text: `${dependentForm.weight.trim()} kg`,
+            confidence: 1.0,
+            source_type: 'user_edit',
+            dependent_id: savedDep.id,
+          });
+        } catch (e) {
+          logger.warn('Could not record dependent weight fact:', e);
+        }
+      }
+
       setIsEditingDependent(false);
       setEditingDependentId(null);
       if (onProfileUpdated) onProfileUpdated();
@@ -410,6 +521,64 @@ export default function Profile({ onClose, showToast, darkMode, initialTab = 'pr
                       value={formData.language_preference}
                       onChange={handleChange}
                       options={LANGUAGE_OPTIONS}
+                      darkMode={darkMode}
+                    />
+                  </div>
+                </div>
+              </div>
+
+              {/* Lifestyle & Vitals Card */}
+              <div className={cardClass}>
+                <div className="flex items-center gap-2 mb-1">
+                  <Activity className="w-4 h-4 text-emerald-400" />
+                  <h3 className={`font-medium text-sm ${textPrimary}`}>Lifestyle &amp; Vitals</h3>
+                </div>
+                <p className={`text-xs mb-4 ${textSecondary}`}>
+                  Personalize your clinical explanations based on your daily lifestyle, physical activity, and profession.
+                </p>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <Input
+                    label="Height (cm)"
+                    name="height_cm"
+                    type="number"
+                    value={formData.height_cm}
+                    onChange={handleChange}
+                    placeholder="e.g. 175"
+                    darkMode={darkMode}
+                  />
+                  <Input
+                    label="Current Weight (kg)"
+                    name="weight"
+                    type="number"
+                    value={formData.weight}
+                    onChange={handleChange}
+                    placeholder="e.g. 72.5"
+                    darkMode={darkMode}
+                  />
+                  <Select
+                    label="Dietary Pattern"
+                    name="diet_type"
+                    value={formData.diet_type}
+                    onChange={handleChange}
+                    options={DIET_OPTIONS}
+                    darkMode={darkMode}
+                  />
+                  <Select
+                    label="Physical Activity Level"
+                    name="activity_level"
+                    value={formData.activity_level}
+                    onChange={handleChange}
+                    options={ACTIVITY_OPTIONS}
+                    darkMode={darkMode}
+                  />
+                  <div className="sm:col-span-2">
+                    <Input
+                      label="Occupation / Daily Routine"
+                      name="occupation"
+                      value={formData.occupation}
+                      onChange={handleChange}
+                      placeholder="e.g. Software Engineer, Registered Nurse, Construction Worker"
                       darkMode={darkMode}
                     />
                   </div>
@@ -605,6 +774,60 @@ export default function Profile({ onClose, showToast, darkMode, initialTab = 'pr
                     </div>
                   </div>
 
+                  {/* Dependent Lifestyle & Vitals */}
+                  <div className="mt-4 pt-3 border-t border-zinc-800">
+                    <div className="flex items-center gap-2 mb-3">
+                      <Activity className="w-3.5 h-3.5 text-emerald-400" />
+                      <span className={`text-xs font-semibold uppercase tracking-wider ${textSecondary}`}>Lifestyle &amp; Vitals</span>
+                    </div>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                      <Input
+                        label="Height (cm)"
+                        name="height_cm"
+                        type="number"
+                        value={dependentForm.height_cm}
+                        onChange={handleDependentFormChange}
+                        placeholder="e.g. 160"
+                        darkMode={darkMode}
+                      />
+                      <Input
+                        label="Current Weight (kg)"
+                        name="weight"
+                        type="number"
+                        value={dependentForm.weight}
+                        onChange={handleDependentFormChange}
+                        placeholder="e.g. 55"
+                        darkMode={darkMode}
+                      />
+                      <Select
+                        label="Dietary Pattern"
+                        name="diet_type"
+                        value={dependentForm.diet_type}
+                        onChange={handleDependentFormChange}
+                        options={DIET_OPTIONS}
+                        darkMode={darkMode}
+                      />
+                      <Select
+                        label="Activity Level"
+                        name="activity_level"
+                        value={dependentForm.activity_level}
+                        onChange={handleDependentFormChange}
+                        options={ACTIVITY_OPTIONS}
+                        darkMode={darkMode}
+                      />
+                      <div className="sm:col-span-2">
+                        <Input
+                          label="Occupation / Schooling"
+                          name="occupation"
+                          value={dependentForm.occupation}
+                          onChange={handleDependentFormChange}
+                          placeholder="e.g. High school student, Retired teacher"
+                          darkMode={darkMode}
+                        />
+                      </div>
+                    </div>
+                  </div>
+
                   <div className="mt-3 space-y-3">
                     <TextArea
                       label="Pre-existing Conditions"
@@ -739,7 +962,7 @@ export default function Profile({ onClose, showToast, darkMode, initialTab = 'pr
                       </div>
 
                       {/* Clinical Summary Pills */}
-                      {(dep.pre_existing_conditions || dep.current_medications || dep.known_allergies) && (
+                      {(dep.pre_existing_conditions || dep.current_medications || dep.known_allergies || dep.diet_type || dep.activity_level || dep.occupation) && (
                         <div className="mt-3 pt-2 border-t border-zinc-800/60 text-xs space-y-1">
                           {dep.pre_existing_conditions && (
                             <div className="flex items-baseline gap-1.5 text-[11px]">
@@ -757,6 +980,25 @@ export default function Profile({ onClose, showToast, darkMode, initialTab = 'pr
                             <div className="flex items-baseline gap-1.5 text-[11px]">
                               <span className="text-zinc-500 font-medium shrink-0">Allergies:</span>
                               <span className={darkMode ? 'text-zinc-300' : 'text-zinc-700'}>{dep.known_allergies}</span>
+                            </div>
+                          )}
+                          {(dep.diet_type || dep.activity_level || dep.occupation) && (
+                            <div className="flex items-center gap-1.5 text-[10px] text-zinc-400 pt-1 flex-wrap">
+                              {dep.diet_type && (
+                                <span className="px-1.5 py-0.5 rounded bg-zinc-800/80 border border-zinc-700/50">
+                                  {dep.diet_type.replace('_', ' ')}
+                                </span>
+                              )}
+                              {dep.activity_level && (
+                                <span className="px-1.5 py-0.5 rounded bg-zinc-800/80 border border-zinc-700/50">
+                                  {dep.activity_level.replace('_', ' ')}
+                                </span>
+                              )}
+                              {dep.occupation && (
+                                <span className="px-1.5 py-0.5 rounded bg-zinc-800/80 border border-zinc-700/50">
+                                  {dep.occupation}
+                                </span>
+                              )}
                             </div>
                           )}
                         </div>

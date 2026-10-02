@@ -11,7 +11,7 @@ from app.db.database import get_db
 from app.db.models import User
 from app.schemas.user import UserCreate, UserResponse, Token
 from app.core.audit import log_audit
-from datetime import datetime
+from datetime import datetime, UTC
 from fastapi import Request
 
 router = APIRouter(tags=["Authentication"])
@@ -40,7 +40,7 @@ async def register(request: Request, user_in: UserCreate, db: AsyncSession = Dep
             email=normalized_email,
             hashed_password=get_password_hash(user_in.password),
             phi_consent_granted=True,
-            consent_timestamp=datetime.utcnow()
+            consent_timestamp=datetime.now(UTC)
         )
         db.add(user)
         await db.commit()
@@ -68,7 +68,7 @@ async def login(request: Request, db: AsyncSession = Depends(get_db), form_data:
     user = result.scalars().first()
     if not user or not verify_password(form_data.password, user.hashed_password):
         await log_audit(db, "FAILED_LOGIN", None, form_data.username, client_ip)
-        raise HTTPException(status_code=400, detail="Incorrect email or password")
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Incorrect email or password")
     
     await log_audit(db, "SUCCESSFUL_LOGIN", user.id, "auth", client_ip)
     access_token = create_access_token(data={"sub": user.email})

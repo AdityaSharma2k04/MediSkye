@@ -1,27 +1,39 @@
-from fastapi import APIRouter, Depends, Request, HTTPException, status
-from google import genai
+import re
+import os
+import json
+import uuid
+import asyncio
+import logging
+from typing import Optional, List, Dict, Any
+from pathlib import Path
+
+from fastapi import APIRouter, Depends, Request, HTTPException, status, BackgroundTasks
+from fastapi.responses import StreamingResponse
+from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
-from langchain_community.vectorstores import FAISS
 
 from app.core.config import settings
 from app.core.auth import get_current_user
 from app.core.limiter import limiter
-from app.db.database import get_db
-from app.db.models import User, Document, Chat
+from app.core.audit import log_audit
+from app.db.database import get_db, AsyncSessionLocal
+from app.db.models import User, Document, Chat, ChatDocument, DependentProfile, PatientFact
 from app.schemas.query import QueryRequest, QueryResponse, SourceChunk
 from app.rag.prompt_builder import build_prompt, build_general_health_prompt
-from app.rag.retriever import retrieve_relevant_docs
+from app.rag.intent_router import classify_intent, QueryIntent
 from app.rag.safety import append_disclaimer, get_emergency_response, is_emergency_query
-from app.rag.embedder import get_embedder
+from app.rag.retriever import load_hybrid_index, retrieve_relevant_docs, reciprocal_rank_fusion
+from app.rag.specialist_router import get_recommended_specialists
+from app.services.patient_service import calculate_age
+from app.services.patient_memory import get_active_facts, get_relevant_past_chunks, get_chat_documents
+from app.services.memory_formatter import format_facts_for_prompt, format_past_chats_for_prompt
+from app.services.fact_persistence import process_chat_memory_extraction
+from app.services.chat_indexer import index_chat_message
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
-
-
-import json
-from pydantic import BaseModel, Field
-from typing import Optional
-from fastapi.responses import StreamingResponse
 
 
 class RenameChatRequest(BaseModel):
@@ -36,9 +48,8 @@ async def rename_document_title(
     db: AsyncSession = Depends(get_db),
 ):
     """Rename the title of a document/session (auth-gated to owner)."""
-    import uuid as uuid_mod
     try:
-        doc_uuid = uuid_mod.UUID(document_id)
+        doc_uuid = uuid.UUID(document_id)
     except ValueError:
         raise HTTPException(status_code=400, detail="Invalid document ID.")
 
@@ -56,6 +67,40 @@ async def rename_document_title(
     return {"id": str(doc.id), "title": doc.title}
 
 
+def _extract_metrics_from_docs(retrieved_docs: List[Any]) -> List[Dict[str, Any]]:
+    """
+    Heuristically extract structured lab metrics from retrieved document chunks for the reference ranges expander.
+    Matches lines like: Glucose 105 mg/dL (70-99) High
+    """
+    metrics = []
+    seen = set()
+    pattern = re.compile(
+        r"(?P<name>[A-Za-z0-9\s\-/]+?)\s*[:=\t]\s*(?P<val>\d+(?:\.\d+)?)\s*(?P<unit>[a-zA-Z/%μ]+(?:\/[a-zA-Z0-9]+)?)\s*(?:\((?:ref:?\s*)?(?P<range>\d+(?:\.\d+)?\s*-\s*\d+(?:\.\d+)?)\))?\s*(?P<status>High|Low|Normal|Abnormal)?",
+        re.IGNORECASE,
+    )
+
+    for d in retrieved_docs:
+        text = d.page_content if hasattr(d, "page_content") else str(d)
+        for line in text.split("\n"):
+            line = line.strip()
+            m = pattern.search(line)
+            if m:
+                name = m.group("name").strip()
+                if len(name) > 35 or len(name) < 3 or name.lower() in seen:
+                    continue
+                seen.add(name.lower())
+                metrics.append({
+                    "name": name,
+                    "value": m.group("val"),
+                    "unit": m.group("unit"),
+                    "status": m.group("status").capitalize() if m.group("status") else "Normal",
+                    "range": m.group("range") or "Standard reference range",
+                })
+                if len(metrics) >= 12:
+                    return metrics
+    return metrics
+
+
 @router.post("/query", tags=["RAG Query"])
 @limiter.limit(settings.RATE_LIMIT_QUERY)
 async def query_bot(
@@ -64,73 +109,99 @@ async def query_bot(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    import uuid
-    # ── Resolve document (may not exist for general-health queries) ──
-    doc = None
-    doc_id_valid = False
-    try:
-        doc_id = uuid.UUID(body.session_id)
-        doc_id_valid = True
-    except ValueError:
-        pass  # Not a valid UUID → no document, treat as general-health
+    # ── Resolve documents associated with active session / chat ──
+    chat_docs: List[Document] = []
+    primary_doc: Optional[Document] = None
+    target_chat_id: Optional[uuid.UUID] = None
 
-    if doc_id_valid:
-        result = await db.execute(
-            select(Document).filter(Document.id == doc_id, Document.user_id == current_user.id)
-        )
-        doc = result.scalars().first()
+    if body.session_id:
+        try:
+            parsed_id = uuid.UUID(body.session_id)
+            # 1. Check if session_id is an existing chat_id
+            chat_check = await db.execute(
+                select(Chat).filter(Chat.id == parsed_id, Chat.user_id == current_user.id)
+            )
+            chat_found = chat_check.scalars().first()
+            if chat_found:
+                target_chat_id = chat_found.id
+                chat_docs = await get_chat_documents(target_chat_id, session=db)
+                if chat_docs:
+                    primary_doc = chat_docs[0]
+            else:
+                # 2. Check if session_id is a document_id
+                doc_check = await db.execute(
+                    select(Document).filter(Document.id == parsed_id, Document.user_id == current_user.id)
+                )
+                doc_found = doc_check.scalars().first()
+                if doc_found:
+                    primary_doc = doc_found
+                    chat_docs = [doc_found]
+        except ValueError:
+            pass
 
-    has_document = doc is not None and bool(doc.file_path)
+    has_document = len(chat_docs) > 0 and any(bool(d.file_path) for d in chat_docs)
 
-    # ── Intent Routing (document-aware) ──
-    from app.rag.intent_router import classify_intent, QueryIntent
-
+    # ── Emergency keyword gate ──
     if is_emergency_query(body.query):
         ai_msg = get_emergency_response()
-        # Log emergency without document requirement
-        if doc:
-            user_chat = Chat(user_id=current_user.id, document_id=doc.id, role="user", message=body.query)
-            db.add(user_chat)
-            ai_chat = Chat(user_id=current_user.id, document_id=doc.id, role="ai", message=ai_msg)
-            db.add(ai_chat)
-        else:
-            user_chat = Chat(user_id=current_user.id, document_id=None, role="user", message=body.query)
-            db.add(user_chat)
-            ai_chat = Chat(user_id=current_user.id, document_id=None, role="ai", message=ai_msg)
-            db.add(ai_chat)
+        user_chat = Chat(
+            user_id=current_user.id,
+            document_id=primary_doc.id if primary_doc else None,
+            role="user",
+            message=body.query,
+        )
+        ai_chat = Chat(
+            user_id=current_user.id,
+            document_id=primary_doc.id if primary_doc else None,
+            role="ai",
+            message=ai_msg,
+        )
+        db.add_all([user_chat, ai_chat])
         await db.commit()
 
         async def emergency_stream():
             yield f'data: {json.dumps({"chunk": ai_msg})}\n\n'
             yield f'data: [DONE]\n\n'
+
         return StreamingResponse(emergency_stream(), media_type="text/event-stream")
 
-    # Record user chat message (document_id may be None)
+    # Record user message in DB
     user_chat = Chat(
         user_id=current_user.id,
-        document_id=doc.id if doc else None,
+        document_id=primary_doc.id if primary_doc else None,
         role="user",
-        message=body.query
+        message=body.query,
     )
     db.add(user_chat)
     await db.commit()
+    await db.refresh(user_chat)
+    current_chat_id = user_chat.id
 
+    # Ensure ChatDocument associations exist for all attached docs
+    if chat_docs:
+        for cd_doc in chat_docs:
+            cd_check = await db.execute(
+                select(ChatDocument).filter(
+                    ChatDocument.chat_id == current_chat_id,
+                    ChatDocument.document_id == cd_doc.id,
+                )
+            )
+            if not cd_check.scalars().first():
+                db.add(ChatDocument(chat_id=current_chat_id, document_id=cd_doc.id))
+        await db.commit()
+
+    # ── Intent Classification ──
     intent = await classify_intent(body.query, has_document=has_document)
-
-    # Guard: if intent is DOCUMENT_QA but no document is linked, downgrade
     if intent == QueryIntent.DOCUMENT_QA and not has_document:
         intent = QueryIntent.GENERAL_HEALTH
 
-    # ── Active Profile & PHI Resolution (User or Dependent) ──
-    from app.db.models import DependentProfile
-    from app.services.patient_service import calculate_age
-
+    # ── Profile & PHI Context Resolution ──
     active_profile = current_user
-    active_dep_id = None
+    active_dep_id: Optional[uuid.UUID] = None
 
     target_patient_id = body.patient_id
-    if not target_patient_id and doc and doc.dependent_id:
-        target_patient_id = str(doc.dependent_id)
+    if not target_patient_id and primary_doc and primary_doc.dependent_id:
+        target_patient_id = str(primary_doc.dependent_id)
 
     if target_patient_id and target_patient_id.lower() != "self" and target_patient_id != str(current_user.id):
         try:
@@ -138,7 +209,7 @@ async def query_bot(
             dep_res = await db.execute(
                 select(DependentProfile).filter(
                     DependentProfile.id == p_uuid,
-                    DependentProfile.user_id == current_user.id
+                    DependentProfile.user_id == current_user.id,
                 )
             )
             dep = dep_res.scalars().first()
@@ -148,24 +219,133 @@ async def query_bot(
         except ValueError:
             pass
 
-    # Audit Logging with user_id and dependent_id
-    from app.core.audit import log_audit
-    await log_audit(db, "PHI_ACCESS_QUERY", current_user.id, "query_rag", request.client.host, dependent_id=active_dep_id)
+    await log_audit(
+        db,
+        "PHI_ACCESS_QUERY",
+        current_user.id,
+        "query_rag",
+        request.client.host,
+        dependent_id=active_dep_id,
+    )
 
-    # Dynamic Age Calculation and Decrypted PHI attributes
     calc_age = calculate_age(active_profile.date_of_birth)
     calculated_age_str = f"{calc_age}" if calc_age is not None else "Unknown"
     biological_sex = active_profile.biological_sex or "Unspecified"
     pre_existing_conditions = active_profile.pre_existing_conditions or "None reported"
     current_medications = active_profile.current_medications or "None reported"
     language_preference = getattr(active_profile, "language_preference", None) or body.language or "English"
+    height_cm = getattr(active_profile, "height_cm", None)
+    diet_type = getattr(active_profile, "diet_type", None)
+    activity_level = getattr(active_profile, "activity_level", None)
+    occupation = getattr(active_profile, "occupation", None)
 
     async def generate_response_stream():
         full_text = ""
         try:
-            client = genai.Client(api_key=settings.GOOGLE_API_KEY)
+            # ── Stage 1: Analyzing ──
+            yield f'event: stage\ndata: {json.dumps({"stage": "analyzing", "message": "Analyzing your question..."})}\n\n'
+            await asyncio.sleep(0.4)
 
-            if intent == QueryIntent.GENERAL_HEALTH:
+            # ── Multi-doc retrieval (for DOCUMENT_QA only) ──
+            retrieved_chunks = []
+            if intent == QueryIntent.DOCUMENT_QA:
+                yield f'event: stage\ndata: {json.dumps({"stage": "retrieving", "message": "Searching your reports..."})}\n\n'
+                all_doc_results = []
+                for d in chat_docs:
+                    if d.file_path and os.path.exists(d.file_path):
+                        try:
+                            vectorstore, bm25_index = load_hybrid_index(d.file_path)
+                            doc_chunks = retrieve_relevant_docs(body.query, vectorstore, bm25_index, k=4)
+                            for c in doc_chunks:
+                                c.metadata["source"] = d.title or d.filename
+                                c.metadata["filename"] = d.filename
+                            if doc_chunks:
+                                all_doc_results.append(doc_chunks)
+                        except Exception as e:
+                            logger.warning("Failed to search index for doc %s: %s", d.filename, e)
+
+                if len(all_doc_results) == 1:
+                    retrieved_chunks = all_doc_results[0]
+                elif len(all_doc_results) > 1:
+                    retrieved_chunks = reciprocal_rank_fusion(
+                        all_doc_results[0],
+                        all_doc_results[1],
+                        k=6,
+                    )
+                await asyncio.sleep(0.4)
+
+            # ── Memory retrieval (Tier 1 facts always, Tier 2 past chunks for DOCUMENT_QA only) ──
+            formatted_facts = None
+            formatted_past_chats = None
+
+            if current_user.memory_consent_granted and settings.PATIENT_MEMORY_ENABLED:
+                async with AsyncSessionLocal() as mem_session:
+                    facts_by_type = await get_active_facts(
+                        user_id=current_user.id,
+                        dependent_id=active_dep_id,
+                        session=mem_session,
+                        limit=settings.PATIENT_MEMORY_MAX_FACTS,
+                    )
+                    has_facts = any(len(v) > 0 for v in facts_by_type.values())
+                    if has_facts or diet_type or activity_level or height_cm or occupation:
+                        formatted_facts = format_facts_for_prompt(
+                            facts_by_type=facts_by_type,
+                            profile=active_profile,
+                        )
+                        # Stage: Memory (only if facts are loaded)
+                        yield f'event: stage\ndata: {json.dumps({"stage": "memory", "message": "Checking your health history..."})}\n\n'
+                        await asyncio.sleep(0.4)
+
+                    if intent == QueryIntent.DOCUMENT_QA:
+                        past_chunks = await get_relevant_past_chunks(
+                            query=body.query,
+                            user_id=current_user.id,
+                            dependent_id=active_dep_id,
+                            exclude_chat_id=current_chat_id,
+                            session=mem_session,
+                            k=settings.PATIENT_MEMORY_PAST_CHUNKS,
+                        )
+                        if past_chunks:
+                            formatted_past_chats = format_past_chats_for_prompt(past_chunks)
+
+            # ── Stage: Generating ──
+            yield f'event: stage\ndata: {json.dumps({"stage": "generating", "message": "Preparing your answer..."})}\n\n'
+
+            # Build grounded prompt
+            if intent == QueryIntent.DOCUMENT_QA:
+                prompt = build_prompt(
+                    user_query=body.query,
+                    retrieved_docs=retrieved_chunks,
+                    calculated_age=calculated_age_str,
+                    biological_sex=biological_sex,
+                    pre_existing_conditions=pre_existing_conditions,
+                    current_medications=current_medications,
+                    language_preference=language_preference,
+                    patient_facts=formatted_facts,
+                    past_chats=formatted_past_chats,
+                    height_cm=height_cm,
+                    diet_type=diet_type,
+                    activity_level=activity_level,
+                    occupation=occupation,
+                )
+
+                sources = [
+                    SourceChunk(
+                        title=d.metadata.get("source") or d.metadata.get("filename") or "Medical Report",
+                        page=d.metadata.get("page", 1),
+                        score="98%",
+                        excerpt=d.page_content[:140] + "...",
+                    ).model_dump()
+                    for d in retrieved_chunks[:4]
+                ]
+                yield f'data: {json.dumps({"sources": sources})}\n\n'
+
+                # Attach metrics for reference ranges expander
+                extracted_metrics = _extract_metrics_from_docs(retrieved_chunks)
+                if extracted_metrics:
+                    yield f'data: {json.dumps({"metrics": extracted_metrics})}\n\n'
+
+            else:
                 prompt = build_general_health_prompt(
                     user_query=body.query,
                     calculated_age=calculated_age_str,
@@ -173,41 +353,18 @@ async def query_bot(
                     pre_existing_conditions=pre_existing_conditions,
                     current_medications=current_medications,
                     language_preference=language_preference,
+                    patient_facts=formatted_facts,
+                    past_chats=formatted_past_chats,
+                    height_cm=height_cm,
+                    diet_type=diet_type,
+                    activity_level=activity_level,
+                    occupation=occupation,
                 )
                 yield f'data: {json.dumps({"sources": []})}\n\n'
 
-            else:
-                # DOCUMENT_QA — we know has_document is True at this point
-                from app.rag.retriever import load_hybrid_index
-                try:
-                    vectorstore, bm25_index = load_hybrid_index(doc.file_path)
-                except Exception as e:
-                    yield f'data: {json.dumps({"error": "Could not load document index."})}\n\n'
-                    return
-
-                docs = retrieve_relevant_docs(body.query, vectorstore, bm25_index)
-                prompt = build_prompt(
-                    user_query=body.query,
-                    retrieved_docs=docs,
-                    calculated_age=calculated_age_str,
-                    biological_sex=biological_sex,
-                    pre_existing_conditions=pre_existing_conditions,
-                    current_medications=current_medications,
-                    language_preference=language_preference,
-                )
-
-                sources = [
-                    SourceChunk(
-                        title="Medical Report PDF",
-                        page=d.metadata.get("page", 1),
-                        score="98%",
-                        excerpt=d.page_content[:140] + "...",
-                    ).model_dump()
-                    for d in docs[:3]
-                ]
-                yield f'data: {json.dumps({"sources": sources})}\n\n'
-
-            # Stream generation
+            # Call Gemini stream
+            from google import genai
+            client = genai.Client(api_key=settings.GOOGLE_API_KEY)
             response = client.models.generate_content_stream(
                 model=settings.GEMINI_MODEL,
                 contents=prompt,
@@ -223,38 +380,74 @@ async def query_bot(
             full_text += disclaimer
 
         except Exception as e:
+            logger.error("Error during streaming query response: %s", e, exc_info=True)
             yield f'data: {json.dumps({"error": str(e)})}\n\n'
             return
 
-        # Check for abnormal_flags
-        import re
-        import json as json_lib
-        match = re.search(r'```json\s*(\{.*"abnormal_flags".*\})\s*```', full_text, re.DOTALL | re.IGNORECASE)
+        # ── Parse abnormal flags for specialist recommendations ──
+        match = re.search(r'```json\s*(\{.*?"abnormal_flags".*?\})\s*```', full_text, re.DOTALL | re.IGNORECASE)
         if match:
             try:
-                flags_data = json_lib.loads(match.group(1))
+                flags_data = json.loads(match.group(1))
                 abnormal_flags = flags_data.get("abnormal_flags", [])
                 if abnormal_flags:
-                    from app.rag.specialist_router import get_recommended_specialists
-                    from app.db.database import AsyncSessionLocal
-                    async with AsyncSessionLocal() as session:
-                        specialists = await get_recommended_specialists(session, abnormal_flags)
+                    async with AsyncSessionLocal() as spec_session:
+                        specialists = await get_recommended_specialists(spec_session, abnormal_flags)
                         if specialists:
                             yield f'data: {json.dumps({"specialists": specialists})}\n\n'
-            except Exception:
-                pass
+            except Exception as e:
+                logger.warning("Error parsing abnormal flags for specialists: %s", e)
 
-        # Record AI Chat
-        from app.db.database import AsyncSessionLocal
-        async with AsyncSessionLocal() as session:
+        # ── Record AI response in database ──
+        async with AsyncSessionLocal() as persist_session:
             ai_chat = Chat(
                 user_id=current_user.id,
-                document_id=doc.id if doc else None,
+                document_id=primary_doc.id if primary_doc else None,
                 role="ai",
-                message=full_text
+                message=full_text,
             )
-            session.add(ai_chat)
-            await session.commit()
+            persist_session.add(ai_chat)
+            await persist_session.commit()
+            await persist_session.refresh(ai_chat)
+
+            # Link AI message to chat documents if applicable
+            if chat_docs:
+                for cd_doc in chat_docs:
+                    link = ChatDocument(chat_id=ai_chat.id, document_id=cd_doc.id)
+                    persist_session.add(link)
+                await persist_session.commit()
+
+            # Index chat messages for cross-session retrieval
+            try:
+                await index_chat_message(
+                    chat_id=current_chat_id,
+                    message_id=user_chat.id,
+                    text=body.query,
+                    user_id=current_user.id,
+                    dependent_id=active_dep_id,
+                    session=persist_session,
+                )
+                if len(full_text.strip()) >= 100:
+                    await index_chat_message(
+                        chat_id=current_chat_id,
+                        message_id=ai_chat.id,
+                        text=full_text,
+                        user_id=current_user.id,
+                        dependent_id=active_dep_id,
+                        session=persist_session,
+                    )
+            except Exception as e:
+                logger.warning("Failed indexing chat message: %s", e)
+
+        # ── Trigger background fact extraction if consent granted ──
+        if current_user.memory_consent_granted and settings.PATIENT_MEMORY_ENABLED:
+            asyncio.create_task(
+                process_chat_memory_extraction(
+                    chat_id=current_chat_id,
+                    user_id=current_user.id,
+                    dependent_id=active_dep_id,
+                )
+            )
 
         yield f'data: [DONE]\n\n'
 

@@ -9,6 +9,7 @@ Reciprocal Rank Fusion (RRF) to combine semantic and keyword results.
 """
 
 import os
+import logging
 from pathlib import Path
 from typing import Optional
 
@@ -19,6 +20,8 @@ from langchain_core.documents import Document
 from app.rag.embedder import get_embedder
 from app.rag.hybrid_search import BM25Index, save_bm25_index, load_bm25_index, reciprocal_rank_fusion
 from app.core.config import settings
+
+logger = logging.getLogger(__name__)
 
 CHUNK_SIZE = 1200
 CHUNK_OVERLAP = 200
@@ -91,7 +94,7 @@ def save_vectorstore_to_disk(vectorstore: FAISS, session_id: str):
         session_dir = settings.VECTOR_CACHE_DIR / session_id
         vectorstore.save_local(str(session_dir))
     except Exception as err:
-        print(f"Warning: Failed to save vectorstore for {session_id}: {err}")
+        logger.warning("Failed to save vectorstore for %s: %s", session_id, err)
 
 
 def load_vectorstore_from_disk(session_id: str):
@@ -100,7 +103,7 @@ def load_vectorstore_from_disk(session_id: str):
         if session_dir.exists():
             return FAISS.load_local(str(session_dir), get_embedder(), allow_dangerous_deserialization=True)
     except Exception as err:
-        print(f"Warning: Could not load vectorstore for {session_id}: {err}")
+        logger.warning("Could not load vectorstore for %s: %s", session_id, err)
     return None
 
 
@@ -145,3 +148,125 @@ def retrieve_relevant_docs(
                 seen_texts.add(doc.page_content)
                 
     return faiss_results[:k]
+
+
+async def retrieve_cross_document(
+    user_id,
+    query: str,
+    db,
+    k: int = RETRIEVAL_K,
+    active_doc_id = None,
+    dependent_id = None,
+) -> list[Document]:
+    """
+    Search across all documents belonging to a user/dependent.
+    Loads each document's hybrid index, retrieves relevant chunks,
+    and merges using reciprocal rank fusion with a boost for the active document.
+    """
+    import re
+    from sqlalchemy.future import select
+    from app.db.models import Document as DBDocument
+
+    filters = [DBDocument.user_id == user_id]
+    if dependent_id is not None:
+        filters.append(DBDocument.dependent_id == dependent_id)
+    result = await db.execute(select(DBDocument).filter(*filters))
+    docs = result.scalars().all()
+    
+    if not docs:
+        return []
+    
+    all_doc_results = []
+    
+    # Sort docs so active_doc_id is first if present
+    if active_doc_id:
+        docs = sorted(docs, key=lambda d: 0 if d.id == active_doc_id else 1)
+
+    for db_doc in docs:
+        if not db_doc.file_path or not os.path.exists(db_doc.file_path):
+            continue
+        try:
+            vectorstore, bm25_index = load_hybrid_index(db_doc.file_path)
+            retrieved = retrieve_relevant_docs(query, vectorstore, bm25_index, k=k)
+            for d in retrieved:
+                doc_name = db_doc.title or db_doc.filename
+                d.metadata["source_doc"] = doc_name
+                d.metadata["document_id"] = str(db_doc.id)
+                d.metadata["is_active_doc"] = (db_doc.id == active_doc_id)
+            if retrieved:
+                all_doc_results.append(retrieved)
+        except Exception as e:
+            logger.warning("Failed to load index for doc %s: %s", db_doc.id, e)
+            continue
+
+    if not all_doc_results:
+        return []
+
+    if len(all_doc_results) == 1:
+        return all_doc_results[0][:k]
+
+    # Reciprocal Rank Fusion across all documents
+    scores: dict[str, float] = {}
+    doc_map: dict[str, Document] = {}
+
+    for doc_list in all_doc_results:
+        for rank, d in enumerate(doc_list):
+            key = d.page_content.strip()
+            boost = 1.25 if d.metadata.get("is_active_doc") else 1.0
+            scores[key] = scores.get(key, 0.0) + (boost / (60.0 + rank))
+            if key not in doc_map:
+                doc_map[key] = d
+
+    sorted_keys = sorted(scores.keys(), key=lambda x: scores[x], reverse=True)
+    return [doc_map[key] for key in sorted_keys[:k]]
+
+
+async def retrieve_relevant_chat_chunks(
+    user_id,
+    query: str,
+    db,
+    k: int = 3,
+) -> list[Document]:
+    """Retrieve relevant conversational memory from past chat sessions."""
+    import re
+    from sqlalchemy.future import select
+    from app.db.models import ChatChunk
+
+    try:
+        res = await db.execute(
+            select(ChatChunk)
+            .filter(ChatChunk.user_id == user_id)
+            .order_by(ChatChunk.created_at.desc())
+            .limit(20)
+        )
+        chunks = res.scalars().all()
+        if not chunks:
+            return []
+
+        query_words = set(re.findall(r"\w{3,}", query.lower()))
+        scored_chunks = []
+        for c in chunks:
+            chunk_words = set(re.findall(r"\w{3,}", c.content.lower()))
+            overlap = len(query_words & chunk_words)
+            if overlap > 0:
+                scored_chunks.append((overlap, c))
+
+        scored_chunks.sort(key=lambda x: x[0], reverse=True)
+        top_chunks = [c for _, c in scored_chunks[:k]]
+
+        docs = []
+        for c in top_chunks:
+            date_str = c.created_at.strftime("%Y-%m-%d") if c.created_at else "past"
+            docs.append(Document(
+                page_content=c.content,
+                metadata={
+                    "source": "chat_memory",
+                    "summary": c.summary or "",
+                    "created_at": date_str,
+                }
+            ))
+        return docs
+    except Exception as e:
+        logger.error("Error retrieving chat chunks: %s", e)
+        return []
+

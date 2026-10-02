@@ -1,4 +1,6 @@
 // API Service for FastAPI backend
+import { logger } from './logger';
+
 const API_BASE = 'http://127.0.0.1:8000';
 
 export function formatApiError(data, fallback = 'Request failed') {
@@ -66,6 +68,43 @@ export async function register(email, password, phi_consent_granted) {
   return data;
 }
 
+/**
+ * Remove every auth/PHI-bearing key this app writes to storage.
+ *
+ * Keys are namespaced under `mediskye_` (plus the raw `token`). Clearing the
+ * whole namespace guarantees no cached patient data (conversations, patient
+ * selection, last active user, consent flags) survives a logout on a shared
+ * device. Non-MediSkye keys are left untouched.
+ *
+ * Pure UI preferences (theme, language) are NOT auth/PHI state, so they are
+ * preserved across logout to avoid a theme/language flash on re-login.
+ */
+const PRESERVED_STORAGE_KEYS = new Set(['mediskye_theme', 'mediskye_language']);
+
+export function clearLocalAuthStorage() {
+  try {
+    const keysToRemove = [];
+    for (let i = 0; i < localStorage.length; i += 1) {
+      const key = localStorage.key(i);
+      if (
+        key &&
+        (key === 'token' ||
+          (key.startsWith('mediskye_') && !PRESERVED_STORAGE_KEYS.has(key)))
+      ) {
+        keysToRemove.push(key);
+      }
+    }
+    keysToRemove.forEach((key) => localStorage.removeItem(key));
+  } catch (err) {
+    logger.error('Failed to clear localStorage:', err);
+  }
+  try {
+    sessionStorage.removeItem('mediskye_consent_prompted');
+  } catch (err) {
+    logger.error('Failed to clear sessionStorage:', err);
+  }
+}
+
 export async function logout() {
   const token = localStorage.getItem('token');
   try {
@@ -76,21 +115,20 @@ export async function logout() {
       });
     }
   } catch (err) {
-    console.error('Logout error:', err);
+    logger.error('Logout error:', err);
   } finally {
-    localStorage.removeItem('token');
-    localStorage.removeItem('mediskye_session_id');
-    localStorage.removeItem('mediskye_conversations');
-    localStorage.removeItem('mediskye_patient_id');
-    localStorage.removeItem('mediskye_user_email');
+    clearLocalAuthStorage();
   }
 }
 
-export async function uploadPdfReport(file, patientId = null) {
+export async function uploadPdfReport(file, patientId = null, chatId = null) {
   const formData = new FormData();
   formData.append('file', file);
   if (patientId && patientId !== 'self') {
     formData.append('patient_id', patientId);
+  }
+  if (chatId) {
+    formData.append('chat_id', chatId);
   }
 
   const res = await fetch(`${API_BASE}/upload`, {
@@ -113,7 +151,7 @@ export async function uploadPdfReport(file, patientId = null) {
   return data;
 }
 
-export async function sendQueryStream(queryText, documentId, language = 'English', onChunk, patientId = null) {
+export async function sendQueryStream(queryText, documentId, language = 'English', onChunk, patientId = null, signal = undefined) {
   // documentId can be null for general-health queries (no PDF uploaded)
   const payload = {
     session_id: documentId || 'general-health-' + Date.now(), // dummy UUID-like string; backend checks document existence
@@ -131,6 +169,7 @@ export async function sendQueryStream(queryText, documentId, language = 'English
       ...getAuthHeaders(),
     },
     body: JSON.stringify(payload),
+    ...(signal ? { signal } : {}),
   });
 
   if (!res.ok) {
@@ -150,17 +189,20 @@ export async function sendQueryStream(queryText, documentId, language = 'English
 
   const reader = res.body.getReader();
   const decoder = new TextDecoder('utf-8');
+  let buffer = '';
 
   while (true) {
     const { done, value } = await reader.read();
     if (done) break;
 
-    const chunkStr = decoder.decode(value, { stream: true });
-    const lines = chunkStr.split('\n');
+    buffer += decoder.decode(value, { stream: true });
+    const lines = buffer.split('\n');
+    buffer = lines.pop() || ''; // Keep incomplete trailing line in buffer
 
     for (const line of lines) {
-      if (line.startsWith('data: ')) {
-        const dataStr = line.replace('data: ', '').trim();
+      const trimmed = line.trim();
+      if (trimmed.startsWith('data: ')) {
+        const dataStr = trimmed.replace('data: ', '').trim();
         if (dataStr === '[DONE]') {
           return;
         }
@@ -169,10 +211,20 @@ export async function sendQueryStream(queryText, documentId, language = 'English
             const dataObj = JSON.parse(dataStr);
             onChunk(dataObj);
           } catch (e) {
-            console.error('Failed to parse SSE data', e);
+            logger.error('Failed to parse SSE data', e);
           }
         }
       }
+    }
+  }
+
+  if (buffer.trim().startsWith('data: ')) {
+    const dataStr = buffer.trim().replace('data: ', '').trim();
+    if (dataStr && dataStr !== '[DONE]') {
+      try {
+        const dataObj = JSON.parse(dataStr);
+        onChunk(dataObj);
+      } catch (e) {}
     }
   }
 }
@@ -197,17 +249,8 @@ export async function fetchLabMetrics(documentId) {
     }
     return data.metrics || [];
   } catch (err) {
-    console.error('Failed to fetch metrics:', err);
+    logger.error('Failed to fetch metrics:', err);
     return [];
-  }
-}
-
-export async function checkBackendHealth() {
-  try {
-    const res = await fetch(`${API_BASE}/docs`, { method: 'HEAD' });
-    return res.ok;
-  } catch (err) {
-    return false;
   }
 }
 
@@ -233,6 +276,29 @@ export async function updateProfile(data) {
   });
   if (!res.ok) {
     throw new Error('Failed to update profile');
+  }
+  return await res.json();
+}
+
+export async function changePassword(currentPassword, newPassword) {
+  const res = await fetch(`${API_BASE}/users/me/password`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      ...getAuthHeaders(),
+    },
+    body: JSON.stringify({
+      current_password: currentPassword,
+      new_password: newPassword,
+    }),
+  });
+  if (!res.ok) {
+    let errorDetail = 'Failed to change password';
+    try {
+      const errData = await res.json();
+      errorDetail = errData.detail || errorDetail;
+    } catch (e) {}
+    throw new Error(errorDetail);
   }
   return await res.json();
 }
@@ -332,3 +398,120 @@ export async function renameChat(documentId, newTitle) {
   }
   return await res.json();
 }
+
+// ── Patient Memory System APIs ──
+
+export async function getMemoryStatus() {
+  const res = await fetch(`${API_BASE}/users/me/memory/status`, {
+    headers: getAuthHeaders(),
+  });
+  if (!res.ok) return { memory_consent_granted: false, fact_count: 0 };
+  return await res.json();
+}
+
+export async function updateMemoryConsent(consent) {
+  const res = await fetch(`${API_BASE}/users/me/memory/consent`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      ...getAuthHeaders(),
+    },
+    body: JSON.stringify({ consent }),
+  });
+  if (!res.ok) {
+    const errData = await res.json().catch(() => ({}));
+    throw new Error(errData.detail || 'Failed to update memory consent');
+  }
+  return await res.json();
+}
+
+export async function getFacts(dependentId = null) {
+  let url = `${API_BASE}/users/me/facts`;
+  if (dependentId && dependentId !== 'self') {
+    url += `?dependent_id=${dependentId}`;
+  }
+  const res = await fetch(url, {
+    headers: getAuthHeaders(),
+  });
+  if (!res.ok) return [];
+  return await res.json();
+}
+
+export const getMemoryFacts = getFacts;
+
+export async function createFact(factData) {
+  const res = await fetch(`${API_BASE}/users/me/facts`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      ...getAuthHeaders(),
+    },
+    body: JSON.stringify(factData),
+  });
+  if (!res.ok) {
+    const errData = await res.json().catch(() => ({}));
+    throw new Error(errData.detail || 'Failed to save health fact');
+  }
+  return await res.json();
+}
+
+export const createMemoryFact = createFact;
+
+export async function updateFact(factId, factData) {
+  const res = await fetch(`${API_BASE}/users/me/facts/${factId}`, {
+    method: 'PATCH',
+    headers: {
+      'Content-Type': 'application/json',
+      ...getAuthHeaders(),
+    },
+    body: JSON.stringify(factData),
+  });
+  if (!res.ok) {
+    const errData = await res.json().catch(() => ({}));
+    throw new Error(errData.detail || 'Failed to update health fact');
+  }
+  return await res.json();
+}
+
+export async function deleteFact(factId) {
+  const res = await fetch(`${API_BASE}/users/me/facts/${factId}`, {
+    method: 'DELETE',
+    headers: getAuthHeaders(),
+  });
+  if (!res.ok) {
+    throw new Error('Failed to delete memory fact');
+  }
+  return await res.json();
+}
+
+export const deleteMemoryFact = deleteFact;
+
+export async function clearAllMemoryFacts(dependentId = null) {
+  let url = `${API_BASE}/users/me/memory/facts`;
+  if (dependentId && dependentId !== 'self') {
+    url += `?dependent_id=${dependentId}`;
+  }
+  const res = await fetch(url, {
+    method: 'DELETE',
+    headers: getAuthHeaders(),
+  });
+  if (!res.ok) {
+    throw new Error('Failed to clear memory facts');
+  }
+  return await res.json();
+}
+
+// ── Multi-Document Chat APIs ──
+
+export async function detachChatDocument(chatId, docId) {
+  const res = await fetch(`${API_BASE}/chats/${chatId}/documents/${docId}`, {
+    method: 'DELETE',
+    headers: getAuthHeaders(),
+  });
+  if (!res.ok) {
+    const errData = await res.json().catch(() => ({}));
+    throw new Error(errData.detail || 'Failed to detach document from chat');
+  }
+  return await res.json();
+}
+

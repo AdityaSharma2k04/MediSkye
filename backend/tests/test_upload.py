@@ -1,5 +1,5 @@
 import pytest
-from datetime import datetime
+from datetime import datetime, UTC
 from httpx import AsyncClient, ASGITransport
 from sqlalchemy.future import select
 
@@ -24,7 +24,7 @@ async def get_authenticated_headers(
                 email=email,
                 hashed_password=get_password_hash(password),
                 phi_consent_granted=True,
-                consent_timestamp=datetime.utcnow()
+                consent_timestamp=datetime.now(UTC)
             )
             session.add(user)
         else:

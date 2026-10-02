@@ -8,7 +8,7 @@ Extraction pipeline (tiered):
   4. Gemini Vision — for pages with complex tables/medical matrices
 
 Pages detected as containing dense tables are rendered as images
-and sent to Gemini Flash Vision for structured Markdown extraction,
+and sent to Gemini Vision for structured Markdown extraction,
 which preserves exact lab values that text extractors often scramble.
 """
 
@@ -16,10 +16,13 @@ import io
 import os
 import base64
 import asyncio
+import logging
 from typing import Optional
 
 from langchain_core.documents import Document
 from pypdf import PdfReader
+
+logger = logging.getLogger(__name__)
 
 from app.core.config import settings
 from app.core.security import sanitize_text
@@ -69,7 +72,7 @@ async def classify_image_type(image_bytes: bytes) -> str:
             return "XRAY"
         return "DOCUMENT"
     except Exception as e:
-        print(f"Classification failed: {e}")
+        logger.warning("Classification failed: %s", e)
         return "DOCUMENT"
 
 
@@ -107,7 +110,7 @@ async def process_image_path(image_type: str, image_bytes: bytes, source_meta: s
             text = sanitize_text(response.text or "").strip()
             return Document(page_content=text, metadata={"source": source_meta, "type": "xray"})
         except Exception as e:
-            print(f"XRAY analysis failed: {e}")
+            logger.warning("XRAY analysis failed: %s", e)
             return Document(page_content="", metadata={"source": source_meta, "type": "xray_error"})
     else:
         def _extract_ocr():
@@ -122,7 +125,7 @@ async def process_image_path(image_type: str, image_bytes: bytes, source_meta: s
                 text = pytesseract.image_to_string(img)
                 return sanitize_text(text or "").strip()
             except Exception as e:
-                print(f"OCR failed: {e}")
+                logger.warning("OCR failed: %s", e)
                 return ""
                 
         text = await asyncio.to_thread(_extract_ocr)
@@ -145,7 +148,7 @@ def _extract_with_pypdf2(pdf_path: str) -> list[Document]:
 
 async def _extract_with_pymupdf(pdf_path: str) -> list[Document]:
     try:
-        import fitz
+        import pymupdf as fitz
     except ImportError:
         return []
 
@@ -205,7 +208,7 @@ def _detect_table_pages(pdf_path: str) -> list[int]:
     Returns 0-indexed page numbers.
     """
     try:
-        import fitz
+        import pymupdf as fitz
     except ImportError:
         return []
 
@@ -286,10 +289,10 @@ def _enhance_image_clahe(image_bytes: bytes) -> bytes:
 def _extract_table_pages_with_vision(pdf_path: str, table_page_indices: list[int]) -> list[Document]:
     """
     Render flagged table pages as images, optionally enhance contrast,
-    and send to Gemini Flash Vision for structured Markdown extraction.
+    and send to Gemini Vision for structured Markdown extraction.
     """
     try:
-        import fitz
+        import pymupdf as fitz
         from google import genai
         from google.genai.types import Part
     except ImportError:
@@ -343,7 +346,7 @@ Output the structured Markdown extraction:"""
                         }
                     ))
             except Exception as e:
-                print(f"Vision extraction failed for page {page_idx + 1}: {e}")
+                logger.warning("Vision extraction failed for page %s: %s", page_idx + 1, e)
                 # Fall back to standard text for this page
                 text = sanitize_text(page.get_text() or "")
                 if text:

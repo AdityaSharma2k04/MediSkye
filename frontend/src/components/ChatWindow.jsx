@@ -1,7 +1,8 @@
 import React, { useRef, useEffect, useState } from 'react';
 import {
   Stethoscope, ArrowDown, Upload, FileText, Sparkles, Shield,
-  Printer, Table, MessageSquare, AlertCircle, HeartPulse, Sun, Moon, X
+  Printer, Table, MessageSquare, AlertCircle, Sun, Moon, X,
+  ChevronLeft, ChevronRight
 } from 'lucide-react';
 import ChatMessage from './ChatMessage';
 import { fetchLabMetrics } from '../services/api';
@@ -24,6 +25,11 @@ export default function ChatWindow({
   selectedPatientId,
   onSelectPatient,
   onOpenDependents,
+  attachedDocuments = [],
+  onDetachDocument,
+  onOpenUpload,
+  sidebarOpen = true,
+  toggleSidebar,
 }) {
 
   const scrollRef = useRef(null);
@@ -116,6 +122,20 @@ export default function ChatWindow({
       {/* Header */}
       <header className={`flex items-center justify-between p-3.5 px-4 sm:px-6 border-b z-10 transition-colors duration-200 ${headerBg} ${cardBorder}`}>
         <div className="flex items-center gap-3">
+          {toggleSidebar && (
+            <button
+              onClick={toggleSidebar}
+              aria-label="Toggle sidebar"
+              className={`p-1.5 rounded-lg border transition-colors ${
+                darkMode
+                  ? 'border-zinc-800 text-zinc-400 hover:text-white hover:bg-zinc-800'
+                  : 'border-zinc-200 text-zinc-600 hover:text-zinc-900 hover:bg-zinc-100'
+              }`}
+            >
+              {sidebarOpen ? <ChevronLeft className="w-4 h-4" /> : <ChevronRight className="w-4 h-4" />}
+            </button>
+          )}
+
           <div className={`w-7 h-7 rounded-lg flex items-center justify-center font-bold text-xs ${
             darkMode ? 'bg-white text-black' : 'bg-zinc-900 text-white'
           }`}>
@@ -211,6 +231,59 @@ export default function ChatWindow({
           )}
         </div>
       </header>
+
+      {/* TASK F3: Multi-Document Header Chip Row */}
+      {attachedDocuments && attachedDocuments.length > 0 && (
+        <div className={`flex items-center gap-2 px-4 sm:px-6 py-2 border-b overflow-x-auto text-xs shrink-0 ${
+          darkMode ? 'bg-zinc-950/80 border-zinc-800' : 'bg-zinc-100/70 border-zinc-200'
+        }`}>
+          <span className={`text-[11px] font-medium shrink-0 ${textMuted}`}>Attached Reports:</span>
+          <div className="flex items-center gap-2 flex-wrap sm:flex-nowrap">
+            {attachedDocuments.map((doc) => (
+              <div
+                key={doc.id || doc.name || doc.filename}
+                className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg border text-xs shrink-0 transition-colors ${
+                  darkMode ? 'bg-zinc-900 border-zinc-800 text-zinc-200' : 'bg-white border-zinc-200 text-zinc-800 shadow-sm'
+                }`}
+              >
+                <span>📄</span>
+                <span className="font-medium max-w-[160px] truncate" title={doc.name || doc.filename}>
+                  {doc.name || doc.filename}
+                </span>
+                {onDetachDocument && (
+                  <button
+                    type="button"
+                    onClick={() => onDetachDocument(doc.id)}
+                    aria-label={`Detach ${doc.name || doc.filename}`}
+                    className={`p-0.5 rounded hover:text-red-400 transition-colors ${
+                      darkMode ? 'text-zinc-500 hover:bg-zinc-800' : 'text-zinc-400 hover:bg-zinc-100'
+                    }`}
+                    title="Detach report from chat"
+                  >
+                    <X className="w-3 h-3" />
+                  </button>
+                )}
+              </div>
+            ))}
+
+            <button
+              type="button"
+              onClick={onOpenUpload || (() => {
+                const fileInput = document.querySelector('input[type="file"]');
+                if (fileInput) fileInput.click();
+              })}
+              aria-label="Add report"
+              className={`flex items-center gap-1 px-2.5 py-1 rounded-lg border border-dashed text-xs shrink-0 transition-colors ${
+                darkMode
+                  ? 'border-zinc-700 text-zinc-400 hover:border-zinc-500 hover:text-zinc-200'
+                  : 'border-zinc-300 text-zinc-600 hover:border-zinc-400 hover:text-zinc-900'
+              }`}
+            >
+              <span>+ Add Report</span>
+            </button>
+          </div>
+        </div>
+      )}
 
       <div
         ref={scrollRef}
@@ -398,29 +471,6 @@ export default function ChatWindow({
                 darkMode={darkMode}
               />
             ))}
-
-            {isGenerating && (
-              <div className="flex justify-start mb-5 animate-pulse">
-                <div className="flex items-start gap-3 max-w-[85%]">
-                  <div className={`w-7 h-7 rounded-full flex items-center justify-center font-bold text-xs shrink-0 mt-0.5 ${
-                    darkMode ? 'bg-white text-black' : 'bg-zinc-900 text-white'
-                  }`}>
-                    <Stethoscope className="w-3.5 h-3.5" />
-                  </div>
-                  <div className={`rounded-2xl rounded-tl-sm p-4 w-64 shadow-sm border ${cardBg} ${cardBorder}`}>
-                    <div className={`flex items-center gap-2 mb-2 text-xs font-medium ${textSecondary}`}>
-                      <Sparkles className="w-3.5 h-3.5 animate-spin" />
-                      <span>Generating response...</span>
-                    </div>
-                    <div className="space-y-2">
-                      <div className={`h-3 rounded w-full animate-shimmer ${darkMode ? 'bg-zinc-800' : 'bg-zinc-200'}`} />
-                      <div className={`h-3 rounded w-3/4 animate-shimmer ${darkMode ? 'bg-zinc-800' : 'bg-zinc-200'}`} />
-                      <div className={`h-3 rounded w-1/2 animate-shimmer ${darkMode ? 'bg-zinc-800' : 'bg-zinc-200'}`} />
-                    </div>
-                  </div>
-                </div>
-              </div>
-            )}
           </div>
         )}
       </div>

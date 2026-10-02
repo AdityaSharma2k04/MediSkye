@@ -1,4 +1,4 @@
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
 from typing import Optional
 from uuid import UUID
 from datetime import datetime, date
@@ -12,6 +12,10 @@ class DependentBase(BaseModel):
     pre_existing_conditions: Optional[str] = None
     known_allergies: Optional[str] = None
     current_medications: Optional[str] = None
+    height_cm: Optional[float] = None
+    diet_type: Optional[str] = None
+    activity_level: Optional[str] = None
+    occupation: Optional[str] = None
 
 class DependentCreate(DependentBase):
     pass
@@ -25,6 +29,10 @@ class DependentUpdate(BaseModel):
     pre_existing_conditions: Optional[str] = None
     known_allergies: Optional[str] = None
     current_medications: Optional[str] = None
+    height_cm: Optional[float] = None
+    diet_type: Optional[str] = None
+    activity_level: Optional[str] = None
+    occupation: Optional[str] = None
 
 class DependentResponse(DependentBase):
     id: UUID
@@ -33,5 +41,5 @@ class DependentResponse(DependentBase):
     created_at: Optional[datetime] = None
     updated_at: Optional[datetime] = None
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
+

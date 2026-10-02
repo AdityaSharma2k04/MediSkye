@@ -38,6 +38,14 @@ async def lifespan(app: FastAPI):
     setup_logging()
     logger.info(f"Starting {settings.PROJECT_NAME} v{settings.VERSION} [{settings.ENV}]")
     
+    # DEV ONLY: auto-create tables for SQLite convenience
+    # In production, Alembic migrations are the source of truth
+    if settings.ENV == "development":
+        import app.db.models
+        from app.db.database import engine, Base
+        async with engine.begin() as conn:
+            await conn.run_sync(Base.metadata.create_all)
+
     yield
     
     # Shutdown Lifespan
@@ -48,7 +56,7 @@ app = FastAPI(
     title=settings.PROJECT_NAME,
     version=settings.VERSION,
     openapi_url="/openapi.json" if settings.DEBUG else None,
-    docs_url="/docs" if settings.DEBUG else "/docs",
+    docs_url="/docs" if settings.DEBUG else None,
     redoc_url="/redoc" if settings.DEBUG else None,
     lifespan=lifespan,
 )
