@@ -1,8 +1,12 @@
 """E2: access-token lifetime and integrity.
 
-Regression tests for the bug where ACCESS_TOKEN_EXPIRE_MINUTES (7 days) was
-declared but never used: create_access_token defaulted to 15 minutes, silently
-logging users out mid-session.
+Regression tests for the bug where ACCESS_TOKEN_EXPIRE_MINUTES was declared 
+but never used: create_access_token defaulted to a hardcoded 15 minutes 
+regardless of the config value.
+
+Policy: ACCESS_TOKEN_EXPIRE_MINUTES = 15 (short-lived by design for PHI safety).
+Refresh tokens are planned for Phase 3 to extend sessions without weakening 
+security.
 """
 import uuid
 from datetime import timedelta
@@ -37,7 +41,7 @@ async def _make_user() -> str:
 
 
 def test_default_token_lifetime_matches_configured_value():
-    """Default lifetime must be 7 days, not the old hard-coded 15 minutes."""
+    """Default lifetime must match ACCESS_TOKEN_EXPIRE_MINUTES (currently 15 min)."""
     email = "lifetime@test.com"
     token = create_access_token({"sub": email})
     payload = jwt.decode(token, options={"verify_signature": False})

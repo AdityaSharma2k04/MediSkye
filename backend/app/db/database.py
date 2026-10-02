@@ -1,3 +1,4 @@
+from sqlalchemy import event
 from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker, AsyncSession
 from sqlalchemy.orm import declarative_base
 from sqlalchemy.pool import StaticPool
@@ -20,6 +21,22 @@ engine = create_async_engine(
     future=True,
     **_engine_kwargs,
 )
+
+
+@event.listens_for(engine.sync_engine, "connect")
+def _set_sqlite_pragma(dbapi_conn, connection_record):
+    """Enforce foreign key constraints on SQLite.
+
+    SQLite does not enforce ON DELETE actions unless PRAGMA foreign_keys is ON.
+    Without this, the ondelete="CASCADE" declarations are silently ignored and
+    deleting a user would leave orphaned child rows.
+    """
+    if not settings.DATABASE_URL.startswith("sqlite"):
+        return
+    cursor = dbapi_conn.cursor()
+    cursor.execute("PRAGMA foreign_keys=ON")
+    cursor.close()
+
 
 AsyncSessionLocal = async_sessionmaker(
     bind=engine,

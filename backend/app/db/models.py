@@ -102,7 +102,7 @@ class Document(Base):
     __tablename__ = "documents"
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    user_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=False)
+    user_id = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
     dependent_id = Column(UUID(as_uuid=True), ForeignKey("dependent_profiles.id", ondelete="SET NULL"), nullable=True)
     filename = Column(String, nullable=False)
     file_path = Column(String, nullable=True)  # Path to FAISS index or PDF
@@ -119,8 +119,8 @@ class Chat(Base):
     __tablename__ = "chats"
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    user_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=False)
-    document_id = Column(UUID(as_uuid=True), ForeignKey("documents.id"), nullable=True)  # Nullable: general-health chats have no document
+    user_id = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    document_id = Column(UUID(as_uuid=True), ForeignKey("documents.id", ondelete="SET NULL"), nullable=True)  # Nullable: general-health chats have no document
     role = Column(String, nullable=False)  # 'user' or 'ai'
     message = Column(String, nullable=False)
     created_at = Column(DateTime, default=utcnow)
@@ -135,7 +135,7 @@ class AuditLog(Base):
     __tablename__ = "audit_logs"
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    user_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=True)
+    user_id = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
     dependent_id = Column(UUID(as_uuid=True), ForeignKey("dependent_profiles.id", ondelete="SET NULL"), nullable=True)
     action_type = Column(String, nullable=False)
     resource = Column(String, nullable=True)

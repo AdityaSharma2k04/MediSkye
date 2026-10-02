@@ -1,7 +1,7 @@
 import uuid
 import pytest
-import fitz
-from unittest.mock import MagicMock, patch
+import pymupdf as fitz
+from unittest.mock import AsyncMock, MagicMock, patch
 from httpx import AsyncClient, ASGITransport
 from app.main import app
 from app.core.auth import get_password_hash
@@ -10,66 +10,107 @@ from app.db.models import User
 from tests.conftest import TEST_PASSWORD
 
 
+EMBED_DIM = 768
+
+
+class FakeEmbedder:
+    """
+    Deterministic, fully-offline embedder.
+
+    The upload endpoint builds a FAISS index (``embed_documents``) and the query
+    endpoint embeds the query for retrieval/MMR (``embed_query``). Both must be
+    served locally because CI sets GOOGLE_API_KEY to a dummy value, so any real
+    embedding call fails with ``400 API key not valid``.
+    """
+
+    def embed_documents(self, texts):
+        return [[0.1] * EMBED_DIM for _ in texts]
+
+    def embed_query(self, text):
+        return [0.1] * EMBED_DIM
+
+
 @pytest.mark.asyncio
 async def test_query_stream_after_pdf_upload_success():
     transport = ASGITransport(app=app)
-    async with AsyncClient(transport=transport, base_url="http://test") as ac:
-        email = f"query_stream_user_{uuid.uuid4().hex[:8]}@test.com"
 
-        # 1. Register a user with memory consent
-        async with AsyncSessionLocal() as session:
-            user = User(
-                email=email,
-                hashed_password=get_password_hash(TEST_PASSWORD),
-                phi_consent_granted=True,
-                memory_consent_granted=True,
+    # ── Fake Gemini client (all LLM traffic must stay offline) ──
+    # Streaming answer returned by /query.
+    chunk1 = MagicMock()
+    chunk1.text = "Your lab report shows normal findings. "
+    chunk2 = MagicMock()
+    chunk2.text = "Hemoglobin is 14.2 g/dL which is within normal limits."
+
+    mock_client = MagicMock()
+    mock_client.models.generate_content_stream.return_value = [chunk1, chunk2]
+    # Non-streaming calls: intent classification + background fact extraction.
+    intent_response = MagicMock()
+    intent_response.text = "DOCUMENT_QA"
+    mock_client.models.generate_content.return_value = intent_response
+
+    with (
+        # Offline embeddings for the upload (FAISS build) and query (retrieval).
+        patch("app.rag.retriever.get_embedder", return_value=FakeEmbedder()),
+        # Chat-message indexing embeds too — keep it offline.
+        patch("app.services.chat_indexer.get_embedder", return_value=FakeEmbedder()),
+        # Local `from app.rag.embedder import get_embedder` call sites resolve here.
+        patch("app.rag.embedder.get_embedder", return_value=FakeEmbedder()),
+        # Every LLM call: intent router, streaming answer, fact extraction.
+        patch("google.genai.Client", return_value=mock_client),
+        # Background fact extraction is fire-and-forget; stub it so it can never
+        # outlive these patches and reach the network after the test body ends.
+        patch(
+            "app.api.v1.endpoints.query.process_chat_memory_extraction",
+            new=AsyncMock(),
+        ),
+    ):
+        async with AsyncClient(transport=transport, base_url="http://test") as ac:
+            email = f"query_stream_user_{uuid.uuid4().hex[:8]}@test.com"
+
+            # 1. Register a user with memory consent
+            async with AsyncSessionLocal() as session:
+                user = User(
+                    email=email,
+                    hashed_password=get_password_hash(TEST_PASSWORD),
+                    phi_consent_granted=True,
+                    memory_consent_granted=True,
+                )
+                session.add(user)
+                await session.commit()
+
+            login_res = await ac.post("/login", data={"username": email, "password": TEST_PASSWORD})
+            assert login_res.status_code == 200
+            token = login_res.json()["access_token"]
+            headers = {"Authorization": f"Bearer {token}"}
+
+            # 2. Upload a mock PDF (embeddings mocked -> no Gemini call)
+            doc = fitz.open()
+            page = doc.new_page()
+            page.insert_text(
+                (50, 72),
+                "Complete Blood Count Report. Patient: Jane Doe. Hemoglobin: 14.2 g/dL (ref 12.0 - 15.5) Normal. Glucose: 95 mg/dL (ref 70 - 99) Normal. Platelet count 250000 /uL."
             )
-            session.add(user)
-            await session.commit()
+            pdf_bytes = doc.tobytes()
 
-        login_res = await ac.post("/login", data={"username": email, "password": TEST_PASSWORD})
-        assert login_res.status_code == 200
-        token = login_res.json()["access_token"]
-        headers = {"Authorization": f"Bearer {token}"}
+            upload_res = await ac.post(
+                "/upload",
+                files={"file": ("lab_report.pdf", pdf_bytes, "application/pdf")},
+                headers=headers
+            )
+            assert upload_res.status_code == 200
+            doc_id = upload_res.json()["document_id"]
 
-        # 2. Upload a mock PDF
-        doc = fitz.open()
-        page = doc.new_page()
-        page.insert_text(
-            (50, 72),
-            "Complete Blood Count Report. Patient: Jane Doe. Hemoglobin: 14.2 g/dL (ref 12.0 - 15.5) Normal. Glucose: 95 mg/dL (ref 70 - 99) Normal. Platelet count 250000 /uL."
-        )
-        pdf_bytes = doc.tobytes()
-
-        upload_res = await ac.post(
-            "/upload",
-            files={"file": ("lab_report.pdf", pdf_bytes, "application/pdf")},
-            headers=headers
-        )
-        assert upload_res.status_code == 200
-        doc_id = upload_res.json()["document_id"]
-
-        # 3. Mock gemini client streaming response to simulate LLM token delivery
-        chunk1 = MagicMock()
-        chunk1.text = "Your lab report shows normal findings. "
-        chunk2 = MagicMock()
-        chunk2.text = "Hemoglobin is 14.2 g/dL which is within normal limits."
-        
-        mock_client = MagicMock()
-        mock_client.models.generate_content_stream.return_value = [chunk1, chunk2]
-
-        with patch("google.genai.Client", return_value=mock_client):
-            # 4. Send query
+            # 3. Send query (retrieval + LLM stream are both mocked)
             res = await ac.post(
                 "/query",
                 json={"session_id": str(doc_id), "query": "what are my values"},
                 headers=headers
             )
-            # 5. Asserts no exception is raised and status is 200
+            # 4. Asserts no exception is raised and status is 200
             assert res.status_code == 200
 
             stream_text = res.text
-            # 6. Asserts the stream returns stage events AND content
+            # 5. Asserts the stream returns stage events AND content
             assert "event: stage" in stream_text
             assert "analyzing" in stream_text
             assert "retrieving" in stream_text
