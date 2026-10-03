@@ -1,9 +1,9 @@
-import React, { useRef, useState, useEffect } from 'react';
+import React, { useRef, useState, useEffect, forwardRef, useImperativeHandle } from 'react';
 import { Paperclip, Mic, MicOff, Send, Square, FileText, X } from 'lucide-react';
 import { startSpeechRecognition } from '../services/speech';
 import PatientContextSelector from './PatientContextSelector';
 
-export default function ChatInput({
+const ChatInput = forwardRef(({
   onSendMessage,
   onAttachFile,
   activeFile,
@@ -17,12 +17,20 @@ export default function ChatInput({
   selectedPatientId,
   onSelectPatient,
   onOpenDependents,
-}) {
+}, ref) => {
   const [text, setText] = useState('');
   const [isListening, setIsListening] = useState(false);
   const recognitionRef = useRef(null);
   const textareaRef = useRef(null);
   const fileInputRef = useRef(null);
+
+  useImperativeHandle(ref, () => ({
+    openFileUpload: () => {
+      if (fileInputRef.current) {
+        fileInputRef.current.click();
+      }
+    }
+  }));
 
   useEffect(() => {
     if (textareaRef.current) {
@@ -209,4 +217,6 @@ export default function ChatInput({
       </div>
     </div>
   );
-}
+});
+
+export default ChatInput;

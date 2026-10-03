@@ -2,6 +2,8 @@ import React, { useState, useEffect } from 'react';
 import { User, Users, HeartPulse, Save, X, Trash2, Edit2, Plus, Shield, Phone, Activity } from 'lucide-react';
 import { getProfile, updateProfile, deleteAccount, getDependents, createDependent, updateDependent, deleteDependent, createMemoryFact, getMemoryFacts } from '../services/api';
 import { logger } from '../services/logger';
+import ConfirmModal from './ConfirmModal';
+import { useNavigate } from 'react-router-dom';
 
 const Input = ({ label, name, type = 'text', placeholder = '', value, onChange, darkMode, required = false }) => (
   <div className="mb-4">
@@ -98,9 +100,12 @@ const ACTIVITY_OPTIONS = [
 ];
 
 export default function Profile({ onClose, showToast, darkMode, initialTab = 'profile', onProfileUpdated }) {
+  const navigate = useNavigate();
   const [activeTab, setActiveTab] = useState(initialTab); // 'profile' or 'dependents'
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [pendingDeleteAccount, setPendingDeleteAccount] = useState(false);
+  const [pendingDeleteDependent, setPendingDeleteDependent] = useState(null);
 
   // User Profile Form
   const [formData, setFormData] = useState({
@@ -236,15 +241,18 @@ export default function Profile({ onClose, showToast, darkMode, initialTab = 'pr
     }
   };
 
-  const handleDeleteAccount = async () => {
-    if (window.confirm("Are you sure you want to permanently delete your account, medical data, dependents, and all documents? This action cannot be undone.")) {
-      try {
-        await deleteAccount();
-        window.location.href = '/login';
-      } catch (error) {
-        showToast('error', 'Deletion Failed', 'Could not delete your account.');
-      }
+  const handleConfirmDeleteAccount = async () => {
+    setPendingDeleteAccount(false);
+    try {
+      await deleteAccount();
+      navigate('/login');
+    } catch (error) {
+      showToast('error', 'Deletion Failed', 'Could not delete your account.');
     }
+  };
+
+  const handleDeleteAccount = () => {
+    setPendingDeleteAccount(true);
   };
 
   // ── Dependent Handlers ──
@@ -366,17 +374,23 @@ export default function Profile({ onClose, showToast, darkMode, initialTab = 'pr
     }
   };
 
-  const handleDeleteDependent = async (depId, depName) => {
-    if (window.confirm(`Are you sure you want to delete dependent profile "${depName}"?`)) {
-      try {
-        await deleteDependent(depId);
-        setDependents(prev => prev.filter(d => d.id !== depId));
-        showToast('info', 'Dependent Deleted', `Removed profile for ${depName}.`);
-        if (onProfileUpdated) onProfileUpdated();
-      } catch (err) {
-        showToast('error', 'Delete Failed', err.message || 'Could not delete dependent.');
-      }
+  const handleConfirmDeleteDependent = async () => {
+    if (!pendingDeleteDependent) return;
+    const { id: depId, name: depName } = pendingDeleteDependent;
+    try {
+      await deleteDependent(depId);
+      setDependents(prev => prev.filter(d => d.id !== depId));
+      showToast('info', 'Dependent Deleted', `Removed profile for ${depName}.`);
+      if (onProfileUpdated) onProfileUpdated();
+    } catch (err) {
+      showToast('error', 'Delete Failed', err.message || 'Could not delete dependent.');
+    } finally {
+      setPendingDeleteDependent(null);
     }
+  };
+
+  const handleDeleteDependent = (depId, depName) => {
+    setPendingDeleteDependent({ id: depId, name: depName });
   };
 
   const cardClass = `rounded-2xl p-6 border ${
@@ -1012,6 +1026,32 @@ export default function Profile({ onClose, showToast, darkMode, initialTab = 'pr
 
         </div>
       </div>
+
+      {/* Account Deletion Modal */}
+      <ConfirmModal
+        isOpen={pendingDeleteAccount}
+        onClose={() => setPendingDeleteAccount(false)}
+        onConfirm={handleConfirmDeleteAccount}
+        title="Delete your account?"
+        body="Are you sure you want to permanently delete your account, medical data, dependents, and all documents? This action cannot be undone."
+        confirmLabel="Delete Account"
+        requireTyping={null}
+        closeable={true}
+        darkMode={darkMode}
+      />
+
+      {/* Dependent Deletion Modal */}
+      <ConfirmModal
+        isOpen={!!pendingDeleteDependent}
+        onClose={() => setPendingDeleteDependent(null)}
+        onConfirm={handleConfirmDeleteDependent}
+        title={`Delete dependent profile "${pendingDeleteDependent?.name}"?`}
+        body="This will permanently delete the dependent profile and their associated medical data."
+        confirmLabel="Delete Dependent"
+        requireTyping={null}
+        closeable={true}
+        darkMode={darkMode}
+      />
     </div>
   );
 }

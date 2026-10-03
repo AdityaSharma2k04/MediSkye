@@ -58,8 +58,8 @@ class User(Base):
     # Patient Memory System — user must explicitly opt in
     memory_consent_granted = Column(Boolean, default=False, nullable=False)
 
-    documents = orm_relationship("Document", back_populates="owner")
-    chats = orm_relationship("Chat", back_populates="user")
+    documents = orm_relationship("Document", back_populates="owner", cascade="all, delete-orphan")
+    chats = orm_relationship("Chat", back_populates="user", cascade="all, delete-orphan")
     audit_logs = orm_relationship("AuditLog", back_populates="user")
     dependents = orm_relationship("DependentProfile", back_populates="guardian", cascade="all, delete-orphan")
     patient_facts = orm_relationship("PatientFact", back_populates="user", cascade="all, delete-orphan", foreign_keys="[PatientFact.user_id]")
@@ -144,16 +144,6 @@ class AuditLog(Base):
 
     user = orm_relationship("User", back_populates="audit_logs")
     dependent = orm_relationship("DependentProfile", back_populates="audit_logs")
-
-
-class Specialist(Base):
-    __tablename__ = "specialists"
-
-    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    name = Column(String, nullable=False)
-    specialty = Column(String, nullable=False)
-    keywords = Column(JSON, nullable=False)
-    contact_info = Column(String, nullable=True)
 
 
 class PatientFact(Base):

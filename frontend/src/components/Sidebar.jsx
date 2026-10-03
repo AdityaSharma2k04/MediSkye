@@ -60,7 +60,7 @@ export default function Sidebar({
   const menuRef = useRef(null);
 
   const filteredChats = conversations.filter((c) =>
-    (c.title || 'New Consultation').toLowerCase().includes(searchQuery.toLowerCase())
+    (c.title || 'New Conversation').toLowerCase().includes(searchQuery.toLowerCase())
   );
 
   // Close menu when clicking outside
@@ -92,7 +92,7 @@ export default function Sidebar({
   const startRename = (chat) => {
     setOpenMenuId(null);
     setRenamingId(chat.id);
-    setRenameValue(chat.title || 'New Consultation');
+    setRenameValue(chat.title || 'New Conversation');
   };
 
   const commitRename = (id) => {
@@ -160,7 +160,7 @@ export default function Sidebar({
               }`}
             >
               <Plus className="w-3.5 h-3.5" />
-              <span>New Consultation</span>
+              <span>New Conversation</span>
             </button>
 
             {activePdf && (
@@ -199,8 +199,8 @@ export default function Sidebar({
               ) : (
                 filteredChats.map((chat) => {
                   const isActive = chat.id === activeSessionId;
-                  const isRenaming = renamingId === chat.id;
-                  const displayTitle = chat.title || 'New Consultation';
+                  const isRenaming = renamingId !== null && renamingId === chat.id;
+                  const displayTitle = chat.title || 'New Conversation';
 
                   return (
                     <div key={chat.id} className="relative group flex items-center w-full min-w-0" ref={openMenuId === chat.id ? menuRef : null}>
@@ -256,9 +256,9 @@ export default function Sidebar({
                               <MessageSquare className="w-3.5 h-3.5 shrink-0 opacity-60" />
                               <span className="truncate flex-1">{displayTitle}</span>
                             </div>
-                            {chat.createdAt && (
+                            {chat.created_at && (
                               <span className={`text-[10px] pl-5 ${darkMode ? 'text-zinc-600' : 'text-zinc-400'}`}>
-                                {formatRelativeTime(chat.createdAt)}
+                                {formatRelativeTime(chat.created_at)}
                               </span>
                             )}
                           </button>

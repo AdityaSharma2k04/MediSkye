@@ -268,10 +268,7 @@ export default function ChatWindow({
 
             <button
               type="button"
-              onClick={onOpenUpload || (() => {
-                const fileInput = document.querySelector('input[type="file"]');
-                if (fileInput) fileInput.click();
-              })}
+              onClick={onOpenUpload}
               aria-label="Add report"
               className={`flex items-center gap-1 px-2.5 py-1 rounded-lg border border-dashed text-xs shrink-0 transition-colors ${
                 darkMode
@@ -394,10 +391,7 @@ export default function ChatWindow({
             {/* A1 & A3: Dropzone when no document, compact chip when loaded */}
             {!activePdf ? (
               <div
-                onClick={() => {
-                  const fileInput = document.querySelector('input[type="file"]');
-                  if (fileInput) fileInput.click();
-                }}
+                onClick={onOpenUpload}
                 className={`w-full p-6 border border-dashed rounded-2xl cursor-pointer transition-all duration-150 shadow-sm mb-6 group ${
                   darkMode
                     ? 'border-zinc-800 bg-[#121212] hover:border-zinc-700 hover:bg-zinc-900/50'

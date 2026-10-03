@@ -1,7 +1,7 @@
 // API Service for FastAPI backend
 import { logger } from './logger';
 
-const API_BASE = 'http://127.0.0.1:8000';
+const API_BASE = import.meta.env.VITE_API_URL || 'http://127.0.0.1:8000';
 
 export function formatApiError(data, fallback = 'Request failed') {
   if (!data) return fallback;
@@ -143,7 +143,7 @@ export async function uploadPdfReport(file, patientId = null, chatId = null) {
   if (!res.ok) {
     if (res.status === 401) {
       localStorage.removeItem('token');
-      window.location.href = '/login';
+      window.dispatchEvent(new Event('auth:expired'));
       throw new Error('Session expired. Please log in again.');
     }
     throw new Error(data.detail || 'Failed to extract text from PDF report.');
@@ -175,7 +175,7 @@ export async function sendQueryStream(queryText, documentId, language = 'English
   if (!res.ok) {
     if (res.status === 401) {
       localStorage.removeItem('token');
-      window.location.href = '/login';
+      window.dispatchEvent(new Event('auth:expired'));
       throw new Error('Session expired. Please log in again.');
     }
 
@@ -242,7 +242,7 @@ export async function fetchLabMetrics(documentId) {
     if (!res.ok) {
       if (res.status === 401) {
         localStorage.removeItem('token');
-        window.location.href = '/login';
+        window.dispatchEvent(new Event('auth:expired'));
         throw new Error('Session expired. Please log in again.');
       }
       return [];

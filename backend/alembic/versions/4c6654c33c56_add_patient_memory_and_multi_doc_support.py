@@ -59,6 +59,7 @@ def upgrade() -> None:
             sa.Column('user_id', postgresql.UUID(as_uuid=True), sa.ForeignKey('users.id', ondelete='CASCADE'), nullable=False),
             sa.Column('dependent_id', postgresql.UUID(as_uuid=True), sa.ForeignKey('dependent_profiles.id', ondelete='CASCADE'), nullable=True),
             sa.Column('fact_type', sa.String(), nullable=False),
+            sa.Column('fact_key', sa.String(), nullable=True),
             sa.Column('fact_text', sa.String(), nullable=False),
             sa.Column('confidence', sa.Float(), server_default='1.0', nullable=False),
             sa.Column('is_active', sa.Boolean(), server_default='1', nullable=False),
@@ -73,6 +74,7 @@ def upgrade() -> None:
         op.create_index(op.f('ix_patient_facts_user_id'), 'patient_facts', ['user_id'])
         op.create_index(op.f('ix_patient_facts_dependent_id'), 'patient_facts', ['dependent_id'])
         op.create_index(op.f('ix_patient_facts_fact_type'), 'patient_facts', ['fact_type'])
+        op.create_index(op.f('ix_patient_facts_fact_key'), 'patient_facts', ['fact_key'])
         op.create_index('ix_patient_facts_user_dep_active', 'patient_facts', ['user_id', 'dependent_id', 'is_active'])
 
     # 4. Create chat_chunks table

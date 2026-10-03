@@ -68,7 +68,7 @@ function cleanFilename(filename) {
   if (name.length > 40) {
     name = name.slice(0, 40).replace(/\s+\S*$/, '');
   }
-  return name || 'New Consultation';
+  return name || 'New Conversation';
 }
 
 function autoNameFromQuery(query) {
@@ -133,6 +133,7 @@ export default function ChatApp() {
   const [activePdf, setActivePdf] = useState(null);
   const [isGenerating, setIsGenerating] = useState(false);
   const abortControllerRef = useRef(null);
+  const chatInputRef = useRef(null);
   const [toasts, setToasts] = useState([]);
 
   // Load User & Dependents on Mount
@@ -175,7 +176,7 @@ export default function ChatApp() {
       logger.error('Failed to load conversations from localStorage:', e);
     }
     return [
-      { id: sessionId, title: 'New Consultation', messages: [], pdf: null },
+      { id: sessionId, title: 'New Conversation', messages: [], pdf: null },
     ];
   });
 
@@ -244,7 +245,7 @@ export default function ChatApp() {
               });
               setSessionId(freshId);
               setActivePdf(null);
-              setConversations([{ id: freshId, title: 'New Consultation', messages: [], pdf: null }]);
+              setConversations([{ id: freshId, title: 'New Conversation', messages: [], pdf: null }]);
             }
           }).catch(() => {
             const freshId = 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (c) => {
@@ -253,7 +254,7 @@ export default function ChatApp() {
             });
             setSessionId(freshId);
             setActivePdf(null);
-            setConversations([{ id: freshId, title: 'New Consultation', messages: [], pdf: null }]);
+            setConversations([{ id: freshId, title: 'New Conversation', messages: [], pdf: null }]);
           });
         }
       }
@@ -328,7 +329,7 @@ export default function ChatApp() {
 
   const currentChat = conversations.find((c) => c.id === sessionId) || {
     id: sessionId,
-    title: 'New Consultation',
+    title: 'New Conversation',
     messages: [],
     documents: [],
   };
@@ -406,7 +407,7 @@ export default function ChatApp() {
             ...c,
             document_id: newDocId,
             patient_id: selectedPatientId,
-            title: (c.title === 'New Consultation' || c.title === 'New chat') ? autoTitle : c.title,
+            title: (c.title === 'New Conversation' || c.title === 'New chat') ? autoTitle : c.title,
             pdf: pdfMeta,
             documents: updatedDocs,
           };
@@ -475,7 +476,7 @@ export default function ChatApp() {
           c.id === sessionId
             ? {
                 ...c,
-                title: (c.title === 'New Consultation' || c.title === 'New chat')
+                title: (c.title === 'New Conversation' || c.title === 'New chat')
                   ? autoNameFromQuery(userQuery)
                   : c.title,
                 messages: [...c.messages, userMsgObj],
@@ -624,7 +625,7 @@ export default function ChatApp() {
     setActivePdf(null);
     setIsProfileOpen(false);
     setConversations((prev) => [
-      { id: newId, title: 'New Consultation', messages: [], pdf: null, patient_id: selectedPatientId },
+      { id: newId, title: 'New Conversation', messages: [], pdf: null, patient_id: selectedPatientId },
       ...prev,
     ]);
     showToast('info', 'New Conversation Started');
@@ -652,7 +653,7 @@ export default function ChatApp() {
     localStorage.setItem('mediskye_session_id', newId);
     localStorage.removeItem('mediskye_conversations');
     setActivePdf(null);
-    setConversations([{ id: newId, title: 'New Consultation', messages: [], pdf: null, patient_id: selectedPatientId }]);
+    setConversations([{ id: newId, title: 'New Conversation', messages: [], pdf: null, patient_id: selectedPatientId }]);
     showToast('info', 'Chat History Cleared');
   };
 
@@ -668,7 +669,7 @@ export default function ChatApp() {
           setSessionId(newId);
           localStorage.setItem('mediskye_session_id', newId);
           setActivePdf(null);
-          return [{ id: newId, title: 'New Consultation', messages: [], pdf: null, patient_id: selectedPatientId }];
+          return [{ id: newId, title: 'New Conversation', messages: [], pdf: null, patient_id: selectedPatientId }];
         }
         if (id === sessionId) {
           const nextChat = newConversations[0];
@@ -684,7 +685,8 @@ export default function ChatApp() {
     if (skipConfirm) {
       doDelete();
     } else {
-      if (window.confirm('Are you sure you want to delete this chat?')) doDelete();
+      console.warn('handleDeleteChat called without skipConfirm. Falling back to immediate deletion.');
+      doDelete();
     }
   };
 
@@ -799,8 +801,7 @@ export default function ChatApp() {
             : (activePdf ? [{ id: currentChat.document_id || 'doc-1', name: activePdf.name, filename: activePdf.name }] : [])}
           onDetachDocument={handleDetachDocument}
           onOpenUpload={() => {
-            const fileInput = document.querySelector('input[type="file"]');
-            if (fileInput) fileInput.click();
+            if (chatInputRef.current) chatInputRef.current.openFileUpload();
           }}
           documentId={currentChat.document_id}
           showToast={showToast}
@@ -814,6 +815,7 @@ export default function ChatApp() {
         />
 
         <ChatInput
+          ref={chatInputRef}
           onSendMessage={handleSendMessage}
           onAttachFile={handleAttachFile}
           activeFile={activePdf}
