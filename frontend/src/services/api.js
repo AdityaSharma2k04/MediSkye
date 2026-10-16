@@ -188,8 +188,35 @@ export async function sendQueryStream(queryText, documentId, language = 'English
   }
 
   const reader = res.body.getReader();
+  await parseSSEStream(reader, onChunk);
+}
+
+export async function parseSSEStream(reader, callbacks = {}) {
+  const { onStage, onSpecialists, onContent, onChunk } = typeof callbacks === 'function'
+    ? { onChunk: callbacks }
+    : callbacks;
+
+  const stageHandler = onStage || (onChunk ? (d) => onChunk(d) : undefined);
+  const specHandler = onSpecialists || (onChunk ? (d) => onChunk(Array.isArray(d) ? { specialists: d } : (d?.specialists ? d : { specialists: d })) : undefined);
+  const contentHandler = onContent || (onChunk ? (d) => onChunk(d) : undefined);
+
   const decoder = new TextDecoder('utf-8');
   let buffer = '';
+  let currentEvent = 'message';
+  let currentData = '';
+
+  const dispatch = () => {
+    if (!currentData) return;
+    if (currentData === '[DONE]') return;
+    try {
+      const parsed = JSON.parse(currentData);
+      if (currentEvent === 'stage') stageHandler?.(parsed);
+      else if (currentEvent === 'specialists') specHandler?.(parsed);
+      else contentHandler?.(parsed);
+    } catch (e) {
+      logger.warn('SSE parse error', e);
+    }
+  };
 
   while (true) {
     const { done, value } = await reader.read();
@@ -197,35 +224,24 @@ export async function sendQueryStream(queryText, documentId, language = 'English
 
     buffer += decoder.decode(value, { stream: true });
     const lines = buffer.split('\n');
-    buffer = lines.pop() || ''; // Keep incomplete trailing line in buffer
+    buffer = lines.pop() || '';
 
-    for (const line of lines) {
-      const trimmed = line.trim();
-      if (trimmed.startsWith('data: ')) {
-        const dataStr = trimmed.replace('data: ', '').trim();
-        if (dataStr === '[DONE]') {
-          return;
-        }
-        if (dataStr) {
-          try {
-            const dataObj = JSON.parse(dataStr);
-            onChunk(dataObj);
-          } catch (e) {
-            logger.error('Failed to parse SSE data', e);
-          }
-        }
+    for (const rawLine of lines) {
+      const line = rawLine.replace(/\r$/, '');
+      if (line === '') {
+        dispatch();
+        currentEvent = 'message';
+        currentData = '';
+      } else if (line.startsWith('event:')) {
+        currentEvent = line.slice(6).trim();
+      } else if (line.startsWith('data:')) {
+        currentData += line.slice(5).trim();
       }
     }
   }
 
-  if (buffer.trim().startsWith('data: ')) {
-    const dataStr = buffer.trim().replace('data: ', '').trim();
-    if (dataStr && dataStr !== '[DONE]') {
-      try {
-        const dataObj = JSON.parse(dataStr);
-        onChunk(dataObj);
-      } catch (e) {}
-    }
+  if (currentData) {
+    dispatch();
   }
 }
 
@@ -383,7 +399,7 @@ export async function getDocumentChats(docId) {
   return await res.json();
 }
 
-export async function renameChat(documentId, newTitle) {
+export async function renameDocument(documentId, newTitle) {
   const res = await fetch(`${API_BASE}/documents/${documentId}/title`, {
     method: 'PATCH',
     headers: {
@@ -394,10 +410,17 @@ export async function renameChat(documentId, newTitle) {
   });
   if (!res.ok) {
     const errData = await res.json().catch(() => ({}));
+    logger.warn('Failed to rename document on server:', {
+      status: res.status,
+      body: errData,
+      documentId,
+    });
     throw new Error(errData.detail || 'Failed to rename chat');
   }
   return await res.json();
 }
+
+export const renameChat = renameDocument;
 
 // ── Patient Memory System APIs ──
 

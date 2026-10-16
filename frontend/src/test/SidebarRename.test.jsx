@@ -1,7 +1,41 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
 import React from 'react';
+import { MemoryRouter } from 'react-router-dom';
 import Sidebar from '../components/Sidebar';
+import ChatApp from '../components/ChatApp';
+
+vi.mock('../services/api', () => ({
+  getProfile: vi.fn().mockResolvedValue({ id: 'u1', email: 'test@example.com' }),
+  getDependents: vi.fn().mockResolvedValue([]),
+  getUserDocuments: vi.fn().mockResolvedValue([]),
+  getDocumentChats: vi.fn().mockResolvedValue([]),
+  renameDocument: vi.fn(),
+  renameChat: vi.fn(),
+  getMemoryStatus: vi.fn().mockResolvedValue({ memory_consent_granted: false, fact_count: 0 }),
+  fetchLabMetrics: vi.fn().mockResolvedValue([]),
+  logout: vi.fn().mockResolvedValue({ message: 'ok' }),
+  uploadPdfReport: vi.fn(),
+  sendQueryStream: vi.fn(),
+  deleteAccount: vi.fn(),
+  updateProfile: vi.fn(),
+  detachChatDocument: vi.fn(),
+  getFacts: vi.fn().mockResolvedValue([]),
+  createFact: vi.fn(),
+  updateFact: vi.fn(),
+  deleteFact: vi.fn(),
+  updateMemoryConsent: vi.fn(),
+  changePassword: vi.fn(),
+  getMemoryFacts: vi.fn().mockResolvedValue([]),
+  deleteMemoryFact: vi.fn(),
+  clearAllMemoryFacts: vi.fn(),
+}));
+
+vi.mock('../services/speech', () => ({
+  startSpeechRecognition: vi.fn(),
+  speakText: vi.fn(),
+  stopSpeaking: vi.fn(),
+}));
 
 function renderSidebar(overrides = {}) {
   const props = {
@@ -122,5 +156,37 @@ describe('Sidebar inline chat rename', () => {
     fireEvent.keyDown(input, { key: 'Enter' });
 
     expect(props.onRenameChat).not.toHaveBeenCalled();
+  });
+
+  it('displays accurate toast when renaming a chat without a document', async () => {
+    localStorage.clear();
+    const noDocChat = { id: 'chat-nodoc', title: 'Consultation without report', messages: [] };
+    localStorage.setItem('mediskye_session_id', 'chat-nodoc');
+    localStorage.setItem('mediskye_last_active_user', 'u1');
+    localStorage.setItem('mediskye_patient_id', 'self');
+    localStorage.setItem('mediskye_conversations', JSON.stringify([noDocChat]));
+    localStorage.setItem('mediskye_conversations_u1', JSON.stringify([noDocChat]));
+
+    render(
+      <MemoryRouter>
+        <ChatApp />
+      </MemoryRouter>
+    );
+
+    // Open options on the chat and trigger rename
+    const optionsBtn = await screen.findByRole('button', { name: 'Chat options' });
+    fireEvent.click(optionsBtn);
+
+    const renameBtn = screen.getByRole('button', { name: /^rename$/i });
+    fireEvent.click(renameBtn);
+
+    const input = screen.getByRole('textbox', { name: 'Rename chat' });
+    fireEvent.change(input, { target: { value: 'Renamed general consultation' } });
+    fireEvent.keyDown(input, { key: 'Enter' });
+
+    // Assert the accurate toast appears
+    expect(
+      await screen.findByText('Renamed locally (this chat has no server-side document)')
+    ).toBeInTheDocument();
   });
 });

@@ -45,3 +45,24 @@ async def test_get_recommended_specialists_unknown_flags():
     flags = ["unknown_crazy_flag"]
     results = await get_recommended_specialists(None, flags)
     assert results == []
+
+
+@pytest.mark.asyncio
+async def test_each_flag_maps_to_exactly_one_specialty():
+    # hba1c → endocrinologist, ldl → cardiologist, alt → hepatologist
+    flags = ["hba1c", "ldl", "alt"]
+    results = await get_recommended_specialists(None, flags)
+
+    by_specialty = {r["specialty"]: r["matched_flags"] for r in results}
+
+    assert by_specialty.get("Endocrinology") == ["hba1c"]
+    assert by_specialty.get("Cardiology") == ["ldl"]
+    assert by_specialty.get("Hepatology") == ["alt"]
+
+    # No specialty should contain a flag that doesn't map to it
+    for rec in results:
+        for flag in rec["matched_flags"]:
+            from app.rag.specialist_router import SPECIALIST_MAP
+            assert SPECIALIST_MAP.get(flag) == rec["specialty"], (
+                f"Flag '{flag}' mapped to '{rec['specialty']}' but SPECIALIST_MAP says '{SPECIALIST_MAP.get(flag)}'"
+            )

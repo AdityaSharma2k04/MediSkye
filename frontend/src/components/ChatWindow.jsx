@@ -5,7 +5,9 @@ import {
   ChevronLeft, ChevronRight
 } from 'lucide-react';
 import ChatMessage from './ChatMessage';
-import { fetchLabMetrics } from '../services/api';
+import LabMetrics from './LabMetrics';
+import PrintableSummary from './PrintableSummary';
+import { fetchLabMetrics, getProfile } from '../services/api';
 import PatientContextSelector from './PatientContextSelector';
 
 export default function ChatWindow({
@@ -37,6 +39,9 @@ export default function ChatWindow({
   const [viewMode, setViewMode] = useState('chat');
   const [labMetrics, setLabMetrics] = useState([]);
   const [loadingMetrics, setLoadingMetrics] = useState(false);
+  const [showPrintSummary, setShowPrintSummary] = useState(false);
+  // Resolved user for the print summary — falls back to a fresh fetch if currentUser is null
+  const [printUser, setPrintUser] = useState(null);
 
   // When activePdf is removed, reset to chat view
   useEffect(() => {
@@ -80,8 +85,31 @@ export default function ChatWindow({
     setLoadingMetrics(false);
   };
 
-  const handlePrintDoctorSummary = () => {
-    window.print();
+  const handlePrintDoctorSummary = async () => {
+    // Resolve user — prefer prop, fall back to fresh GET /users/me
+    let resolvedUser = currentUser;
+    if (!resolvedUser) {
+      try { resolvedUser = await getProfile(); } catch (_) {}
+    }
+    setPrintUser(resolvedUser);
+
+    // Auto-fetch metrics if user hasn't opened Lab Metrics tab yet
+    if (documentId && labMetrics.length === 0) {
+      try {
+        const m = await fetchLabMetrics(documentId);
+        setLabMetrics(m);
+      } catch (_) {}
+    }
+    setShowPrintSummary(true);
+    // Give React one tick to mount PrintableSummary before printing
+    setTimeout(() => {
+      window.print();
+      const cleanup = () => {
+        setShowPrintSummary(false);
+        window.removeEventListener('afterprint', cleanup);
+      };
+      window.addEventListener('afterprint', cleanup);
+    }, 150);
   };
 
   // A1b: Context-aware suggestion cards
@@ -288,74 +316,27 @@ export default function ChatWindow({
         className="flex-1 overflow-y-auto p-4 sm:p-6 lg:p-8 max-w-4xl w-full mx-auto"
       >
         {viewMode === 'metrics' ? (
-          <div className="animate-fade-in py-4">
-            <div className="flex items-center justify-between mb-6">
-              <div>
-                <h2 className={`text-xl font-bold tracking-tight ${textPrimary}`}>Structured Lab Metrics</h2>
-                <p className={`text-xs mt-0.5 ${textSecondary}`}>Extracted lab values and reference range evaluation</p>
-              </div>
-              <button
-                onClick={() => setViewMode('chat')}
-                className={`text-xs underline ${darkMode ? 'text-zinc-400 hover:text-white' : 'text-zinc-500 hover:text-zinc-900'}`}
-              >
-                Back to Chat →
-              </button>
+          loadingMetrics ? (
+            <div className={`p-8 text-center rounded-2xl animate-pulse border mt-4 ${cardBg} ${cardBorder}`}>
+              <Sparkles className={`w-6 h-6 mx-auto mb-2 animate-spin ${textSecondary}`} />
+              <div className={`text-sm font-medium ${darkMode ? 'text-zinc-300' : 'text-zinc-700'}`}>Extracting Lab Value Metrics...</div>
+              <div className={`text-xs mt-1 ${textMuted}`}>Analyzing numerical bounds &amp; reference ranges</div>
             </div>
-
-            {loadingMetrics ? (
-              <div className={`p-8 text-center rounded-2xl animate-pulse border ${cardBg} ${cardBorder}`}>
-                <Sparkles className={`w-6 h-6 mx-auto mb-2 animate-spin ${textSecondary}`} />
-                <div className={`text-sm font-medium ${darkMode ? 'text-zinc-300' : 'text-zinc-700'}`}>Extracting Lab Value Metrics...</div>
-                <div className={`text-xs mt-1 ${textMuted}`}>Analyzing numerical bounds & reference ranges</div>
+          ) : labMetrics.length === 0 ? (
+            <div className={`p-8 text-center rounded-2xl border mt-4 ${cardBg} ${cardBorder}`}>
+              <AlertCircle className={`w-8 h-8 mx-auto mb-3 ${textMuted}`} />
+              <div className={`text-sm font-semibold mb-1 ${textPrimary}`}>No Lab Values Found</div>
+              <div className={`text-xs max-w-md mx-auto ${textSecondary}`}>
+                Upload a text-based diagnostic PDF report (e.g. CBC Blood Test or Lipid Panel) to extract structured lab metrics.
               </div>
-            ) : labMetrics.length === 0 ? (
-              <div className={`p-8 text-center rounded-2xl border ${cardBg} ${cardBorder}`}>
-                <AlertCircle className={`w-8 h-8 mx-auto mb-3 ${textMuted}`} />
-                <div className={`text-sm font-semibold mb-1 ${textPrimary}`}>No Lab Values Found</div>
-                <div className={`text-xs max-w-md mx-auto ${textSecondary}`}>
-                  Upload a text-based diagnostic PDF report (e.g. CBC Blood Test or Lipid Panel) to extract structured lab metrics.
-                </div>
-              </div>
-            ) : (
-              <div className={`rounded-2xl overflow-hidden shadow-xl border ${cardBg} ${cardBorder}`}>
-                <table className="w-full text-left text-xs">
-                  <thead className={`border-b ${
-                    darkMode ? 'bg-zinc-900 border-zinc-800 text-zinc-400' : 'bg-zinc-50 border-zinc-200 text-zinc-500'
-                  }`}>
-                    <tr>
-                      <th className="p-3.5 px-4 font-semibold">Test Name</th>
-                      <th className="p-3.5 px-4 font-semibold">Observed Value</th>
-                      <th className="p-3.5 px-4 font-semibold">Reference Range</th>
-                      <th className="p-3.5 px-4 font-semibold">Status</th>
-                    </tr>
-                  </thead>
-                  <tbody className={`divide-y ${darkMode ? 'divide-zinc-800/80' : 'divide-zinc-100'}`}>
-                    {labMetrics.map((row, idx) => {
-                      let badge = darkMode ? 'bg-zinc-800 text-zinc-300' : 'bg-zinc-100 text-zinc-600';
-                      if (row.status === 'High') badge = darkMode ? 'bg-rose-950/80 text-rose-300 border border-rose-900' : 'bg-rose-50 text-rose-700 border border-rose-200';
-                      else if (row.status === 'Low') badge = darkMode ? 'bg-amber-950/80 text-amber-300 border border-amber-900' : 'bg-amber-50 text-amber-700 border border-amber-200';
-                      else if (row.status === 'Normal') badge = darkMode ? 'bg-emerald-950/80 text-emerald-300 border border-emerald-900' : 'bg-emerald-50 text-emerald-700 border border-emerald-200';
-
-                      return (
-                        <tr key={idx} className={`transition-colors ${darkMode ? 'hover:bg-zinc-900/50' : 'hover:bg-zinc-50'}`}>
-                          <td className={`p-3.5 px-4 font-medium ${textPrimary}`}>{row.test}</td>
-                          <td className={`p-3.5 px-4 font-semibold ${textPrimary}`}>
-                            {row.value} <span className={`text-[11px] font-normal ${textSecondary}`}>{row.unit}</span>
-                          </td>
-                          <td className={`p-3.5 px-4 ${textSecondary}`}>{row.range || 'N/A'}</td>
-                          <td className="p-3.5 px-4">
-                            <span className={`px-2.5 py-1 rounded-md text-[10px] font-semibold ${badge}`}>
-                              {row.status || 'Extracted'}
-                            </span>
-                          </td>
-                        </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
-              </div>
-            )}
-          </div>
+            </div>
+          ) : (
+            <LabMetrics
+              metrics={labMetrics}
+              darkMode={darkMode}
+              onBack={() => setViewMode('chat')}
+            />
+          )
         ) : messages.length === 0 ? (
           /* ── A1: EMPTY STATE ── */
           <div className="min-h-[72vh] flex flex-col items-center justify-center text-center max-w-2xl mx-auto py-8 animate-fade-in">
@@ -469,59 +450,16 @@ export default function ChatWindow({
         )}
       </div>
 
-      {/* Printable summary (hidden from screen) */}
-      <div id="printableSummary" className="hidden print:block">
-        <div style={{ fontFamily: 'sans-serif', maxWidth: '800px', margin: '0 auto' }}>
-          <h1 style={{ fontSize: '24px', fontWeight: 'bold', marginBottom: '4px' }}>MediSkye AI — Doctor Consultation Summary</h1>
-          <p style={{ fontSize: '12px', color: '#666', marginBottom: '20px' }}>
-            Generated for session report analysis • Date: {new Date().toLocaleDateString()}
-          </p>
-
-          {activePdf && (
-            <div style={{ padding: '12px', background: '#f5f5f5', borderRadius: '8px', marginBottom: '20px', fontSize: '13px' }}>
-              <strong>Report File:</strong> {activePdf.name}
-            </div>
-          )}
-
-          {labMetrics.length > 0 && (
-            <div style={{ marginBottom: '25px' }}>
-              <h2 style={{ fontSize: '16px', fontWeight: 'bold', marginBottom: '10px' }}>Extracted Lab Results Summary</h2>
-              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '12px' }}>
-                <thead>
-                  <tr style={{ background: '#eee', textAlign: 'left' }}>
-                    <th style={{ padding: '8px', border: '1px solid #ccc' }}>Test Name</th>
-                    <th style={{ padding: '8px', border: '1px solid #ccc' }}>Observed Value</th>
-                    <th style={{ padding: '8px', border: '1px solid #ccc' }}>Reference Range</th>
-                    <th style={{ padding: '8px', border: '1px solid #ccc' }}>Status</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {labMetrics.map((r, i) => (
-                    <tr key={i}>
-                      <td style={{ padding: '8px', border: '1px solid #ccc' }}>{r.test}</td>
-                      <td style={{ padding: '8px', border: '1px solid #ccc' }}>{r.value} {r.unit}</td>
-                      <td style={{ padding: '8px', border: '1px solid #ccc' }}>{r.range}</td>
-                      <td style={{ padding: '8px', border: '1px solid #ccc' }}>{r.status}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
-
-          <h2 style={{ fontSize: '16px', fontWeight: 'bold', marginBottom: '10px' }}>Consultation Discussion Notes</h2>
-          {messages.map((m, idx) => (
-            <div key={idx} style={{ marginBottom: '12px', fontSize: '12px' }}>
-              <strong>{m.sender === 'user' ? 'Patient Question:' : 'MediSkye Explanation:'}</strong>
-              <p style={{ marginTop: '4px', lineHeight: '1.5' }}>{m.text}</p>
-            </div>
-          ))}
-
-          <div style={{ marginTop: '40px', paddingTop: '15px', borderTop: '1px solid #ccc', fontSize: '10px', color: '#777' }}>
-            Disclaimer: MediSkye AI is an educational tool and does not provide formal medical diagnoses.
-          </div>
-        </div>
-      </div>
+      {/* PrintableSummary — mounted only when printing */}
+      {showPrintSummary && (
+        <PrintableSummary
+          user={printUser || currentUser}
+          document={activePdf}
+          summary={messages.filter((m) => m.sender === 'assistant').map((m) => m.text).join('\n\n')}
+          metrics={labMetrics}
+          specialists={messages.flatMap((m) => m.specialists || [])}
+        />
+      )}
 
       {showScrollBtn && (
         <button

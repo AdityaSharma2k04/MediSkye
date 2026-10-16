@@ -80,15 +80,22 @@ html:not(.dark) ::-webkit-scrollbar-thumb:hover {
   animation: slideIn 0.2s ease-out;
 }
 
+/* Hide the print summary on screen — it appears only during window.print() */
+@media screen {
+  #print-summary {
+    display: none;
+  }
+}
+
 /* Print Styles for 1-Click Doctor Consultation Summary Export */
 @media print {
   body * {
     visibility: hidden;
   }
-  #printableSummary, #printableSummary * {
+  #print-summary, #print-summary * {
     visibility: visible;
   }
-  #printableSummary {
+  #print-summary {
     position: absolute;
     left: 0;
     top: 0;
@@ -96,6 +103,38 @@ html:not(.dark) ::-webkit-scrollbar-thumb:hover {
     background: white !important;
     color: black !important;
     padding: 20px;
+  }
+
+  /* Counter-reset: prevent any browser-injected page counters appearing inline */
+  body {
+    counter-reset: none;
+  }
+
+  .print-footer {
+    margin-top: 24pt;
+    padding-top: 12pt;
+    border-top: 1px solid #666;
+    font-size: 9pt;
+    color: #333;
+  }
+
+  /* Tables in the print summary */
+  #print-summary table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 9pt;
+    margin-bottom: 8pt;
+  }
+  #print-summary th,
+  #print-summary td {
+    border: 1px solid #ccc;
+    padding: 4pt 6pt;
+    text-align: left;
+  }
+  #print-summary thead tr {
+    background: #f0f0f0 !important;
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
   }
 }
 

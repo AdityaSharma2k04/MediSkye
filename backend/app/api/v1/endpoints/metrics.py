@@ -1,6 +1,7 @@
 import json
 import uuid
 import logging
+import asyncio
 from fastapi import APIRouter, Depends, Header, Request, HTTPException
 from google import genai
 from slowapi import Limiter
@@ -66,7 +67,6 @@ async def extract_metrics(
     {combined_text[:4000]}
     """
 
-    import time
     try:
         client = genai.Client(api_key=settings.GOOGLE_API_KEY)
         response = None
@@ -76,7 +76,7 @@ async def extract_metrics(
                 break
             except Exception as e:
                 if ("503" in str(e) or "429" in str(e)) and attempt < 2:
-                    time.sleep(1.5 * (attempt + 1))
+                    await asyncio.sleep(1.5 * (attempt + 1))
                     continue
                 raise
         if not response or not response.text:

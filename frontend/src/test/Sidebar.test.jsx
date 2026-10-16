@@ -105,4 +105,26 @@ describe('Sidebar DeepSeek-style Slide Collapse Animation', () => {
 
     await waitFor(() => expect(api.logout).toHaveBeenCalledTimes(1));
   });
+
+  it('does not display Rename or Delete menu on initial render for new accounts', async () => {
+    window.innerWidth = 1024;
+    localStorage.clear();
+    localStorage.setItem('mediskye_sidebar_open', 'true');
+    localStorage.setItem('token', 'jwt-new-user');
+
+    render(
+      <MemoryRouter>
+        <ChatApp />
+      </MemoryRouter>
+    );
+
+    // Initial conversation is visible (both top button and chat item have this text)
+    const elements = await screen.findAllByText('New Conversation');
+    expect(elements.length).toBeGreaterThan(0);
+
+    // Dropdown items (Rename / Delete) must NOT be visible initially
+    expect(screen.queryByRole('button', { name: /^rename$/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /^delete$/i })).not.toBeInTheDocument();
+  });
 });
+

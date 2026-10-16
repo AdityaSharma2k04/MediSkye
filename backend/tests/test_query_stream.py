@@ -1,12 +1,15 @@
 import uuid
+import asyncio
 import pytest
 import pymupdf as fitz
 from unittest.mock import AsyncMock, MagicMock, patch
 from httpx import AsyncClient, ASGITransport
+from sqlalchemy.future import select
 from app.main import app
 from app.core.auth import get_password_hash
 from app.db.database import AsyncSessionLocal
-from app.db.models import User
+from app.db.models import User, PatientFact
+from app.api.v1.endpoints.query import _background_tasks
 from tests.conftest import TEST_PASSWORD
 
 
@@ -118,3 +121,106 @@ async def test_query_stream_after_pdf_upload_success():
             assert "Your lab report shows normal findings" in stream_text
             assert "[DONE]" in stream_text
             assert "error" not in stream_text.lower()
+
+
+@pytest.mark.asyncio
+async def test_query_stream_memory_extraction_task_completes():
+    transport = ASGITransport(app=app)
+
+    chunk1 = MagicMock()
+    chunk1.text = "Your lab report shows normal findings. "
+    chunk2 = MagicMock()
+    chunk2.text = "All parameters are within standard range."
+
+    mock_client = MagicMock()
+    mock_client.models.generate_content_stream.return_value = [chunk1, chunk2]
+    intent_response = MagicMock()
+    intent_response.text = "DOCUMENT_QA"
+    mock_client.models.generate_content.return_value = intent_response
+
+    mock_extraction_result = {
+        "facts": [
+            {
+                "type": "condition",
+                "text": "Hypertension Stage 1",
+                "confidence": 0.95,
+                "excerpt": "Diagnosed with hypertension stage 1",
+            }
+        ],
+        "retractions": [],
+    }
+
+    with (
+        patch("app.rag.retriever.get_embedder", return_value=FakeEmbedder()),
+        patch("app.services.chat_indexer.get_embedder", return_value=FakeEmbedder()),
+        patch("app.rag.embedder.get_embedder", return_value=FakeEmbedder()),
+        patch("google.genai.Client", return_value=mock_client),
+        patch("app.services.fact_persistence.extract_facts", new=AsyncMock(return_value=mock_extraction_result)),
+    ):
+        async with AsyncClient(transport=transport, base_url="http://test") as ac:
+            email = f"bg_task_user_{uuid.uuid4().hex[:8]}@test.com"
+
+            async with AsyncSessionLocal() as session:
+                user = User(
+                    email=email,
+                    hashed_password=get_password_hash(TEST_PASSWORD),
+                    phi_consent_granted=True,
+                    memory_consent_granted=True,
+                )
+                session.add(user)
+                await session.commit()
+                await session.refresh(user)
+                user_id = user.id
+
+            login_res = await ac.post("/login", data={"username": email, "password": TEST_PASSWORD})
+            assert login_res.status_code == 200
+            token = login_res.json()["access_token"]
+            headers = {"Authorization": f"Bearer {token}"}
+
+            # Upload mock PDF
+            doc = fitz.open()
+            page = doc.new_page()
+            page.insert_text(
+                (50, 72),
+                "Complete Medical Summary. Patient: Jane Doe. Diagnosed with Hypertension Stage 1 under active management. Blood pressure readings average 138/88 mmHg. Advised lifestyle modifications.",
+            )
+            pdf_bytes = doc.tobytes()
+
+            upload_res = await ac.post(
+                "/upload",
+                files={"file": ("report.pdf", pdf_bytes, "application/pdf")},
+                headers=headers,
+            )
+            assert upload_res.status_code == 200
+            doc_id = upload_res.json()["document_id"]
+
+            # Query stream spawns background memory extraction task
+            res = await ac.post(
+                "/query",
+                json={"session_id": str(doc_id), "query": "tell me about my diagnosis"},
+                headers=headers,
+            )
+            assert res.status_code == 200
+            assert "[DONE]" in res.text
+
+            # Drain any tasks in _background_tasks
+            if _background_tasks:
+                await asyncio.gather(*list(_background_tasks), return_exceptions=True)
+            else:
+                await asyncio.sleep(0.3)
+
+            # Assert task finished and fact was saved into DB
+            async with AsyncSessionLocal() as session:
+                facts_res = await session.execute(
+                    select(PatientFact).filter(
+                        PatientFact.user_id == user_id,
+                        PatientFact.is_active.is_(True),
+                    )
+                )
+                facts = facts_res.scalars().all()
+                assert len(facts) >= 1
+                target_fact = next((f for f in facts if f.fact_text == "Hypertension Stage 1"), None)
+                assert target_fact is not None
+                assert target_fact.is_active is True
+                assert target_fact.confidence == 0.95
+

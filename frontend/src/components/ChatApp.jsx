@@ -15,7 +15,7 @@ import {
   getDependents,
   getUserDocuments,
   getDocumentChats,
-  renameChat,
+  renameDocument,
   deleteAccount,
   updateProfile,
   detachChatDocument,
@@ -78,27 +78,46 @@ function autoNameFromQuery(query) {
   return truncated + '...';
 }
 
+function generateSessionId() {
+  if (typeof crypto !== 'undefined' && crypto.randomUUID) {
+    return crypto.randomUUID();
+  }
+  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (c) => {
+    const r = (Math.random() * 16) | 0;
+    return (c === 'x' ? r : (r & 0x3) | 0x8).toString(16);
+  });
+}
+
 export default function ChatApp() {
   const navigate = useNavigate();
+  const userLoadedRef = useRef(null);
 
   const handleLogout = async () => {
     // Clear the JWT blocklist server-side, then wipe all local auth/PHI state.
     await logout();
+    userLoadedRef.current = null;
     // Reset in-memory global state so a re-mount (or a deferred navigation)
     // cannot render stale patient data from the previous session.
     setCurrentUser(null);
     setDependents([]);
     setSelectedPatientId('self');
-    setConversations([]);
+    const freshId = generateSessionId();
+    setSessionId(freshId);
+    setConversations([{ id: freshId, title: 'New Conversation', messages: [], pdf: null }]);
     setActivePdf(null);
-    setSessionId(null);
     setIsSettingsOpen(false);
     setIsProfileOpen(false);
     navigate('/login', { replace: true });
   };
 
   const [sessionId, setSessionId] = useState(() => {
-    return localStorage.getItem('mediskye_session_id') || null;
+    const saved = localStorage.getItem('mediskye_session_id');
+    if (saved && saved !== 'null' && saved !== 'undefined') return saved;
+    const fresh = generateSessionId();
+    try {
+      localStorage.setItem('mediskye_session_id', fresh);
+    } catch (e) {}
+    return fresh;
   });
 
   // ── Patient Context & User State ──
@@ -169,14 +188,19 @@ export default function ChatApp() {
       if (saved) {
         const parsed = JSON.parse(saved);
         if (Array.isArray(parsed) && parsed.length > 0) {
-          return parsed;
+          const sanitized = parsed.map((c) => ({
+            ...c,
+            id: c.id && c.id !== 'null' ? c.id : generateSessionId(),
+          }));
+          return sanitized;
         }
       }
     } catch (e) {
       logger.error('Failed to load conversations from localStorage:', e);
     }
+    const currentId = localStorage.getItem('mediskye_session_id') || generateSessionId();
     return [
-      { id: sessionId, title: 'New Conversation', messages: [], pdf: null },
+      { id: currentId, title: 'New Conversation', messages: [], pdf: null },
     ];
   });
 
@@ -184,7 +208,7 @@ export default function ChatApp() {
   useEffect(() => {
     try {
       localStorage.setItem('mediskye_conversations', JSON.stringify(conversations));
-      if (currentUser?.id) {
+      if (currentUser?.id && userLoadedRef.current === currentUser.id) {
         localStorage.setItem(`mediskye_conversations_${currentUser.id}`, JSON.stringify(conversations));
       }
     } catch (e) {
@@ -195,68 +219,69 @@ export default function ChatApp() {
   // Account switch isolation & pre-linked document loading
   useEffect(() => {
     if (currentUser?.id) {
+      const isSwitch = userLoadedRef.current !== null && userLoadedRef.current !== currentUser.id;
+      userLoadedRef.current = currentUser.id;
       const lastUser = localStorage.getItem('mediskye_last_active_user');
-      const isSwitch = lastUser && lastUser !== currentUser.id;
+      const isStorageSwitch = lastUser && lastUser !== currentUser.id;
       const userSaved = localStorage.getItem(`mediskye_conversations_${currentUser.id}`);
 
-      if (isSwitch || !userSaved) {
-        if (userSaved) {
+      if (isSwitch || isStorageSwitch || !userSaved) {
+        if (userSaved && !isSwitch && !isStorageSwitch) {
           try {
             const parsed = JSON.parse(userSaved);
             if (Array.isArray(parsed) && parsed.length > 0) {
-              setConversations(parsed);
-              setSessionId(parsed[0].id);
-              setActivePdf(parsed[0].pdf || null);
+              const sanitized = parsed.map((c) => ({
+                ...c,
+                id: c.id && c.id !== 'null' ? c.id : generateSessionId(),
+              }));
+              setConversations(sanitized);
+              setSessionId(sanitized[0].id);
+              setActivePdf(sanitized[0].pdf || null);
+              return;
             }
           } catch (e) {}
-        } else {
-          // Check backend for pre-linked documents
-          getUserDocuments().then(async (docs) => {
-            if (docs && docs.length > 0) {
-              const doc = docs[0];
-              const chats = await getDocumentChats(doc.id).catch(() => []);
-              const formattedMessages = chats.map((c) => ({
-                id: c.id,
-                sender: c.role === 'ai' ? 'assistant' : 'user',
-                text: c.message,
-                timestamp: c.created_at ? new Date(c.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '',
-              }));
+        }
 
-              const prelinkedPdf = { name: doc.filename, size: 8192 };
-              // Use server title if present, else clean filename heuristic
-              const autoTitle = doc.title || cleanFilename(doc.filename);
-              const prelinkedConv = {
-                id: doc.id,
-                document_id: doc.id,
-                patient_id: doc.dependent_id || 'self',
-                title: autoTitle,
-                messages: formattedMessages,
-                pdf: prelinkedPdf,
-              };
+        // Fresh account or switched account without valid saved chats: check backend
+        getUserDocuments().then(async (docs) => {
+          if (docs && docs.length > 0) {
+            const doc = docs[0];
+            const chats = await getDocumentChats(doc.id).catch(() => []);
+            const formattedMessages = chats.map((c) => ({
+              id: c.id,
+              sender: c.role === 'ai' ? 'assistant' : 'user',
+              text: c.message,
+              timestamp: c.created_at ? new Date(c.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '',
+            }));
 
-              setConversations([prelinkedConv]);
-              setSessionId(doc.id);
-              setActivePdf(prelinkedPdf);
-            } else {
-              // Fresh account without documents
-              const freshId = 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (c) => {
-                const r = (Math.random() * 16) | 0;
-                return (c === 'x' ? r : (r & 0x3) | 0x8).toString(16);
-              });
-              setSessionId(freshId);
-              setActivePdf(null);
-              setConversations([{ id: freshId, title: 'New Conversation', messages: [], pdf: null }]);
-            }
-          }).catch(() => {
-            const freshId = 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (c) => {
-              const r = (Math.random() * 16) | 0;
-              return (c === 'x' ? r : (r & 0x3) | 0x8).toString(16);
-            });
+            const prelinkedPdf = { name: doc.filename, size: 8192 };
+            // Use server title if present, else clean filename heuristic
+            const autoTitle = doc.title || cleanFilename(doc.filename);
+            const prelinkedConv = {
+              id: doc.id,
+              document_id: doc.id,
+              patient_id: doc.dependent_id || 'self',
+              title: autoTitle,
+              messages: formattedMessages,
+              pdf: prelinkedPdf,
+            };
+
+            setConversations([prelinkedConv]);
+            setSessionId(doc.id);
+            setActivePdf(prelinkedPdf);
+          } else {
+            // Fresh account without documents
+            const freshId = generateSessionId();
             setSessionId(freshId);
             setActivePdf(null);
             setConversations([{ id: freshId, title: 'New Conversation', messages: [], pdf: null }]);
-          });
-        }
+          }
+        }).catch(() => {
+          const freshId = generateSessionId();
+          setSessionId(freshId);
+          setActivePdf(null);
+          setConversations([{ id: freshId, title: 'New Conversation', messages: [], pdf: null }]);
+        });
       }
       localStorage.setItem('mediskye_last_active_user', currentUser.id);
     }
@@ -704,13 +729,14 @@ export default function ChatApp() {
     const chat = conversations.find((c) => c.id === id);
     if (chat?.document_id) {
       try {
-        await renameChat(chat.document_id, trimmed);
-        showToast('success', 'Chat Renamed', `Renamed to "${trimmed}"`);
+        await renameDocument(chat.document_id, trimmed);
+        showToast('success', 'Chat Renamed', 'Chat renamed');
       } catch (err) {
+        logger.error('Failed to rename document:', err);
         showToast('error', 'Rename Failed', err.message);
       }
     } else {
-      showToast('success', 'Chat Renamed', `Renamed to "${trimmed}"`);
+      showToast('info', 'Chat Renamed', 'Renamed locally (this chat has no server-side document)');
     }
   };
 

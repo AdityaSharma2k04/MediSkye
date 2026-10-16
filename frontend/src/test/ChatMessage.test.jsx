@@ -120,4 +120,23 @@ describe('ChatMessage rendering', () => {
     expect(screen.getByText('Glucose')).toBeInTheDocument();
     expect(screen.getByText('High')).toBeInTheDocument();
   });
+
+  it('shows correct count when response has 5 abnormal metrics', () => {
+    const message = {
+      sender: 'assistant',
+      text: 'Analysis complete.',
+      metrics: [
+        { test: 'HbA1c', value: '7.2', unit: '%', range: '4.0 - 5.6', status: 'High' },
+        { test: 'LDL', value: '145', unit: 'mg/dL', range: '0 - 100', status: 'High' },
+        { test: 'ALT', value: '62', unit: 'U/L', range: '7 - 40', status: 'High' },
+        { test: 'Creatinine', value: '1.4', unit: 'mg/dL', range: '0.7 - 1.2', status: 'High' },
+        { test: 'Hemoglobin', value: '10.1', unit: 'g/dL', range: '13.5 - 17.5', status: 'Low' },
+      ],
+      isStreaming: false,
+    };
+
+    render(<ChatMessage message={message} darkMode={false} />);
+
+    expect(screen.getByText(/View details \(5 tests\)/i)).toBeInTheDocument();
+  });
 });

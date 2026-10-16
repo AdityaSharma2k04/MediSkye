@@ -14,6 +14,7 @@ vi.mock('../services/api', () => ({
   getUserDocuments: vi.fn(),
   getDocumentChats: vi.fn(),
   renameChat: vi.fn(),
+  renameDocument: vi.fn(),
   deleteAccount: vi.fn(),
   updateProfile: vi.fn(),
   detachChatDocument: vi.fn(),

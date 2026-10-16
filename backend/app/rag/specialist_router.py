@@ -98,19 +98,18 @@ def format_specialist_copy(recommendations: List[Dict[str, Any]]) -> str:
 async def get_recommended_specialists(db: AsyncSession, flags: List[str]) -> List[Dict[str, Any]]:
     """
     Map abnormal flags to recommended specialists using a static map.
+    Each flag maps to exactly ONE specialty via direct key lookup.
     """
     if not flags:
         return []
 
-    flags_lower = {f.lower().strip() for f in flags}
-    specialty_to_flags = {}
+    specialty_to_flags: Dict[str, set] = {}
 
-    for fl in flags_lower:
-        for kw, specialty in SPECIALIST_MAP.items():
-            if kw in fl or fl in kw:
-                if specialty not in specialty_to_flags:
-                    specialty_to_flags[specialty] = set()
-                specialty_to_flags[specialty].add(fl)
+    for fl in flags:
+        key = fl.lower().strip()
+        specialty = SPECIALIST_MAP.get(key)
+        if specialty:
+            specialty_to_flags.setdefault(specialty, set()).add(key)
 
     recommendations = []
     for specialty, matched in specialty_to_flags.items():

@@ -1,5 +1,7 @@
+import os
 import uuid
 import pytest
+from unittest.mock import MagicMock, AsyncMock, patch
 from datetime import datetime, UTC
 from httpx import AsyncClient, ASGITransport
 from sqlalchemy.future import select
@@ -10,6 +12,7 @@ from app.db.database import AsyncSessionLocal
 from app.db.models import User, Chat, Document, ChatDocument
 from app.services.patient_memory import get_chat_documents
 from app.rag.prompt_builder import build_prompt
+from app.rag.intent_router import QueryIntent
 from langchain_core.documents import Document as LCDocument
 from tests.conftest import TEST_PASSWORD
 
@@ -121,3 +124,87 @@ def test_multi_doc_prompt_cites_all_documents():
     assert "Hemoglobin: 14.5" in prompt
     assert "Total Cholesterol: 240" in prompt
     assert 'Cite findings inline: "(from CBC_Jan_2026.pdf)"' in prompt
+
+
+@pytest.mark.asyncio
+async def test_multi_document_query_fuses_all_three_documents():
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as ac:
+        email = f"threedocs_{uuid.uuid4().hex[:8]}@test.com"
+        headers = await create_user_and_headers(ac, email)
+
+        async with AsyncSessionLocal() as session:
+            user_res = await session.execute(select(User).filter(User.email == email))
+            user = user_res.scalars().first()
+
+            doc1 = Document(user_id=user.id, filename="CBC_Report.pdf", title="CBC Report", file_path="dummy/path/cbc.index")
+            doc2 = Document(user_id=user.id, filename="Lipid_Panel.pdf", title="Lipid Panel", file_path="dummy/path/lipid.index")
+            doc3 = Document(user_id=user.id, filename="Thyroid_Panel.pdf", title="Thyroid Panel", file_path="dummy/path/thyroid.index")
+            session.add_all([doc1, doc2, doc3])
+            await session.commit()
+            await session.refresh(doc1)
+            await session.refresh(doc2)
+            await session.refresh(doc3)
+
+            chat = Chat(user_id=user.id, role="user", message="Summarize CBC, Lipid, and Thyroid results.")
+            session.add(chat)
+            await session.commit()
+            await session.refresh(chat)
+
+            cd1 = ChatDocument(chat_id=chat.id, document_id=doc1.id)
+            cd2 = ChatDocument(chat_id=chat.id, document_id=doc2.id)
+            cd3 = ChatDocument(chat_id=chat.id, document_id=doc3.id)
+            session.add_all([cd1, cd2, cd3])
+            await session.commit()
+
+            chat_id = chat.id
+
+        # Mock vectorstores and retrievals for each document
+        def fake_load_index(path):
+            mock_vs = MagicMock()
+            mock_vs.index_path = path
+            return mock_vs, None
+
+        def fake_retrieve(query, vectorstore, bm25_index=None, k=4):
+            path = getattr(vectorstore, "index_path", "")
+            if "cbc" in path:
+                return [LCDocument(page_content="Platelets: 250k /uL", metadata={"filename": "CBC_Report.pdf"})]
+            elif "lipid" in path:
+                return [LCDocument(page_content="Cholesterol: 180 mg/dL", metadata={"filename": "Lipid_Panel.pdf"})]
+            elif "thyroid" in path:
+                return [LCDocument(page_content="TSH: 2.1 uIU/mL", metadata={"filename": "Thyroid_Panel.pdf"})]
+            return []
+
+        mock_client = MagicMock()
+        mock_chunk = MagicMock()
+        mock_chunk.text = "Summary across all three documents."
+        mock_client.models.generate_content_stream.return_value = [mock_chunk]
+
+        with (
+            patch("os.path.exists", return_value=True),
+            patch("app.api.v1.endpoints.query.load_hybrid_index", side_effect=fake_load_index),
+            patch("app.api.v1.endpoints.query.retrieve_relevant_docs", side_effect=fake_retrieve),
+            patch("app.api.v1.endpoints.query.classify_intent", new=AsyncMock(return_value=QueryIntent.DOCUMENT_QA)),
+            patch("google.genai.Client", return_value=mock_client),
+            patch("app.api.v1.endpoints.query.process_chat_memory_extraction", new=AsyncMock()),
+            patch("app.api.v1.endpoints.query.build_prompt", wraps=build_prompt) as spy_build_prompt,
+        ):
+            res = await ac.post(
+                "/query",
+                json={"session_id": str(chat_id), "query": "Summarize CBC, Lipid, and Thyroid results."},
+                headers=headers,
+            )
+            assert res.status_code == 200
+            assert "[DONE]" in res.text
+
+            # Verify build_prompt received retrieved_docs containing chunks from ALL 3 documents
+            assert spy_build_prompt.called
+            call_kwargs = spy_build_prompt.call_args.kwargs
+            retrieved_docs = call_kwargs.get("retrieved_docs", [])
+            retrieved_sources = {d.metadata.get("filename") for d in retrieved_docs}
+
+            assert "CBC_Report.pdf" in retrieved_sources
+            assert "Lipid_Panel.pdf" in retrieved_sources
+            assert "Thyroid_Panel.pdf" in retrieved_sources
+            assert len(retrieved_sources) == 3
+

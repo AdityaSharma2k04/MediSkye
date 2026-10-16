@@ -55,24 +55,36 @@ export default function Sidebar({
   const [pendingLogout, setPendingLogout] = useState(false);
   const [openMenuId, setOpenMenuId] = useState(null);
   const [renamingId, setRenamingId] = useState(null);
+
+  // Guarantee menu is closed on every mount (guards against StrictMode double-invoke)
+  useEffect(() => { setOpenMenuId(null); }, []);
   const [renameValue, setRenameValue] = useState('');
   const renameInputRef = useRef(null);
-  const menuRef = useRef(null);
+  const menuRefs = useRef({});
 
   const filteredChats = conversations.filter((c) =>
     (c.title || 'New Conversation').toLowerCase().includes(searchQuery.toLowerCase())
   );
 
-  // Close menu when clicking outside
+  // Close menu when clicking outside or pressing Escape — only active while a menu is open
   useEffect(() => {
-    const handler = (e) => {
-      if (menuRef.current && !menuRef.current.contains(e.target)) {
+    if (!openMenuId) return;
+    const handleMouseDown = (e) => {
+      const ref = menuRefs.current[openMenuId];
+      if (ref && !ref.contains(e.target)) {
         setOpenMenuId(null);
       }
     };
-    document.addEventListener('mousedown', handler);
-    return () => document.removeEventListener('mousedown', handler);
-  }, []);
+    const handleKeyDown = (e) => {
+      if (e.key === 'Escape') setOpenMenuId(null);
+    };
+    document.addEventListener('mousedown', handleMouseDown);
+    document.addEventListener('keydown', handleKeyDown);
+    return () => {
+      document.removeEventListener('mousedown', handleMouseDown);
+      document.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [openMenuId]);
 
   // Focus rename input when opened
   useEffect(() => {
@@ -197,13 +209,14 @@ export default function Sidebar({
               {filteredChats.length === 0 ? (
                 <div className={`text-center py-6 text-xs ${darkMode ? 'text-zinc-500' : 'text-zinc-400'}`}>No chats found</div>
               ) : (
-                filteredChats.map((chat) => {
-                  const isActive = chat.id === activeSessionId;
-                  const isRenaming = renamingId !== null && renamingId === chat.id;
+                filteredChats.map((chat, index) => {
+                  const isActive = Boolean(chat.id) && chat.id === activeSessionId;
+                  const isRenaming = Boolean(renamingId) && renamingId === chat.id;
+                  const isMenuOpen = Boolean(openMenuId) && openMenuId === chat.id;
                   const displayTitle = chat.title || 'New Conversation';
 
                   return (
-                    <div key={chat.id} className="relative group flex items-center w-full min-w-0" ref={openMenuId === chat.id ? menuRef : null}>
+                    <div key={chat.id || `chat-${index}`} className="relative group flex items-center w-full min-w-0">
                       {isRenaming ? (
                         /* Inline rename row — replaces the title in place, inside the chat item */
                         <div className="flex-1 flex items-center gap-1 min-w-0">
@@ -245,11 +258,11 @@ export default function Sidebar({
                             className={`flex-1 text-left p-2 pr-8 rounded-xl text-xs flex flex-col gap-0.5 transition-colors ${
                               isActive
                                 ? darkMode
-                                  ? 'bg-zinc-800 text-white font-medium border border-zinc-700'
-                                  : 'bg-zinc-100 text-zinc-900 font-medium border border-zinc-300'
+                                ? 'bg-zinc-800 text-white font-medium border border-zinc-700'
+                                : 'bg-zinc-100 text-zinc-900 font-medium border border-zinc-300'
                                 : darkMode
-                                  ? 'text-zinc-400 hover:bg-zinc-900/50 hover:text-white'
-                                  : 'text-zinc-500 hover:bg-zinc-50 hover:text-zinc-900'
+                                ? 'text-zinc-400 hover:bg-zinc-900/50 hover:text-white'
+                                : 'text-zinc-500 hover:bg-zinc-50 hover:text-zinc-900'
                             }`}
                           >
                             <div className="flex items-center gap-2">
@@ -267,12 +280,11 @@ export default function Sidebar({
                           <button
                             onClick={(e) => {
                               e.stopPropagation();
-                              setOpenMenuId(openMenuId === chat.id ? null : chat.id);
+                              if (!chat.id) return;
+                              setOpenMenuId((prev) => (prev === chat.id ? null : chat.id));
                             }}
                             aria-label="Chat options"
-                            className={`absolute right-1.5 p-1 rounded transition-all opacity-0 group-hover:opacity-100 ${
-                              isActive ? 'opacity-100' : ''
-                            } ${
+                            className={`absolute right-1.5 p-1 rounded opacity-0 group-hover:opacity-100 transition-opacity ${isMenuOpen ? '!opacity-100' : ''} ${
                               darkMode
                                 ? 'text-zinc-500 hover:text-white hover:bg-zinc-700'
                                 : 'text-zinc-400 hover:text-zinc-700 hover:bg-zinc-100'
@@ -282,10 +294,15 @@ export default function Sidebar({
                           </button>
 
                           {/* Dropdown menu */}
-                          {openMenuId === chat.id && (
-                            <div className={`absolute right-0 top-8 z-50 w-36 rounded-xl shadow-lg border overflow-hidden text-xs ${
-                              darkMode ? 'bg-zinc-900 border-zinc-800' : 'bg-white border-zinc-200'
-                            }`}>
+                          {isMenuOpen && (
+                            <div
+                              ref={(el) => {
+                                if (chat.id) menuRefs.current[chat.id] = el;
+                              }}
+                              className={`absolute right-0 top-8 z-50 w-36 rounded-xl shadow-lg border overflow-hidden text-xs ${
+                                darkMode ? 'bg-zinc-900 border-zinc-800' : 'bg-white border-zinc-200'
+                              }`}
+                            >
                               <button
                                 onClick={() => startRename(chat)}
                                 className={`w-full flex items-center gap-2 px-3 py-2 transition-colors ${

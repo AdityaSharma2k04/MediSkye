@@ -23,7 +23,7 @@ from app.schemas.query import QueryRequest, QueryResponse, SourceChunk
 from app.rag.prompt_builder import build_prompt, build_general_health_prompt
 from app.rag.intent_router import classify_intent, QueryIntent
 from app.rag.safety import append_disclaimer, get_emergency_response, is_emergency_query
-from app.rag.retriever import load_hybrid_index, retrieve_relevant_docs, reciprocal_rank_fusion
+from app.rag.retriever import load_hybrid_index, retrieve_relevant_docs
 from app.rag.specialist_router import get_recommended_specialists
 from app.services.patient_service import calculate_age
 from app.services.patient_memory import get_active_facts, get_relevant_past_chunks, get_chat_documents
@@ -32,6 +32,9 @@ from app.services.fact_persistence import process_chat_memory_extraction
 from app.services.chat_indexer import index_chat_message
 
 logger = logging.getLogger(__name__)
+
+# Hold strong references to background tasks to prevent GC mid-execution
+_background_tasks: set = set()
 
 router = APIRouter()
 
@@ -96,7 +99,7 @@ def _extract_metrics_from_docs(retrieved_docs: List[Any]) -> List[Dict[str, Any]
                     "status": m.group("status").capitalize() if m.group("status") else "Normal",
                     "range": m.group("range") or "Standard reference range",
                 })
-                if len(metrics) >= 12:
+                if len(metrics) >= 50:
                     return metrics
     return metrics
 
@@ -267,11 +270,18 @@ async def query_bot(
                 if len(all_doc_results) == 1:
                     retrieved_chunks = all_doc_results[0]
                 elif len(all_doc_results) > 1:
-                    retrieved_chunks = reciprocal_rank_fusion(
-                        all_doc_results[0],
-                        all_doc_results[1],
-                        k=6,
-                    )
+                    scores: Dict[str, float] = {}
+                    doc_chunk_map: Dict[str, Any] = {}
+                    for doc_list in all_doc_results:
+                        for rank, c in enumerate(doc_list):
+                            c_key = c.page_content.strip()
+                            scores[c_key] = scores.get(c_key, 0.0) + (1.0 / (60.0 + rank))
+                            if c_key not in doc_chunk_map:
+                                doc_chunk_map[c_key] = c
+
+                    sorted_keys = sorted(scores.keys(), key=lambda x: scores[x], reverse=True)
+                    limit_k = max(6, len(all_doc_results) * 2)
+                    retrieved_chunks = [doc_chunk_map[k] for k in sorted_keys[:limit_k]]
                 await asyncio.sleep(0.4)
 
             # ── Memory retrieval (Tier 1 facts always, Tier 2 past chunks for DOCUMENT_QA only) ──
@@ -441,13 +451,15 @@ async def query_bot(
 
         # ── Trigger background fact extraction if consent granted ──
         if current_user.memory_consent_granted and settings.PATIENT_MEMORY_ENABLED:
-            asyncio.create_task(
+            task = asyncio.create_task(
                 process_chat_memory_extraction(
                     chat_id=current_chat_id,
                     user_id=current_user.id,
                     dependent_id=active_dep_id,
                 )
             )
+            _background_tasks.add(task)
+            task.add_done_callback(_background_tasks.discard)
 
         yield f'data: [DONE]\n\n'
 
