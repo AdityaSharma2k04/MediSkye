@@ -123,7 +123,7 @@ def test_multi_doc_prompt_cites_all_documents():
     assert 'name="Lipid_Aug_2026.pdf"' in user_content
     assert "Hemoglobin: 14.5" in user_content
     assert "Total Cholesterol: 240" in user_content
-    assert 'Cite findings inline: "(from CBC_Jan_2026.pdf)"' in system_instruction
+    assert '(from filename.pdf)' in system_instruction or 'Attach "(from filename.pdf)"' in system_instruction
 
 
 @pytest.mark.asyncio

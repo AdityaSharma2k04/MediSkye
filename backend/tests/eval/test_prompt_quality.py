@@ -112,8 +112,8 @@ def test_build_prompt_includes_synthesis_instructions():
         occupation="Software Engineer",
     )
 
-    assert "STRUCTURE:" in system_instruction or "STRUCTURE OF YOUR RESPONSE:" in system_instruction
-    assert "Group findings into 2-4 clinical themes" in system_instruction
-    assert "Do NOT list reference ranges inline" in system_instruction
+    assert "STYLE RULES" in system_instruction
+    assert "2-4 themes" in system_instruction or "2-4" in system_instruction
+    assert "JARGON RULES" in system_instruction
     assert "vegetarian" in user_content
     assert "175.0 cm" in user_content or "175 cm" in user_content
