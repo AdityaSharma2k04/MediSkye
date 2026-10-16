@@ -113,17 +113,17 @@ def test_multi_doc_prompt_cites_all_documents():
         metadata={"source": "Lipid_Aug_2026.pdf", "page": 1}
     )
 
-    prompt = build_prompt(
+    system_instruction, user_content = build_prompt(
         user_query="How do my CBC and Lipid panels compare?",
         retrieved_docs=[chunk1, chunk2],
     )
 
-    assert "<uploaded_documents>" in prompt
-    assert 'name="CBC_Jan_2026.pdf"' in prompt
-    assert 'name="Lipid_Aug_2026.pdf"' in prompt
-    assert "Hemoglobin: 14.5" in prompt
-    assert "Total Cholesterol: 240" in prompt
-    assert 'Cite findings inline: "(from CBC_Jan_2026.pdf)"' in prompt
+    assert "<uploaded_documents>" in user_content
+    assert 'name="CBC_Jan_2026.pdf"' in user_content
+    assert 'name="Lipid_Aug_2026.pdf"' in user_content
+    assert "Hemoglobin: 14.5" in user_content
+    assert "Total Cholesterol: 240" in user_content
+    assert 'Cite findings inline: "(from CBC_Jan_2026.pdf)"' in system_instruction
 
 
 @pytest.mark.asyncio

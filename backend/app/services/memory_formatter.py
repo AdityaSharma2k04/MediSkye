@@ -1,6 +1,8 @@
 import logging
 from typing import List, Dict, Any, Optional
 
+from app.core.security import escape_xml_content
+
 logger = logging.getLogger(__name__)
 
 TYPE_HEADINGS = {
@@ -76,7 +78,7 @@ def format_facts_for_prompt(
             if timing and hasattr(timing, "strftime") and str(timing.year) not in text:
                 date_str = f" (reported {timing.strftime('%Y-%m-%d')})"
 
-            lines.append(f"- {text.strip()}{date_str}")
+            lines.append(f"- {escape_xml_content(text.strip())}{date_str}")
 
         if lines:
             header = TYPE_HEADINGS.get(f_type, f"{f_type.capitalize()}:")
@@ -121,7 +123,7 @@ def format_past_chats_for_prompt(chunks: List[Any]) -> str:
         elif created_at:
             date_prefix = f"[{str(created_at)[:10]}] "
 
-        clean_text = text.strip()
+        clean_text = escape_xml_content(text.strip())
         if clean_text:
             formatted.append(f"{date_prefix}{clean_text}")
 
@@ -147,6 +149,6 @@ def format_multi_doc_context(chunks_with_source: List[Any]) -> str:
             name = getattr(item, "filename", "document.pdf")
             excerpt = getattr(item, "text", str(item))
 
-        blocks.append(f'<document name="{name}">\n  <excerpt>{excerpt.strip()}</excerpt>\n</document>')
+        blocks.append(f'<document name="{escape_xml_content(name)}">\n  <excerpt>{escape_xml_content(excerpt.strip())}</excerpt>\n</document>')
 
     return "\n".join(blocks)

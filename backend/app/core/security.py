@@ -34,3 +34,20 @@ def sanitize_text(text: str) -> str:
     # Normalize multiple whitespace
     cleaned = re.sub(r"[ \t]+", " ", cleaned)
     return cleaned.strip()
+
+
+def escape_xml_content(text: str) -> str:
+    """Escape XML-significant characters in untrusted content before prompt interpolation.
+
+    Prevents prompt injection via XML tag breakout (e.g., a malicious PDF
+    containing '</excerpt></document><system>...' would otherwise break out
+    of the XML encapsulation in the RAG prompt).
+    """
+    if not text:
+        return ""
+    return (
+        text.replace("&", "&amp;")
+            .replace("<", "&lt;")
+            .replace(">", "&gt;")
+            .replace('"', "&quot;")
+    )

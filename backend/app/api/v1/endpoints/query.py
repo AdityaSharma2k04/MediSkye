@@ -329,7 +329,7 @@ async def query_bot(
 
             # Build grounded prompt
             if intent == QueryIntent.DOCUMENT_QA:
-                prompt = build_prompt(
+                system_instruction, user_content = build_prompt(
                     user_query=body.query,
                     retrieved_docs=retrieved_chunks,
                     calculated_age=calculated_age_str,
@@ -362,7 +362,7 @@ async def query_bot(
                     yield f'data: {json.dumps({"metrics": extracted_metrics})}\n\n'
 
             else:
-                prompt = build_general_health_prompt(
+                system_instruction, user_content = build_general_health_prompt(
                     user_query=body.query,
                     calculated_age=calculated_age_str,
                     biological_sex=biological_sex,
@@ -380,6 +380,7 @@ async def query_bot(
 
             # Call Gemini stream with thread offloading
             from google import genai
+            from google.genai.types import GenerateContentConfig
             client = genai.Client(api_key=settings.GOOGLE_API_KEY)
 
             loop = asyncio.get_running_loop()
@@ -390,7 +391,10 @@ async def query_bot(
                 try:
                     response = client.models.generate_content_stream(
                         model=settings.GEMINI_MODEL,
-                        contents=prompt,
+                        contents=user_content,
+                        config=GenerateContentConfig(
+                            system_instruction=system_instruction,
+                        ),
                     )
                     for chunk in response:
                         loop.call_soon_threadsafe(queue.put_nowait, chunk)
