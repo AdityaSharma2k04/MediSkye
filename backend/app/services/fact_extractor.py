@@ -3,6 +3,7 @@ import re
 import json
 import logging
 import asyncio
+import uuid
 from typing import List, Dict, Any, Optional
 from pathlib import Path
 import numpy as np
@@ -12,6 +13,45 @@ from app.core.config import settings
 logger = logging.getLogger(__name__)
 
 PROMPT_FILE = Path(__file__).resolve().parent.parent / "rag" / "prompts" / "fact_extraction.txt"
+
+VALID_FACT_TYPES = {
+    "condition", "medication", "allergy", "family_history",
+    "symptom", "lifestyle", "measurement", "weight", "sport_hobby",
+}
+MAX_FACT_TEXT_LENGTH = 500
+
+
+def _validate_extracted_facts(data: dict) -> dict:
+    """Strip invalid facts and retractions before persistence."""
+    if not isinstance(data, dict):
+        return {"facts": [], "retractions": []}
+
+    valid_facts = []
+    for fact in data.get("facts", []):
+        if not isinstance(fact, dict):
+            continue
+        text = (fact.get("text") or "").strip()
+        ftype = (fact.get("type") or "").strip()
+        if (
+            ftype in VALID_FACT_TYPES
+            and text
+            and len(text) <= MAX_FACT_TEXT_LENGTH
+            and "<" not in text  # Reject XML/HTML injection in stored facts
+            and ">" not in text
+        ):
+            valid_facts.append(fact)
+
+    valid_retractions = []
+    for ret in data.get("retractions", []):
+        if not isinstance(ret, dict):
+            continue
+        try:
+            uuid.UUID(str(ret.get("existing_fact_id", "")))
+            valid_retractions.append(ret)
+        except (ValueError, TypeError):
+            continue  # Skip malformed retraction IDs
+
+    return {"facts": valid_facts, "retractions": valid_retractions}
 
 
 def _cosine_similarity(vec1: List[float], vec2: List[float]) -> float:
@@ -100,10 +140,12 @@ async def extract_facts(
         )
         response_text = response.text or ""
 
-        # Extract JSON (handling markdown fences if returned)
-        json_match = re.search(r"```(?:json)?\s*(\{.*?\})\s*```", response_text, re.DOTALL)
-        if json_match:
-            raw_json = json_match.group(1)
+        # Extract JSON (handling markdown fences if returned; take last match to counter user-injected blocks)
+        json_matches = list(re.finditer(
+            r"```(?:json)?\s*(\{.*?\})\s*```", response_text, re.DOTALL
+        ))
+        if json_matches:
+            raw_json = json_matches[-1].group(1)
         else:
             raw_json = response_text.strip()
 
@@ -111,6 +153,8 @@ async def extract_facts(
         if not isinstance(extracted_data, dict):
             logger.error("Extracted data is not a dictionary: %s", type(extracted_data))
             return {"facts": [], "retractions": []}
+
+        extracted_data = _validate_extracted_facts(extracted_data)
 
     except Exception as e:
         logger.error("Error calling Gemini or parsing JSON in fact extraction: %s", e)
