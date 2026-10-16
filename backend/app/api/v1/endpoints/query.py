@@ -198,7 +198,8 @@ async def query_bot(
         await db.commit()
 
     # ── Intent Classification ──
-    intent = await classify_intent(body.query, has_document=has_document)
+    selected_provider = (body.provider or settings.LLM_PROVIDER).lower() if (body.provider or settings.LLM_PROVIDER) else "gemini"
+    intent = await classify_intent(body.query, has_document=has_document, provider=selected_provider)
     if intent == QueryIntent.DOCUMENT_QA and not has_document:
         intent = QueryIntent.GENERAL_HEALTH
 
@@ -378,144 +379,163 @@ async def query_bot(
                 )
                 yield f'data: {json.dumps({"sources": []})}\n\n'
 
-            # Call Gemini stream with thread offloading
-            from google import genai
-            from google.genai.types import GenerateContentConfig
-            from app.llm.gemini_client import FALLBACK_MODELS, _is_retryable_error
-            client = genai.Client(api_key=settings.GOOGLE_API_KEY)
+            full_raw_text = ""
+            visible_text = ""
 
-            loop = asyncio.get_running_loop()
-            queue = asyncio.Queue()
-            SENTINEL = object()
+            if selected_provider == "agentrouter":
+                from app.llm.agentrouter_client import call_agentrouter_stream, AgentRouterError
+                try:
+                    async for token in call_agentrouter_stream(system_instruction, user_content):
+                        full_raw_text += token
+                        visible_text += token
+                        yield f'data: {json.dumps({"token": token, "chunk": token})}\n\n'
 
-            def _stream_producer():
+                    disclaimer = "\n\n" + append_disclaimer("").strip()
+                    yield f'data: {json.dumps({"token": disclaimer, "chunk": disclaimer})}\n\n'
+                    visible_text += disclaimer
+                except AgentRouterError as e:
+                    logger.error("Agent Router failed: %s", e)
+                    # Do NOT fall through to Gemini — respect the user's choice
+                    yield f"data: {json.dumps({'error': 'All Agent Router models failed. Please select Gemini model from the drop down menu.'})}\n\n"
+                    yield "data: [DONE]\n\n"
+                    return
+            else:
+                # Call Gemini stream with thread offloading
                 from google import genai
                 from google.genai.types import GenerateContentConfig
                 from app.llm.gemini_client import FALLBACK_MODELS, _is_retryable_error
-
                 client = genai.Client(api_key=settings.GOOGLE_API_KEY)
-                last_exception = None
 
-                try:
-                    for current_model in FALLBACK_MODELS:
-                        yielded_any = False
-                        try:
-                            response = client.models.generate_content_stream(
-                                model=current_model,
-                                contents=user_content,
-                                config=GenerateContentConfig(system_instruction=system_instruction),
-                            )
-                            for chunk in response:
-                                yielded_any = True
-                                loop.call_soon_threadsafe(queue.put_nowait, chunk)
-                            loop.call_soon_threadsafe(queue.put_nowait, SENTINEL)
-                            return  # success, done
-                        except Exception as exc:
-                            last_exception = exc
-                            if yielded_any or not _is_retryable_error(exc):
-                                loop.call_soon_threadsafe(queue.put_nowait, exc)
+                loop = asyncio.get_running_loop()
+                queue = asyncio.Queue()
+                SENTINEL = object()
+
+                def _stream_producer():
+                    from google import genai
+                    from google.genai.types import GenerateContentConfig
+                    from app.llm.gemini_client import FALLBACK_MODELS, _is_retryable_error
+
+                    client = genai.Client(api_key=settings.GOOGLE_API_KEY)
+                    last_exception = None
+
+                    try:
+                        for current_model in FALLBACK_MODELS:
+                            yielded_any = False
+                            try:
+                                response = client.models.generate_content_stream(
+                                    model=current_model,
+                                    contents=user_content,
+                                    config=GenerateContentConfig(system_instruction=system_instruction),
+                                )
+                                for chunk in response:
+                                    yielded_any = True
+                                    loop.call_soon_threadsafe(queue.put_nowait, chunk)
                                 loop.call_soon_threadsafe(queue.put_nowait, SENTINEL)
-                                return
-                            logger.warning(
-                                "Streaming model %s failed with retryable error, trying next",
-                                current_model,
-                            )
-                            continue
+                                return  # success, done
+                            except Exception as exc:
+                                last_exception = exc
+                                if yielded_any or not _is_retryable_error(exc):
+                                    loop.call_soon_threadsafe(queue.put_nowait, exc)
+                                    loop.call_soon_threadsafe(queue.put_nowait, SENTINEL)
+                                    return
+                                logger.warning(
+                                    "Streaming model %s failed with retryable error, trying next",
+                                    current_model,
+                                )
+                                continue
 
-                    # All models failed
-                    err = GeminiUnavailableError(f"All streaming models failed. Last: {last_exception}")
-                    loop.call_soon_threadsafe(queue.put_nowait, err)
-                    loop.call_soon_threadsafe(queue.put_nowait, SENTINEL)
-                except Exception as fatal_exc:
-                    loop.call_soon_threadsafe(queue.put_nowait, fatal_exc)
-                    loop.call_soon_threadsafe(queue.put_nowait, SENTINEL)
+                        # All models failed
+                        err = GeminiUnavailableError(f"All streaming models failed. Last: {last_exception}")
+                        loop.call_soon_threadsafe(queue.put_nowait, err)
+                        loop.call_soon_threadsafe(queue.put_nowait, SENTINEL)
+                    except Exception as fatal_exc:
+                        loop.call_soon_threadsafe(queue.put_nowait, fatal_exc)
+                        loop.call_soon_threadsafe(queue.put_nowait, SENTINEL)
 
-            stream_task = asyncio.create_task(asyncio.to_thread(_stream_producer))
+                stream_task = asyncio.create_task(asyncio.to_thread(_stream_producer))
 
-            full_raw_text = ""
-            visible_text = ""
-            pending_buffer = ""
-            in_json_block = False
+                pending_buffer = ""
+                in_json_block = False
 
-            while True:
-                item = await queue.get()
-                if item is SENTINEL:
-                    break
-                if isinstance(item, Exception):
-                    raise item
+                while True:
+                    item = await queue.get()
+                    if item is SENTINEL:
+                        break
+                    if isinstance(item, Exception):
+                        raise item
 
-                chunk_text = getattr(item, "text", None)
-                if not chunk_text:
-                    continue
+                    chunk_text = getattr(item, "text", None)
+                    if not chunk_text:
+                        continue
 
-                full_raw_text += chunk_text
+                    full_raw_text += chunk_text
 
-                if in_json_block:
-                    # Already detected JSON block; do not stream anything to client
-                    continue
+                    if in_json_block:
+                        # Already detected JSON block; do not stream anything to client
+                        continue
 
-                pending_buffer += chunk_text
+                    pending_buffer += chunk_text
 
-                # Check if JSON block starts in pending_buffer
-                lower_buf = pending_buffer.lower()
-                if "```json" in lower_buf or "```" in lower_buf:
-                    fence_idx = lower_buf.find("```")
-                    tail = pending_buffer[fence_idx:]
+                    # Check if JSON block starts in pending_buffer
+                    lower_buf = pending_buffer.lower()
+                    if "```json" in lower_buf or "```" in lower_buf:
+                        fence_idx = lower_buf.find("```")
+                        tail = pending_buffer[fence_idx:]
 
-                    # Check if this fence is the abnormal_flags block
-                    if "abnormal_flags" in tail:
-                        in_json_block = True
+                        # Check if this fence is the abnormal_flags block
+                        if "abnormal_flags" in tail:
+                            in_json_block = True
+                            visible_chunk = pending_buffer[:fence_idx]
+                            if visible_chunk:
+                                visible_text += visible_chunk
+                                yield f'data: {json.dumps({"chunk": visible_chunk})}\n\n'
+                            pending_buffer = ""
+                        elif len(tail) < 150:
+                            # Wait for more chunks to see if 'abnormal_flags' appears
+                            # Yield any text that occurred before the backticks
+                            if fence_idx > 0:
+                                visible_chunk = pending_buffer[:fence_idx]
+                                visible_text += visible_chunk
+                                yield f'data: {json.dumps({"chunk": visible_chunk})}\n\n'
+                                pending_buffer = pending_buffer[fence_idx:]
+                        else:
+                            # Long block without 'abnormal_flags' — ordinary content, flush
+                            visible_text += pending_buffer
+                            yield f'data: {json.dumps({"chunk": pending_buffer})}\n\n'
+                            pending_buffer = ""
+                    else:
+                        # Hold back any trailing backticks in case ``` is split across chunks
+                        if pending_buffer.endswith("``"):
+                            to_yield = pending_buffer[:-2]
+                            pending_buffer = "``"
+                        elif pending_buffer.endswith("`"):
+                            to_yield = pending_buffer[:-1]
+                            pending_buffer = "`"
+                        else:
+                            to_yield = pending_buffer
+                            pending_buffer = ""
+
+                        if to_yield:
+                            visible_text += to_yield
+                            yield f'data: {json.dumps({"chunk": to_yield})}\n\n'
+
+                # Stream finished — flush any remaining pending_buffer if not entering JSON block
+                if pending_buffer and not in_json_block:
+                    lower_pending = pending_buffer.lower()
+                    if "abnormal_flags" in lower_pending and "```" in lower_pending:
+                        fence_idx = lower_pending.find("```")
                         visible_chunk = pending_buffer[:fence_idx]
                         if visible_chunk:
                             visible_text += visible_chunk
                             yield f'data: {json.dumps({"chunk": visible_chunk})}\n\n'
-                        pending_buffer = ""
-                    elif len(tail) < 150:
-                        # Wait for more chunks to see if 'abnormal_flags' appears
-                        # Yield any text that occurred before the backticks
-                        if fence_idx > 0:
-                            visible_chunk = pending_buffer[:fence_idx]
-                            visible_text += visible_chunk
-                            yield f'data: {json.dumps({"chunk": visible_chunk})}\n\n'
-                            pending_buffer = pending_buffer[fence_idx:]
                     else:
-                        # Long block without 'abnormal_flags' — ordinary content, flush
                         visible_text += pending_buffer
                         yield f'data: {json.dumps({"chunk": pending_buffer})}\n\n'
-                        pending_buffer = ""
-                else:
-                    # Hold back any trailing backticks in case ``` is split across chunks
-                    if pending_buffer.endswith("``"):
-                        to_yield = pending_buffer[:-2]
-                        pending_buffer = "``"
-                    elif pending_buffer.endswith("`"):
-                        to_yield = pending_buffer[:-1]
-                        pending_buffer = "`"
-                    else:
-                        to_yield = pending_buffer
-                        pending_buffer = ""
+                    pending_buffer = ""
 
-                    if to_yield:
-                        visible_text += to_yield
-                        yield f'data: {json.dumps({"chunk": to_yield})}\n\n'
-
-            # Stream finished — flush any remaining pending_buffer if not entering JSON block
-            if pending_buffer and not in_json_block:
-                lower_pending = pending_buffer.lower()
-                if "abnormal_flags" in lower_pending and "```" in lower_pending:
-                    fence_idx = lower_pending.find("```")
-                    visible_chunk = pending_buffer[:fence_idx]
-                    if visible_chunk:
-                        visible_text += visible_chunk
-                        yield f'data: {json.dumps({"chunk": visible_chunk})}\n\n'
-                else:
-                    visible_text += pending_buffer
-                    yield f'data: {json.dumps({"chunk": pending_buffer})}\n\n'
-                pending_buffer = ""
-
-            disclaimer = "\n\n" + append_disclaimer("").strip()
-            yield f'data: {json.dumps({"chunk": disclaimer})}\n\n'
-            visible_text += disclaimer
+                disclaimer = "\n\n" + append_disclaimer("").strip()
+                yield f'data: {json.dumps({"chunk": disclaimer})}\n\n'
+                visible_text += disclaimer
 
         except GeminiUnavailableError:
             logger.warning("All Gemini models unavailable during streaming", exc_info=True)

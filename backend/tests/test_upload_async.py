@@ -18,6 +18,9 @@ async def test_upload_status_endpoint_never_blocked():
     proving that the asyncio event loop is never blocked.
     """
     clear_jobs()
+
+    pdf_bytes = b"%PDF-1.4\n1 0 obj\n<<\n/Type /Catalog\n>>\nendobj\ntrailer\n<<\n>>\n%%EOF\n"
+
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as ac:
         headers = await get_authenticated_headers(ac, email="async_test@test.com")
@@ -35,11 +38,11 @@ async def test_upload_status_endpoint_never_blocked():
             await asyncio.sleep(0.3)
             return None, None, page_docs
 
-        with patch("app.api.v1.endpoints.upload.extract_text_from_file", side_effect=mock_extract), \
+        with patch("app.api.v1.endpoints.upload.validate_file_upload"), \
+             patch("app.api.v1.endpoints.upload.extract_text_from_file", side_effect=mock_extract), \
              patch("app.api.v1.endpoints.upload.acreate_hybrid_index", side_effect=mock_acreate_index):
 
             # 1. Start upload (returns 202 immediately with job_id)
-            pdf_bytes = b"%PDF-1.4\n1 0 obj\n<<\n/Type /Catalog\n>>\nendobj\ntrailer\n<<\n>>\n%%EOF\n"
             upload_res = await ac.post(
                 "/upload",
                 files={"file": ("lab_report.pdf", pdf_bytes, "application/pdf")},

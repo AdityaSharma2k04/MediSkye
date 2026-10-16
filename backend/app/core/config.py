@@ -41,6 +41,13 @@ class Settings(BaseSettings):
     ]
     SHOW_SPECIALIST_CONTACTS: bool = False
 
+    # LLM Provider selection
+    LLM_PROVIDER: str = "gemini"  # "gemini" | "agentrouter"
+
+    # Agent Router settings (used only when LLM_PROVIDER="agentrouter")
+    AGENTROUTER_API_KEY: str = ""
+    AGENTROUTER_BASE_URL: str = "https://agentrouter.org/v1"
+
     # File Upload Limits
     MEDISKYE_MAX_UPLOAD_MB: int = 50
     MAX_PDF_PAGES: int = 100
@@ -91,5 +98,7 @@ class Settings(BaseSettings):
 settings = Settings()
 if not settings.GOOGLE_API_KEY:
     settings.GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY", "")
+if not settings.AGENTROUTER_API_KEY:
+    settings.AGENTROUTER_API_KEY = os.getenv("AGENTROUTER_API_KEY", "")
 
 settings.VECTOR_CACHE_DIR.mkdir(exist_ok=True)

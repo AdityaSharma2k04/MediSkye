@@ -54,7 +54,13 @@ async def test_empty_xray_response_yields_no_empty_chunks(tmp_path):
         def embed_documents(self, texts):
             return [[0.1] * 768 for _ in texts]
 
+        async def aembed_documents(self, texts):
+            return [[0.1] * 768 for _ in texts]
+
         def embed_query(self, text):
+            return [0.1] * 768
+
+        async def aembed_query(self, text):
             return [0.1] * 768
 
     with (

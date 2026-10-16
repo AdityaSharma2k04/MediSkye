@@ -81,7 +81,10 @@ async def acreate_hybrid_index(page_docs: list[Document], index_path: str):
 
     # Asynchronously retrieve embeddings yielding back to event loop after each call
     embedder = get_embedder()
-    embeddings = await embedder.aembed_documents(chunk_texts)
+    if hasattr(embedder, "aembed_documents"):
+        embeddings = await embedder.aembed_documents(chunk_texts)
+    else:
+        embeddings = await asyncio.to_thread(embedder.embed_documents, chunk_texts)
 
     # Build FAISS and BM25 in worker thread
     return await asyncio.to_thread(

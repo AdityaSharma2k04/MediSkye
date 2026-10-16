@@ -297,4 +297,30 @@ describe('SettingsModal Account fields & Deletion', () => {
     expect(privacyBtn).toBeDisabled();
     expect(privacyBtn).toHaveAttribute('title', 'Policy coming soon');
   });
+
+  it('renders LLM Provider selector and saves preference to localStorage', () => {
+    localStorage.removeItem('mediskye_llm_provider');
+    const showToast = vi.fn();
+
+    render(
+      <SettingsModal
+        isOpen={true}
+        onClose={vi.fn()}
+        darkMode={false}
+        currentUser={mockUser}
+        showToast={showToast}
+      />
+    );
+
+    const providerSelect = screen.getByDisplayValue('Gemini (default)');
+    expect(providerSelect).toBeInTheDocument();
+
+    fireEvent.change(providerSelect, { target: { value: 'agentrouter' } });
+    expect(localStorage.getItem('mediskye_llm_provider')).toBe('agentrouter');
+    expect(showToast).toHaveBeenCalledWith(
+      'success',
+      'Provider Updated',
+      expect.stringContaining('Switched to Agent Router')
+    );
+  });
 });

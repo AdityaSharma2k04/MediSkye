@@ -79,7 +79,7 @@ export async function register(email, password, phi_consent_granted) {
  * Pure UI preferences (theme, language) are NOT auth/PHI state, so they are
  * preserved across logout to avoid a theme/language flash on re-login.
  */
-const PRESERVED_STORAGE_KEYS = new Set(['mediskye_theme', 'mediskye_language']);
+const PRESERVED_STORAGE_KEYS = new Set(['mediskye_theme', 'mediskye_language', 'mediskye_llm_provider']);
 
 export function clearLocalAuthStorage() {
   try {
@@ -175,12 +175,14 @@ export async function getUploadStatus(jobId, timeoutMs = 10000) {
   }
 }
 
-export async function sendQueryStream(queryText, documentId, language = 'English', onChunk, patientId = null, signal = undefined) {
+export async function sendQueryStream(queryText, documentId, language = 'English', onChunk, patientId = null, signal = undefined, provider = null) {
   // documentId can be null for general-health queries (no PDF uploaded)
+  const selectedProvider = provider || localStorage.getItem('mediskye_llm_provider') || 'gemini';
   const payload = {
     session_id: documentId || 'general-health-' + Date.now(), // dummy UUID-like string; backend checks document existence
     query: queryText,
     language: language,
+    provider: selectedProvider,
   };
   if (patientId && patientId !== 'self') {
     payload.patient_id = patientId;

@@ -720,8 +720,8 @@ export default function ChatApp() {
               lastMsg.sources = chunk.sources;
             } else if (chunk.specialists) {
               lastMsg.specialists = chunk.specialists;
-            } else if (chunk.chunk) {
-              lastMsg.text = (lastMsg.text || '') + chunk.chunk;
+            } else if (chunk.chunk || chunk.token) {
+              lastMsg.text = (lastMsg.text || '') + (chunk.chunk || chunk.token);
               lastMsg.status = null;
             } else if (chunk.error) {
               lastMsg.error = chunk.error || 'Something went wrong. Tap to retry.';

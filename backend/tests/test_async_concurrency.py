@@ -17,7 +17,14 @@ from tests.conftest import TEST_PASSWORD
 class FakeEmbedder:
     def embed_documents(self, texts):
         return [[0.1] * 768 for _ in texts]
+
+    async def aembed_documents(self, texts):
+        return [[0.1] * 768 for _ in texts]
+
     def embed_query(self, text):
+        return [0.1] * 768
+
+    async def aembed_query(self, text):
         return [0.1] * 768
 
 

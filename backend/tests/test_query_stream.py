@@ -33,6 +33,12 @@ class FakeEmbedder:
     def embed_query(self, text):
         return [0.1] * EMBED_DIM
 
+    async def aembed_documents(self, texts):
+        return self.embed_documents(texts)
+
+    async def aembed_query(self, text):
+        return self.embed_query(text)
+
 
 @pytest.mark.asyncio
 async def test_query_stream_after_pdf_upload_success():
@@ -340,4 +346,120 @@ async def test_query_stream_strips_abnormal_flags_json_block_and_emits_specialis
                     assert "abnormal_flags" not in c.message
                     assert "```json" not in c.message
                     assert "Total WBC: **11,200 /uL**" in c.message
+
+
+@pytest.mark.asyncio
+async def test_query_uses_agentrouter_when_toggled():
+    transport = ASGITransport(app=app)
+
+    async def fake_agentrouter_stream(sys_instruction, user_content):
+        yield "Agent Router: Headaches can be caused by dehydration."
+
+    mock_gemini_client = MagicMock()
+
+    with (
+        patch("app.rag.retriever.get_embedder", return_value=FakeEmbedder()),
+        patch("app.services.chat_indexer.get_embedder", return_value=FakeEmbedder()),
+        patch("app.rag.embedder.get_embedder", return_value=FakeEmbedder()),
+        patch("google.genai.Client", return_value=mock_gemini_client),
+        patch("app.api.v1.endpoints.query.process_chat_memory_extraction", new=AsyncMock()),
+        patch("app.llm.agentrouter_client.call_agentrouter_stream", side_effect=fake_agentrouter_stream) as mock_ar_stream,
+        patch("app.llm.agentrouter_client.call_agentrouter", return_value="GENERAL_HEALTH"),
+    ):
+        async with AsyncClient(transport=transport, base_url="http://test") as ac:
+            email = f"ar_toggle_{uuid.uuid4().hex[:8]}@test.com"
+            async with AsyncSessionLocal() as session:
+                user = User(
+                    email=email,
+                    hashed_password=get_password_hash(TEST_PASSWORD),
+                    phi_consent_granted=True,
+                    memory_consent_granted=False,
+                )
+                session.add(user)
+                await session.commit()
+
+            login_res = await ac.post("/login", data={"username": email, "password": TEST_PASSWORD})
+            assert login_res.status_code == 200
+            token = login_res.json()["access_token"]
+            headers = {"Authorization": f"Bearer {token}"}
+
+            res = await ac.post(
+                "/query",
+                json={
+                    "session_id": str(uuid.uuid4()),
+                    "query": "What causes headaches?",
+                    "provider": "agentrouter",
+                },
+                headers=headers,
+            )
+            assert res.status_code == 200
+            stream_text = res.text
+
+            # Assert Agent Router was called
+            assert mock_ar_stream.called
+            assert "Agent Router: Headaches can be caused by dehydration." in stream_text
+
+            # Assert Gemini streaming was NOT called
+            assert not mock_gemini_client.models.generate_content_stream.called
+
+
+@pytest.mark.asyncio
+async def test_query_uses_gemini_by_default():
+    transport = ASGITransport(app=app)
+
+    chunk1 = MagicMock()
+    chunk1.text = "Gemini answer: Headaches have multiple etiologies."
+    mock_gemini_client = MagicMock()
+    mock_gemini_client.models.generate_content_stream.return_value = [chunk1]
+
+    # Intent classification mock response
+    intent_response = MagicMock()
+    intent_response.text = "GENERAL_HEALTH"
+    mock_gemini_client.models.generate_content.return_value = intent_response
+
+    mock_ar_stream = MagicMock()
+
+    with (
+        patch("app.rag.retriever.get_embedder", return_value=FakeEmbedder()),
+        patch("app.services.chat_indexer.get_embedder", return_value=FakeEmbedder()),
+        patch("app.rag.embedder.get_embedder", return_value=FakeEmbedder()),
+        patch("google.genai.Client", return_value=mock_gemini_client),
+        patch("app.api.v1.endpoints.query.process_chat_memory_extraction", new=AsyncMock()),
+        patch("app.llm.agentrouter_client.call_agentrouter_stream", mock_ar_stream),
+    ):
+        async with AsyncClient(transport=transport, base_url="http://test") as ac:
+            email = f"gemini_default_{uuid.uuid4().hex[:8]}@test.com"
+            async with AsyncSessionLocal() as session:
+                user = User(
+                    email=email,
+                    hashed_password=get_password_hash(TEST_PASSWORD),
+                    phi_consent_granted=True,
+                    memory_consent_granted=False,
+                )
+                session.add(user)
+                await session.commit()
+
+            login_res = await ac.post("/login", data={"username": email, "password": TEST_PASSWORD})
+            assert login_res.status_code == 200
+            token = login_res.json()["access_token"]
+            headers = {"Authorization": f"Bearer {token}"}
+
+            # No provider specified -> should default to Gemini
+            res = await ac.post(
+                "/query",
+                json={
+                    "session_id": str(uuid.uuid4()),
+                    "query": "What causes headaches?",
+                },
+                headers=headers,
+            )
+            assert res.status_code == 200
+            stream_text = res.text
+
+            # Assert Gemini streaming was called
+            assert mock_gemini_client.models.generate_content_stream.called
+            assert "Gemini answer: Headaches have multiple etiologies." in stream_text
+
+            # Assert Agent Router was NOT called
+            assert not mock_ar_stream.called
 

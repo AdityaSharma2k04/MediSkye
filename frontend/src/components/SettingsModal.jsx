@@ -302,6 +302,21 @@ export default function SettingsModal({
   const [dob, setDob] = useState(currentUser?.date_of_birth || '');
   const [bioSex, setBioSex] = useState(currentUser?.biological_sex || 'Prefer not to say');
   const [bloodType, setBloodType] = useState(currentUser?.blood_type || 'Unknown');
+  const [llmProvider, setLlmProvider] = useState(() => {
+    return localStorage.getItem('mediskye_llm_provider') || 'gemini';
+  });
+
+  const saveLLMProvider = (val) => {
+    setLlmProvider(val);
+    localStorage.setItem('mediskye_llm_provider', val);
+    if (showToast) {
+      showToast(
+        'success',
+        'Provider Updated',
+        val === 'agentrouter' ? 'Switched to Agent Router (Claude Opus → GPT → DeepSeek)' : 'Switched to Gemini (default)'
+      );
+    }
+  };
 
   useEffect(() => {
     if (currentUser) {
@@ -618,6 +633,20 @@ export default function SettingsModal({
                   ))}
                 </div>
               </Field>
+              <div className="flex justify-between items-center pt-2">
+                <div>
+                  <div className="font-medium">LLM Provider</div>
+                  <div className="text-sm text-gray-400">Gemini or Agent Router</div>
+                </div>
+                <select
+                  value={llmProvider}
+                  onChange={(e) => saveLLMProvider(e.target.value)}
+                  className="bg-gray-800 px-3 py-1 rounded text-white text-xs border border-gray-700 cursor-pointer focus:outline-none"
+                >
+                  <option value="gemini">Gemini (default)</option>
+                  <option value="agentrouter">Agent Router (Claude Opus → GPT → DeepSeek)</option>
+                </select>
+              </div>
             </Section>
 
             {/* ── PATIENT MEMORY ── */}

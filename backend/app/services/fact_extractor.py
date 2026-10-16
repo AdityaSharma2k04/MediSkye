@@ -131,14 +131,20 @@ async def extract_facts(
         .replace("{messages}", formatted_messages)
     )
 
-    extracted_data = {"facts": [], "retractions": []}
     try:
-        from app.llm.gemini_client import call_gemini_with_retry
-        response = await call_gemini_with_retry(
-            contents=prompt,
-            user_id=user_id,
-        )
-        response_text = response.text or ""
+        if settings.LLM_PROVIDER == "agentrouter":
+            from app.llm.agentrouter_client import call_agentrouter
+            response_text = await call_agentrouter(
+                system_instruction="You are a medical fact extraction system. Extract durable patient facts and retractions into JSON format.",
+                user_content=prompt,
+            )
+        else:
+            from app.llm.gemini_client import call_gemini_with_retry
+            response = await call_gemini_with_retry(
+                contents=prompt,
+                user_id=user_id,
+            )
+            response_text = response.text or ""
 
         # Extract JSON (handling markdown fences if returned; take last match to counter user-injected blocks)
         json_matches = list(re.finditer(
