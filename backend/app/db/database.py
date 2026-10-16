@@ -15,10 +15,19 @@ if ":memory:" in settings.DATABASE_URL:
         "poolclass": StaticPool,
     }
 elif settings.DATABASE_URL.startswith("postgresql+asyncpg://"):
+    # ssl=require for Neon; statement_cache_size=0 disables asyncpg's prepared
+    # statement cache, which is incompatible with PgBouncer (Neon pooler) in
+    # transaction mode. pool_pre_ping handles scale-to-zero reconnects.
     _engine_kwargs = {
-        "connect_args": {"ssl": "require"},
+        "connect_args": {
+            "ssl": "require",
+            "statement_cache_size": 0,
+            "prepared_statement_cache_size": 0,
+        },
         "pool_pre_ping": True,
         "pool_recycle": 300,
+        "pool_size": 5,
+        "max_overflow": 10,
     }
 
 engine = create_async_engine(

@@ -76,7 +76,14 @@ async def run_async_migrations() -> None:
 
     """
     url = settings.DATABASE_URL
-    connect_args = {"ssl": "require"} if url.startswith("postgresql+asyncpg://") else {}
+    if url.startswith("postgresql+asyncpg://"):
+        connect_args = {
+            "ssl": "require",
+            "statement_cache_size": 0,
+            "prepared_statement_cache_size": 0,
+        }
+    else:
+        connect_args = {}
 
     connectable = async_engine_from_config(
         config.get_section(config.config_ini_section, {}),
