@@ -33,9 +33,8 @@ class Settings(BaseSettings):
     FERNET_KEY: str
     JWT_SECRET_KEY: str
     MEDISKYE_API_KEY: str = ""
-    # Explicit allow-list — never wildcard "*". Credentials are allowed, and the
-    # W3C CORS spec forbids pairing allow_credentials=True with "*".
-    # Accepts a comma-separated env string (e.g. "http://a, http://b").
+    # Comma-separated list of allowed origins. In production, set this to your
+    # Cloudflare Pages URL via the ALLOWED_ORIGINS env var on Hugging Face Spaces.
     ALLOWED_ORIGINS: Annotated[List[str], NoDecode] = [
         "http://localhost:3000",
         "http://localhost:5173",

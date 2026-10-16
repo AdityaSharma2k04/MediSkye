@@ -1,7 +1,7 @@
 // API Service for FastAPI backend
 import { logger } from './logger';
 
-const API_BASE = import.meta.env.VITE_API_URL || 'http://127.0.0.1:8000';
+const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:8000';
 
 export function formatApiError(data, fallback = 'Request failed') {
   if (!data) return fallback;
