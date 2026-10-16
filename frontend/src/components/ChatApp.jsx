@@ -9,6 +9,7 @@ import Toast from './Toast';
 import MemoryConsentModal from './MemoryConsentModal';
 import {
   uploadPdfReport,
+  getUploadStatus,
   sendQueryStream,
   logout,
   getProfile,
@@ -151,6 +152,7 @@ export default function ChatApp() {
 
   const [activePdf, setActivePdf] = useState(null);
   const [isGenerating, setIsGenerating] = useState(false);
+  const [uploadProgress, setUploadProgress] = useState(null);
   const abortControllerRef = useRef(null);
   const chatInputRef = useRef(null);
   const [toasts, setToasts] = useState([]);
@@ -488,10 +490,42 @@ export default function ChatApp() {
 
     try {
       const data = await uploadPdfReport(file, selectedPatientId, sessionId);
-      const newDocId = data.document_id;
+
+      let newDocId = null;
+      if (data?.job_id) {
+        const jobId = data.job_id;
+        const startTime = Date.now();
+        const POLL_INTERVAL = (typeof window !== 'undefined' && window.__POLL_INTERVAL__) || 2000;
+        const MAX_WAIT = 120000;
+
+        while (Date.now() - startTime < MAX_WAIT) {
+          await new Promise((r) => setTimeout(r, POLL_INTERVAL));
+          const status = await getUploadStatus(jobId);
+
+          if (status.status === 'completed') {
+            newDocId = status.document_id;
+            break;
+          }
+
+          if (status.status === 'failed') {
+            throw new Error(status.error || 'Upload processing failed');
+          }
+
+          setUploadProgress(`Processing... (${Math.floor((Date.now() - startTime) / 1000)}s)`);
+        }
+
+        if (!newDocId) {
+          throw new Error('Upload timed out after 2 minutes');
+        }
+      } else if (data?.document_id) {
+        newDocId = data.document_id;
+      } else {
+        throw new Error('Upload failed: no job_id or document_id received');
+      }
+
       const pdfMeta = { id: newDocId, name: file.name, filename: file.name, size: file.size };
       setActivePdf(pdfMeta);
-      showToast('success', 'Report Processed', 'File indexed successfully. You can now ask questions or view Lab Metrics.');
+      showToast('success', 'Report Ready', 'Your report has been processed.');
 
       const autoTitle = cleanFilename(file.name);
 
@@ -543,6 +577,7 @@ export default function ChatApp() {
     } catch (err) {
       showToast('error', 'Upload Failed', err.message);
     } finally {
+      setUploadProgress(null);
       setIsGenerating(false);
     }
   };
@@ -959,6 +994,20 @@ export default function ChatApp() {
           onSelectPatient={handlePatientSelect}
           onOpenDependents={handleOpenDependents}
         />
+
+        {uploadProgress && (
+          <div className="max-w-3xl w-full mx-auto px-4 mb-2 animate-fade-in" data-testid="upload-progress-banner">
+            <div className={`flex items-center gap-2.5 px-3.5 py-2 rounded-xl text-xs font-medium border shadow-sm ${
+              darkMode ? 'bg-zinc-900 border-zinc-800 text-zinc-300' : 'bg-blue-50/80 border-blue-200 text-blue-800'
+            }`}>
+              <span className="relative flex h-2 w-2">
+                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-blue-400 opacity-75" />
+                <span className="relative inline-flex rounded-full h-2 w-2 bg-blue-500" />
+              </span>
+              <span>{uploadProgress}</span>
+            </div>
+          </div>
+        )}
 
         <ChatInput
           ref={chatInputRef}

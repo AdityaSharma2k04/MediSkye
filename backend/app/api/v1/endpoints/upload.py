@@ -2,9 +2,10 @@ import os
 import tempfile
 import uuid
 import asyncio
+import logging
 from typing import Optional
 from pathlib import Path
-from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, status, Request
+from fastapi import APIRouter, BackgroundTasks, Depends, File, Form, HTTPException, UploadFile, status, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 
@@ -13,19 +14,106 @@ from app.core.auth import get_current_user
 from app.core.limiter import limiter
 from app.db.database import get_db
 from app.db.models import User, Document, DependentProfile
-from app.schemas.upload import UploadResponse
+from app.schemas.upload import UploadResponse, UploadJobResponse, UploadStatusResponse
 from app.services.pdf_service import validate_file_upload
 from app.rag.loader import PDFExtractionError, extract_text_from_file
 from app.core.audit import log_audit
 from app.rag.retriever import create_hybrid_index
+from app.services.upload_jobs import create_job, update_job, get_job, UploadStatus
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
 
-@router.post("/upload", response_model=UploadResponse, tags=["PDF Upload"])
+async def process_upload_background(
+    job_id: str,
+    tmp_path: str,
+    filename: str,
+    user_id: str,
+    dependent_id: Optional[str] = None,
+    chat_id: Optional[str] = None,
+    client_host: str = "unknown",
+):
+    """
+    Background worker for PDF extraction, embedding, FAISS indexing, and DB commitment.
+    Creates its own AsyncSessionLocal to ensure DB operations outlive the HTTP request.
+    """
+    from app.db.database import AsyncSessionLocal
+    from app.db.models import Document, ChatDocument, Chat
+
+    update_job(job_id, status=UploadStatus.PROCESSING)
+
+    async with AsyncSessionLocal() as db:
+        try:
+            user_uuid = uuid.UUID(user_id)
+            dep_uuid = uuid.UUID(dependent_id) if dependent_id else None
+
+            # Create Document record in DB
+            doc = Document(
+                user_id=user_uuid,
+                dependent_id=dep_uuid,
+                filename=filename,
+            )
+            db.add(doc)
+            await db.commit()
+            await db.refresh(doc)
+
+            # If active chat_id provided, link document to active chat session via ChatDocument
+            if chat_id:
+                try:
+                    c_uuid = uuid.UUID(chat_id)
+                    chat_res = await db.execute(
+                        select(Chat).filter(Chat.id == c_uuid, Chat.user_id == user_uuid)
+                    )
+                    chat_obj = chat_res.scalars().first()
+                    if chat_obj:
+                        cd = ChatDocument(chat_id=chat_obj.id, document_id=doc.id)
+                        db.add(cd)
+                        await db.commit()
+                except Exception as ce:
+                    logger.warning(f"Failed to link chat {chat_id} to document {doc.id}: {ce}")
+
+            # Extract text from file
+            page_docs = await extract_text_from_file(tmp_path, filename)
+
+            # Audit logging
+            has_xray = any(d.metadata.get("type") == "xray" for d in page_docs)
+            if has_xray:
+                await log_audit(db, "XRAY_ANALYSIS", user_uuid, "upload", client_host, dependent_id=dep_uuid)
+
+            await log_audit(db, "PDF_UPLOADED", user_uuid, f"doc_{doc.id}", client_host, dependent_id=dep_uuid)
+
+            # Create hybrid index (FAISS + BM25) and save to disk
+            index_dir = settings.BASE_DIR / "indexes"
+            index_dir.mkdir(exist_ok=True)
+            index_path = str(index_dir / f"user_{user_uuid}_doc_{doc.id}.index")
+
+            await asyncio.to_thread(
+                create_hybrid_index, page_docs, index_path
+            )
+
+            # Update DB with file_path
+            doc.file_path = index_path
+            await db.commit()
+
+            update_job(job_id, status=UploadStatus.COMPLETED, document_id=str(doc.id))
+        except Exception as e:
+            logger.error(f"Upload job {job_id} failed: {e}", exc_info=True)
+            update_job(job_id, status=UploadStatus.FAILED, error=str(e))
+        finally:
+            if tmp_path and os.path.exists(tmp_path):
+                try:
+                    os.unlink(tmp_path)
+                except Exception:
+                    pass
+
+
+@router.post("/upload", status_code=status.HTTP_202_ACCEPTED, response_model=UploadJobResponse, tags=["PDF Upload"])
 @limiter.limit(settings.RATE_LIMIT_UPLOAD)
 async def upload_file(
     request: Request,
+    background_tasks: BackgroundTasks,
     file: UploadFile = File(...),
     patient_id: Optional[str] = Form(None),
     chat_id: Optional[str] = Form(None),
@@ -48,76 +136,53 @@ async def upload_file(
             dep = res.scalars().first()
             if not dep:
                 raise HTTPException(status_code=404, detail="Selected dependent profile not found.")
-            dep_id = dep.id
+            dep_id = str(dep.id)
         except ValueError:
             raise HTTPException(status_code=400, detail="Invalid patient_id format.")
 
-    # Create Document record in DB
-    doc = Document(
-        user_id=current_user.id,
-        dependent_id=dep_id,
+    ext = os.path.splitext(file.filename or ".pdf")[1].lower()
+
+    def _write_temp():
+        with tempfile.NamedTemporaryFile(delete=False, suffix=ext) as tmp:
+            tmp.write(content)
+            return tmp.name
+
+    tmp_path = await asyncio.to_thread(_write_temp)
+
+    job_id = create_job(str(current_user.id))
+    client_host = request.client.host if request.client else "unknown"
+
+    background_tasks.add_task(
+        process_upload_background,
+        job_id=job_id,
+        tmp_path=tmp_path,
         filename=file.filename or "report.pdf",
+        user_id=str(current_user.id),
+        dependent_id=dep_id,
+        chat_id=chat_id,
+        client_host=client_host,
     )
-    db.add(doc)
-    await db.commit()
-    await db.refresh(doc)
 
-    # If active chat_id provided, link document to active chat session via ChatDocument
-    if chat_id:
-        try:
-            c_uuid = uuid.UUID(chat_id)
-            from app.db.models import ChatDocument, Chat
-            chat_res = await db.execute(
-                select(Chat).filter(Chat.id == c_uuid, Chat.user_id == current_user.id)
-            )
-            chat_obj = chat_res.scalars().first()
-            if chat_obj:
-                cd = ChatDocument(chat_id=chat_obj.id, document_id=doc.id)
-                db.add(cd)
-                await db.commit()
-        except (ValueError, Exception):
-            pass
-
-    tmp_path = None
-    try:
-        ext = os.path.splitext(file.filename or ".pdf")[1].lower()
-
-        def _write_temp():
-            with tempfile.NamedTemporaryFile(delete=False, suffix=ext) as tmp:
-                tmp.write(content)
-                return tmp.name
-
-        tmp_path = await asyncio.to_thread(_write_temp)
-
-        page_docs = await extract_text_from_file(tmp_path, file.filename or "report.pdf")
-        
-        has_xray = any(d.metadata.get("type") == "xray" for d in page_docs)
-        client_host = request.client.host if request.client else "unknown"
-        if has_xray:
-            await log_audit(db, "XRAY_ANALYSIS", current_user.id, "upload", client_host, dependent_id=dep_id)
-            
-        await log_audit(db, "PDF_UPLOADED", current_user.id, f"doc_{doc.id}", client_host, dependent_id=dep_id)
-
-        # Create hybrid index (FAISS + BM25) and save to disk
-        index_dir = settings.BASE_DIR / "indexes"
-        index_dir.mkdir(exist_ok=True)
-        index_path = str(index_dir / f"user_{current_user.id}_doc_{doc.id}.index")
-        
-        vectorstore, bm25_index, chunks = await asyncio.to_thread(
-            create_hybrid_index, page_docs, index_path
-        )
+    return UploadJobResponse(
+        job_id=job_id,
+        status_url=f"/upload/status/{job_id}",
+    )
 
 
-        # Update DB with file_path
-        doc.file_path = index_path
-        await db.commit()
+@router.get("/upload/status/{job_id}", response_model=UploadStatusResponse, tags=["PDF Upload"])
+async def upload_status(
+    job_id: str,
+    current_user: User = Depends(get_current_user),
+):
+    job = get_job(job_id)
+    if not job:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Job not found")
+    if job["user_id"] != str(current_user.id):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not your job")
 
-        return UploadResponse(message="PDF uploaded and processed successfully.", document_id=str(doc.id))
-    except PDFExtractionError as exc:
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail=str(exc),
-        ) from exc
-    finally:
-        if tmp_path and os.path.exists(tmp_path):
-            os.unlink(tmp_path)
+    return UploadStatusResponse(
+        job_id=job_id,
+        status=job["status"],
+        document_id=job.get("document_id"),
+        error=job.get("error"),
+    )

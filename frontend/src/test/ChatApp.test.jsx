@@ -5,6 +5,7 @@ import React from 'react';
 // ── Module mocks (must be declared before imports that use them) ──────────────
 vi.mock('../services/api', () => ({
   uploadPdfReport: vi.fn(),
+  getUploadStatus: vi.fn(),
   sendQueryStream: vi.fn(),
   logout: vi.fn(),
   getProfile: vi.fn(),
@@ -100,7 +101,7 @@ describe('ChatApp — upload refreshes sidebar immediately', () => {
 
     // Success toast text should appear in the DOM
     await waitFor(() => {
-      expect(screen.getByText('Report Processed')).toBeInTheDocument();
+      expect(screen.getByText(/Report (Ready|Processed)/)).toBeInTheDocument();
     });
   });
 
@@ -168,4 +169,52 @@ describe('ChatApp — upload refreshes sidebar immediately', () => {
       expect(stored.some((c) => c.id === SERVER_DOC_ID)).toBe(true);
     });
   });
+
+  it('test_upload_polls_until_complete: polls until complete and refreshes documents', async () => {
+    window.__POLL_INTERVAL__ = 10;
+
+    api.uploadPdfReport.mockResolvedValueOnce({
+      job_id: 'job-async-123',
+      status_url: '/upload/status/job-async-123',
+    });
+
+    api.getUploadStatus
+      .mockResolvedValueOnce({
+        job_id: 'job-async-123',
+        status: 'processing',
+      })
+      .mockResolvedValueOnce({
+        job_id: 'job-async-123',
+        status: 'completed',
+        document_id: SERVER_DOC_ID,
+      });
+
+    render(<ChatApp />);
+    await waitFor(() => expect(api.getProfile).toHaveBeenCalled());
+    await waitFor(() => expect(api.getUserDocuments).toHaveBeenCalledTimes(1));
+
+    const fileInput = document.querySelector('input[type="file"]');
+    const file = makeFile();
+
+    await act(async () => {
+      fireEvent.change(fileInput, { target: { files: [file] } });
+    });
+
+    // Verify upload was initiated
+    await waitFor(() => expect(api.uploadPdfReport).toHaveBeenCalledTimes(1));
+
+    // Verify polling was performed
+    await waitFor(() => expect(api.getUploadStatus).toHaveBeenCalledWith('job-async-123'));
+
+    // Verify documents were refreshed with new document_id
+    await waitFor(() => expect(api.getUserDocuments).toHaveBeenCalledTimes(2));
+
+    // Success toast shown
+    await waitFor(() => {
+      expect(screen.getByText(/Report (Ready|Processed)/)).toBeInTheDocument();
+    });
+
+    delete window.__POLL_INTERVAL__;
+  });
 });
+

@@ -101,8 +101,12 @@ async def test_query_stream_after_pdf_upload_success():
                 files={"file": ("lab_report.pdf", pdf_bytes, "application/pdf")},
                 headers=headers
             )
-            assert upload_res.status_code == 200
-            doc_id = upload_res.json()["document_id"]
+            assert upload_res.status_code == 202
+            job_id = upload_res.json()["job_id"]
+            status_res = await ac.get(f"/upload/status/{job_id}", headers=headers)
+            assert status_res.status_code == 200
+            assert status_res.json()["status"] == "completed"
+            doc_id = status_res.json()["document_id"]
 
             # 3. Send query (retrieval + LLM stream are both mocked)
             res = await ac.post(
@@ -192,8 +196,12 @@ async def test_query_stream_memory_extraction_task_completes():
                 files={"file": ("report.pdf", pdf_bytes, "application/pdf")},
                 headers=headers,
             )
-            assert upload_res.status_code == 200
-            doc_id = upload_res.json()["document_id"]
+            assert upload_res.status_code == 202
+            job_id = upload_res.json()["job_id"]
+            status_res = await ac.get(f"/upload/status/{job_id}", headers=headers)
+            assert status_res.status_code == 200
+            assert status_res.json()["status"] == "completed"
+            doc_id = status_res.json()["document_id"]
 
             # Query stream spawns background memory extraction task
             res = await ac.post(
@@ -284,8 +292,12 @@ async def test_query_stream_strips_abnormal_flags_json_block_and_emits_specialis
                 files={"file": ("lab_report.pdf", pdf_bytes, "application/pdf")},
                 headers=headers
             )
-            assert upload_res.status_code == 200, f"Upload failed: {upload_res.json()}"
-            doc_id = upload_res.json()["document_id"]
+            assert upload_res.status_code == 202, f"Upload failed: {upload_res.json()}"
+            job_id = upload_res.json()["job_id"]
+            status_res = await ac.get(f"/upload/status/{job_id}", headers=headers)
+            assert status_res.status_code == 200
+            assert status_res.json()["status"] == "completed"
+            doc_id = status_res.json()["document_id"]
 
             res = await ac.post(
                 "/query",

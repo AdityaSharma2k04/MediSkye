@@ -151,6 +151,22 @@ export async function uploadPdfReport(file, patientId = null, chatId = null) {
   return data;
 }
 
+export async function getUploadStatus(jobId) {
+  const res = await fetch(`${API_BASE}/upload/status/${jobId}`, {
+    headers: { ...getAuthHeaders() },
+  });
+  if (!res.ok) {
+    if (res.status === 401) {
+      localStorage.removeItem('token');
+      window.dispatchEvent(new Event('auth:expired'));
+      throw new Error('Session expired. Please log in again.');
+    }
+    const data = await res.json().catch(() => null);
+    throw new Error(data?.detail || 'Failed to fetch upload status');
+  }
+  return res.json();
+}
+
 export async function sendQueryStream(queryText, documentId, language = 'English', onChunk, patientId = null, signal = undefined) {
   // documentId can be null for general-health queries (no PDF uploaded)
   const payload = {
