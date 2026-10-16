@@ -496,11 +496,31 @@ export default function ChatApp() {
         const jobId = data.job_id;
         const startTime = Date.now();
         const POLL_INTERVAL = (typeof window !== 'undefined' && window.__POLL_INTERVAL__) || 2000;
-        const MAX_WAIT = 120000;
+        const MAX_WAIT = (typeof window !== 'undefined' && window.__UPLOAD_MAX_WAIT__) || 120000;
+        let consecutiveFailures = 0;
+        const MAX_CONSECUTIVE_FAILURES = 5;
 
         while (Date.now() - startTime < MAX_WAIT) {
           await new Promise((r) => setTimeout(r, POLL_INTERVAL));
-          const status = await getUploadStatus(jobId);
+          let status;
+          try {
+            status = await getUploadStatus(jobId, 10000);
+            consecutiveFailures = 0;
+          } catch (err) {
+            consecutiveFailures += 1;
+            logger.warn(`Upload status poll failed (${consecutiveFailures}/${MAX_CONSECUTIVE_FAILURES}):`, err);
+
+            if (consecutiveFailures >= MAX_CONSECUTIVE_FAILURES) {
+              await refreshDocuments();
+              showToast(
+                'error',
+                'Upload Status Lost',
+                'Could not confirm upload status. The document may still be processing — refresh in 30 seconds.'
+              );
+              return;
+            }
+            continue;
+          }
 
           if (status.status === 'completed') {
             newDocId = status.document_id;
@@ -515,7 +535,13 @@ export default function ChatApp() {
         }
 
         if (!newDocId) {
-          throw new Error('Upload timed out after 2 minutes');
+          await refreshDocuments();
+          showToast(
+            'info',
+            'Upload Taking Longer Than Expected',
+            'The document may still be processing. The document list was refreshed; check again in 30 seconds if it is not there yet.'
+          );
+          return;
         }
       } else if (data?.document_id) {
         newDocId = data.document_id;

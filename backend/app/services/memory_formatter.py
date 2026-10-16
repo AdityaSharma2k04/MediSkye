@@ -54,13 +54,13 @@ def format_facts_for_prompt(
         # If f_type is lifestyle and profile has static fields, blend them in
         if f_type == "lifestyle" and profile:
             if getattr(profile, "diet_type", None):
-                lines.append(f"- Diet: {profile.diet_type}")
+                lines.append(f"- Diet: {escape_xml_content(str(profile.diet_type))}")
             if getattr(profile, "activity_level", None):
-                lines.append(f"- Activity: {profile.activity_level}")
+                lines.append(f"- Activity: {escape_xml_content(str(profile.activity_level))}")
             if getattr(profile, "height_cm", None) is not None:
                 lines.append(f"- Height: {profile.height_cm} cm")
             if getattr(profile, "occupation", None):
-                lines.append(f"- Occupation: {profile.occupation}")
+                lines.append(f"- Occupation: {escape_xml_content(str(profile.occupation))}")
 
         for f in facts:
             if isinstance(f, dict):
@@ -88,13 +88,13 @@ def format_facts_for_prompt(
     if "lifestyle" not in facts_by_type and profile:
         profile_lines = []
         if getattr(profile, "diet_type", None):
-            profile_lines.append(f"- Diet: {profile.diet_type}")
+            profile_lines.append(f"- Diet: {escape_xml_content(str(profile.diet_type))}")
         if getattr(profile, "activity_level", None):
-            profile_lines.append(f"- Activity: {profile.activity_level}")
+            profile_lines.append(f"- Activity: {escape_xml_content(str(profile.activity_level))}")
         if getattr(profile, "height_cm", None) is not None:
             profile_lines.append(f"- Height: {profile.height_cm} cm")
         if getattr(profile, "occupation", None):
-            profile_lines.append(f"- Occupation: {profile.occupation}")
+            profile_lines.append(f"- Occupation: {escape_xml_content(str(profile.occupation))}")
         if profile_lines:
             sections.append("Lifestyle:\n" + "\n".join(profile_lines))
 

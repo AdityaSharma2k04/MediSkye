@@ -123,7 +123,7 @@ def test_multi_doc_prompt_cites_all_documents():
     assert 'name="Lipid_Aug_2026.pdf"' in user_content
     assert "Hemoglobin: 14.5" in user_content
     assert "Total Cholesterol: 240" in user_content
-    assert '(from filename.pdf)' in system_instruction or 'Attach "(from filename.pdf)"' in system_instruction
+    assert "Cite medical-report findings with the source filename" in system_instruction
 
 
 @pytest.mark.asyncio
@@ -207,4 +207,3 @@ async def test_multi_document_query_fuses_all_three_documents():
             assert "Lipid_Panel.pdf" in retrieved_sources
             assert "Thyroid_Panel.pdf" in retrieved_sources
             assert len(retrieved_sources) == 3
-

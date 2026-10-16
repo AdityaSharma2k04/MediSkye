@@ -204,7 +204,7 @@ describe('ChatApp — upload refreshes sidebar immediately', () => {
     await waitFor(() => expect(api.uploadPdfReport).toHaveBeenCalledTimes(1));
 
     // Verify polling was performed
-    await waitFor(() => expect(api.getUploadStatus).toHaveBeenCalledWith('job-async-123'));
+    await waitFor(() => expect(api.getUploadStatus).toHaveBeenCalledWith('job-async-123', 10000));
 
     // Verify documents were refreshed with new document_id
     await waitFor(() => expect(api.getUserDocuments).toHaveBeenCalledTimes(2));
@@ -216,5 +216,92 @@ describe('ChatApp — upload refreshes sidebar immediately', () => {
 
     delete window.__POLL_INTERVAL__;
   });
-});
 
+  it('recovers when a status poll times out and succeeds on retry', async () => {
+    window.__POLL_INTERVAL__ = 1;
+    api.uploadPdfReport.mockResolvedValueOnce({
+      job_id: 'job-stalled-123',
+      status_url: '/upload/status/job-stalled-123',
+    });
+    api.getUploadStatus
+      .mockRejectedValueOnce(new DOMException('Request timed out', 'AbortError'))
+      .mockResolvedValueOnce({
+        job_id: 'job-stalled-123',
+        status: 'completed',
+        document_id: SERVER_DOC_ID,
+      });
+
+    render(<ChatApp />);
+    await waitFor(() => expect(api.getProfile).toHaveBeenCalled());
+    await waitFor(() => expect(api.getUserDocuments).toHaveBeenCalledTimes(1));
+
+    await act(async () => {
+      fireEvent.change(document.querySelector('input[type="file"]'), {
+        target: { files: [makeFile()] },
+      });
+    });
+
+    await waitFor(() => expect(api.getUploadStatus).toHaveBeenCalledTimes(2));
+    expect(api.getUploadStatus).toHaveBeenNthCalledWith(1, 'job-stalled-123', 10000);
+    expect(api.getUploadStatus).toHaveBeenNthCalledWith(2, 'job-stalled-123', 10000);
+    await waitFor(() => expect(screen.getByText('Report Ready')).toBeInTheDocument());
+    await waitFor(() => expect(api.getUserDocuments).toHaveBeenCalledTimes(2));
+
+    delete window.__POLL_INTERVAL__;
+  });
+
+  it('refreshes documents and shows an error after five consecutive poll failures', async () => {
+    window.__POLL_INTERVAL__ = 1;
+    api.uploadPdfReport.mockResolvedValueOnce({
+      job_id: 'job-failing-123',
+      status_url: '/upload/status/job-failing-123',
+    });
+    api.getUploadStatus.mockRejectedValue(new Error('Status request failed'));
+
+    render(<ChatApp />);
+    await waitFor(() => expect(api.getProfile).toHaveBeenCalled());
+    await waitFor(() => expect(api.getUserDocuments).toHaveBeenCalledTimes(1));
+
+    await act(async () => {
+      fireEvent.change(document.querySelector('input[type="file"]'), {
+        target: { files: [makeFile()] },
+      });
+    });
+
+    await waitFor(() => expect(api.getUploadStatus).toHaveBeenCalledTimes(5));
+    expect(await screen.findByText('Upload Status Lost')).toBeInTheDocument();
+    await waitFor(() => expect(api.getUserDocuments).toHaveBeenCalledTimes(2));
+
+    delete window.__POLL_INTERVAL__;
+  });
+
+  it('refreshes documents and shows a pending message when the polling deadline expires', async () => {
+    window.__POLL_INTERVAL__ = 1;
+    window.__UPLOAD_MAX_WAIT__ = 20;
+    api.uploadPdfReport.mockResolvedValueOnce({
+      job_id: 'job-slow-123',
+      status_url: '/upload/status/job-slow-123',
+    });
+    api.getUploadStatus.mockResolvedValue({
+      job_id: 'job-slow-123',
+      status: 'processing',
+    });
+
+    render(<ChatApp />);
+    await waitFor(() => expect(api.getProfile).toHaveBeenCalled());
+    await waitFor(() => expect(api.getUserDocuments).toHaveBeenCalledTimes(1));
+
+    await act(async () => {
+      fireEvent.change(document.querySelector('input[type="file"]'), {
+        target: { files: [makeFile()] },
+      });
+    });
+
+    expect(await screen.findByText('Upload Taking Longer Than Expected')).toBeInTheDocument();
+    expect(api.getUploadStatus).toHaveBeenCalled();
+    await waitFor(() => expect(api.getUserDocuments).toHaveBeenCalledTimes(2));
+
+    delete window.__POLL_INTERVAL__;
+    delete window.__UPLOAD_MAX_WAIT__;
+  });
+});

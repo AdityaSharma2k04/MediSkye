@@ -151,20 +151,28 @@ export async function uploadPdfReport(file, patientId = null, chatId = null) {
   return data;
 }
 
-export async function getUploadStatus(jobId) {
-  const res = await fetch(`${API_BASE}/upload/status/${jobId}`, {
-    headers: { ...getAuthHeaders() },
-  });
-  if (!res.ok) {
-    if (res.status === 401) {
-      localStorage.removeItem('token');
-      window.dispatchEvent(new Event('auth:expired'));
-      throw new Error('Session expired. Please log in again.');
+export async function getUploadStatus(jobId, timeoutMs = 10000) {
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+
+  try {
+    const res = await fetch(`${API_BASE}/upload/status/${jobId}`, {
+      headers: { ...getAuthHeaders() },
+      signal: controller.signal,
+    });
+    if (!res.ok) {
+      if (res.status === 401) {
+        localStorage.removeItem('token');
+        window.dispatchEvent(new Event('auth:expired'));
+        throw new Error('Session expired. Please log in again.');
+      }
+      const data = await res.json().catch(() => null);
+      throw new Error(data?.detail || 'Failed to fetch upload status');
     }
-    const data = await res.json().catch(() => null);
-    throw new Error(data?.detail || 'Failed to fetch upload status');
+    return await res.json();
+  } finally {
+    clearTimeout(timeoutId);
   }
-  return res.json();
 }
 
 export async function sendQueryStream(queryText, documentId, language = 'English', onChunk, patientId = null, signal = undefined) {
@@ -553,4 +561,3 @@ export async function detachChatDocument(chatId, docId) {
   }
   return await res.json();
 }
-
