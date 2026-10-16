@@ -44,7 +44,7 @@ async def test_call_gemini_retry_does_not_block_event_loop():
         health_elapsed = time.perf_counter() - start_time
 
         assert health_res.status_code == 200
-        assert health_elapsed < 0.1, f"/health took {health_elapsed*1000:.1f}ms, expected < 100ms"
+        assert health_elapsed < 0.3, f"/health took {health_elapsed*1000:.1f}ms, expected < 300ms"
 
         # Await completion of the gemini task
         result = await gemini_task

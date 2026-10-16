@@ -158,7 +158,7 @@ async def test_stream_gemini_unavailable_yields_busy_message():
         yield
 
     mock_client = MagicMock()
-    mock_client.models.generate_content_stream.return_value = unavailable_generator()
+    mock_client.models.generate_content_stream.side_effect = lambda *args, **kwargs: unavailable_generator()
 
     intent_response = MagicMock()
     intent_response.text = "GENERAL_HEALTH"
@@ -183,5 +183,118 @@ async def test_stream_gemini_unavailable_yields_busy_message():
             body_text = res.text
 
             assert "error" in body_text
-            assert "The AI service is temporarily busy. Please try again in a moment." in body_text
+            assert "The AI service is temporarily busy due to high demand. Please try again in 1-2 minutes." in body_text
+            assert "data: [DONE]\n\n" in body_text
+
+
+@pytest.mark.asyncio
+async def test_streaming_falls_back_on_first_chunk_failure():
+    """Mock 3.8 to raise retryable error on the very first chunk, mock 3.6 to succeed -> assert response from 3.6."""
+    email = f"stream_fallback_{uuid.uuid4().hex[:8]}@test.com"
+    async with AsyncSessionLocal() as session:
+        user = User(
+            email=email,
+            hashed_password=get_password_hash(TEST_PASSWORD),
+            phi_consent_granted=True,
+        )
+        session.add(user)
+        await session.commit()
+
+    def fail_first_chunk():
+        raise GeminiUnavailableError("503 Service Unavailable")
+        yield
+
+    def succeed_fallback():
+        chunk = MagicMock()
+        chunk.text = "Answer from gemini-3.6-flash fallback."
+        yield chunk
+
+    def stream_dispatcher(*args, **kwargs):
+        model = kwargs.get("model")
+        if model == "gemini-3.8-flash":
+            return fail_first_chunk()
+        elif model == "gemini-3.6-flash":
+            return succeed_fallback()
+        raise RuntimeError(f"Unexpected model called: {model}")
+
+    mock_client = MagicMock()
+    mock_client.models.generate_content_stream.side_effect = stream_dispatcher
+
+    intent_response = MagicMock()
+    intent_response.text = "GENERAL_HEALTH"
+
+    with (
+        patch("google.genai.Client", return_value=mock_client),
+        patch("app.rag.intent_router.call_gemini_with_retry", new_callable=AsyncMock, return_value=intent_response),
+        patch("app.rag.embedder.get_embedder", return_value=FakeEmbedder()),
+    ):
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as ac:
+            login_res = await ac.post("/login", data={"username": email, "password": TEST_PASSWORD})
+            token = login_res.json()["access_token"]
+            headers = {"Authorization": f"Bearer {token}"}
+
+            res = await ac.post(
+                "/query",
+                headers=headers,
+                json={"session_id": str(uuid.uuid4()), "query": "What causes headaches?", "language": "English"},
+            )
+
+            assert res.status_code == 200
+            body_text = res.text
+            assert "Answer from gemini-3.6-flash fallback." in body_text
+            assert "data: [DONE]\n\n" in body_text
+            assert mock_client.models.generate_content_stream.call_count == 2
+
+
+@pytest.mark.asyncio
+async def test_streaming_does_not_retry_after_partial_content():
+    """Mock 3.8 to yield 2 chunks then fail -> assert no fallback attempted."""
+    email = f"stream_partial_{uuid.uuid4().hex[:8]}@test.com"
+    async with AsyncSessionLocal() as session:
+        user = User(
+            email=email,
+            hashed_password=get_password_hash(TEST_PASSWORD),
+            phi_consent_granted=True,
+        )
+        session.add(user)
+        await session.commit()
+
+    def partial_then_fail():
+        chunk1 = MagicMock()
+        chunk1.text = "Chunk one."
+        yield chunk1
+        chunk2 = MagicMock()
+        chunk2.text = "Chunk two."
+        yield chunk2
+        raise RuntimeError("503 Disconnected mid-stream")
+
+    mock_client = MagicMock()
+    mock_client.models.generate_content_stream.side_effect = lambda *args, **kwargs: partial_then_fail()
+
+    intent_response = MagicMock()
+    intent_response.text = "GENERAL_HEALTH"
+
+    with (
+        patch("google.genai.Client", return_value=mock_client),
+        patch("app.rag.intent_router.call_gemini_with_retry", new_callable=AsyncMock, return_value=intent_response),
+        patch("app.rag.embedder.get_embedder", return_value=FakeEmbedder()),
+    ):
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as ac:
+            login_res = await ac.post("/login", data={"username": email, "password": TEST_PASSWORD})
+            token = login_res.json()["access_token"]
+            headers = {"Authorization": f"Bearer {token}"}
+
+            res = await ac.post(
+                "/query",
+                headers=headers,
+                json={"session_id": str(uuid.uuid4()), "query": "What causes headaches?", "language": "English"},
+            )
+
+            assert res.status_code == 200
+            body_text = res.text
+            # Verified partial chunks were streamed
+            assert "Chunk one." in body_text
+            assert "Chunk two." in body_text
+            # Verified no fallback attempted: call_count is strictly 1
+            assert mock_client.models.generate_content_stream.call_count == 1
             assert "data: [DONE]\n\n" in body_text

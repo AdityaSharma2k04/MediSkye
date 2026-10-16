@@ -65,6 +65,14 @@ async def embed_content_with_retry(
         except Exception as exc:
             last_exception = exc
             is_retryable = _is_retryable_error(exc)
+            if not is_retryable:
+                logger.warning(
+                    "Non-retryable error on embedding model %s: %s. Raising immediately.",
+                    target_model,
+                    exc,
+                )
+                raise exc
+
             logger.warning(
                 "Gemini embed call failed on attempt %d/%d for model %s: %s (retryable=%s)",
                 attempt,
@@ -73,12 +81,13 @@ async def embed_content_with_retry(
                 exc,
                 is_retryable,
             )
-            if attempt < max_attempts and is_retryable:
+            if attempt < max_attempts:
                 delay = delays[attempt - 1] if (attempt - 1) < len(delays) else delays[-1]
                 await asyncio.sleep(delay)
-            elif not is_retryable:
+            else:
                 break
 
     raise GeminiUnavailableError(
-        f"Gemini Embeddings API unavailable after {max_attempts} attempts for model '{target_model}': {last_exception}"
+        f"Gemini Embeddings API unavailable after {max_attempts} attempts "
+        f"for model '{target_model}': {last_exception}"
     ) from last_exception

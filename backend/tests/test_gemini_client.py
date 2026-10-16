@@ -1,7 +1,8 @@
 import pytest
-from unittest.mock import MagicMock
-from app.llm.gemini_client import call_gemini_with_retry, GeminiUnavailableError
+from unittest.mock import MagicMock, AsyncMock, patch
+from app.llm.gemini_client import call_gemini_with_retry, GeminiUnavailableError, FALLBACK_MODELS
 from app.llm.embeddings_client import embed_content_with_retry
+from app.rag.intent_router import classify_intent, QueryIntent
 
 
 @pytest.mark.asyncio
@@ -40,9 +41,10 @@ async def test_call_gemini_with_retry_permanent_503_raises_typed_error():
             client=mock_client,
             max_attempts=3,
             backoff_delays=[0.01, 0.01, 0.01],
+            fallback_models=["gemini-3.8-flash"],
         )
 
-    assert "Gemini API unavailable after 3 attempts" in str(exc_info.value)
+    assert "All models failed" in str(exc_info.value)
     assert mock_client.models.generate_content.call_count == 3
 
 
@@ -72,7 +74,7 @@ async def test_embed_content_with_retry_permanent_failure_raises_typed_error():
     mock_client = MagicMock()
     mock_client.models.embed_content.side_effect = Exception("504 Gateway Timeout")
 
-    with pytest.raises(GeminiUnavailableError):
+    with pytest.raises(GeminiUnavailableError) as exc_info:
         await embed_content_with_retry(
             contents="Blood glucose",
             client=mock_client,
@@ -80,4 +82,86 @@ async def test_embed_content_with_retry_permanent_failure_raises_typed_error():
             backoff_delays=[0.01, 0.01, 0.01],
         )
 
+    assert "Gemini Embeddings API unavailable after 3 attempts" in str(exc_info.value)
     assert mock_client.models.embed_content.call_count == 3
+
+
+@pytest.mark.asyncio
+async def test_intent_router_handles_none_response():
+    mock_resp = MagicMock()
+    mock_resp.text = None
+
+    with patch("app.rag.intent_router.call_gemini_with_retry", new_callable=AsyncMock) as mock_call:
+        mock_call.return_value = mock_resp
+        intent = await classify_intent("What is my blood sugar level?", has_document=True)
+        assert intent == QueryIntent.DOCUMENT_QA
+
+
+@pytest.mark.asyncio
+async def test_gemini_fallback_chain_triggers_on_503():
+    mock_client = MagicMock()
+    mock_fallback_resp = MagicMock()
+    mock_fallback_resp.text = "Fallback model response"
+    mock_fallback_resp.usage_metadata.prompt_token_count = 10
+    mock_fallback_resp.usage_metadata.candidates_token_count = 15
+
+    # Primary model ("gemini-3.8-flash") fails 3 times with 503,
+    # then fallback model ("gemini-3.6-flash") succeeds on first attempt.
+    mock_client.models.generate_content.side_effect = [
+        Exception("503 Service Unavailable"),
+        Exception("503 Service Unavailable"),
+        Exception("503 Service Unavailable"),
+        mock_fallback_resp,
+    ]
+
+    res = await call_gemini_with_retry(
+        prompt="Analyze lab report",
+        client=mock_client,
+        max_attempts=3,
+        backoff_delays=[0.001, 0.001, 0.001],
+    )
+
+    assert res == mock_fallback_resp
+    assert mock_client.models.generate_content.call_count == 4
+    calls = mock_client.models.generate_content.call_args_list
+    assert calls[0].kwargs["model"] == "gemini-3.8-flash"
+    assert calls[1].kwargs["model"] == "gemini-3.8-flash"
+    assert calls[2].kwargs["model"] == "gemini-3.8-flash"
+    assert calls[3].kwargs["model"] == "gemini-3.6-flash"
+
+
+@pytest.mark.asyncio
+async def test_gemini_fallback_chain_raises_after_all_fail():
+    mock_client = MagicMock()
+    mock_client.models.generate_content.side_effect = Exception("503 Service Unavailable")
+
+    with pytest.raises(GeminiUnavailableError) as exc_info:
+        await call_gemini_with_retry(
+            prompt="Analyze lab report",
+            client=mock_client,
+            max_attempts=3,
+            backoff_delays=[0.001, 0.001, 0.001],
+        )
+
+    assert "All models failed" in str(exc_info.value)
+    # 4 fallback models * 3 attempts = 12 total attempts
+    assert mock_client.models.generate_content.call_count == len(FALLBACK_MODELS) * 3
+
+
+@pytest.mark.asyncio
+async def test_gemini_does_not_fallback_on_400():
+    mock_client = MagicMock()
+    mock_client.models.generate_content.side_effect = Exception("400 INVALID_ARGUMENT: Bad Request")
+
+    with pytest.raises(Exception) as exc_info:
+        await call_gemini_with_retry(
+            prompt="Analyze lab report",
+            client=mock_client,
+            max_attempts=3,
+            backoff_delays=[0.001, 0.001, 0.001],
+        )
+
+    assert "400 INVALID_ARGUMENT" in str(exc_info.value)
+    # Must raise immediately on attempt 1 with no retry or fallback
+    assert mock_client.models.generate_content.call_count == 1
+

@@ -382,6 +382,7 @@ async def query_bot(
             # Call Gemini stream with thread offloading
             from google import genai
             from google.genai.types import GenerateContentConfig
+            from app.llm.gemini_client import FALLBACK_MODELS, _is_retryable_error
             client = genai.Client(api_key=settings.GOOGLE_API_KEY)
 
             loop = asyncio.get_running_loop()
@@ -389,19 +390,45 @@ async def query_bot(
             SENTINEL = object()
 
             def _stream_producer():
+                from google import genai
+                from google.genai.types import GenerateContentConfig
+                from app.llm.gemini_client import FALLBACK_MODELS, _is_retryable_error
+
+                client = genai.Client(api_key=settings.GOOGLE_API_KEY)
+                last_exception = None
+
                 try:
-                    response = client.models.generate_content_stream(
-                        model=settings.GEMINI_MODEL,
-                        contents=user_content,
-                        config=GenerateContentConfig(
-                            system_instruction=system_instruction,
-                        ),
-                    )
-                    for chunk in response:
-                        loop.call_soon_threadsafe(queue.put_nowait, chunk)
-                except Exception as exc:
-                    loop.call_soon_threadsafe(queue.put_nowait, exc)
-                finally:
+                    for current_model in FALLBACK_MODELS:
+                        yielded_any = False
+                        try:
+                            response = client.models.generate_content_stream(
+                                model=current_model,
+                                contents=user_content,
+                                config=GenerateContentConfig(system_instruction=system_instruction),
+                            )
+                            for chunk in response:
+                                yielded_any = True
+                                loop.call_soon_threadsafe(queue.put_nowait, chunk)
+                            loop.call_soon_threadsafe(queue.put_nowait, SENTINEL)
+                            return  # success, done
+                        except Exception as exc:
+                            last_exception = exc
+                            if yielded_any or not _is_retryable_error(exc):
+                                loop.call_soon_threadsafe(queue.put_nowait, exc)
+                                loop.call_soon_threadsafe(queue.put_nowait, SENTINEL)
+                                return
+                            logger.warning(
+                                "Streaming model %s failed with retryable error, trying next",
+                                current_model,
+                            )
+                            continue
+
+                    # All models failed
+                    err = GeminiUnavailableError(f"All streaming models failed. Last: {last_exception}")
+                    loop.call_soon_threadsafe(queue.put_nowait, err)
+                    loop.call_soon_threadsafe(queue.put_nowait, SENTINEL)
+                except Exception as fatal_exc:
+                    loop.call_soon_threadsafe(queue.put_nowait, fatal_exc)
                     loop.call_soon_threadsafe(queue.put_nowait, SENTINEL)
 
             stream_task = asyncio.create_task(asyncio.to_thread(_stream_producer))
@@ -421,8 +448,8 @@ async def query_bot(
             full_text += disclaimer
 
         except GeminiUnavailableError:
-            logger.warning("Gemini unavailable during streaming query", exc_info=True)
-            yield f'data: {json.dumps({"error": "The AI service is temporarily busy. Please try again in a moment."})}\n\n'
+            logger.warning("All Gemini models unavailable during streaming", exc_info=True)
+            yield f'data: {json.dumps({"error": "The AI service is temporarily busy due to high demand. Please try again in 1-2 minutes."})}\n\n'
             yield "data: [DONE]\n\n"
             return
         except Exception as e:

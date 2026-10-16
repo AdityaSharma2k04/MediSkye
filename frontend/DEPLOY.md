@@ -14,7 +14,7 @@
    - Build output directory: `frontend/dist`
    - Root directory: *(leave blank)*
 4. Environment variables:
-   - `VITE_API_URL` = `https://<your-hf-space-url>.hf.space`
+   - `VITE_API_URL` = `VITE_API_URL = https://mediskye-backend.onrender.com`
      (set AFTER HF Space is deployed)
 5. Click **Save and Deploy**
 

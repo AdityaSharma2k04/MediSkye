@@ -72,7 +72,14 @@ async def classify_intent(query: str, has_document: bool = True) -> QueryIntent:
                 "max_output_tokens": 10,
             },
         )
-        result = response.text.strip().upper()
+        # Guard against None text
+        raw_text = getattr(response, "text", None)
+        if not raw_text:
+            logger.warning("Intent classification returned empty response, defaulting to DOCUMENT_QA")
+            # DOCUMENT_QA is the safer default (grounds the answer in retrieved docs)
+            return QueryIntent.DOCUMENT_QA
+
+        result = raw_text.strip().upper()
 
         # Parse the response — handle variations
         if "EMERGENCY" in result:
