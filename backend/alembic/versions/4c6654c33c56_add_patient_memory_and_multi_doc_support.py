@@ -67,9 +67,9 @@ def upgrade() -> None:
             sa.Column('source_type', sa.String(), server_default='chat', nullable=False),
             sa.Column('source_id', sa.String(), nullable=True),
             sa.Column('source_excerpt', sa.String(), nullable=True),
-            sa.Column('first_seen_at', sa.DateTime(), nullable=False),
-            sa.Column('last_seen_at', sa.DateTime(), nullable=False),
-            sa.Column('created_at', sa.DateTime(), nullable=False),
+            sa.Column('first_seen_at', sa.DateTime(timezone=True), nullable=False),
+            sa.Column('last_seen_at', sa.DateTime(timezone=True), nullable=False),
+            sa.Column('created_at', sa.DateTime(timezone=True), nullable=False),
         )
         op.create_index(op.f('ix_patient_facts_user_id'), 'patient_facts', ['user_id'])
         op.create_index(op.f('ix_patient_facts_dependent_id'), 'patient_facts', ['dependent_id'])
@@ -88,7 +88,7 @@ def upgrade() -> None:
             sa.Column('chunk_text', sa.String(), nullable=False),
             sa.Column('chunk_index', sa.Integer(), server_default='0', nullable=False),
             sa.Column('embedding', sa.JSON(), nullable=True),
-            sa.Column('created_at', sa.DateTime(), nullable=False),
+            sa.Column('created_at', sa.DateTime(timezone=True), nullable=False),
         )
         op.create_index(op.f('ix_chat_chunks_user_id'), 'chat_chunks', ['user_id'])
         op.create_index(op.f('ix_chat_chunks_dependent_id'), 'chat_chunks', ['dependent_id'])
@@ -102,7 +102,7 @@ def upgrade() -> None:
             sa.Column('id', postgresql.UUID(as_uuid=True), primary_key=True),
             sa.Column('chat_id', postgresql.UUID(as_uuid=True), sa.ForeignKey('chats.id', ondelete='CASCADE'), nullable=False),
             sa.Column('document_id', postgresql.UUID(as_uuid=True), sa.ForeignKey('documents.id', ondelete='CASCADE'), nullable=False),
-            sa.Column('added_at', sa.DateTime(), nullable=False),
+            sa.Column('added_at', sa.DateTime(timezone=True), nullable=False),
             sa.UniqueConstraint('chat_id', 'document_id', name='uq_chat_document'),
         )
         op.create_index(op.f('ix_chat_documents_chat_id'), 'chat_documents', ['chat_id'])

@@ -32,8 +32,8 @@ def upgrade() -> None:
         sa.Column('pre_existing_conditions', sa.String(), nullable=True),
         sa.Column('known_allergies', sa.String(), nullable=True),
         sa.Column('current_medications', sa.String(), nullable=True),
-        sa.Column('created_at', sa.DateTime(), nullable=True),
-        sa.Column('updated_at', sa.DateTime(), nullable=True),
+        sa.Column('created_at', sa.DateTime(timezone=True), nullable=True),
+        sa.Column('updated_at', sa.DateTime(timezone=True), nullable=True),
     )
     
     # 2. Add current_medications and language_preference to users

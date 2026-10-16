@@ -27,12 +27,12 @@ def upgrade() -> None:
     sa.Column('action_type', sa.String(), nullable=False),
     sa.Column('resource', sa.String(), nullable=True),
     sa.Column('ip_address', sa.String(), nullable=True),
-    sa.Column('timestamp', sa.DateTime(), nullable=True),
+    sa.Column('timestamp', sa.DateTime(timezone=True), nullable=True),
     sa.ForeignKeyConstraint(['user_id'], ['users.id'], ),
     sa.PrimaryKeyConstraint('id')
     )
     op.add_column('users', sa.Column('phi_consent_granted', sa.Boolean(), nullable=True))
-    op.add_column('users', sa.Column('consent_timestamp', sa.DateTime(), nullable=True))
+    op.add_column('users', sa.Column('consent_timestamp', sa.DateTime(timezone=True), nullable=True))
     # ### end Alembic commands ###
 
 

@@ -32,7 +32,7 @@ class User(Base):
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     email = Column(String, unique=True, index=True, nullable=False)
     hashed_password = Column(String, nullable=False)
-    created_at = Column(DateTime, default=utcnow)
+    created_at = Column(DateTime(timezone=True), default=utcnow)
     
     full_name = Column(String, nullable=True)
     date_of_birth = Column(Date, nullable=True)
@@ -44,7 +44,7 @@ class User(Base):
     emergency_contact_phone = Column(String, nullable=True)
 
     phi_consent_granted = Column(Boolean, default=False)
-    consent_timestamp = Column(DateTime, nullable=True)
+    consent_timestamp = Column(DateTime(timezone=True), nullable=True)
 
     current_medications = Column(EncryptedString, nullable=True)
     language_preference = Column(String, default="English", nullable=True)
@@ -88,8 +88,8 @@ class DependentProfile(Base):
     activity_level = Column(String, nullable=True)
     occupation = Column(EncryptedString, nullable=True)
 
-    created_at = Column(DateTime, default=utcnow)
-    updated_at = Column(DateTime, default=utcnow, onupdate=utcnow)
+    created_at = Column(DateTime(timezone=True), default=utcnow)
+    updated_at = Column(DateTime(timezone=True), default=utcnow, onupdate=utcnow)
 
     guardian = orm_relationship("User", back_populates="dependents")
     documents = orm_relationship("Document", back_populates="dependent")
@@ -107,7 +107,7 @@ class Document(Base):
     filename = Column(String, nullable=False)
     file_path = Column(String, nullable=True)  # Path to FAISS index or PDF
     title = Column(String(60), nullable=True)  # User-defined or auto-generated chat title
-    created_at = Column(DateTime, default=utcnow)
+    created_at = Column(DateTime(timezone=True), default=utcnow)
 
     owner = orm_relationship("User", back_populates="documents")
     dependent = orm_relationship("DependentProfile", back_populates="documents")
@@ -123,7 +123,7 @@ class Chat(Base):
     document_id = Column(UUID(as_uuid=True), ForeignKey("documents.id", ondelete="SET NULL"), nullable=True, index=True)  # Nullable: general-health chats have no document
     role = Column(String, nullable=False)  # 'user' or 'ai'
     message = Column(String, nullable=False)
-    created_at = Column(DateTime, default=utcnow)
+    created_at = Column(DateTime(timezone=True), default=utcnow)
 
     user = orm_relationship("User", back_populates="chats")
     document = orm_relationship("Document", back_populates="chats")
@@ -140,7 +140,7 @@ class AuditLog(Base):
     action_type = Column(String, nullable=False)
     resource = Column(String, nullable=True)
     ip_address = Column(String, nullable=True)
-    timestamp = Column(DateTime, default=utcnow)
+    timestamp = Column(DateTime(timezone=True), default=utcnow)
 
     user = orm_relationship("User", back_populates="audit_logs")
     dependent = orm_relationship("DependentProfile", back_populates="audit_logs")
@@ -165,9 +165,9 @@ class PatientFact(Base):
     source_type = Column(String, nullable=False, default="chat")  # 'chat' | 'pdf' | 'profile' | 'user_edit'
     source_id = Column(String, nullable=True)
     source_excerpt = Column(EncryptedString, nullable=True)
-    first_seen_at = Column(DateTime, default=utcnow, nullable=False)
-    last_seen_at = Column(DateTime, default=utcnow, nullable=False)
-    created_at = Column(DateTime, default=utcnow, nullable=False)
+    first_seen_at = Column(DateTime(timezone=True), default=utcnow, nullable=False)
+    last_seen_at = Column(DateTime(timezone=True), default=utcnow, nullable=False)
+    created_at = Column(DateTime(timezone=True), default=utcnow, nullable=False)
 
     __table_args__ = (
         Index("ix_patient_facts_user_dep_active", "user_id", "dependent_id", "is_active"),
@@ -224,7 +224,7 @@ class ChatChunk(Base):
     chunk_text = Column(EncryptedString, nullable=False)
     chunk_index = Column(Integer, default=0, nullable=False)
     embedding = Column(JSON, nullable=True)
-    created_at = Column(DateTime, default=utcnow, nullable=False)
+    created_at = Column(DateTime(timezone=True), default=utcnow, nullable=False)
 
     __table_args__ = (
         Index("ix_chat_chunks_user_chat", "user_id", "chat_id"),
@@ -244,7 +244,7 @@ class ChatDocument(Base):
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     chat_id = Column(UUID(as_uuid=True), ForeignKey("chats.id", ondelete="CASCADE"), nullable=False, index=True)
     document_id = Column(UUID(as_uuid=True), ForeignKey("documents.id", ondelete="CASCADE"), nullable=False, index=True)
-    added_at = Column(DateTime, default=utcnow, nullable=False)
+    added_at = Column(DateTime(timezone=True), default=utcnow, nullable=False)
 
     __table_args__ = (
         UniqueConstraint("chat_id", "document_id", name="uq_chat_document"),
