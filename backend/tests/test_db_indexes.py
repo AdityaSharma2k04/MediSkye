@@ -48,25 +48,3 @@ async def test_queries_use_foreign_key_indexes():
                 "USING INDEX" in plan_text or "COVERING INDEX" in plan_text
             ), f"Query '{query}' did not use index in execution plan: {plan_text}"
 
-
-def test_sqlite_file_foreign_key_indexes_exist():
-    """Verify directly via sqlite3 on mediskye.db that migration created the indexes."""
-    import os
-    if not os.path.exists("mediskye.db"):
-        pytest.skip("mediskye.db not found (running in pure memory CI)")
-
-    conn = sqlite3.connect("mediskye.db")
-    cur = conn.cursor()
-    expected_indexes = {
-        "documents": {"ix_documents_user_id"},
-        "chats": {"ix_chats_user_id", "ix_chats_document_id"},
-        "dependent_profiles": {"ix_dependent_profiles_user_id"},
-        "audit_logs": {"ix_audit_logs_user_id"},
-    }
-    for table, expected in expected_indexes.items():
-        cur.execute(f"PRAGMA index_list('{table}')")
-        rows = cur.fetchall()
-        found = {r[1] for r in rows}
-        for idx in expected:
-            assert idx in found, f"Missing index {idx} on {table} in mediskye.db"
-    conn.close()

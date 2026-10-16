@@ -50,7 +50,17 @@ async def test_empty_xray_response_yields_no_empty_chunks(tmp_path):
         b"\x00\x05\x00\x01\r\n-\xb4\x00\x00\x00\x00IEND\xaeB`\x82"
     )
 
-    with patch("app.rag.loader.call_gemini_with_retry", new=AsyncMock(return_value=mock_resp)):
+    class FakeEmbedder:
+        def embed_documents(self, texts):
+            return [[0.1] * 768 for _ in texts]
+
+        def embed_query(self, text):
+            return [0.1] * 768
+
+    with (
+        patch("app.rag.loader.call_gemini_with_retry", new=AsyncMock(return_value=mock_resp)),
+        patch("app.rag.retriever.get_embedder", return_value=FakeEmbedder()),
+    ):
         doc = await process_image_path("XRAY", dummy_img, source_meta="test_xray")
         assert doc.page_content == ""
 
