@@ -26,6 +26,7 @@ logger = logging.getLogger(__name__)
 
 from app.core.config import settings
 from app.core.security import sanitize_text
+from app.llm.gemini_client import call_gemini_with_retry
 
 MIN_EXTRACTED_CHARS = 100
 
@@ -62,9 +63,7 @@ async def classify_image_type(image_bytes: bytes) -> str:
     
     try:
         image_part = Part.from_bytes(data=compressed_bytes, mime_type="image/jpeg")
-        response = await asyncio.to_thread(
-            client.models.generate_content,
-            model=settings.GEMINI_MODEL,
+        response = await call_gemini_with_retry(
             contents=["Respond with exactly one word: 'XRAY' if this is a radiological scan, or 'DOCUMENT' if this is a text-heavy clinical report.", image_part],
         )
         result = sanitize_text(response.text or "").strip().upper()
@@ -102,10 +101,8 @@ async def process_image_path(image_type: str, image_bytes: bytes, source_meta: s
         try:
             image_part = Part.from_bytes(data=enhanced_bytes, mime_type="image/png")
             prompt = "You are an expert radiologist. Analyze this radiological scan and provide a detailed clinical observation summary. Be precise and medical."
-            response = await asyncio.to_thread(
-                client.models.generate_content,
-                model=settings.GEMINI_MODEL,
-                contents=[prompt, image_part]
+            response = await call_gemini_with_retry(
+                contents=[prompt, image_part],
             )
             text = sanitize_text(response.text or "").strip()
             return Document(page_content=text, metadata={"source": source_meta, "type": "xray"})
@@ -286,7 +283,7 @@ def _enhance_image_clahe(image_bytes: bytes) -> bytes:
         return image_bytes
 
 
-def _extract_table_pages_with_vision(pdf_path: str, table_page_indices: list[int]) -> list[Document]:
+async def _extract_table_pages_with_vision(pdf_path: str, table_page_indices: list[int]) -> list[Document]:
     """
     Render flagged table pages as images, optionally enhance contrast,
     and send to Gemini Vision for structured Markdown extraction.
@@ -330,8 +327,7 @@ Output the structured Markdown extraction:"""
             try:
                 # Send to Gemini Vision
                 image_part = Part.from_bytes(data=img_bytes, mime_type="image/png")
-                response = client.models.generate_content(
-                    model=settings.GEMINI_MODEL,
+                response = await call_gemini_with_retry(
                     contents=[VISION_PROMPT, image_part],
                 )
                 
@@ -378,7 +374,7 @@ async def extract_text_from_file(file_path: str, filename: str) -> list[Document
     # Phase 2: Extract table pages with Vision AI
     vision_docs: list[Document] = []
     if table_pages:
-        vision_docs = _extract_table_pages_with_vision(file_path, table_pages)
+        vision_docs = await _extract_table_pages_with_vision(file_path, table_pages)
     
     vision_page_numbers = {d.metadata.get("page", -1) for d in vision_docs}
     

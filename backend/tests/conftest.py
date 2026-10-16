@@ -11,6 +11,7 @@ os.environ.setdefault("ENV", "test")
 # Shared test password — must be ≤72 bytes for bcrypt compatibility across OSes.
 TEST_PASSWORD = "TestPassword123!"
 
+import pytest
 import pytest_asyncio
 
 
@@ -33,3 +34,12 @@ async def setup_test_database():
         await conn.run_sync(Base.metadata.create_all)
 
     yield
+
+
+@pytest.fixture(autouse=True)
+def reset_rate_limits_each_test():
+    """Ensure in-memory rate limiter counts do not leak across test cases."""
+    from app.core.limiter import limiter
+    limiter.reset()
+    yield
+    limiter.reset()

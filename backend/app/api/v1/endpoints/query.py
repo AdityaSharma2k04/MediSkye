@@ -19,6 +19,7 @@ from app.core.limiter import limiter
 from app.core.audit import log_audit
 from app.db.database import get_db, AsyncSessionLocal
 from app.db.models import User, Document, Chat, ChatDocument, DependentProfile, PatientFact
+from app.llm.gemini_client import GeminiUnavailableError
 from app.schemas.query import QueryRequest, QueryResponse, SourceChunk
 from app.rag.prompt_builder import build_prompt, build_general_health_prompt
 from app.rag.intent_router import classify_intent, QueryIntent
@@ -227,7 +228,7 @@ async def query_bot(
         "PHI_ACCESS_QUERY",
         current_user.id,
         "query_rag",
-        request.client.host,
+        request.client.host if request.client else "unknown",
         dependent_id=active_dep_id,
     )
 
@@ -257,8 +258,11 @@ async def query_bot(
                 for d in chat_docs:
                     if d.file_path and os.path.exists(d.file_path):
                         try:
-                            vectorstore, bm25_index = load_hybrid_index(d.file_path)
-                            doc_chunks = retrieve_relevant_docs(body.query, vectorstore, bm25_index, k=4)
+                            def _load_and_retrieve(path, q):
+                                v, b = load_hybrid_index(path)
+                                return retrieve_relevant_docs(q, v, b, k=4)
+
+                            doc_chunks = await asyncio.to_thread(_load_and_retrieve, d.file_path, body.query)
                             for c in doc_chunks:
                                 c.metadata["source"] = d.title or d.filename
                                 c.metadata["filename"] = d.filename
@@ -372,26 +376,52 @@ async def query_bot(
                 )
                 yield f'data: {json.dumps({"sources": []})}\n\n'
 
-            # Call Gemini stream
+            # Call Gemini stream with thread offloading
             from google import genai
             client = genai.Client(api_key=settings.GOOGLE_API_KEY)
-            response = client.models.generate_content_stream(
-                model=settings.GEMINI_MODEL,
-                contents=prompt,
-            )
 
-            for chunk in response:
-                if chunk.text:
-                    full_text += chunk.text
-                    yield f'data: {json.dumps({"chunk": chunk.text})}\n\n'
+            loop = asyncio.get_running_loop()
+            queue = asyncio.Queue()
+            SENTINEL = object()
+
+            def _stream_producer():
+                try:
+                    response = client.models.generate_content_stream(
+                        model=settings.GEMINI_MODEL,
+                        contents=prompt,
+                    )
+                    for chunk in response:
+                        loop.call_soon_threadsafe(queue.put_nowait, chunk)
+                except Exception as exc:
+                    loop.call_soon_threadsafe(queue.put_nowait, exc)
+                finally:
+                    loop.call_soon_threadsafe(queue.put_nowait, SENTINEL)
+
+            stream_task = asyncio.create_task(asyncio.to_thread(_stream_producer))
+
+            while True:
+                item = await queue.get()
+                if item is SENTINEL:
+                    break
+                if isinstance(item, Exception):
+                    raise item
+                if getattr(item, "text", None):
+                    full_text += item.text
+                    yield f'data: {json.dumps({"chunk": item.text})}\n\n'
 
             disclaimer = "\n\n" + append_disclaimer("").strip()
             yield f'data: {json.dumps({"chunk": disclaimer})}\n\n'
             full_text += disclaimer
 
+        except GeminiUnavailableError:
+            logger.warning("Gemini unavailable during streaming query", exc_info=True)
+            yield f'data: {json.dumps({"error": "The AI service is temporarily busy. Please try again in a moment."})}\n\n'
+            yield "data: [DONE]\n\n"
+            return
         except Exception as e:
             logger.error("Error during streaming query response: %s", e, exc_info=True)
-            yield f'data: {json.dumps({"error": str(e)})}\n\n'
+            yield f'data: {json.dumps({"error": "An unexpected error occurred while generating the response."})}\n\n'
+            yield "data: [DONE]\n\n"
             return
 
         # ── Parse abnormal flags for specialist recommendations ──

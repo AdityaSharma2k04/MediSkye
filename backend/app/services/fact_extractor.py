@@ -2,6 +2,7 @@ import os
 import re
 import json
 import logging
+import asyncio
 from typing import List, Dict, Any, Optional
 from pathlib import Path
 import numpy as np
@@ -92,11 +93,10 @@ async def extract_facts(
 
     extracted_data = {"facts": [], "retractions": []}
     try:
-        from google import genai
-        client = genai.Client(api_key=settings.GOOGLE_API_KEY)
-        response = client.models.generate_content(
-            model=settings.GEMINI_MODEL,
+        from app.llm.gemini_client import call_gemini_with_retry
+        response = await call_gemini_with_retry(
             contents=prompt,
+            user_id=user_id,
         )
         response_text = response.text or ""
 

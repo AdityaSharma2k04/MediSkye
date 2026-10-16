@@ -24,6 +24,7 @@ from app.schemas.user import (
 )
 from app.schemas.dependent import DependentCreate, DependentUpdate, DependentResponse
 from app.core.audit import log_audit
+from app.core.limiter import limiter
 from app.services.patient_service import calculate_age
 
 logger = logging.getLogger(__name__)
@@ -52,13 +53,14 @@ async def update_user_me(
     await db.commit()
     await db.refresh(current_user)
     
-    await log_audit(db, "PROFILE_UPDATE", current_user.id, "profile", request.client.host)
+    await log_audit(db, "PROFILE_UPDATE", current_user.id, "profile", request.client.host if request.client else "unknown")
     user_res = UserResponse.model_validate(current_user)
     user_res.calculated_age = calculate_age(current_user.date_of_birth)
     return user_res
 
 
 @router.post("/users/me/password")
+@limiter.limit("5/minute")
 async def change_password(
     body: PasswordChange,
     request: Request,
@@ -73,7 +75,7 @@ async def change_password(
         )
     current_user.hashed_password = get_password_hash(body.new_password)
     await db.commit()
-    await log_audit(db, "PASSWORD_CHANGED", current_user.id, "change_password", request.client.host)
+    await log_audit(db, "PASSWORD_CHANGED", current_user.id, "change_password", request.client.host if request.client else "unknown")
     return {"message": "Password changed successfully"}
 
 @router.delete("/users/me", status_code=status.HTTP_204_NO_CONTENT)
@@ -82,7 +84,7 @@ async def delete_user_me(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
-    await log_audit(db, "USER_DELETION_REQUESTED", current_user.id, "account", request.client.host)
+    await log_audit(db, "USER_DELETION_REQUESTED", current_user.id, "account", request.client.host if request.client else "unknown")
     
     docs = await db.execute(select(Document).filter(Document.user_id == current_user.id))
     for doc in docs.scalars().all():
@@ -188,7 +190,7 @@ async def list_dependents(
         item.calculated_age = calculate_age(dep.date_of_birth)
         responses.append(item)
         
-    await log_audit(db, "DEPENDENTS_LIST_ACCESSED", current_user.id, "dependents", request.client.host)
+    await log_audit(db, "DEPENDENTS_LIST_ACCESSED", current_user.id, "dependents", request.client.host if request.client else "unknown")
     return responses
 
 @router.post("/users/me/dependents", response_model=DependentResponse, status_code=status.HTTP_201_CREATED)
@@ -217,7 +219,7 @@ async def create_dependent(
     await db.commit()
     await db.refresh(dep)
     
-    await log_audit(db, "DEPENDENT_CREATED", current_user.id, "dependent", request.client.host, dependent_id=dep.id)
+    await log_audit(db, "DEPENDENT_CREATED", current_user.id, "dependent", request.client.host if request.client else "unknown", dependent_id=dep.id)
     
     item = DependentResponse.model_validate(dep)
     item.calculated_age = calculate_age(dep.date_of_birth)
@@ -249,7 +251,7 @@ async def update_dependent(
     await db.commit()
     await db.refresh(dep)
     
-    await log_audit(db, "DEPENDENT_UPDATED", current_user.id, "dependent", request.client.host, dependent_id=dep.id)
+    await log_audit(db, "DEPENDENT_UPDATED", current_user.id, "dependent", request.client.host if request.client else "unknown", dependent_id=dep.id)
     
     item = DependentResponse.model_validate(dep)
     item.calculated_age = calculate_age(dep.date_of_birth)
@@ -272,7 +274,7 @@ async def delete_dependent(
     if not dep:
         raise HTTPException(status_code=404, detail="Dependent profile not found.")
         
-    await log_audit(db, "DEPENDENT_DELETED", current_user.id, "dependent", request.client.host, dependent_id=dep.id)
+    await log_audit(db, "DEPENDENT_DELETED", current_user.id, "dependent", request.client.host if request.client else "unknown", dependent_id=dep.id)
     await db.delete(dep)
     await db.commit()
     return None
@@ -300,7 +302,7 @@ async def update_memory_consent(
         "MEMORY_CONSENT_GRANTED" if body.consent else "MEMORY_CONSENT_REVOKED",
         current_user.id,
         "memory_consent",
-        request.client.host,
+        request.client.host if request.client else "unknown",
     )
     return {
         "status": "success",
@@ -404,7 +406,7 @@ async def create_user_fact(
     await db.commit()
     await db.refresh(new_fact)
 
-    await log_audit(db, "FACT_CREATED_MANUAL", current_user.id, f"fact_{new_fact.id}", request.client.host)
+    await log_audit(db, "FACT_CREATED_MANUAL", current_user.id, f"fact_{new_fact.id}", request.client.host if request.client else "unknown")
     return PatientFactResponse.model_validate(new_fact)
 
 
@@ -436,7 +438,7 @@ async def update_user_fact(
     await db.commit()
     await db.refresh(fact)
 
-    await log_audit(db, "FACT_UPDATED", current_user.id, f"fact_{fact_id}", request.client.host)
+    await log_audit(db, "FACT_UPDATED", current_user.id, f"fact_{fact_id}", request.client.host if request.client else "unknown")
     return PatientFactResponse.model_validate(fact)
 
 
@@ -463,7 +465,7 @@ async def delete_memory_fact(
     fact.is_active = False
     fact.last_seen_at = datetime.now(UTC)
     await db.commit()
-    await log_audit(db, "FACT_DELETED", current_user.id, f"fact_{fact_id}", request.client.host)
+    await log_audit(db, "FACT_DELETED", current_user.id, f"fact_{fact_id}", request.client.host if request.client else "unknown")
     return {"message": "Fact deleted successfully", "id": str(fact_id)}
 
 
@@ -489,6 +491,6 @@ async def clear_all_memory_facts(
     for f in facts:
         f.is_active = False
     await db.commit()
-    await log_audit(db, "ALL_FACTS_CLEARED", current_user.id, "memory", request.client.host)
+    await log_audit(db, "ALL_FACTS_CLEARED", current_user.id, "memory", request.client.host if request.client else "unknown")
     return {"message": "All memory facts cleared successfully", "count": len(facts)}
 

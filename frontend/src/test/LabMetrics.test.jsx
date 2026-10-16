@@ -33,6 +33,21 @@ describe('ReferenceBar status colors', () => {
     expect(() => render(<ReferenceBar value={100} low={4.0} high={6.0} />)).not.toThrow();
     expect(() => render(<ReferenceBar value={-100} low={4.0} high={6.0} />)).not.toThrow();
   });
+
+  it('safely handles zero-range where low === high without division by zero', () => {
+    const { container } = render(<ReferenceBar value={5.0} low={5.0} high={5.0} />);
+    const dot = container.querySelector('.bg-green-500');
+    expect(dot).toBeInTheDocument();
+    // Verify no NaN in inline style
+    expect(dot.getAttribute('style')).not.toContain('NaN');
+  });
+
+  it('safely handles inverted range where low > high without crashing', () => {
+    const { container } = render(<ReferenceBar value={8.0} low={10.0} high={5.0} />);
+    const dot = container.querySelector('.bg-red-500');
+    expect(dot).toBeInTheDocument();
+    expect(dot.getAttribute('style')).not.toContain('NaN');
+  });
 });
 
 describe('exportMetricsCsv', () => {

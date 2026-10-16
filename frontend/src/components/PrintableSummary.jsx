@@ -12,15 +12,6 @@ function cleanSummary(text) {
 }
 
 export default function PrintableSummary({ user, document, summary, metrics, specialists, abnormalMetrics }) {
-  console.log('PrintableSummary props:', {
-    user,
-    document,
-    summaryLength: summary?.length,
-    metricsCount: metrics?.length,
-    specialistsCount: specialists?.length,
-    abnormalCount: abnormalMetrics?.length,
-  });
-
   // Support both field-name conventions from the backend
   const patientName = user?.full_name || user?.name || 'Not provided';
   const patientDob  = user?.date_of_birth || user?.dob || 'Not provided';

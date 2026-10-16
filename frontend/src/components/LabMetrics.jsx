@@ -25,6 +25,21 @@ function categorise(testName) {
 
 // ── ReferenceBar ─────────────────────────────────────────────────────────────
 export function ReferenceBar({ value, low, high }) {
+  if (high === undefined || low === undefined || high <= low || isNaN(low) || isNaN(high)) {
+    const isHigh = typeof high === 'number' && value > high;
+    const isLow = typeof low === 'number' && value < low;
+    return (
+      <div className="relative h-2 bg-gray-200 rounded-full w-full">
+        <div
+          className={`absolute -top-1 w-4 h-4 rounded-full border-2 border-white shadow ${
+            isHigh ? 'bg-red-500' : isLow ? 'bg-amber-500' : 'bg-green-500'
+          }`}
+          style={{ left: 'calc(50% - 8px)' }}
+        />
+      </div>
+    );
+  }
+
   const range = high - low;
   const padding = range * 0.5;
   const min = low - padding;

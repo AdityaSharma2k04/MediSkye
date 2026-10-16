@@ -1,6 +1,7 @@
 import os
 import tempfile
 import uuid
+import asyncio
 from typing import Optional
 from pathlib import Path
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, status, Request
@@ -80,24 +81,31 @@ async def upload_file(
     tmp_path = None
     try:
         ext = os.path.splitext(file.filename or ".pdf")[1].lower()
-        with tempfile.NamedTemporaryFile(delete=False, suffix=ext) as tmp:
-            tmp.write(content)
-            tmp_path = tmp.name
+
+        def _write_temp():
+            with tempfile.NamedTemporaryFile(delete=False, suffix=ext) as tmp:
+                tmp.write(content)
+                return tmp.name
+
+        tmp_path = await asyncio.to_thread(_write_temp)
 
         page_docs = await extract_text_from_file(tmp_path, file.filename or "report.pdf")
         
         has_xray = any(d.metadata.get("type") == "xray" for d in page_docs)
+        client_host = request.client.host if request.client else "unknown"
         if has_xray:
-            await log_audit(db, "XRAY_ANALYSIS", current_user.id, "upload", request.client.host, dependent_id=dep_id)
+            await log_audit(db, "XRAY_ANALYSIS", current_user.id, "upload", client_host, dependent_id=dep_id)
             
-        await log_audit(db, "PDF_UPLOADED", current_user.id, f"doc_{doc.id}", request.client.host, dependent_id=dep_id)
+        await log_audit(db, "PDF_UPLOADED", current_user.id, f"doc_{doc.id}", client_host, dependent_id=dep_id)
 
         # Create hybrid index (FAISS + BM25) and save to disk
         index_dir = settings.BASE_DIR / "indexes"
         index_dir.mkdir(exist_ok=True)
         index_path = str(index_dir / f"user_{current_user.id}_doc_{doc.id}.index")
         
-        vectorstore, bm25_index, chunks = create_hybrid_index(page_docs, index_path)
+        vectorstore, bm25_index, chunks = await asyncio.to_thread(
+            create_hybrid_index, page_docs, index_path
+        )
 
 
         # Update DB with file_path

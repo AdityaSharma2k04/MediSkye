@@ -13,10 +13,12 @@ from app.schemas.user import UserCreate, UserResponse, Token
 from app.core.audit import log_audit
 from datetime import datetime, UTC
 from fastapi import Request
+from app.core.limiter import limiter
 
 router = APIRouter(tags=["Authentication"])
 
 @router.post("/register", response_model=UserResponse)
+@limiter.limit("5/minute")
 async def register(request: Request, user_in: UserCreate, db: AsyncSession = Depends(get_db)) -> Any:
     """
     Register a new user.
@@ -58,6 +60,7 @@ async def register(request: Request, user_in: UserCreate, db: AsyncSession = Dep
 
 
 @router.post("/login", response_model=Token)
+@limiter.limit("10/minute")
 async def login(request: Request, db: AsyncSession = Depends(get_db), form_data: OAuth2PasswordRequestForm = Depends()) -> Any:
     """
     OAuth2 compatible token login, get an access token for future requests

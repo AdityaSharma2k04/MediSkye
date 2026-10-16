@@ -43,11 +43,15 @@ async def extract_metrics(
         return MetricsResponse(metrics=[])
 
     try:
-        vectorstore = FAISS.load_local(doc.file_path, get_embedder(), allow_dangerous_deserialization=True)
+        vectorstore = await asyncio.to_thread(
+            FAISS.load_local, doc.file_path, get_embedder(), allow_dangerous_deserialization=True
+        )
     except Exception as e:
         raise HTTPException(status_code=500, detail="Could not load document index.")
 
-    docs = retrieve_relevant_docs("blood count lab results reference ranges cholesterol liver function", vectorstore, k=6)
+    docs = await asyncio.to_thread(
+        retrieve_relevant_docs, "blood count lab results reference ranges cholesterol liver function", vectorstore, k=6
+    )
     combined_text = "\n".join([d.page_content for d in docs])
 
     extract_prompt = f"""
@@ -68,17 +72,12 @@ async def extract_metrics(
     """
 
     try:
-        client = genai.Client(api_key=settings.GOOGLE_API_KEY)
-        response = None
-        for attempt in range(3):
-            try:
-                response = client.models.generate_content(model=settings.GEMINI_MODEL, contents=extract_prompt)
-                break
-            except Exception as e:
-                if ("503" in str(e) or "429" in str(e)) and attempt < 2:
-                    await asyncio.sleep(1.5 * (attempt + 1))
-                    continue
-                raise
+        from app.llm.gemini_client import call_gemini_with_retry
+        response = await call_gemini_with_retry(
+            contents=extract_prompt,
+            user_id=current_user.id,
+            backoff_delays=[1.5, 4.0, 16.0],
+        )
         if not response or not response.text:
             return MetricsResponse(metrics=[])
         text = response.text.strip()

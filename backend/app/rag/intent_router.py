@@ -11,10 +11,11 @@ This router is the second gate — it catches edge cases the keywords miss and
 intelligently skips FAISS for general questions to save latency and tokens.
 """
 
+import asyncio
 from enum import Enum
 import logging
-from google import genai
 from app.core.config import settings
+from app.llm.gemini_client import call_gemini_with_retry
 
 logger = logging.getLogger(__name__)
 
@@ -55,9 +56,7 @@ async def classify_intent(query: str, has_document: bool = True) -> QueryIntent:
                       If False, DOCUMENT_QA is always downgraded to GENERAL_HEALTH.
     """
     try:
-        client = genai.Client(api_key=settings.GOOGLE_API_KEY)
-        response = client.models.generate_content(
-            model=settings.GEMINI_MODEL,
+        response = await call_gemini_with_retry(
             contents=CLASSIFICATION_PROMPT.format(query=query),
             config={
                 "temperature": 0.0,

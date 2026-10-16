@@ -164,12 +164,15 @@ async def retrieve_cross_document(
     and merges using reciprocal rank fusion with a boost for the active document.
     """
     import re
+    import uuid
     from sqlalchemy.future import select
     from app.db.models import Document as DBDocument
 
-    filters = [DBDocument.user_id == user_id]
-    if dependent_id is not None:
-        filters.append(DBDocument.dependent_id == dependent_id)
+    d_id = uuid.UUID(str(dependent_id)) if (dependent_id and isinstance(dependent_id, str)) else dependent_id
+    filters = [
+        DBDocument.user_id == user_id,
+        DBDocument.dependent_id == d_id if d_id else DBDocument.dependent_id.is_(None),
+    ]
     result = await db.execute(select(DBDocument).filter(*filters))
     docs = result.scalars().all()
     
