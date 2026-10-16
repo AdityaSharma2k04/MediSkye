@@ -149,22 +149,29 @@ async def _extract_with_pymupdf(pdf_path: str) -> list[Document]:
     except ImportError:
         return []
 
+    def _extract_pages_sync():
+        pages_data = []
+        with fitz.open(pdf_path) as pdf:
+            for index, page in enumerate(pdf, start=1):
+                text = sanitize_text(page.get_text() or "")
+                if text and len(text) >= 50:
+                    pages_data.append((index, "text", text))
+                else:
+                    pix = page.get_pixmap(dpi=300)
+                    pages_data.append((index, "image", pix.tobytes("png")))
+        return pages_data
+
+    pages_data = await asyncio.to_thread(_extract_pages_sync)
     docs: list[Document] = []
-    with fitz.open(pdf_path) as pdf:
-        for index, page in enumerate(pdf, start=1):
-            text = sanitize_text(page.get_text() or "")
-            if text and len(text) >= 50:
-                docs.append(Document(page_content=text, metadata={"page": index, "source": "pymupdf"}))
-            else:
-                # Text is less than 50 characters, assume scanned image or image wrapped in PDF
-                pix = page.get_pixmap(dpi=300)
-                img_bytes = pix.tobytes("png")
-                
-                image_type = await classify_image_type(img_bytes)
-                doc = await process_image_path(image_type, img_bytes, source_meta="pymupdf_fallback")
-                doc.metadata["page"] = index
-                if doc.page_content and doc.page_content.strip():
-                    docs.append(doc)
+    for index, kind, content in pages_data:
+        if kind == "text":
+            docs.append(Document(page_content=content, metadata={"page": index, "source": "pymupdf"}))
+        else:
+            image_type = await classify_image_type(content)
+            doc = await process_image_path(image_type, content, source_meta="pymupdf_fallback")
+            doc.metadata["page"] = index
+            if doc.page_content and doc.page_content.strip():
+                docs.append(doc)
 
     return docs
 
@@ -311,46 +318,46 @@ Rules:
 
 Output the structured Markdown extraction:"""
 
-    with fitz.open(pdf_path) as pdf:
-        for page_idx in table_page_indices:
-            if page_idx >= len(pdf):
-                continue
-                
-            page = pdf[page_idx]
+    for page_idx in table_page_indices:
+        def _render_and_fallback(p_idx):
+            with fitz.open(pdf_path) as pdf:
+                if p_idx >= len(pdf):
+                    return None, None
+                page = pdf[p_idx]
+                pix = page.get_pixmap(dpi=300)
+                img_bytes = _enhance_image_clahe(pix.tobytes("png"))
+                fallback_text = sanitize_text(page.get_text() or "")
+                return img_bytes, fallback_text
+
+        img_bytes, fallback_text = await asyncio.to_thread(_render_and_fallback, page_idx)
+        if not img_bytes:
+            continue
+
+        try:
+            # Send to Gemini Vision
+            image_part = Part.from_bytes(data=img_bytes, mime_type="image/png")
+            response = await call_gemini_with_retry(
+                contents=[VISION_PROMPT, image_part],
+            )
             
-            # Render page to image at 300 DPI for clarity
-            pix = page.get_pixmap(dpi=300)
-            img_bytes = pix.tobytes("png")
-            
-            # Apply CLAHE enhancement for better OCR/Vision results
-            img_bytes = _enhance_image_clahe(img_bytes)
-            
-            try:
-                # Send to Gemini Vision
-                image_part = Part.from_bytes(data=img_bytes, mime_type="image/png")
-                response = await call_gemini_with_retry(
-                    contents=[VISION_PROMPT, image_part],
-                )
-                
-                extracted_text = sanitize_text(response.text or "")
-                if extracted_text and len(extracted_text) > 20:
-                    docs.append(Document(
-                        page_content=extracted_text,
-                        metadata={
-                            "page": page_idx + 1,
-                            "source": "vision",
-                            "extraction_method": "gemini_vision_table",
-                        }
-                    ))
-            except Exception as e:
-                logger.warning("Vision extraction failed for page %s: %s", page_idx + 1, e)
-                # Fall back to standard text for this page
-                text = sanitize_text(page.get_text() or "")
-                if text:
-                    docs.append(Document(
-                        page_content=text,
-                        metadata={"page": page_idx + 1, "source": "pymupdf_fallback"}
-                    ))
+            extracted_text = sanitize_text(response.text or "")
+            if extracted_text and len(extracted_text) > 20:
+                docs.append(Document(
+                    page_content=extracted_text,
+                    metadata={
+                        "page": page_idx + 1,
+                        "source": "vision",
+                        "extraction_method": "gemini_vision_table",
+                    }
+                ))
+        except Exception as e:
+            logger.warning("Vision extraction failed for page %s: %s", page_idx + 1, e)
+            # Fall back to standard text for this page
+            if fallback_text:
+                docs.append(Document(
+                    page_content=fallback_text,
+                    metadata={"page": page_idx + 1, "source": "pymupdf_fallback"}
+                ))
 
     return docs
 
@@ -363,14 +370,16 @@ async def extract_text_from_file(file_path: str, filename: str) -> list[Document
     """
     ext = os.path.splitext(filename)[1].lower()
     if ext in [".jpg", ".jpeg", ".png"]:
-        with open(file_path, "rb") as f:
-            image_bytes = f.read()
+        def _read_image():
+            with open(file_path, "rb") as f:
+                return f.read()
+        image_bytes = await asyncio.to_thread(_read_image)
         image_type = await classify_image_type(image_bytes)
         doc = await process_image_path(image_type, image_bytes, source_meta="direct_image")
         return [doc] if doc.page_content and doc.page_content.strip() else []
         
     # Phase 1: Detect table-heavy pages
-    table_pages = _detect_table_pages(file_path)
+    table_pages = await asyncio.to_thread(_detect_table_pages, file_path)
     
     # Phase 2: Extract table pages with Vision AI
     vision_docs: list[Document] = []
@@ -382,9 +391,9 @@ async def extract_text_from_file(file_path: str, filename: str) -> list[Document
     # Phase 3: Standard extraction for non-table pages
     best_docs: list[Document] = []
 
-    pypdf2_docs = _extract_with_pypdf2(file_path)
+    pypdf2_docs = await asyncio.to_thread(_extract_with_pypdf2, file_path)
     pymupdf_docs = await _extract_with_pymupdf(file_path)
-    ocr_docs = _extract_with_ocr(file_path)
+    ocr_docs = await asyncio.to_thread(_extract_with_ocr, file_path)
     
     for docs in [pypdf2_docs, pymupdf_docs, ocr_docs]:
         if _char_count(docs) > _char_count(best_docs):

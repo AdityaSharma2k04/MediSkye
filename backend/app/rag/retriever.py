@@ -9,6 +9,7 @@ Reciprocal Rank Fusion (RRF) to combine semantic and keyword results.
 """
 
 import os
+import asyncio
 import logging
 from pathlib import Path
 from typing import Optional
@@ -34,6 +35,60 @@ def _build_splitter() -> RecursiveCharacterTextSplitter:
         chunk_size=CHUNK_SIZE,
         chunk_overlap=CHUNK_OVERLAP,
         separators=["\n\n", "\n", ". ", "; ", ", ", " ", ""],
+    )
+
+
+def build_hybrid_index_from_embeddings(
+    chunks: list[Document],
+    embeddings: list[list[float]],
+    index_path: str,
+):
+    """
+    Build FAISS vectorstore from pre-computed embeddings and build BM25 index.
+    Saves both to disk at index_path.
+    CPU-bound operation meant to be called within asyncio.to_thread.
+    """
+    embedder = get_embedder()
+    chunk_texts = [c.page_content for c in chunks]
+    text_embeddings = list(zip(chunk_texts, embeddings))
+    metadatas = [c.metadata for c in chunks]
+
+    # Build FAISS vectorstore from precomputed embeddings without calling API
+    vectorstore = FAISS.from_embeddings(text_embeddings, embedder, metadatas=metadatas)
+    vectorstore.save_local(index_path)
+
+    # Build BM25 index over the same chunks
+    bm25_index = BM25Index(chunks)
+    save_bm25_index(bm25_index, index_path)
+
+    return vectorstore, bm25_index, chunks
+
+
+async def acreate_hybrid_index(page_docs: list[Document], index_path: str):
+    """
+    Asynchronously create hybrid index without blocking the event loop:
+    1. Offload text splitting to thread pool.
+    2. Embed chunks asynchronously yielding back to the event loop between chunks.
+    3. Offload FAISS index and BM25 building to thread pool.
+    """
+    splitter = _build_splitter()
+    raw_chunks = await asyncio.to_thread(splitter.split_documents, page_docs)
+    chunks = [c for c in raw_chunks if c.page_content and c.page_content.strip()]
+    if not chunks:
+        chunks = [Document(page_content="Empty document", metadata={})]
+
+    chunk_texts = [c.page_content for c in chunks]
+
+    # Asynchronously retrieve embeddings yielding back to event loop after each call
+    embedder = get_embedder()
+    embeddings = await embedder.aembed_documents(chunk_texts)
+
+    # Build FAISS and BM25 in worker thread
+    return await asyncio.to_thread(
+        build_hybrid_index_from_embeddings,
+        chunks,
+        embeddings,
+        index_path,
     )
 
 

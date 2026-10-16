@@ -1,5 +1,6 @@
 import os
 import tempfile
+import time
 import uuid
 import asyncio
 import logging
@@ -18,7 +19,7 @@ from app.schemas.upload import UploadResponse, UploadJobResponse, UploadStatusRe
 from app.services.pdf_service import validate_file_upload
 from app.rag.loader import PDFExtractionError, extract_text_from_file
 from app.core.audit import log_audit
-from app.rag.retriever import create_hybrid_index
+from app.rag.retriever import create_hybrid_index, acreate_hybrid_index
 from app.services.upload_jobs import create_job, update_job, get_job, UploadStatus
 
 logger = logging.getLogger(__name__)
@@ -42,10 +43,15 @@ async def process_upload_background(
     from app.db.database import AsyncSessionLocal
     from app.db.models import Document, ChatDocument, Chat
 
+    t_start = time.monotonic()
+    logger.info(f"[UPLOAD {job_id}] START")
+
     update_job(job_id, status=UploadStatus.PROCESSING)
 
     async with AsyncSessionLocal() as db:
         try:
+            # Initial DB setup (document record & chat link)
+            t0 = time.monotonic()
             user_uuid = uuid.UUID(user_id)
             dep_uuid = uuid.UUID(dependent_id) if dependent_id else None
 
@@ -73,33 +79,41 @@ async def process_upload_background(
                         await db.commit()
                 except Exception as ce:
                     logger.warning(f"Failed to link chat {chat_id} to document {doc.id}: {ce}")
+            logger.info(f"[UPLOAD {job_id}] Initial DB setup: {time.monotonic() - t0:.2f}s")
 
-            # Extract text from file
+            # 1. Text extraction
+            t0 = time.monotonic()
             page_docs = await extract_text_from_file(tmp_path, filename)
+            logger.info(f"[UPLOAD {job_id}] Extraction: {time.monotonic() - t0:.2f}s ({len(page_docs)} pages)")
 
             # Audit logging
+            t0 = time.monotonic()
             has_xray = any(d.metadata.get("type") == "xray" for d in page_docs)
             if has_xray:
                 await log_audit(db, "XRAY_ANALYSIS", user_uuid, "upload", client_host, dependent_id=dep_uuid)
 
             await log_audit(db, "PDF_UPLOADED", user_uuid, f"doc_{doc.id}", client_host, dependent_id=dep_uuid)
+            logger.info(f"[UPLOAD {job_id}] Audit logging: {time.monotonic() - t0:.2f}s")
 
-            # Create hybrid index (FAISS + BM25) and save to disk
+            # 2. Create hybrid index (FAISS + BM25) and save to disk
+            t0 = time.monotonic()
             index_dir = settings.BASE_DIR / "indexes"
             index_dir.mkdir(exist_ok=True)
             index_path = str(index_dir / f"user_{user_uuid}_doc_{doc.id}.index")
 
-            await asyncio.to_thread(
-                create_hybrid_index, page_docs, index_path
-            )
+            _, _, chunks = await acreate_hybrid_index(page_docs, index_path)
+            logger.info(f"[UPLOAD {job_id}] Index build: {time.monotonic() - t0:.2f}s ({len(chunks)} chunks)")
 
-            # Update DB with file_path
+            # 3. Update DB with file_path and commit
+            t0 = time.monotonic()
             doc.file_path = index_path
             await db.commit()
+            logger.info(f"[UPLOAD {job_id}] DB commit: {time.monotonic() - t0:.2f}s")
 
             update_job(job_id, status=UploadStatus.COMPLETED, document_id=str(doc.id))
+            logger.info(f"[UPLOAD {job_id}] TOTAL: {time.monotonic() - t_start:.2f}s")
         except Exception as e:
-            logger.error(f"Upload job {job_id} failed: {e}", exc_info=True)
+            logger.error(f"[UPLOAD {job_id}] Failed after {time.monotonic() - t_start:.2f}s: {e}", exc_info=True)
             update_job(job_id, status=UploadStatus.FAILED, error=str(e))
         finally:
             if tmp_path and os.path.exists(tmp_path):
