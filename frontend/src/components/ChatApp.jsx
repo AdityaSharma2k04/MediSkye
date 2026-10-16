@@ -216,6 +216,104 @@ export default function ChatApp() {
     }
   }, [conversations, currentUser]);
 
+  // Reusable document refresher: synchronizes server document truth with local state
+  const refreshDocuments = useCallback(async (activeDocId = null) => {
+    try {
+      const docs = await getUserDocuments();
+      if (!Array.isArray(docs)) return [];
+
+      if (docs.length === 0) return [];
+
+      const targetDocId = activeDocId || docs[0]?.id;
+      let targetDocChats = [];
+      if (targetDocId) {
+        targetDocChats = await getDocumentChats(targetDocId).catch(() => []);
+      }
+
+      setConversations((prev) => {
+        const existingMap = new Map();
+        prev.forEach((c) => {
+          if (c.id) existingMap.set(c.id, c);
+          if (c.document_id) existingMap.set(c.document_id, c);
+        });
+
+        const syncedDocConvs = docs.map((doc) => {
+          const existing = existingMap.get(doc.id);
+          const pdfMeta = {
+            id: doc.id,
+            name: doc.filename,
+            filename: doc.filename,
+            size: 8192,
+          };
+          const autoTitle = doc.title || cleanFilename(doc.filename);
+
+          let messages = existing?.messages || [];
+          if (doc.id === targetDocId && targetDocChats.length > 0 && messages.length === 0) {
+            messages = targetDocChats.map((c) => ({
+              id: c.id,
+              sender: c.role === 'ai' ? 'assistant' : 'user',
+              text: c.message,
+              timestamp: c.created_at ? new Date(c.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '',
+            }));
+          }
+
+          if (existing) {
+            return {
+              ...existing,
+              id: doc.id,
+              document_id: doc.id,
+              patient_id: doc.dependent_id || existing.patient_id || 'self',
+              title: existing.title && existing.title !== 'New Conversation' && existing.title !== 'New chat'
+                ? existing.title
+                : autoTitle,
+              messages,
+              pdf: existing.pdf || pdfMeta,
+              documents: Array.isArray(existing.documents) && existing.documents.length > 0
+                ? existing.documents
+                : [pdfMeta],
+              created_at: existing.created_at || doc.created_at,
+            };
+          }
+
+          return {
+            id: doc.id,
+            document_id: doc.id,
+            patient_id: doc.dependent_id || 'self',
+            title: autoTitle,
+            messages,
+            pdf: pdfMeta,
+            documents: [pdfMeta],
+            created_at: doc.created_at,
+          };
+        });
+
+        // Retain any conversation that does not correspond to a server document (e.g. empty new conversation)
+        const nonDocConvs = prev.filter(
+          (c) => !c.document_id && !docs.some((d) => d.id === c.id)
+        );
+
+        return [...syncedDocConvs, ...nonDocConvs];
+      });
+
+      if (targetDocId) {
+        const targetDoc = docs.find((d) => d.id === targetDocId) || docs[0];
+        const pdfMeta = {
+          id: targetDoc.id,
+          name: targetDoc.filename,
+          filename: targetDoc.filename,
+          size: 8192,
+        };
+        setActivePdf(pdfMeta);
+        setSessionId(targetDoc.id);
+        localStorage.setItem('mediskye_session_id', targetDoc.id);
+      }
+      return docs;
+    } catch (err) {
+      logger.error('Failed to refresh documents:', err);
+      return [];
+    }
+  }, []);
+
   // Account switch isolation & pre-linked document loading
   useEffect(() => {
     if (currentUser?.id) {
@@ -243,34 +341,8 @@ export default function ChatApp() {
         }
 
         // Fresh account or switched account without valid saved chats: check backend
-        getUserDocuments().then(async (docs) => {
-          if (docs && docs.length > 0) {
-            const doc = docs[0];
-            const chats = await getDocumentChats(doc.id).catch(() => []);
-            const formattedMessages = chats.map((c) => ({
-              id: c.id,
-              sender: c.role === 'ai' ? 'assistant' : 'user',
-              text: c.message,
-              timestamp: c.created_at ? new Date(c.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '',
-            }));
-
-            const prelinkedPdf = { name: doc.filename, size: 8192 };
-            // Use server title if present, else clean filename heuristic
-            const autoTitle = doc.title || cleanFilename(doc.filename);
-            const prelinkedConv = {
-              id: doc.id,
-              document_id: doc.id,
-              patient_id: doc.dependent_id || 'self',
-              title: autoTitle,
-              messages: formattedMessages,
-              pdf: prelinkedPdf,
-            };
-
-            setConversations([prelinkedConv]);
-            setSessionId(doc.id);
-            setActivePdf(prelinkedPdf);
-          } else {
-            // Fresh account without documents
+        refreshDocuments().then((docs) => {
+          if (!docs || docs.length === 0) {
             const freshId = generateSessionId();
             setSessionId(freshId);
             setActivePdf(null);
@@ -285,7 +357,7 @@ export default function ChatApp() {
       }
       localStorage.setItem('mediskye_last_active_user', currentUser.id);
     }
-  }, [currentUser]);
+  }, [currentUser, refreshDocuments]);
 
   // ── Apply theme to DOM and persist the raw preference (incl. 'system') ──
   useEffect(() => {
@@ -397,18 +469,21 @@ export default function ChatApp() {
   const handleAttachFile = async (file) => {
     if (!file) return;
 
-    if (file.type !== 'application/pdf' && !file.name.endsWith('.pdf')) {
-      showToast('error', 'Invalid File Format', 'Please upload a valid PDF document.');
+    const isValidType =
+      file.type === 'application/pdf' ||
+      file.name.match(/\.(pdf|jpg|jpeg|png)$/i);
+    if (!isValidType) {
+      showToast('error', 'Invalid File Format', 'Please upload a PDF, JPG, or PNG file.');
       return;
     }
 
     const maxMb = 50;
     if (file.size > maxMb * 1024 * 1024) {
-      showToast('error', 'File Too Large', `Maximum allowed PDF size is ${maxMb}MB.`);
+      showToast('error', 'File Too Large', `Maximum allowed file size is ${maxMb}MB.`);
       return;
     }
 
-    showToast('info', 'Uploading PDF Report', 'Extracting text and creating vector embeddings...');
+    showToast('info', 'Uploading Report', 'Extracting text and creating vector embeddings...');
     setIsGenerating(true);
 
     try {
@@ -416,28 +491,55 @@ export default function ChatApp() {
       const newDocId = data.document_id;
       const pdfMeta = { id: newDocId, name: file.name, filename: file.name, size: file.size };
       setActivePdf(pdfMeta);
-      showToast('success', 'Report Processed', 'PDF indexed successfully. You can now ask questions or view Lab Metrics.');
+      showToast('success', 'Report Processed', 'File indexed successfully. You can now ask questions or view Lab Metrics.');
 
-      // Auto-name: clean filename heuristic (B1 — no extra Gemini call)
       const autoTitle = cleanFilename(file.name);
 
-      setConversations((prev) =>
-        prev.map((c) => {
-          if (c.id !== sessionId) return c;
-          const currentDocs = Array.isArray(c.documents)
-            ? c.documents
-            : (c.pdf ? [{ id: c.document_id || 'doc-1', name: c.pdf.name, filename: c.pdf.name }] : []);
+      // Promote the conversation's id to the server's document_id so the
+      // sidebar entry is stable across sessions (re-login fetches by doc.id).
+      const prevSessionId = sessionId;
+      setSessionId(newDocId);
+      localStorage.setItem('mediskye_session_id', newDocId);
+
+      // 1. Optimistically update local conversation state immediately
+      setConversations((prev) => {
+        const existingIdx = prev.findIndex((c) => c.id === prevSessionId || c.id === newDocId);
+        if (existingIdx >= 0) {
+          const current = prev[existingIdx];
+          const currentDocs = Array.isArray(current.documents)
+            ? current.documents
+            : (current.pdf ? [{ id: current.document_id || 'doc-1', name: current.pdf.name, filename: current.pdf.name }] : []);
           const updatedDocs = [...currentDocs.filter((d) => d.id !== newDocId), pdfMeta];
-          return {
-            ...c,
+          const updatedChat = {
+            ...current,
+            id: newDocId,
             document_id: newDocId,
             patient_id: selectedPatientId,
-            title: (c.title === 'New Conversation' || c.title === 'New chat') ? autoTitle : c.title,
+            title: (current.title === 'New Conversation' || current.title === 'New chat') ? autoTitle : current.title,
             pdf: pdfMeta,
             documents: updatedDocs,
           };
-        })
-      );
+          const next = [...prev];
+          next[existingIdx] = updatedChat;
+          return next;
+        } else {
+          return [
+            {
+              id: newDocId,
+              document_id: newDocId,
+              patient_id: selectedPatientId,
+              title: autoTitle,
+              messages: [],
+              pdf: pdfMeta,
+              documents: [pdfMeta],
+            },
+            ...prev,
+          ];
+        }
+      });
+
+      // 2. Refetch document list from server to synchronize state with server truth
+      await refreshDocuments(newDocId);
     } catch (err) {
       showToast('error', 'Upload Failed', err.message);
     } finally {
@@ -656,7 +758,7 @@ export default function ChatApp() {
     showToast('info', 'New Conversation Started');
   };
 
-  const handleSelectChat = (id) => {
+  const handleSelectChat = async (id) => {
     setSessionId(id);
     localStorage.setItem('mediskye_session_id', id);
     const chat = conversations.find((c) => c.id === id);
@@ -664,6 +766,24 @@ export default function ChatApp() {
       setActivePdf(chat.pdf || null);
       if (chat.patient_id) {
         setSelectedPatientId(chat.patient_id);
+      }
+      if (chat.document_id && (!chat.messages || chat.messages.length === 0)) {
+        try {
+          const chats = await getDocumentChats(chat.document_id);
+          if (Array.isArray(chats) && chats.length > 0) {
+            const formatted = chats.map((c) => ({
+              id: c.id,
+              sender: c.role === 'ai' ? 'assistant' : 'user',
+              text: c.message,
+              timestamp: c.created_at ? new Date(c.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '',
+            }));
+            setConversations((prev) =>
+              prev.map((item) => (item.id === id ? { ...item, messages: formatted } : item))
+            );
+          }
+        } catch (e) {
+          logger.error('Failed to load chats for document:', e);
+        }
       }
     }
     setIsProfileOpen(false);

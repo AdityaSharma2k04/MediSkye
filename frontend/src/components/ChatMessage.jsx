@@ -19,16 +19,26 @@ import {
 import RagSourcesPanel from './RagSourcesPanel';
 import { speakText, stopSpeaking } from '../services/speech';
 
+export const stripAbnormalFlags = (text) => {
+  if (!text) return '';
+  return text
+    .replace(/```json\s*\{[\s\S]*?"abnormal_flags"[\s\S]*?\}\s*```/gi, '')
+    .replace(/```json\s*\{[\s\S]*?"abnormal_flags"[\s\S]*$/gi, '')
+    .trim();
+};
+
 export default function ChatMessage({ message, onRegenerate, onSelectSource, showToast, darkMode }) {
   const [copied, setCopied] = useState(false);
   const [speaking, setSpeaking] = useState(false);
   const [liked, setLiked] = useState(null);
   const [showDetails, setShowDetails] = useState(false);
 
-  const isUser = message.sender === 'user';
+  const isUser = message?.sender === 'user';
+  // Hide the abnormal_flags JSON block from the user interface
+  const content = stripAbnormalFlags(message?.text || '');
 
   const handleCopy = () => {
-    navigator.clipboard.writeText(message.text || '');
+    navigator.clipboard.writeText(content);
     setCopied(true);
     if (showToast) showToast('success', 'Copied to clipboard');
     setTimeout(() => setCopied(false), 2000);
@@ -40,15 +50,15 @@ export default function ChatMessage({ message, onRegenerate, onSelectSource, sho
       setSpeaking(false);
     } else {
       setSpeaking(true);
-      speakText(message.text || '', () => setSpeaking(false));
+      speakText(content, () => setSpeaking(false));
     }
   };
 
   const handleShare = () => {
     if (navigator.share) {
-      navigator.share({ title: 'MediSkye Explanation', text: message.text || '' });
+      navigator.share({ title: 'MediSkye Explanation', text: content });
     } else {
-      navigator.clipboard.writeText(message.text || '');
+      navigator.clipboard.writeText(content);
       if (showToast) showToast('info', 'Share link copied');
     }
   };
@@ -71,9 +81,6 @@ export default function ChatMessage({ message, onRegenerate, onSelectSource, sho
       </div>
     );
   }
-
-  // Hide the abnormal_flags JSON block from the user interface
-  const content = (message?.text || '').replace(/```json\s*\{.*"abnormal_flags"[\s\S]*?\}\s*```/is, '');
 
   // Common button styles for the action bar
   const actionBtn = `p-1.5 rounded-lg transition-colors ${

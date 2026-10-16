@@ -1,4 +1,5 @@
 import uuid
+import json
 import asyncio
 import pytest
 import pymupdf as fitz
@@ -8,7 +9,7 @@ from sqlalchemy.future import select
 from app.main import app
 from app.core.auth import get_password_hash
 from app.db.database import AsyncSessionLocal
-from app.db.models import User, PatientFact
+from app.db.models import User, PatientFact, Chat
 from app.api.v1.endpoints.query import _background_tasks
 from tests.conftest import TEST_PASSWORD
 
@@ -223,4 +224,108 @@ async def test_query_stream_memory_extraction_task_completes():
                 assert target_fact is not None
                 assert target_fact.is_active is True
                 assert target_fact.confidence == 0.95
+
+
+@pytest.mark.asyncio
+async def test_query_stream_strips_abnormal_flags_json_block_and_emits_specialists():
+    transport = ASGITransport(app=app)
+
+    # 1. Provide mock LLM chunks ending with abnormal_flags JSON block split across chunks
+    chunk1 = MagicMock()
+    chunk1.text = "Your lab report shows elevated white blood cells.\n- Total WBC: **11,200 /uL** (normal is 4,000-11,000 /uL)\n"
+    chunk2 = MagicMock()
+    chunk2.text = "```json\n{\n  \"abnormal"
+    chunk3 = MagicMock()
+    chunk3.text = "_flags\": [\"wbc\"]\n}\n```"
+
+    mock_client = MagicMock()
+    mock_client.models.generate_content_stream.return_value = [chunk1, chunk2, chunk3]
+    intent_response = MagicMock()
+    intent_response.text = "DOCUMENT_QA"
+    mock_client.models.generate_content.return_value = intent_response
+
+    with (
+        patch("app.rag.retriever.get_embedder", return_value=FakeEmbedder()),
+        patch("app.services.chat_indexer.get_embedder", return_value=FakeEmbedder()),
+        patch("app.rag.embedder.get_embedder", return_value=FakeEmbedder()),
+        patch("google.genai.Client", return_value=mock_client),
+        patch("app.api.v1.endpoints.query.process_chat_memory_extraction", new=AsyncMock()),
+    ):
+        async with AsyncClient(transport=transport, base_url="http://test") as ac:
+            email = f"abnormal_flags_user_{uuid.uuid4().hex[:8]}@test.com"
+
+            async with AsyncSessionLocal() as session:
+                user = User(
+                    email=email,
+                    hashed_password=get_password_hash(TEST_PASSWORD),
+                    phi_consent_granted=True,
+                    memory_consent_granted=True,
+                )
+                session.add(user)
+                await session.commit()
+                await session.refresh(user)
+                user_id = user.id
+
+            login_res = await ac.post("/login", data={"username": email, "password": TEST_PASSWORD})
+            assert login_res.status_code == 200
+            token = login_res.json()["access_token"]
+            headers = {"Authorization": f"Bearer {token}"}
+
+            doc = fitz.open()
+            page = doc.new_page()
+            page.insert_text(
+                (50, 72),
+                "Complete Blood Count Report. Patient: Jane Doe. Total WBC count: 11,200 /uL (reference range 4,000 - 11,000 /uL). Red blood cells: 4.8 million/uL. Platelets: 250,000 /uL. All other hematology parameters within range."
+            )
+            pdf_bytes = doc.tobytes()
+
+            upload_res = await ac.post(
+                "/upload",
+                files={"file": ("lab_report.pdf", pdf_bytes, "application/pdf")},
+                headers=headers
+            )
+            assert upload_res.status_code == 200, f"Upload failed: {upload_res.json()}"
+            doc_id = upload_res.json()["document_id"]
+
+            res = await ac.post(
+                "/query",
+                json={"session_id": str(doc_id), "query": "What are my abnormal values?"},
+                headers=headers
+            )
+            assert res.status_code == 200
+            stream_text = res.text
+
+            # Assert client receives visible content
+            assert "Your lab report shows elevated white blood cells" in stream_text
+            assert "Total WBC: **11,200 /uL**" in stream_text
+
+            # Assert abnormal_flags JSON block was NOT streamed in visible token chunks
+            for line in stream_text.splitlines():
+                if line.startswith("data: "):
+                    data_str = line[6:].strip()
+                    if data_str == "[DONE]":
+                        continue
+                    try:
+                        payload = json.loads(data_str)
+                        if "chunk" in payload:
+                            assert "abnormal_flags" not in payload["chunk"], f"abnormal_flags leaked in chunk: {payload['chunk']}"
+                            assert "```json" not in payload["chunk"], f"```json leaked in chunk: {payload['chunk']}"
+                    except json.JSONDecodeError:
+                        pass
+
+            # Assert specialists event was fired with recommendations
+            assert "specialists" in stream_text
+            assert "Hematology" in stream_text
+
+            # Assert stored message in database is clean (no abnormal_flags block)
+            async with AsyncSessionLocal() as session:
+                chat_res = await session.execute(
+                    select(Chat).filter(Chat.user_id == user_id, Chat.role == "ai")
+                )
+                ai_chats = chat_res.scalars().all()
+                assert len(ai_chats) >= 1
+                for c in ai_chats:
+                    assert "abnormal_flags" not in c.message
+                    assert "```json" not in c.message
+                    assert "Total WBC: **11,200 /uL**" in c.message
 

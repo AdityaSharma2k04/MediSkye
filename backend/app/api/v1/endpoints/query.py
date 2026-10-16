@@ -247,7 +247,6 @@ async def query_bot(
     occupation = getattr(active_profile, "occupation", None)
 
     async def generate_response_stream():
-        full_text = ""
         try:
             # ── Stage 1: Analyzing ──
             yield f'event: stage\ndata: {json.dumps({"stage": "analyzing", "message": "Analyzing your question..."})}\n\n'
@@ -433,19 +432,90 @@ async def query_bot(
 
             stream_task = asyncio.create_task(asyncio.to_thread(_stream_producer))
 
+            full_raw_text = ""
+            visible_text = ""
+            pending_buffer = ""
+            in_json_block = False
+
             while True:
                 item = await queue.get()
                 if item is SENTINEL:
                     break
                 if isinstance(item, Exception):
                     raise item
-                if getattr(item, "text", None):
-                    full_text += item.text
-                    yield f'data: {json.dumps({"chunk": item.text})}\n\n'
+
+                chunk_text = getattr(item, "text", None)
+                if not chunk_text:
+                    continue
+
+                full_raw_text += chunk_text
+
+                if in_json_block:
+                    # Already detected JSON block; do not stream anything to client
+                    continue
+
+                pending_buffer += chunk_text
+
+                # Check if JSON block starts in pending_buffer
+                lower_buf = pending_buffer.lower()
+                if "```json" in lower_buf or "```" in lower_buf:
+                    fence_idx = lower_buf.find("```")
+                    tail = pending_buffer[fence_idx:]
+
+                    # Check if this fence is the abnormal_flags block
+                    if "abnormal_flags" in tail:
+                        in_json_block = True
+                        visible_chunk = pending_buffer[:fence_idx]
+                        if visible_chunk:
+                            visible_text += visible_chunk
+                            yield f'data: {json.dumps({"chunk": visible_chunk})}\n\n'
+                        pending_buffer = ""
+                    elif len(tail) < 150:
+                        # Wait for more chunks to see if 'abnormal_flags' appears
+                        # Yield any text that occurred before the backticks
+                        if fence_idx > 0:
+                            visible_chunk = pending_buffer[:fence_idx]
+                            visible_text += visible_chunk
+                            yield f'data: {json.dumps({"chunk": visible_chunk})}\n\n'
+                            pending_buffer = pending_buffer[fence_idx:]
+                    else:
+                        # Long block without 'abnormal_flags' — ordinary content, flush
+                        visible_text += pending_buffer
+                        yield f'data: {json.dumps({"chunk": pending_buffer})}\n\n'
+                        pending_buffer = ""
+                else:
+                    # Hold back any trailing backticks in case ``` is split across chunks
+                    if pending_buffer.endswith("``"):
+                        to_yield = pending_buffer[:-2]
+                        pending_buffer = "``"
+                    elif pending_buffer.endswith("`"):
+                        to_yield = pending_buffer[:-1]
+                        pending_buffer = "`"
+                    else:
+                        to_yield = pending_buffer
+                        pending_buffer = ""
+
+                    if to_yield:
+                        visible_text += to_yield
+                        yield f'data: {json.dumps({"chunk": to_yield})}\n\n'
+
+            # Stream finished — flush any remaining pending_buffer if not entering JSON block
+            if pending_buffer and not in_json_block:
+                lower_pending = pending_buffer.lower()
+                if "abnormal_flags" in lower_pending and "```" in lower_pending:
+                    fence_idx = lower_pending.find("```")
+                    visible_chunk = pending_buffer[:fence_idx]
+                    if visible_chunk:
+                        visible_text += visible_chunk
+                        yield f'data: {json.dumps({"chunk": visible_chunk})}\n\n'
+                else:
+                    visible_text += pending_buffer
+                    yield f'data: {json.dumps({"chunk": pending_buffer})}\n\n'
+                pending_buffer = ""
 
             disclaimer = "\n\n" + append_disclaimer("").strip()
             yield f'data: {json.dumps({"chunk": disclaimer})}\n\n'
-            full_text += disclaimer
+            visible_text += disclaimer
 
         except GeminiUnavailableError:
             logger.warning("All Gemini models unavailable during streaming", exc_info=True)
@@ -459,7 +529,7 @@ async def query_bot(
             return
 
         # ── Output filter scan (monitoring only) ──
-        is_safe, reason = scan_output(full_text)
+        is_safe, reason = scan_output(visible_text)
         if not is_safe:
             logger.warning(
                 "Output filter triggered (monitoring only): %s | user_id=%s",
@@ -468,7 +538,7 @@ async def query_bot(
             )
 
         # ── Parse abnormal flags for specialist recommendations ──
-        match = re.search(r'```json\s*(\{.*?"abnormal_flags".*?\})\s*```', full_text, re.DOTALL | re.IGNORECASE)
+        match = re.search(r'```json\s*(\{.*?"abnormal_flags".*?\})\s*```', full_raw_text, re.DOTALL | re.IGNORECASE)
         if match:
             try:
                 flags_data = json.loads(match.group(1))
@@ -487,7 +557,7 @@ async def query_bot(
                 user_id=current_user.id,
                 document_id=primary_doc.id if primary_doc else None,
                 role="ai",
-                message=full_text,
+                message=visible_text,
             )
             persist_session.add(ai_chat)
             await persist_session.commit()
@@ -510,11 +580,11 @@ async def query_bot(
                     dependent_id=active_dep_id,
                     session=persist_session,
                 )
-                if len(full_text.strip()) >= 100:
+                if len(visible_text.strip()) >= 100:
                     await index_chat_message(
                         chat_id=current_chat_id,
                         message_id=ai_chat.id,
-                        text=full_text,
+                        text=visible_text,
                         user_id=current_user.id,
                         dependent_id=active_dep_id,
                         session=persist_session,

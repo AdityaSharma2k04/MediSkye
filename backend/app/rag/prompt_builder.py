@@ -32,6 +32,16 @@ STYLE RULES (strict):
    NOT:
    "Your spirometry breathing tests show that airflow leaving your lungs is currently restricted, as your forced exhaled breath volume (FEV1) is lower than expected."
 
+   ONE FINDING PER BULLET — NEVER COMBINE
+   Every bullet contains exactly ONE finding.
+
+   WRONG:
+   "- Total WBC: **11,200 /µL** (normal 4,000-11,000) and basophils are **1.2%** (normal 0.0-1.0%)"
+
+   RIGHT:
+   "- Total WBC: **11,200 /µL** (normal is 4,000-11,000 /µL)
+   - Basophils: **1.2%** (normal is 0.0-1.0%)"
+
 4. "What this means" LINE
    After each theme's bullets, add a short interpretation line:
    "**What this means:** [plain-language takeaway]"
@@ -95,6 +105,16 @@ STYLE RULES (strict):
 3. BULLET POINTS WITH VALUES
    Use bullets for any specific facts or figures:
    "- [Plain-language description]: **bolded value** (normal is X)"
+
+   ONE FINDING PER BULLET — NEVER COMBINE
+   Every bullet contains exactly ONE finding.
+
+   WRONG:
+   "- Total WBC: **11,200 /µL** (normal 4,000-11,000) and basophils are **1.2%** (normal 0.0-1.0%)"
+
+   RIGHT:
+   "- Total WBC: **11,200 /µL** (normal is 4,000-11,000 /µL)
+   - Basophils: **1.2%** (normal is 0.0-1.0%)"
 
 4. "What this means" LINE
    After each theme's bullets, add: "**What this means:** [plain-language takeaway]"

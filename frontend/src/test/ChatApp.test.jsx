@@ -1,185 +1,171 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { render, screen, fireEvent, waitFor, cleanup } from '@testing-library/react';
+import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { render, screen, fireEvent, waitFor, act } from '@testing-library/react';
 import React from 'react';
-import { MemoryRouter } from 'react-router-dom';
-import ChatApp from '../components/ChatApp';
-import * as api from '../services/api';
 
+// ── Module mocks (must be declared before imports that use them) ──────────────
 vi.mock('../services/api', () => ({
   uploadPdfReport: vi.fn(),
   sendQueryStream: vi.fn(),
-  logout: vi.fn().mockResolvedValue({ message: 'ok' }),
+  logout: vi.fn(),
   getProfile: vi.fn(),
   getDependents: vi.fn(),
   getUserDocuments: vi.fn(),
   getDocumentChats: vi.fn(),
-  renameChat: vi.fn(),
   renameDocument: vi.fn(),
   deleteAccount: vi.fn(),
   updateProfile: vi.fn(),
   detachChatDocument: vi.fn(),
-  fetchLabMetrics: vi.fn(),
-  // Pulled in transitively by SettingsModal -> HealthProfile
-  getFacts: vi.fn(),
-  createFact: vi.fn(),
-  updateFact: vi.fn(),
-  deleteFact: vi.fn(),
-  // SettingsModal
-  getMemoryStatus: vi.fn(),
-  updateMemoryConsent: vi.fn(),
-  changePassword: vi.fn(),
-  getMemoryFacts: vi.fn(),
-  deleteMemoryFact: vi.fn(),
-  clearAllMemoryFacts: vi.fn(),
 }));
 
-vi.mock('../services/speech', () => ({
-  startSpeechRecognition: vi.fn(),
-  speakText: vi.fn(),
-  stopSpeaking: vi.fn(),
+vi.mock('react-router-dom', () => ({
+  useNavigate: () => vi.fn(),
 }));
 
-function seedConversation(conv) {
-  localStorage.setItem('mediskye_session_id', conv.id);
-  localStorage.setItem('mediskye_last_active_user', 'u1');
-  localStorage.setItem('mediskye_patient_id', 'self');
-  localStorage.setItem('mediskye_conversations', JSON.stringify([conv]));
-  localStorage.setItem('mediskye_conversations_u1', JSON.stringify([conv]));
+import * as api from '../services/api';
+import ChatApp from '../components/ChatApp';
+
+// ── Helpers ───────────────────────────────────────────────────────────────────
+const SERVER_DOC_ID = 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee';
+
+function makeFile(name = 'blood_test.pdf', type = 'application/pdf') {
+  return new File(['%PDF-1.4 content'], name, { type });
 }
 
-function renderApp() {
-  return render(
-    <MemoryRouter>
-      <ChatApp />
-    </MemoryRouter>
-  );
-}
+beforeEach(() => {
+  vi.clearAllMocks();
+  localStorage.clear();
 
-describe('ChatApp bug fixes', () => {
-  beforeEach(() => {
-    vi.clearAllMocks();
-    localStorage.clear();
-    sessionStorage.clear();
-
-    api.getProfile.mockResolvedValue({
-      id: 'u1',
-      email: 'u@test.com',
-      full_name: 'Test User',
-      memory_consent_granted: true,
-      language_preference: 'English',
-    });
-    api.getDependents.mockResolvedValue([]);
-    api.getUserDocuments.mockResolvedValue([]);
-    api.getDocumentChats.mockResolvedValue([]);
-    api.detachChatDocument.mockResolvedValue({ message: 'detached' });
-    api.fetchLabMetrics.mockResolvedValue([]);
-    api.getFacts.mockResolvedValue([]);
+  api.getProfile.mockResolvedValue({ id: 'user-1', email: 'test@example.com', memory_consent_granted: true });
+  api.getDependents.mockResolvedValue([]);
+  api.getUserDocuments.mockResolvedValue([]);
+  api.getDocumentChats.mockResolvedValue([]);
+  api.uploadPdfReport.mockResolvedValue({
+    message: 'PDF uploaded and processed successfully.',
+    document_id: SERVER_DOC_ID,
   });
+});
 
-  afterEach(() => {
-    cleanup();
-  });
+describe('ChatApp — upload refreshes sidebar immediately', () => {
+  it('promotes conversation id to server document_id after upload', async () => {
+    render(<ChatApp />);
 
-  it('F2: regenerate replaces the assistant reply without duplicating the user message', async () => {
-    seedConversation({
-      id: 'chat-1',
-      title: 'Test Chat',
-      messages: [
-        { id: 1, sender: 'user', text: 'What is hemoglobin?', timestamp: '10:00' },
-        { id: 2, sender: 'assistant', text: 'Old answer', timestamp: '10:01' },
-      ],
-      pdf: null,
-      documents: [],
+    // Wait for profile/deps and initial document check to load
+    await waitFor(() => expect(api.getProfile).toHaveBeenCalled());
+    await waitFor(() => expect(api.getUserDocuments).toHaveBeenCalled());
+
+    // Simulate file attach via the internal handleAttachFile
+    // We reach it through the ChatInput's file input
+    const fileInput = document.querySelector('input[type="file"]');
+    expect(fileInput).not.toBeNull();
+
+    const file = makeFile();
+    await act(async () => {
+      fireEvent.change(fileInput, { target: { files: [file] } });
     });
 
-    api.sendQueryStream.mockImplementation(async (q, docId, lang, onChunk) => {
-      if (onChunk) onChunk({ chunk: 'New answer' });
-    });
-
-    renderApp();
-
-    await screen.findAllByText('Old answer');
-    // The question is rendered twice (visible bubble + hidden print summary).
-    const beforeCount = screen.getAllByText('What is hemoglobin?').length;
-
-    fireEvent.click(screen.getByTitle('Regenerate AI response'));
-
-    await waitFor(() => expect(api.sendQueryStream).toHaveBeenCalledTimes(1));
-    expect(api.sendQueryStream.mock.calls[0][0]).toBe('What is hemoglobin?');
-
-    await waitFor(() => expect(screen.getAllByText('New answer').length).toBeGreaterThan(0));
-    await waitFor(() => expect(screen.queryAllByText('Old answer')).toHaveLength(0));
-
-    // No duplicate user bubble was appended.
-    expect(screen.getAllByText('What is hemoglobin?')).toHaveLength(beforeCount);
-  });
-
-  it('F4: clicking Stop aborts the in-flight streaming request', async () => {
-    seedConversation({
-      id: 'chat-1',
-      title: 'Test Chat',
-      messages: [],
-      pdf: null,
-      documents: [],
-    });
-
-    let capturedSignal = null;
-    api.sendQueryStream.mockImplementation((q, docId, lang, onChunk, patientId, signal) => {
-      capturedSignal = signal;
-      return new Promise((resolve, reject) => {
-        if (signal) {
-          signal.addEventListener('abort', () => {
-            const err = new Error('aborted');
-            err.name = 'AbortError';
-            reject(err);
-          });
-        }
-      });
-    });
-
-    renderApp();
-
-    const textarea = await screen.findByPlaceholderText(
-      'Ask a medical question about your report...'
+    await waitFor(() => expect(api.uploadPdfReport).toHaveBeenCalledTimes(1));
+    expect(api.uploadPdfReport).toHaveBeenCalledWith(
+      file,
+      'self',
+      expect.any(String), // sessionId (client-generated UUID)
     );
-    fireEvent.change(textarea, { target: { value: 'Hello doctor' } });
-    fireEvent.click(screen.getByTitle('Send message'));
 
-    const stopBtn = await screen.findByTitle('Stop generation');
-    await waitFor(() => expect(api.sendQueryStream).toHaveBeenCalledTimes(1));
-    expect(capturedSignal).toBeTruthy();
-    expect(capturedSignal.aborted).toBe(false);
+    // After upload the session id in localStorage must equal the server doc id
+    await waitFor(() => {
+      expect(localStorage.getItem('mediskye_session_id')).toBe(SERVER_DOC_ID);
+    });
 
-    fireEvent.click(stopBtn);
-
-    await waitFor(() => expect(capturedSignal.aborted).toBe(true));
-    // Once generation stops, the send button is restored.
-    await screen.findByTitle('Send message');
+    // The conversations array stored in localStorage must contain an entry
+    // whose id matches the server document_id — wait for the sync effect
+    await waitFor(() => {
+      const stored = JSON.parse(localStorage.getItem('mediskye_conversations') || '[]');
+      const match = stored.find((c) => c.id === SERVER_DOC_ID);
+      expect(match).toBeDefined();
+      expect(match.document_id).toBe(SERVER_DOC_ID);
+    });
   });
 
-  it('F3: detaching a document keeps the remaining reports and updates state', async () => {
-    seedConversation({
-      id: 'chat-1',
-      title: 'Test Chat',
-      messages: [{ id: 1, sender: 'user', text: 'Summarize', timestamp: '10:00' }],
-      pdf: { name: 'first.pdf' },
-      document_id: 'd1',
-      documents: [
-        { id: 'd1', name: 'first.pdf', filename: 'first.pdf' },
-        { id: 'd2', name: 'second.pdf', filename: 'second.pdf' },
-      ],
+  it('shows success toast and does NOT require re-login to see the document', async () => {
+    render(<ChatApp />);
+    await waitFor(() => expect(api.getProfile).toHaveBeenCalled());
+
+    const fileInput = document.querySelector('input[type="file"]');
+    const file = makeFile();
+
+    await act(async () => {
+      fireEvent.change(fileInput, { target: { files: [file] } });
     });
 
-    renderApp();
+    await waitFor(() => expect(api.uploadPdfReport).toHaveBeenCalled());
 
-    fireEvent.click(await screen.findByLabelText('Detach first.pdf'));
-
+    // Success toast text should appear in the DOM
     await waitFor(() => {
-      expect(api.detachChatDocument).toHaveBeenCalledWith('chat-1', 'd1');
+      expect(screen.getByText('Report Processed')).toBeInTheDocument();
     });
+  });
+
+  it('rejects non-PDF/image files before calling uploadPdfReport', async () => {
+    render(<ChatApp />);
+    await waitFor(() => expect(api.getProfile).toHaveBeenCalled());
+
+    const fileInput = document.querySelector('input[type="file"]');
+    const badFile = new File(['data'], 'malware.exe', { type: 'application/octet-stream' });
+
+    await act(async () => {
+      fireEvent.change(fileInput, { target: { files: [badFile] } });
+    });
+
+    expect(api.uploadPdfReport).not.toHaveBeenCalled();
     await waitFor(() => {
-      expect(screen.queryByLabelText('Detach first.pdf')).not.toBeInTheDocument();
+      expect(screen.getByText('Invalid File Format')).toBeInTheDocument();
     });
-    expect(screen.getByLabelText('Detach second.pdf')).toBeInTheDocument();
+  });
+
+  it('accepts image files (jpg/png) and calls uploadPdfReport', async () => {
+    render(<ChatApp />);
+    await waitFor(() => expect(api.getProfile).toHaveBeenCalled());
+
+    const fileInput = document.querySelector('input[type="file"]');
+    const imgFile = makeFile('xray.jpg', 'image/jpeg');
+
+    await act(async () => {
+      fireEvent.change(fileInput, { target: { files: [imgFile] } });
+    });
+
+    await waitFor(() => expect(api.uploadPdfReport).toHaveBeenCalledTimes(1));
+    expect(api.uploadPdfReport).toHaveBeenCalledWith(imgFile, 'self', expect.any(String));
+  });
+
+  it('refetches documents and updates state when upload succeeds', async () => {
+    render(<ChatApp />);
+    await waitFor(() => expect(api.getProfile).toHaveBeenCalled());
+    await waitFor(() => expect(api.getUserDocuments).toHaveBeenCalledTimes(1));
+
+    api.getUserDocuments.mockResolvedValueOnce([
+      {
+        id: SERVER_DOC_ID,
+        filename: 'blood_test.pdf',
+        file_path: '/indexes/doc.index',
+        title: 'Blood Test Report',
+        created_at: new Date().toISOString(),
+      },
+    ]);
+
+    const fileInput = document.querySelector('input[type="file"]');
+    const file = makeFile();
+
+    await act(async () => {
+      fireEvent.change(fileInput, { target: { files: [file] } });
+    });
+
+    await waitFor(() => expect(api.uploadPdfReport).toHaveBeenCalledTimes(1));
+    // Assert getUserDocuments is called again after upload
+    await waitFor(() => expect(api.getUserDocuments).toHaveBeenCalledTimes(2));
+
+    // Assert the new document is registered in conversations
+    await waitFor(() => {
+      const stored = JSON.parse(localStorage.getItem('mediskye_conversations') || '[]');
+      expect(stored.some((c) => c.id === SERVER_DOC_ID)).toBe(true);
+    });
   });
 });

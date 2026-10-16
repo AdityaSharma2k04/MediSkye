@@ -1,7 +1,7 @@
 import { describe, it, expect, vi } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
 import React from 'react';
-import ChatMessage from '../components/ChatMessage';
+import ChatMessage, { stripAbnormalFlags } from '../components/ChatMessage';
 
 describe('ChatMessage rendering', () => {
   it('renders markdown tables correctly', () => {
@@ -138,5 +138,51 @@ describe('ChatMessage rendering', () => {
     render(<ChatMessage message={message} darkMode={false} />);
 
     expect(screen.getByText(/View details \(5 tests\)/i)).toBeInTheDocument();
+  });
+
+  describe('abnormal_flags stripping', () => {
+    it('strips completed abnormal_flags JSON block from string', () => {
+      const raw = 'Here is your report.\n\n```json\n{\n  "abnormal_flags": [\n    "WBC (Total Leucocyte Count)"\n  ]\n}\n```';
+      const cleaned = stripAbnormalFlags(raw);
+      expect(cleaned).toBe('Here is your report.');
+      expect(cleaned).not.toContain('abnormal_flags');
+      expect(cleaned).not.toContain('```json');
+    });
+
+    it('strips unclosed abnormal_flags JSON block during streaming', () => {
+      const raw = 'Here is your report.\n\n```json\n{\n  "abnormal_flags": [\n    "WBC"';
+      const cleaned = stripAbnormalFlags(raw);
+      expect(cleaned).toBe('Here is your report.');
+      expect(cleaned).not.toContain('abnormal_flags');
+      expect(cleaned).not.toContain('```json');
+    });
+
+    it('renders assistant message without abnormal_flags JSON block leaking into DOM', () => {
+      const message = {
+        sender: 'assistant',
+        text: 'Total WBC count is slightly elevated.\n\n```json\n{\n  "abnormal_flags": ["WBC"]\n}\n```',
+        isStreaming: false,
+      };
+
+      const { container } = render(<ChatMessage message={message} darkMode={false} />);
+
+      expect(screen.getByText(/Total WBC count is slightly elevated/)).toBeInTheDocument();
+      expect(container.textContent).not.toContain('abnormal_flags');
+      expect(container.textContent).not.toContain('```json');
+    });
+
+    it('renders streaming assistant message without unclosed abnormal_flags JSON block', () => {
+      const message = {
+        sender: 'assistant',
+        text: 'Your eosinophil count is high.\n\n```json\n{\n  "abnormal_flags": ["AEC"',
+        isStreaming: true,
+      };
+
+      const { container } = render(<ChatMessage message={message} darkMode={false} />);
+
+      expect(screen.getByText(/Your eosinophil count is high/)).toBeInTheDocument();
+      expect(container.textContent).not.toContain('abnormal_flags');
+      expect(container.textContent).not.toContain('```json');
+    });
   });
 });
