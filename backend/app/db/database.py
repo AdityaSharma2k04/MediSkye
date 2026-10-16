@@ -14,6 +14,12 @@ if ":memory:" in settings.DATABASE_URL:
         "connect_args": {"check_same_thread": False},
         "poolclass": StaticPool,
     }
+elif settings.DATABASE_URL.startswith("postgresql+asyncpg://"):
+    _engine_kwargs = {
+        "connect_args": {"ssl": "require"},
+        "pool_pre_ping": True,
+        "pool_recycle": 300,
+    }
 
 engine = create_async_engine(
     settings.DATABASE_URL,

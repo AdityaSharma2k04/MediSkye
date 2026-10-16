@@ -19,7 +19,8 @@ from app.db import models  # Ensure models are loaded
 # access to the values within the .ini file in use.
 config = context.config
 
-# Set sqlalchemy.url from our settings
+# Pass the async URL unchanged — env.py uses async_engine_from_config
+# for both SQLite (sqlite+aiosqlite://) and Postgres (postgresql+asyncpg://)
 config.set_main_option("sqlalchemy.url", settings.DATABASE_URL)
 
 # Interpret the config file for Python logging.
@@ -74,11 +75,14 @@ async def run_async_migrations() -> None:
     and associate a connection with the context.
 
     """
+    url = settings.DATABASE_URL
+    connect_args = {"ssl": "require"} if url.startswith("postgresql+asyncpg://") else {}
 
     connectable = async_engine_from_config(
         config.get_section(config.config_ini_section, {}),
         prefix="sqlalchemy.",
         poolclass=pool.NullPool,
+        connect_args=connect_args,
     )
 
     async with connectable.connect() as connection:
