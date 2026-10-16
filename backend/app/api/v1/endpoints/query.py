@@ -26,6 +26,7 @@ from app.rag.intent_router import classify_intent, QueryIntent
 from app.rag.safety import append_disclaimer, get_emergency_response, is_emergency_query
 from app.rag.retriever import load_hybrid_index, retrieve_relevant_docs
 from app.rag.specialist_router import get_recommended_specialists
+from app.rag.output_filter import scan_output
 from app.services.patient_service import calculate_age
 from app.services.patient_memory import get_active_facts, get_relevant_past_chunks, get_chat_documents
 from app.services.memory_formatter import format_facts_for_prompt, format_past_chats_for_prompt
@@ -429,6 +430,15 @@ async def query_bot(
             yield f'data: {json.dumps({"error": "An unexpected error occurred while generating the response."})}\n\n'
             yield "data: [DONE]\n\n"
             return
+
+        # ── Output filter scan (monitoring only) ──
+        is_safe, reason = scan_output(full_text)
+        if not is_safe:
+            logger.warning(
+                "Output filter triggered (monitoring only): %s | user_id=%s",
+                reason,
+                current_user.id,
+            )
 
         # ── Parse abnormal flags for specialist recommendations ──
         match = re.search(r'```json\s*(\{.*?"abnormal_flags".*?\})\s*```', full_text, re.DOTALL | re.IGNORECASE)
