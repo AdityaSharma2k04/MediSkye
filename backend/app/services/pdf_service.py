@@ -21,22 +21,25 @@ def validate_file_upload(content: bytes, filename: str = "report.pdf") -> None:
         )
 
     # 2. Extension Check
-    ext = filename.lower().split('.')[-1]
-    if ext not in ["pdf", "jpg", "jpeg", "png"]:
+    ext_raw = filename.lower().split('.')[-1] if '.' in filename else ''
+    ext_with_dot = f".{ext_raw}"
+    allowed_exts = [e.lower() if e.startswith(".") else f".{e.lower()}" for e in settings.ALLOWED_EXTENSIONS]
+    if ext_with_dot not in allowed_exts:
+        ext_list_str = ", ".join(allowed_exts)
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Invalid file extension. Only .pdf, .jpg, .jpeg, and .png files are accepted.",
+            detail=f"Invalid file extension. Only {ext_list_str} files are accepted.",
         )
 
     # 3. Magic Bytes Check for PDF
-    if ext == "pdf" and not content.startswith(PDF_MAGIC):
+    if ext_with_dot == ".pdf" and not content.startswith(PDF_MAGIC):
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="File content header invalid. Must be a valid PDF document.",
         )
 
     # 4. Deep Inspection (Page count bomb check & corruption check) for PDF
-    if ext == "pdf":
+    if ext_with_dot == ".pdf":
         try:
             doc = fitz.open(stream=content, filetype="pdf")
             if doc.is_encrypted:

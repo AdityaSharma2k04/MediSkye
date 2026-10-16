@@ -37,18 +37,6 @@ def _build_splitter() -> RecursiveCharacterTextSplitter:
     )
 
 
-def create_vectorstore(page_docs: list[Document], session_id: str = None):
-    """Create a FAISS vectorstore from document chunks."""
-    splitter = _build_splitter()
-    chunks = splitter.split_documents(page_docs)
-    vectorstore = FAISS.from_documents(chunks, get_embedder())
-    
-    if session_id:
-        save_vectorstore_to_disk(vectorstore, session_id)
-        
-    return vectorstore
-
-
 def create_hybrid_index(page_docs: list[Document], index_path: str):
     """
     Create both a FAISS vectorstore and a BM25 index from the same chunks.
@@ -57,7 +45,8 @@ def create_hybrid_index(page_docs: list[Document], index_path: str):
     Returns (vectorstore, bm25_index, chunks).
     """
     splitter = _build_splitter()
-    chunks = splitter.split_documents(page_docs)
+    raw_chunks = splitter.split_documents(page_docs)
+    chunks = [c for c in raw_chunks if c.page_content and c.page_content.strip()]
     
     # Build FAISS vectorstore
     vectorstore = FAISS.from_documents(chunks, get_embedder())
@@ -95,16 +84,6 @@ def save_vectorstore_to_disk(vectorstore: FAISS, session_id: str):
         vectorstore.save_local(str(session_dir))
     except Exception as err:
         logger.warning("Failed to save vectorstore for %s: %s", session_id, err)
-
-
-def load_vectorstore_from_disk(session_id: str):
-    try:
-        session_dir = settings.VECTOR_CACHE_DIR / session_id
-        if session_dir.exists():
-            return FAISS.load_local(str(session_dir), get_embedder(), allow_dangerous_deserialization=True)
-    except Exception as err:
-        logger.warning("Could not load vectorstore for %s: %s", session_id, err)
-    return None
 
 
 def retrieve_relevant_docs(

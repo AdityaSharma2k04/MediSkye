@@ -33,26 +33,33 @@ async def save_facts(
     d_id = uuid.UUID(str(dependent_id)) if (dependent_id and isinstance(dependent_id, str)) else dependent_id
     c_id_str = str(source_chat_id) if source_chat_id else None
 
-    # Handle retractions first
+    # Handle retractions first (single batch query)
     retraction_items = extraction_result.get("retractions", [])
+    valid_retraction_uuids = []
     for ret in retraction_items:
         ret_id_raw = ret.get("existing_fact_id")
         if not ret_id_raw:
             continue
         try:
-            ret_uuid = uuid.UUID(str(ret_id_raw))
+            valid_retraction_uuids.append(uuid.UUID(str(ret_id_raw)))
+        except (ValueError, TypeError) as e:
+            logger.warning("Error parsing retraction fact_id %s: %s", ret_id_raw, e)
+
+    if valid_retraction_uuids:
+        try:
             q = select(PatientFact).filter(
-                PatientFact.id == ret_uuid,
+                PatientFact.id.in_(valid_retraction_uuids),
                 PatientFact.user_id == u_id,
             )
             res = await session.execute(q)
-            target_fact = res.scalars().first()
-            if target_fact and target_fact.is_active:
-                target_fact.is_active = False
-                target_fact.last_seen_at = datetime.now(UTC)
-                retracted += 1
+            target_facts = res.scalars().all()
+            for target_fact in target_facts:
+                if target_fact.is_active:
+                    target_fact.is_active = False
+                    target_fact.last_seen_at = datetime.now(UTC)
+                    retracted += 1
         except Exception as e:
-            logger.warning("Error processing retraction for fact_id %s: %s", ret_id_raw, e)
+            logger.warning("Error processing batch retractions: %s", e)
 
     # Fetch existing active facts for deduplication/update
     existing_query = select(PatientFact).filter(

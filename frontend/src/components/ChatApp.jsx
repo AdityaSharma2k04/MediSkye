@@ -710,7 +710,7 @@ export default function ChatApp() {
     if (skipConfirm) {
       doDelete();
     } else {
-      console.warn('handleDeleteChat called without skipConfirm. Falling back to immediate deletion.');
+      logger.warn('handleDeleteChat called without skipConfirm. Falling back to immediate deletion.');
       doDelete();
     }
   };

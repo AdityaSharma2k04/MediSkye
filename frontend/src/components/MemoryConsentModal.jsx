@@ -1,7 +1,11 @@
-import React from 'react';
+import React, { useRef } from 'react';
 import { Brain, ShieldCheck } from 'lucide-react';
+import useFocusTrap from '../hooks/useFocusTrap';
 
 export default function MemoryConsentModal({ isOpen, onAllow, onSkip, darkMode = false }) {
+  const modalRef = useRef(null);
+  useFocusTrap(modalRef, isOpen, onSkip);
+
   if (!isOpen) return null;
 
   return (
@@ -12,6 +16,7 @@ export default function MemoryConsentModal({ isOpen, onAllow, onSkip, darkMode =
       aria-labelledby="memory-consent-title"
     >
       <div
+        ref={modalRef}
         className={`max-w-md w-full rounded-2xl p-6 shadow-2xl border transition-all ${
           darkMode ? 'bg-zinc-900 border-zinc-800 text-white' : 'bg-white border-zinc-200 text-zinc-900'
         }`}

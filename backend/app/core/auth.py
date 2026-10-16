@@ -89,5 +89,7 @@ async def get_current_user(token: str = Depends(oauth2_scheme), db: AsyncSession
     user = result.scalars().first()
     if user is None:
         raise credentials_exception
+    from app.core.logging import user_id_var
+    user_id_var.set(str(user.id))
     return user
 

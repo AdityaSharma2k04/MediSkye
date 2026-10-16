@@ -163,7 +163,8 @@ async def _extract_with_pymupdf(pdf_path: str) -> list[Document]:
                 image_type = await classify_image_type(img_bytes)
                 doc = await process_image_path(image_type, img_bytes, source_meta="pymupdf_fallback")
                 doc.metadata["page"] = index
-                docs.append(doc)
+                if doc.page_content and doc.page_content.strip():
+                    docs.append(doc)
 
     return docs
 
@@ -366,7 +367,7 @@ async def extract_text_from_file(file_path: str, filename: str) -> list[Document
             image_bytes = f.read()
         image_type = await classify_image_type(image_bytes)
         doc = await process_image_path(image_type, image_bytes, source_meta="direct_image")
-        return [doc]
+        return [doc] if doc.page_content and doc.page_content.strip() else []
         
     # Phase 1: Detect table-heavy pages
     table_pages = _detect_table_pages(file_path)
@@ -393,8 +394,8 @@ async def extract_text_from_file(file_path: str, filename: str) -> list[Document
     if vision_page_numbers:
         best_docs = [d for d in best_docs if d.metadata.get("page", -1) not in vision_page_numbers]
     
-    # Phase 4: Merge vision-extracted + standard-extracted docs
-    all_docs = vision_docs + best_docs
+    # Phase 4: Merge vision-extracted + standard-extracted docs (filtering empty chunks)
+    all_docs = [d for d in vision_docs + best_docs if d.page_content and d.page_content.strip()]
     # Sort by page number for consistent ordering
     all_docs.sort(key=lambda d: d.metadata.get("page", 0))
 

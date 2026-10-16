@@ -1,7 +1,8 @@
-from pydantic import BaseModel, EmailStr, Field, ConfigDict
+from pydantic import BaseModel, EmailStr, Field, ConfigDict, field_validator
 from typing import Optional
 from uuid import UUID
 from datetime import datetime, date
+from app.core.security import sanitize_text
 
 class UserCreate(BaseModel):
     email: EmailStr
@@ -28,6 +29,21 @@ class UserUpdate(BaseModel):
     activity_level: Optional[str] = None
     occupation: Optional[str] = None
     memory_consent_granted: Optional[bool] = None
+
+    @field_validator(
+        "full_name",
+        "occupation",
+        "emergency_contact_name",
+        "pre_existing_conditions",
+        "known_allergies",
+        "current_medications",
+        mode="before",
+    )
+    @classmethod
+    def sanitize_user_strings(cls, v: Optional[str]) -> Optional[str]:
+        if isinstance(v, str):
+            return sanitize_text(v)
+        return v
 
 class UserResponse(BaseModel):
     id: UUID
@@ -76,6 +92,13 @@ class PatientFactCreate(BaseModel):
     source_excerpt: Optional[str] = None
     dependent_id: Optional[UUID] = None
 
+    @field_validator("fact_text", mode="before")
+    @classmethod
+    def sanitize_fact_text(cls, v: str) -> str:
+        if isinstance(v, str):
+            return sanitize_text(v)
+        return v
+
 
 class PatientFactUpdate(BaseModel):
     fact_type: Optional[str] = None
@@ -83,6 +106,13 @@ class PatientFactUpdate(BaseModel):
     confidence: Optional[float] = None
     is_active: Optional[bool] = None
     is_user_verified: Optional[bool] = None
+
+    @field_validator("fact_text", mode="before")
+    @classmethod
+    def sanitize_fact_text_update(cls, v: Optional[str]) -> Optional[str]:
+        if isinstance(v, str):
+            return sanitize_text(v)
+        return v
 
 
 class PatientFactResponse(BaseModel):
@@ -102,4 +132,3 @@ class PatientFactResponse(BaseModel):
     created_at: Optional[datetime] = None
 
     model_config = ConfigDict(from_attributes=True)
-

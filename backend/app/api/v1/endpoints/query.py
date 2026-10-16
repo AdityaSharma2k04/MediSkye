@@ -181,17 +181,19 @@ async def query_bot(
     await db.refresh(user_chat)
     current_chat_id = user_chat.id
 
-    # Ensure ChatDocument associations exist for all attached docs
+    # Ensure ChatDocument associations exist for all attached docs (single batch query)
     if chat_docs:
-        for cd_doc in chat_docs:
-            cd_check = await db.execute(
-                select(ChatDocument).filter(
-                    ChatDocument.chat_id == current_chat_id,
-                    ChatDocument.document_id == cd_doc.id,
-                )
+        doc_ids = [cd_doc.id for cd_doc in chat_docs]
+        existing_cds = await db.execute(
+            select(ChatDocument.document_id).filter(
+                ChatDocument.chat_id == current_chat_id,
+                ChatDocument.document_id.in_(doc_ids),
             )
-            if not cd_check.scalars().first():
-                db.add(ChatDocument(chat_id=current_chat_id, document_id=cd_doc.id))
+        )
+        already_linked = set(existing_cds.scalars().all())
+        for doc_id in doc_ids:
+            if doc_id not in already_linked:
+                db.add(ChatDocument(chat_id=current_chat_id, document_id=doc_id))
         await db.commit()
 
     # ── Intent Classification ──

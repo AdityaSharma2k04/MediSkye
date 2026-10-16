@@ -251,6 +251,7 @@ export default function ChatMessage({ message, onRegenerate, onSelectSource, sho
                 <button
                   onClick={handleCopy}
                   title="Copy response"
+                  aria-label="Copy response"
                   className={`${actionBtn} flex items-center gap-1`}
                 >
                   {copied ? <Check className={`w-3.5 h-3.5 ${darkMode ? 'text-zinc-100' : 'text-zinc-900'}`} /> : <Copy className="w-3.5 h-3.5" />}
@@ -260,6 +261,7 @@ export default function ChatMessage({ message, onRegenerate, onSelectSource, sho
                 <button
                   onClick={handleSpeak}
                   title={speaking ? 'Stop speech' : 'Read response aloud'}
+                  aria-label="Read response aloud"
                   className={`${speaking ? actionBtnActive : actionBtn} flex items-center gap-1`}
                 >
                   {speaking ? <VolumeX className="w-3.5 h-3.5" /> : <Volume2 className="w-3.5 h-3.5" />}
@@ -269,6 +271,7 @@ export default function ChatMessage({ message, onRegenerate, onSelectSource, sho
                 <button
                   onClick={() => setLiked(liked === true ? null : true)}
                   title="Helpful response"
+                  aria-label="Mark as helpful"
                   className={liked === true ? actionBtnActive : actionBtn}
                 >
                   <ThumbsUp className="w-3.5 h-3.5" />
@@ -277,6 +280,7 @@ export default function ChatMessage({ message, onRegenerate, onSelectSource, sho
                 <button
                   onClick={() => setLiked(liked === false ? null : false)}
                   title="Not helpful"
+                  aria-label="Mark as not helpful"
                   className={liked === false ? actionBtnActive : actionBtn}
                 >
                   <ThumbsDown className="w-3.5 h-3.5" />
@@ -285,6 +289,7 @@ export default function ChatMessage({ message, onRegenerate, onSelectSource, sho
                 <button
                   onClick={handleShare}
                   title="Share explanation"
+                  aria-label="Share response"
                   className={actionBtn}
                 >
                   <Share2 className="w-3.5 h-3.5" />
@@ -295,6 +300,7 @@ export default function ChatMessage({ message, onRegenerate, onSelectSource, sho
                 <button
                   onClick={onRegenerate}
                   title="Regenerate AI response"
+                  aria-label="Regenerate response"
                   className={`${actionBtn} flex items-center gap-1 font-medium`}
                 >
                   <RotateCcw className="w-3.5 h-3.5" />

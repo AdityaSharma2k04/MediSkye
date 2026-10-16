@@ -1,5 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { X, AlertTriangle } from 'lucide-react';
+import useFocusTrap from '../hooks/useFocusTrap';
 
 /**
  * ConfirmModal — reusable destructive-action confirmation dialog.
@@ -29,6 +30,9 @@ export default function ConfirmModal({
   const [typed, setTyped] = useState('');
   const inputRef = useRef(null);
   const firstBtnRef = useRef(null);
+  const modalRef = useRef(null);
+
+  useFocusTrap(modalRef, isOpen, onClose);
 
   // Reset typed value each time modal opens
   useEffect(() => {
@@ -40,14 +44,6 @@ export default function ConfirmModal({
       }, 50);
     }
   }, [isOpen, requireTyping]);
-
-  // Esc key closes
-  useEffect(() => {
-    if (!isOpen) return;
-    const handle = (e) => { if (e.key === 'Escape') onClose(); };
-    document.addEventListener('keydown', handle);
-    return () => document.removeEventListener('keydown', handle);
-  }, [isOpen, onClose]);
 
   if (!isOpen) return null;
 
@@ -61,6 +57,7 @@ export default function ConfirmModal({
       onMouseDown={handleBackdrop}
     >
       <div
+        ref={modalRef}
         className={`relative rounded-2xl shadow-2xl max-w-sm w-full border overflow-hidden ${
           darkMode
             ? 'bg-zinc-900 border-zinc-800'

@@ -21,6 +21,7 @@ import {
 } from 'lucide-react';
 import ConfirmModal from './ConfirmModal';
 import HealthProfile from './HealthProfile';
+import useFocusTrap from '../hooks/useFocusTrap';
 import {
   getProfile,
   updateProfile,
@@ -468,14 +469,7 @@ export default function SettingsModal({
     }
   };
 
-  // Focus trap & Esc close
-  useEffect(() => {
-    if (!isOpen) return;
-    setTimeout(() => closeRef.current?.focus(), 50);
-    const handle = (e) => { if (e.key === 'Escape') onClose(); };
-    document.addEventListener('keydown', handle);
-    return () => document.removeEventListener('keydown', handle);
-  }, [isOpen, onClose]);
+  useFocusTrap(modalRef, isOpen, onClose);
 
   if (!isOpen) return null;
 

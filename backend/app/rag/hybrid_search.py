@@ -6,6 +6,7 @@ During query, both indexes are searched independently and the results are merged
 using RRF to get the best of keyword-exact and semantic-meaning retrieval.
 """
 
+import hashlib
 import pickle
 import re
 import logging
@@ -60,13 +61,13 @@ def reciprocal_rank_fusion(
 
     # Score FAISS results (ordered by similarity — rank 0 is best)
     for rank, doc in enumerate(faiss_results):
-        key = doc.page_content[:200]  # Use first 200 chars as unique key
+        key = hashlib.sha256(doc.page_content.encode("utf-8")).hexdigest()[:16]
         scores[key] = scores.get(key, 0) + 1.0 / (rrf_k + rank)
         doc_map[key] = doc
 
     # Score BM25 results (already sorted by BM25 score descending)
     for rank, (doc, _bm25_score) in enumerate(bm25_results):
-        key = doc.page_content[:200]
+        key = hashlib.sha256(doc.page_content.encode("utf-8")).hexdigest()[:16]
         scores[key] = scores.get(key, 0) + 1.0 / (rrf_k + rank)
         doc_map[key] = doc
 

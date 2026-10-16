@@ -1,7 +1,8 @@
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, field_validator
 from typing import Optional
 from uuid import UUID
 from datetime import datetime, date
+from app.core.security import sanitize_text
 
 class DependentBase(BaseModel):
     relationship: str
@@ -16,6 +17,21 @@ class DependentBase(BaseModel):
     diet_type: Optional[str] = None
     activity_level: Optional[str] = None
     occupation: Optional[str] = None
+
+    @field_validator(
+        "relationship",
+        "full_name",
+        "occupation",
+        "pre_existing_conditions",
+        "known_allergies",
+        "current_medications",
+        mode="before",
+    )
+    @classmethod
+    def sanitize_dependent_strings(cls, v: Optional[str]) -> Optional[str]:
+        if isinstance(v, str):
+            return sanitize_text(v)
+        return v
 
 class DependentCreate(DependentBase):
     pass
@@ -34,6 +50,21 @@ class DependentUpdate(BaseModel):
     activity_level: Optional[str] = None
     occupation: Optional[str] = None
 
+    @field_validator(
+        "relationship",
+        "full_name",
+        "occupation",
+        "pre_existing_conditions",
+        "known_allergies",
+        "current_medications",
+        mode="before",
+    )
+    @classmethod
+    def sanitize_dependent_update_strings(cls, v: Optional[str]) -> Optional[str]:
+        if isinstance(v, str):
+            return sanitize_text(v)
+        return v
+
 class DependentResponse(DependentBase):
     id: UUID
     user_id: UUID
@@ -42,4 +73,3 @@ class DependentResponse(DependentBase):
     updated_at: Optional[datetime] = None
 
     model_config = ConfigDict(from_attributes=True)
-

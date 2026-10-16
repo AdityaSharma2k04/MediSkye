@@ -12,8 +12,8 @@ function cleanSummary(text) {
 }
 
 export default function PrintableSummary({ user, document, summary, metrics, specialists, abnormalMetrics }) {
-  // Support both field-name conventions from the backend
-  const patientName = user?.full_name || user?.name || 'Not provided';
+  // Support both field-name conventions from the backend, with email fallback
+  const patientName = user?.full_name || user?.name || user?.email || 'Not provided';
   const patientDob  = user?.date_of_birth || user?.dob || 'Not provided';
 
   // Abnormal: anything whose status is truthy and not 'normal' (case-insensitive)
