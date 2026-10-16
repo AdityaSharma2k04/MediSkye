@@ -139,12 +139,16 @@ async def extract_facts(
                 user_content=prompt,
             )
         else:
-            from app.llm.gemini_client import call_gemini_with_retry
-            response = await call_gemini_with_retry(
-                contents=prompt,
-                user_id=user_id,
-            )
-            response_text = response.text or ""
+            from app.llm.gemini_client import call_gemini_with_retry, GeminiUnavailableError
+            try:
+                response = await call_gemini_with_retry(
+                    contents=prompt,
+                    user_id=user_id,
+                )
+                response_text = response.text or ""
+            except GeminiUnavailableError as e:
+                logger.warning("Skipping fact extraction — LLM unavailable: %s", e)
+                return {"facts": [], "retractions": []}
 
         # Extract JSON (handling markdown fences if returned; take last match to counter user-injected blocks)
         json_matches = list(re.finditer(

@@ -7,6 +7,7 @@ os.environ.setdefault(
 )
 os.environ.setdefault("DATABASE_URL", "sqlite+aiosqlite:///:memory:")
 os.environ.setdefault("ENV", "test")
+os.environ.setdefault("LLM_PROVIDER", "gemini")
 
 # Shared test password — must be ≤72 bytes for bcrypt compatibility across OSes.
 TEST_PASSWORD = "TestPassword123!"
@@ -42,4 +43,13 @@ def reset_rate_limits_each_test():
     from app.core.limiter import limiter
     limiter.reset()
     yield
-    limiter.reset()
+    limiter.reset()
+
+
+@pytest.fixture(autouse=True)
+def reset_gemini_cooldown_each_test():
+    """Ensure in-memory Gemini cooldown does not leak across test cases."""
+    import app.llm.gemini_client as gc
+    gc._llm_dead_until = 0.0
+    yield
+    gc._llm_dead_until = 0.0

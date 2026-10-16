@@ -303,7 +303,7 @@ export default function SettingsModal({
   const [bioSex, setBioSex] = useState(currentUser?.biological_sex || 'Prefer not to say');
   const [bloodType, setBloodType] = useState(currentUser?.blood_type || 'Unknown');
   const [llmProvider, setLlmProvider] = useState(() => {
-    return localStorage.getItem('mediskye_llm_provider') || 'gemini';
+    return localStorage.getItem('mediskye_llm_provider') || 'agentrouter';
   });
 
   const saveLLMProvider = (val) => {
@@ -313,7 +313,7 @@ export default function SettingsModal({
       showToast(
         'success',
         'Provider Updated',
-        val === 'agentrouter' ? 'Switched to Agent Router (Claude Opus → GPT → DeepSeek)' : 'Switched to Gemini (default)'
+        val === 'agentrouter' ? 'Switched to Agent Router (DeepSeek - default)' : 'Switched to Gemini'
       );
     }
   };
@@ -643,8 +643,8 @@ export default function SettingsModal({
                   onChange={(e) => saveLLMProvider(e.target.value)}
                   className="bg-gray-800 px-3 py-1 rounded text-white text-xs border border-gray-700 cursor-pointer focus:outline-none"
                 >
-                  <option value="gemini">Gemini (default)</option>
-                  <option value="agentrouter">Agent Router (Claude Opus → GPT → DeepSeek)</option>
+                  <option value="agentrouter">Agent Router - DeepSeek (default)</option>
+                  <option value="gemini">Gemini</option>
                 </select>
               </div>
             </Section>

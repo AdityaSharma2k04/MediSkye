@@ -81,3 +81,17 @@ async def test_extract_facts_malformed_json_never_crashes():
         messages = ["Hello doctor."]
         res = await extract_facts(messages=messages, existing_facts=[], user_id=uuid.uuid4())
         assert res == {"facts": [], "retractions": []}
+
+
+@pytest.mark.asyncio
+async def test_extract_facts_skips_when_llm_unavailable():
+    from app.llm.gemini_client import GeminiUnavailableError
+
+    with patch(
+        "app.llm.gemini_client.call_gemini_with_retry",
+        side_effect=GeminiUnavailableError("LLM in cooldown after recent failures"),
+    ):
+        messages = ["User says they have hypertension and diabetes."]
+        res = await extract_facts(messages=messages, existing_facts=[], user_id=uuid.uuid4())
+        assert res == {"facts": [], "retractions": []}
+

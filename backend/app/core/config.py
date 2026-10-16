@@ -42,7 +42,7 @@ class Settings(BaseSettings):
     SHOW_SPECIALIST_CONTACTS: bool = False
 
     # LLM Provider selection
-    LLM_PROVIDER: str = "gemini"  # "gemini" | "agentrouter"
+    LLM_PROVIDER: str = "agentrouter"  # "gemini" | "agentrouter"
 
     # Agent Router settings (used only when LLM_PROVIDER="agentrouter")
     AGENTROUTER_API_KEY: str = ""

@@ -177,7 +177,7 @@ export async function getUploadStatus(jobId, timeoutMs = 10000) {
 
 export async function sendQueryStream(queryText, documentId, language = 'English', onChunk, patientId = null, signal = undefined, provider = null) {
   // documentId can be null for general-health queries (no PDF uploaded)
-  const selectedProvider = provider || localStorage.getItem('mediskye_llm_provider') || 'gemini';
+  const selectedProvider = provider || localStorage.getItem('mediskye_llm_provider') || 'agentrouter';
   const payload = {
     session_id: documentId || 'general-health-' + Date.now(), // dummy UUID-like string; backend checks document existence
     query: queryText,

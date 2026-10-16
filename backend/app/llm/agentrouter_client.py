@@ -10,13 +10,7 @@ from app.core.config import settings
 logger = logging.getLogger(__name__)
 
 FALLBACK_MODELS = [
-    "claude-opus-5-5",       # 1. Best Claude
-    "claude-opus-5",         # 2. Claude Opus 5
-    "claude-opus-4-8",       # 3. Claude Opus 4.8
-    "gpt-6-astra",           # 4. Best GPT
-    "gpt-5.6-sol",           # 5. GPT-5.6 Sol
-    "deepseek-v4-flash",     # 6. DeepSeek V4 Flash
-    "glm-5.3",               # 7. GLM 5.3
+    "deepseek-v4-flash",
 ]
 
 

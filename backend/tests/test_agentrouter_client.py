@@ -100,17 +100,20 @@ async def test_fallback_on_first_model_failure(monkeypatch):
         MockStreamResponse(status_code=500, body=b"Internal server error"),
         # Model 2 succeeds
         MockStreamResponse(status_code=200, lines=[
-            'data: {"choices": [{"delta": {"content": "Response from GPT"}}]}',
+            'data: {"choices": [{"delta": {"content": "Response from fallback"}}]}',
             'data: [DONE]',
         ]),
     ])
 
-    with patch("app.llm.agentrouter_client.httpx.AsyncClient", return_value=mock_client):
+    with (
+        patch("app.llm.agentrouter_client.FALLBACK_MODELS", ["primary-model", "fallback-model"]),
+        patch("app.llm.agentrouter_client.httpx.AsyncClient", return_value=mock_client),
+    ):
         result = await call_agentrouter("system prompt", "user query")
-        assert result == "Response from GPT"
+        assert result == "Response from fallback"
         assert len(mock_client.calls) == 2
-        assert mock_client.calls[0][2]["json"]["model"] == FALLBACK_MODELS[0]
-        assert mock_client.calls[1][2]["json"]["model"] == FALLBACK_MODELS[1]
+        assert mock_client.calls[0][2]["json"]["model"] == "primary-model"
+        assert mock_client.calls[1][2]["json"]["model"] == "fallback-model"
 
 
 @pytest.mark.asyncio
@@ -132,9 +135,12 @@ async def test_no_fallback_after_partial_content(monkeypatch):
         ]),
     ])
 
-    with patch("app.llm.agentrouter_client.httpx.AsyncClient", return_value=mock_client):
+    with (
+        patch("app.llm.agentrouter_client.FALLBACK_MODELS", ["primary-model", "fallback-model"]),
+        patch("app.llm.agentrouter_client.httpx.AsyncClient", return_value=mock_client),
+    ):
         chunks = []
-        with pytest.raises(AgentRouterError, match=f"Stream failed mid-response on {FALLBACK_MODELS[0]}"):
+        with pytest.raises(AgentRouterError, match="Stream failed mid-response on primary-model"):
             async for token in call_agentrouter_stream("system prompt", "user query"):
                 chunks.append(token)
 
@@ -144,18 +150,9 @@ async def test_no_fallback_after_partial_content(monkeypatch):
         assert len(mock_client.responses) == 1
 
 
-def test_fallback_models_hierarchy():
-    """Verify models are ordered from best to worst: Claude > GPT > DeepSeek/GLM."""
-    expected = [
-        "claude-opus-5-5",
-        "claude-opus-5",
-        "claude-opus-4-8",
-        "gpt-6-astra",
-        "gpt-5.6-sol",
-        "deepseek-v4-flash",
-        "glm-5.3",
-    ]
-    assert FALLBACK_MODELS == expected
+def test_fallback_models_single_deepseek():
+    """Verify only deepseek-v4-flash is configured in Agent Router."""
+    assert FALLBACK_MODELS == ["deepseek-v4-flash"]
 
 
 @pytest.mark.asyncio

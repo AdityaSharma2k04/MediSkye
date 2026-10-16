@@ -165,3 +165,52 @@ async def test_gemini_does_not_fallback_on_400():
     # Must raise immediately on attempt 1 with no retry or fallback
     assert mock_client.models.generate_content.call_count == 1
 
+
+@pytest.mark.asyncio
+async def test_429_daily_quota_not_retried():
+    mock_client = MagicMock()
+    mock_client.models.generate_content.side_effect = Exception(
+        "429 RESOURCE_EXHAUSTED: Quota exceeded for metric 'generate_content_free_tier_requests' and limit 'Requests per day'"
+    )
+
+    with pytest.raises(Exception) as exc_info:
+        await call_gemini_with_retry(
+            prompt="Analyze lab report",
+            client=mock_client,
+            max_attempts=3,
+            backoff_delays=[1.0, 4.0, 16.0],
+        )
+
+    # Must fail immediately on attempt 1 with no retry or backoff
+    assert mock_client.models.generate_content.call_count == 1
+    err_text = str(exc_info.value).lower()
+    assert "per_day" in err_text or "generate_content_free_tier_requests" in err_text
+
+
+@pytest.mark.asyncio
+async def test_llm_cooldown_after_failure():
+    mock_client = MagicMock()
+    mock_client.models.generate_content.side_effect = Exception("503 Service Unavailable")
+
+    with pytest.raises(GeminiUnavailableError):
+        await call_gemini_with_retry(
+            prompt="Analyze lab report",
+            client=mock_client,
+            max_attempts=1,
+            backoff_delays=[0.001],
+            fallback_models=["gemini-3.8-flash"],
+        )
+
+    # After failure, LLM enters 5-minute cooldown.
+    # Second call within 5 minutes raises GeminiUnavailableError immediately without attempting.
+    mock_client.models.generate_content.reset_mock()
+    with pytest.raises(GeminiUnavailableError) as exc_info:
+        await call_gemini_with_retry(
+            prompt="Analyze lab report",
+            client=mock_client,
+        )
+
+    assert "cooldown" in str(exc_info.value).lower()
+    assert mock_client.models.generate_content.call_count == 0
+
+

@@ -7,6 +7,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 from httpx import AsyncClient, ASGITransport
 from sqlalchemy.future import select
 from app.main import app
+from app.core.config import settings
 from app.core.auth import get_password_hash
 from app.db.database import AsyncSessionLocal
 from app.db.models import User, PatientFact, Chat
@@ -404,7 +405,65 @@ async def test_query_uses_agentrouter_when_toggled():
 
 
 @pytest.mark.asyncio
-async def test_query_uses_gemini_by_default():
+async def test_query_uses_agentrouter_by_default(monkeypatch):
+    """Verify that when no provider is specified, it defaults to settings.LLM_PROVIDER (agentrouter)."""
+    monkeypatch.setattr(settings, "LLM_PROVIDER", "agentrouter")
+    transport = ASGITransport(app=app)
+
+    async def fake_agentrouter_stream(sys_instruction, user_content):
+        yield "DeepSeek: Rest and hydration are standard headache measures."
+
+    mock_gemini_client = MagicMock()
+
+    with (
+        patch("app.rag.retriever.get_embedder", return_value=FakeEmbedder()),
+        patch("app.services.chat_indexer.get_embedder", return_value=FakeEmbedder()),
+        patch("app.rag.embedder.get_embedder", return_value=FakeEmbedder()),
+        patch("google.genai.Client", return_value=mock_gemini_client),
+        patch("app.api.v1.endpoints.query.process_chat_memory_extraction", new=AsyncMock()),
+        patch("app.llm.agentrouter_client.call_agentrouter_stream", side_effect=fake_agentrouter_stream) as mock_ar_stream,
+        patch("app.llm.agentrouter_client.call_agentrouter", return_value="GENERAL_HEALTH"),
+    ):
+        async with AsyncClient(transport=transport, base_url="http://test") as ac:
+            email = f"ar_default_{uuid.uuid4().hex[:8]}@test.com"
+            async with AsyncSessionLocal() as session:
+                user = User(
+                    email=email,
+                    hashed_password=get_password_hash(TEST_PASSWORD),
+                    phi_consent_granted=True,
+                    memory_consent_granted=False,
+                )
+                session.add(user)
+                await session.commit()
+
+            login_res = await ac.post("/login", data={"username": email, "password": TEST_PASSWORD})
+            assert login_res.status_code == 200
+            token = login_res.json()["access_token"]
+            headers = {"Authorization": f"Bearer {token}"}
+
+            # No provider specified -> should default to Agent Router
+            res = await ac.post(
+                "/query",
+                json={
+                    "session_id": str(uuid.uuid4()),
+                    "query": "What causes headaches?",
+                },
+                headers=headers,
+            )
+            assert res.status_code == 200
+            stream_text = res.text
+
+            # Assert Agent Router streaming was called
+            assert mock_ar_stream.called
+            assert "DeepSeek: Rest and hydration are standard headache measures." in stream_text
+
+            # Assert Gemini was NOT called
+            assert not mock_gemini_client.models.generate_content_stream.called
+
+
+@pytest.mark.asyncio
+async def test_query_uses_gemini_when_specified():
+    """Verify that when provider='gemini' is explicitly passed, Gemini is used."""
     transport = ASGITransport(app=app)
 
     chunk1 = MagicMock()
@@ -428,7 +487,7 @@ async def test_query_uses_gemini_by_default():
         patch("app.llm.agentrouter_client.call_agentrouter_stream", mock_ar_stream),
     ):
         async with AsyncClient(transport=transport, base_url="http://test") as ac:
-            email = f"gemini_default_{uuid.uuid4().hex[:8]}@test.com"
+            email = f"gemini_specified_{uuid.uuid4().hex[:8]}@test.com"
             async with AsyncSessionLocal() as session:
                 user = User(
                     email=email,
@@ -444,12 +503,12 @@ async def test_query_uses_gemini_by_default():
             token = login_res.json()["access_token"]
             headers = {"Authorization": f"Bearer {token}"}
 
-            # No provider specified -> should default to Gemini
             res = await ac.post(
                 "/query",
                 json={
                     "session_id": str(uuid.uuid4()),
                     "query": "What causes headaches?",
+                    "provider": "gemini",
                 },
                 headers=headers,
             )

@@ -312,15 +312,15 @@ describe('SettingsModal Account fields & Deletion', () => {
       />
     );
 
-    const providerSelect = screen.getByDisplayValue('Gemini (default)');
+    const providerSelect = screen.getByDisplayValue('Agent Router - DeepSeek (default)');
     expect(providerSelect).toBeInTheDocument();
 
-    fireEvent.change(providerSelect, { target: { value: 'agentrouter' } });
-    expect(localStorage.getItem('mediskye_llm_provider')).toBe('agentrouter');
+    fireEvent.change(providerSelect, { target: { value: 'gemini' } });
+    expect(localStorage.getItem('mediskye_llm_provider')).toBe('gemini');
     expect(showToast).toHaveBeenCalledWith(
       'success',
       'Provider Updated',
-      expect.stringContaining('Switched to Agent Router')
+      'Switched to Gemini'
     );
   });
 });
