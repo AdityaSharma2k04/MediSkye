@@ -5,10 +5,13 @@ steps:
       - 'build'
       - '--platform=linux/amd64'
       - '--provenance=false'
+      - '--output=type=docker'  # Forces the classic Docker manifest format
       - '-t'
       - 'gcr.io/$PROJECT_ID/mediskye:$COMMIT_SHA'
       - '-f'
       - 'Dockerfile'
       - '.'
+    env:
+      - 'DOCKER_BUILDKIT=0'  # Forces the legacy Docker builder instead of BuildKit
 images:
   - 'gcr.io/$PROJECT_ID/mediskye:$COMMIT_SHA'
