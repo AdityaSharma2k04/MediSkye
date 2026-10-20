@@ -95,15 +95,30 @@ class FakeEmbedder:
 async def test_upload_returns_202_with_job_id():
     import pymupdf as fitz
     from app.services.upload_jobs import clear_jobs
-    clear_jobs()
+    await clear_jobs()
 
     doc = fitz.open()
     page = doc.new_page()
-    page.insert_text((50, 72), "Lab Report: Jane Doe. Hemoglobin: 13.5 g/dL.")
+    page.insert_text(
+        (50, 72),
+        "Complete Blood Count Report. Patient: Jane Doe. Hemoglobin: 13.5 g/dL (ref range 12.0 - 15.5 g/dL) Normal. Fasting Glucose: 95 mg/dL."
+    )
     pdf_bytes = doc.tobytes()
+
+    from unittest.mock import AsyncMock
+    from langchain_core.documents import Document as LCDocument
+
+    mock_docs = [
+        LCDocument(
+            page_content="Complete Blood Count Report. Patient: Jane Doe. Hemoglobin: 13.5 g/dL Normal.",
+            metadata={"page": 1}
+        )
+    ]
 
     transport = ASGITransport(app=app)
     with (
+        patch("app.api.v1.endpoints.upload.extract_text_from_file", new=AsyncMock(return_value=mock_docs)),
+        patch("app.api.v1.endpoints.upload.acreate_hybrid_index", new=AsyncMock(return_value=(None, None, mock_docs))),
         patch("app.rag.retriever.get_embedder", return_value=FakeEmbedder()),
         patch("app.rag.embedder.get_embedder", return_value=FakeEmbedder()),
     ):
@@ -128,7 +143,7 @@ async def test_upload_returns_202_with_job_id():
 @pytest.mark.anyio
 async def test_upload_status_endpoint():
     from app.services.upload_jobs import create_job, update_job, clear_jobs, UploadStatus
-    clear_jobs()
+    await clear_jobs()
 
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as ac:
@@ -141,7 +156,7 @@ async def test_upload_status_endpoint():
             user_id = str(user.id)
 
         # 2. Test initial pending status
-        job_id = create_job(user_id)
+        job_id = await create_job(user_id)
         res = await ac.get(f"/upload/status/{job_id}", headers=headers)
         assert res.status_code == 200
         data = res.json()
@@ -151,7 +166,7 @@ async def test_upload_status_endpoint():
         assert data["error"] is None
 
         # 3. Test completed status
-        update_job(job_id, status=UploadStatus.COMPLETED, document_id="doc-uuid-1234")
+        await update_job(job_id, status=UploadStatus.COMPLETED, document_id="doc-uuid-1234")
         res_comp = await ac.get(f"/upload/status/{job_id}", headers=headers)
         assert res_comp.status_code == 200
         data_comp = res_comp.json()
@@ -167,7 +182,7 @@ async def test_upload_status_endpoint():
 @pytest.mark.anyio
 async def test_upload_job_ownership():
     from app.services.upload_jobs import create_job, clear_jobs
-    clear_jobs()
+    await clear_jobs()
 
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as ac:
@@ -179,7 +194,7 @@ async def test_upload_job_ownership():
             user_a_id = str(user_a.id)
 
         # Create job belonging to User A
-        job_id_a = create_job(user_a_id)
+        job_id_a = await create_job(user_a_id)
 
         # User A can view their own job
         res_a = await ac.get(f"/upload/status/{job_id_a}", headers=headers_a)
@@ -208,7 +223,7 @@ async def test_background_task_creates_own_db_session():
         user = (await session.execute(select(User).filter(User.email == "bg_session_user@test.com"))).scalars().first()
         user_id = str(user.id)
 
-    job_id = create_job(user_id)
+    job_id = await create_job(user_id)
 
     # Create a small temp text file as mock upload
     with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as tmp:
@@ -252,7 +267,7 @@ async def test_background_task_creates_own_db_session():
 
     # Assert background task called AsyncSessionLocal to instantiate its own session
     assert len(session_instances) >= 1
-    job = get_job(job_id)
+    job = await get_job(job_id)
     assert job["status"] == UploadStatus.COMPLETED
     assert job["document_id"] is not None
     assert not os.path.exists(tmp_path)

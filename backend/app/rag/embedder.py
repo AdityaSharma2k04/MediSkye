@@ -2,7 +2,9 @@ import os
 import asyncio
 import concurrent.futures
 import logging
+from typing import Optional
 from langchain_core.embeddings import Embeddings
+from app.core.config import settings
 from app.llm.embeddings_client import embed_content_with_retry
 
 logger = logging.getLogger(__name__)
@@ -27,8 +29,8 @@ def _run_coroutine_sync(coro):
 class ResilientGeminiEmbeddings(Embeddings):
     """LangChain-compatible Embeddings wrapper routing through embed_content_with_retry."""
 
-    def __init__(self, model: str = "models/gemini-embedding-2"):
-        self.model = model
+    def __init__(self, model: Optional[str] = None):
+        self.model = model or settings.resolved_embedding_model
 
     def embed_documents(self, texts: list[str]) -> list[list[float]]:
         results = []
@@ -75,5 +77,5 @@ class ResilientGeminiEmbeddings(Embeddings):
 def get_embedder():
     global _EMBEDDER_INSTANCE
     if _EMBEDDER_INSTANCE is None:
-        _EMBEDDER_INSTANCE = ResilientGeminiEmbeddings(model="models/gemini-embedding-2")
+        _EMBEDDER_INSTANCE = ResilientGeminiEmbeddings()
     return _EMBEDDER_INSTANCE

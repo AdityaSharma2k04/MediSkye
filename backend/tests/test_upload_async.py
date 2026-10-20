@@ -17,7 +17,7 @@ async def test_upload_status_endpoint_never_blocked():
     GET /upload/status/{job_id} responds concurrently within 500ms
     proving that the asyncio event loop is never blocked.
     """
-    clear_jobs()
+    await clear_jobs()
 
     pdf_bytes = b"%PDF-1.4\n1 0 obj\n<<\n/Type /Catalog\n>>\nendobj\ntrailer\n<<\n>>\n%%EOF\n"
 

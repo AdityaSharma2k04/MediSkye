@@ -21,6 +21,7 @@ from app.rag.loader import PDFExtractionError, extract_text_from_file
 from app.core.audit import log_audit
 from app.rag.retriever import create_hybrid_index, acreate_hybrid_index
 from app.services.upload_jobs import create_job, update_job, get_job, UploadStatus
+from app.rag.index_storage import asave_index_artifacts
 
 logger = logging.getLogger(__name__)
 
@@ -46,7 +47,7 @@ async def process_upload_background(
     t_start = time.monotonic()
     logger.info(f"[UPLOAD {job_id}] START")
 
-    update_job(job_id, status=UploadStatus.PROCESSING)
+    await update_job(job_id, status=UploadStatus.PROCESSING)
 
     async with AsyncSessionLocal() as db:
         try:
@@ -97,12 +98,15 @@ async def process_upload_background(
 
             # 2. Create hybrid index (FAISS + BM25) and save to disk
             t0 = time.monotonic()
-            index_dir = settings.BASE_DIR / "indexes"
-            index_dir.mkdir(exist_ok=True)
+            index_dir = settings.INDEX_STORAGE_DIR
+            index_dir.mkdir(parents=True, exist_ok=True)
             index_path = str(index_dir / f"user_{user_uuid}_doc_{doc.id}.index")
 
             _, _, chunks = await acreate_hybrid_index(page_docs, index_path)
             logger.info(f"[UPLOAD {job_id}] Index build: {time.monotonic() - t0:.2f}s ({len(chunks)} chunks)")
+
+            # Sync index artifacts to GCS if configured
+            await asave_index_artifacts(index_path)
 
             # 3. Update DB with file_path and commit
             t0 = time.monotonic()
@@ -110,11 +114,11 @@ async def process_upload_background(
             await db.commit()
             logger.info(f"[UPLOAD {job_id}] DB commit: {time.monotonic() - t0:.2f}s")
 
-            update_job(job_id, status=UploadStatus.COMPLETED, document_id=str(doc.id))
+            await update_job(job_id, status=UploadStatus.COMPLETED, document_id=str(doc.id))
             logger.info(f"[UPLOAD {job_id}] TOTAL: {time.monotonic() - t_start:.2f}s")
         except Exception as e:
             logger.error(f"[UPLOAD {job_id}] Failed after {time.monotonic() - t_start:.2f}s: {e}", exc_info=True)
-            update_job(job_id, status=UploadStatus.FAILED, error=str(e))
+            await update_job(job_id, status=UploadStatus.FAILED, error=str(e))
         finally:
             if tmp_path and os.path.exists(tmp_path):
                 try:
@@ -163,7 +167,7 @@ async def upload_file(
 
     tmp_path = await asyncio.to_thread(_write_temp)
 
-    job_id = create_job(str(current_user.id))
+    job_id = await create_job(str(current_user.id), session=db)
     client_host = request.client.host if request.client else "unknown"
 
     background_tasks.add_task(
@@ -187,8 +191,9 @@ async def upload_file(
 async def upload_status(
     job_id: str,
     current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
 ):
-    job = get_job(job_id)
+    job = await get_job(job_id, session=db)
     if not job:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Job not found")
     if job["user_id"] != str(current_user.id):

@@ -27,3 +27,4 @@ redis
 aiosqlite
 reportlab
 email-validator
+google-cloud-storage

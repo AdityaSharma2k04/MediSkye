@@ -392,13 +392,13 @@ async def query_bot(
 
             def _stream_producer():
                 from google.genai.types import GenerateContentConfig
-                from app.llm.gemini_client import FALLBACK_MODELS, _is_retryable_error, get_genai_client
+                from app.llm.gemini_client import _is_retryable_error, get_genai_client
 
                 client = get_genai_client()
                 last_exception = None
 
                 try:
-                    for current_model in FALLBACK_MODELS:
+                    for current_model in settings.resolved_fallback_models:
                         yielded_any = False
                         try:
                             response = client.models.generate_content_stream(

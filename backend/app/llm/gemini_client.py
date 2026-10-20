@@ -37,11 +37,7 @@ def reset_cooldown() -> None:
     _llm_dead_until = 0.0
 
 
-FALLBACK_MODELS = [
-    "gemini-3.8-flash",
-    "gemini-3.6-flash",
-    "gemini-3.5-flash",
-]
+FALLBACK_MODELS = list(settings.GEMINI_FALLBACK_MODELS)
 
 
 def _is_retryable_error(exc: Exception) -> bool:
@@ -96,12 +92,18 @@ async def call_gemini_with_retry(
         raise ValueError("Either contents or prompt must be provided to call_gemini_with_retry.")
 
     primary = model or settings.GEMINI_MODEL
+    if settings.GOOGLE_GENAI_USE_ENTERPRISE and primary.startswith("models/"):
+        primary = primary.removeprefix("models/")
     api_client = client or get_genai_client()
 
     if fallback_models is not None:
-        models_to_try = fallback_models
+        models_to_try = [
+            (m.removeprefix("models/") if settings.GOOGLE_GENAI_USE_ENTERPRISE and m.startswith("models/") else m)
+            for m in fallback_models
+        ]
     else:
-        models_to_try = [primary] + [m for m in FALLBACK_MODELS if m != primary]
+        resolved_fallbacks = settings.resolved_fallback_models
+        models_to_try = [primary] + [m for m in resolved_fallbacks if m != primary]
 
     delays = backoff_delays if backoff_delays is not None else [1.0, 4.0, 16.0]
     tried_models = []

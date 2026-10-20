@@ -15,17 +15,17 @@ from pathlib import Path
 backend_dir = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(backend_dir))
 
-from google import genai
 from langchain_core.documents import Document
 from app.core.config import settings
+from app.llm.gemini_client import get_genai_client
 from app.rag.prompt_builder import build_prompt
 from app.rag.loader import extract_text_from_file
 from tests.eval.test_prompt_quality import evaluate_rubric
 
 
 def run_evaluation():
-    if not settings.GOOGLE_API_KEY:
-        print("Error: GOOGLE_API_KEY is not set.")
+    if not settings.GOOGLE_API_KEY and not settings.GOOGLE_GENAI_USE_ENTERPRISE:
+        print("Error: Neither GOOGLE_API_KEY nor GOOGLE_GENAI_USE_ENTERPRISE is configured.")
         return
 
     pdf_arg = sys.argv[1] if len(sys.argv) > 1 else None
@@ -59,7 +59,7 @@ AST (SGOT): 28 U/L (Reference Range: 10 - 40 U/L) [NORMAL]
         )
 
     query = query_arg
-    print(f"Running evaluation for query: '{query}' against model {settings.GEMINI_MODEL}...\n")
+    print(f"Running evaluation for query: '{query}' against model {settings.resolved_gemini_model}...\n")
 
     prompt = build_prompt(
         user_query=query,
@@ -72,9 +72,9 @@ AST (SGOT): 28 U/L (Reference Range: 10 - 40 U/L) [NORMAL]
         occupation="Software Engineer",
     )
 
-    client = genai.Client(api_key=settings.GOOGLE_API_KEY)
+    client = get_genai_client()
     response = client.models.generate_content(
-        model=settings.GEMINI_MODEL,
+        model=settings.resolved_gemini_model,
         contents=prompt,
     )
 

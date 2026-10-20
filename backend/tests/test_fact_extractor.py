@@ -95,3 +95,82 @@ async def test_extract_facts_skips_when_llm_unavailable():
         res = await extract_facts(messages=messages, existing_facts=[], user_id=uuid.uuid4())
         assert res == {"facts": [], "retractions": []}
 
+
+@pytest.mark.asyncio
+async def test_extract_facts_semantic_deduplication_batch_embedding():
+    sample_response_json = """{
+      "facts": [
+        {"type": "condition", "text": "High blood pressure", "confidence": 0.95},
+        {"type": "condition", "text": "Asthma", "confidence": 0.90}
+      ],
+      "retractions": []
+    }"""
+
+    mock_client = MagicMock()
+    mock_response = MagicMock()
+    mock_response.text = sample_response_json
+    mock_client.models.generate_content.return_value = mock_response
+
+    existing_facts = [
+        {"id": "exist-1", "type": "condition", "text": "Hypertension"},
+    ]
+
+    mock_embedder = MagicMock()
+    # "High blood pressure" and "Hypertension" will have high cosine similarity (identical unit vectors)
+    # "Asthma" has orthogonal vector
+    def mock_embed_documents(texts):
+        res = []
+        for t in texts:
+            if "pressure" in t.lower() or "hypertension" in t.lower():
+                res.append([1.0, 0.0, 0.0])
+            else:
+                res.append([0.0, 1.0, 0.0])
+        return res
+
+    mock_embedder.embed_documents.side_effect = mock_embed_documents
+
+    with patch("google.genai.Client", return_value=mock_client), \
+         patch("app.rag.embedder.get_embedder", return_value=mock_embedder):
+        messages = ["Patient mentions high blood pressure and asthma."]
+        res = await extract_facts(messages=messages, existing_facts=existing_facts, user_id=uuid.uuid4())
+
+        # "High blood pressure" matches "Hypertension" semantically (> 0.85), so only "Asthma" remains
+        assert len(res["facts"]) == 1
+        assert res["facts"][0]["text"] == "Asthma"
+        # Ensure embed_documents was called once with the unique strings in batch
+        assert mock_embedder.embed_documents.call_count == 1
+        called_texts = mock_embedder.embed_documents.call_args[0][0]
+        assert "High blood pressure" in called_texts
+        assert "Hypertension" in called_texts
+
+
+@pytest.mark.asyncio
+async def test_extract_facts_embedding_failure_falls_back_cleanly():
+    sample_response_json = """{
+      "facts": [
+        {"type": "condition", "text": "High blood pressure", "confidence": 0.95}
+      ],
+      "retractions": []
+    }"""
+
+    mock_client = MagicMock()
+    mock_response = MagicMock()
+    mock_response.text = sample_response_json
+    mock_client.models.generate_content.return_value = mock_response
+
+    mock_embedder = MagicMock()
+    mock_embedder.embed_documents.side_effect = RuntimeError("Embedding service 429 rate limit")
+
+    existing_facts = [
+        {"id": "exist-1", "type": "condition", "text": "Hypertension"},
+    ]
+
+    with patch("google.genai.Client", return_value=mock_client), \
+         patch("app.rag.embedder.get_embedder", return_value=mock_embedder):
+        messages = ["Patient mentions high blood pressure."]
+        # Should not raise exception even when embedder fails
+        res = await extract_facts(messages=messages, existing_facts=existing_facts, user_id=uuid.uuid4())
+        assert len(res["facts"]) == 1
+        assert res["facts"][0]["text"] == "High blood pressure"
+
+

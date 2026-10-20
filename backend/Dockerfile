@@ -25,7 +25,7 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     PATH="/opt/venv/bin:$PATH" \
     ENV=production \
-    PORT=7860
+    PORT=8080
 
 # Runtime system deps only (no build tools)
 RUN apt-get update && apt-get install -y --no-install-recommends \
@@ -47,10 +47,11 @@ COPY --from=builder /opt/venv /opt/venv
 # Copy application code
 COPY --chown=appuser:appuser . .
 
-EXPOSE 7860
+EXPOSE 8080
 
 HEALTHCHECK --interval=30s --timeout=5s --start-period=40s --retries=3 \
-  CMD python -c "import urllib.request; urllib.request.urlopen('http://localhost:7860/health')"
+  CMD python -c "import urllib.request, os; port=os.environ.get('PORT', '8080'); urllib.request.urlopen(f'http://localhost:{port}/health')"
 
 # Run migrations then start server
-CMD ["sh", "-c", "alembic upgrade head && uvicorn app.main:app --host 0.0.0.0 --port 7860"]
+CMD ["sh", "-c", "alembic upgrade head && uvicorn app.main:app --host 0.0.0.0 --port ${PORT:-8080}"]
+

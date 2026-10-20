@@ -26,6 +26,7 @@ from app.schemas.dependent import DependentCreate, DependentUpdate, DependentRes
 from app.core.audit import log_audit
 from app.core.limiter import limiter
 from app.services.patient_service import calculate_age
+from app.rag.index_storage import delete_index_artifacts, adelete_index_artifacts
 
 logger = logging.getLogger(__name__)
 
@@ -89,21 +90,7 @@ async def delete_user_me(
     docs = await db.execute(select(Document).filter(Document.user_id == current_user.id))
     for doc in docs.scalars().all():
         if doc.file_path:
-            # Delete FAISS index directory if it exists
-            try:
-                if os.path.exists(doc.file_path):
-                    shutil.rmtree(doc.file_path)
-            except Exception as e:
-                logger.error("Error removing physical files for doc %s: %s", doc.id, e)
-                
-            # Delete corresponding BM25 index pickle file even if FAISS directory was missing
-            try:
-                bm25_path = Path(doc.file_path).parent / f"{Path(doc.file_path).stem}_bm25.pkl"
-                os.remove(bm25_path)
-            except FileNotFoundError:
-                pass
-            except Exception as e:
-                logger.error("Error removing BM25 index for doc %s: %s", doc.id, e)
+            await adelete_index_artifacts(doc.file_path)
                 
     await db.execute(Chat.__table__.delete().where(Chat.user_id == current_user.id))
     await db.execute(Document.__table__.delete().where(Document.user_id == current_user.id))
@@ -186,24 +173,7 @@ async def delete_my_document(
         raise HTTPException(status_code=404, detail="Document not found")
 
     if doc.file_path:
-        # Delete FAISS index directory if it exists
-        try:
-            if os.path.exists(doc.file_path):
-                if os.path.isdir(doc.file_path):
-                    shutil.rmtree(doc.file_path)
-                else:
-                    os.remove(doc.file_path)
-        except Exception as e:
-            logger.error("Error removing physical files for doc %s: %s", doc.id, e)
-
-        # Delete corresponding BM25 index pickle file even if FAISS directory was missing
-        try:
-            bm25_path = Path(doc.file_path).parent / f"{Path(doc.file_path).stem}_bm25.pkl"
-            os.remove(bm25_path)
-        except FileNotFoundError:
-            pass
-        except Exception as e:
-            logger.error("Error removing BM25 index for doc %s: %s", doc.id, e)
+        await adelete_index_artifacts(doc.file_path)
 
     # Clean up vector cache session directory if present
     try:

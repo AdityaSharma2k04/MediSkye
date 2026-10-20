@@ -64,6 +64,7 @@ class User(Base):
     dependents = orm_relationship("DependentProfile", back_populates="guardian", cascade="all, delete-orphan")
     patient_facts = orm_relationship("PatientFact", back_populates="user", cascade="all, delete-orphan", foreign_keys="[PatientFact.user_id]")
     chat_chunks = orm_relationship("ChatChunk", back_populates="user", cascade="all, delete-orphan", foreign_keys="[ChatChunk.user_id]")
+    upload_jobs = orm_relationship("UploadJob", back_populates="user", cascade="all, delete-orphan", foreign_keys="[UploadJob.user_id]")
 
 
 class DependentProfile(Base):
@@ -252,3 +253,22 @@ class ChatDocument(Base):
 
     chat = orm_relationship("Chat", back_populates="chat_documents")
     document = orm_relationship("Document", back_populates="chat_documents")
+
+
+class UploadJob(Base):
+    """
+    Persistent store for asynchronous PDF extraction and indexing jobs.
+    Replaces in-memory job dictionaries for multi-instance Cloud Run resilience.
+    """
+    __tablename__ = "upload_jobs"
+
+    id = Column(String(64), primary_key=True)
+    user_id = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    status = Column(String(32), default="pending", nullable=False)
+    document_id = Column(String(64), nullable=True)
+    error = Column(Text, nullable=True)
+    created_at = Column(DateTime(timezone=True), default=utcnow, nullable=False)
+    updated_at = Column(DateTime(timezone=True), default=utcnow, onupdate=utcnow, nullable=False)
+
+    user = orm_relationship("User", back_populates="upload_jobs")
+

@@ -375,4 +375,32 @@ describe('ChatApp — deletion and rename persistence', () => {
     // Error toast should appear and title rolls back
     expect(await screen.findByText('Rename Failed')).toBeInTheDocument();
   });
+
+  it('detaching an attached report chip calls deleteDocument with documentId', async () => {
+    const docChat = {
+      id: SERVER_DOC_ID,
+      document_id: SERVER_DOC_ID,
+      title: 'Lab Report Chat',
+      messages: [{ id: 1, sender: 'user', text: 'Hello', timestamp: '10:00' }],
+      pdf: { id: SERVER_DOC_ID, name: 'lab.pdf' },
+      documents: [
+        { id: SERVER_DOC_ID, name: 'lab.pdf', filename: 'lab.pdf' },
+        { id: 'second-doc-id', name: 'second.pdf', filename: 'second.pdf' },
+      ],
+    };
+    api.getUserDocuments.mockResolvedValue([{ id: SERVER_DOC_ID, filename: 'lab.pdf', title: 'Lab Report' }]);
+    api.deleteDocument.mockResolvedValue(true);
+    localStorage.setItem('mediskye_conversations', JSON.stringify([docChat]));
+    localStorage.setItem('mediskye_conversations_user-1', JSON.stringify([docChat]));
+
+    render(<ChatApp />);
+    await waitFor(() => expect(api.getProfile).toHaveBeenCalled());
+
+    const detachBtn = await screen.findByLabelText('Detach lab.pdf');
+    fireEvent.click(detachBtn);
+
+    await waitFor(() => {
+      expect(api.deleteDocument).toHaveBeenCalledWith(SERVER_DOC_ID);
+    });
+  });
 });

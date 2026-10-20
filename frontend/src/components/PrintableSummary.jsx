@@ -41,7 +41,7 @@ export default function PrintableSummary({ user, document, summary, metrics, spe
           <tbody>
             <tr>
               <td style={{ padding: '2pt 0' }}>
-                <strong>Patient:</strong> {patientName}
+                <strong>Patient:</strong> {patientName}{user?.relationship ? ` (${user.relationship})` : ''}
               </td>
               <td style={{ padding: '2pt 0' }}>
                 <strong>Date of Birth:</strong> {patientDob}

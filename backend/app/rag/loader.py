@@ -393,11 +393,30 @@ async def extract_text_from_file(file_path: str, filename: str) -> list[Document
 
     pypdf2_docs = await asyncio.to_thread(_extract_with_pypdf2, file_path)
     pymupdf_docs = await _extract_with_pymupdf(file_path)
-    ocr_docs = await asyncio.to_thread(_extract_with_ocr, file_path)
-    
-    for docs in [pypdf2_docs, pymupdf_docs, ocr_docs]:
+
+    for docs in [pypdf2_docs, pymupdf_docs]:
         if _char_count(docs) > _char_count(best_docs):
             best_docs = docs
+
+    # Compute candidate character count before running expensive OCR
+    candidate_non_vision_docs = (
+        [d for d in best_docs if d.metadata.get("page", -1) not in vision_page_numbers]
+        if vision_page_numbers
+        else best_docs
+    )
+    total_candidate_chars = _char_count(vision_docs) + _char_count(candidate_non_vision_docs)
+
+    # True fallback: Only invoke Tesseract OCR if native extractors + vision yield insufficient text
+    if total_candidate_chars < MIN_EXTRACTED_CHARS:
+        logger.info(
+            "Native PDF extraction yielded %d chars (< %d threshold); attempting OCR fallback for %s",
+            total_candidate_chars,
+            MIN_EXTRACTED_CHARS,
+            file_path,
+        )
+        ocr_docs = await asyncio.to_thread(_extract_with_ocr, file_path)
+        if _char_count(ocr_docs) > _char_count(best_docs):
+            best_docs = ocr_docs
 
     # Filter out pages already handled by Vision
     if vision_page_numbers:

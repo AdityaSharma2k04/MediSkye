@@ -46,6 +46,8 @@ async def lifespan(app: FastAPI):
             settings.GOOGLE_CLOUD_PROJECT,
             settings.GOOGLE_CLOUD_LOCATION,
         )
+    else:
+        logger.info("Gemini API Key mode active (enterprise mode disabled).")
 
     # DEV ONLY: auto-create tables for SQLite convenience
     # In production, Alembic migrations are the source of truth

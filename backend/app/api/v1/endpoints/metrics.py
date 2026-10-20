@@ -3,7 +3,6 @@ import uuid
 import logging
 import asyncio
 from fastapi import APIRouter, Depends, Header, Request, HTTPException
-from google import genai
 from slowapi import Limiter
 from slowapi.util import get_remote_address
 from sqlalchemy.ext.asyncio import AsyncSession

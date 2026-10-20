@@ -214,3 +214,30 @@ async def test_llm_cooldown_after_failure():
     assert mock_client.models.generate_content.call_count == 0
 
 
+def test_resolved_embedding_model_strips_prefix_in_enterprise_mode(monkeypatch):
+    from app.core.config import settings
+
+    monkeypatch.setattr(settings, "EMBEDDING_MODEL", "models/text-embedding-004")
+    monkeypatch.setattr(settings, "GOOGLE_GENAI_USE_ENTERPRISE", False)
+    assert settings.resolved_embedding_model == "models/text-embedding-004"
+
+    monkeypatch.setattr(settings, "GOOGLE_GENAI_USE_ENTERPRISE", True)
+    assert settings.resolved_embedding_model == "text-embedding-004"
+
+
+def test_resolved_fallback_models_strips_prefix_in_enterprise_mode(monkeypatch):
+    from app.core.config import settings
+
+    monkeypatch.setattr(
+        settings,
+        "GEMINI_FALLBACK_MODELS",
+        ["models/gemini-3.8-flash", "gemini-3.6-flash"],
+    )
+    monkeypatch.setattr(settings, "GOOGLE_GENAI_USE_ENTERPRISE", False)
+    assert settings.resolved_fallback_models == ["models/gemini-3.8-flash", "gemini-3.6-flash"]
+
+    monkeypatch.setattr(settings, "GOOGLE_GENAI_USE_ENTERPRISE", True)
+    assert settings.resolved_fallback_models == ["gemini-3.8-flash", "gemini-3.6-flash"]
+
+
+

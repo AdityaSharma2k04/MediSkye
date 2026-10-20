@@ -20,6 +20,7 @@ from langchain_core.documents import Document
 
 from app.rag.embedder import get_embedder
 from app.rag.hybrid_search import BM25Index, save_bm25_index, load_bm25_index, reciprocal_rank_fusion
+from app.rag.index_storage import ensure_index_local, aensure_index_local
 from app.core.config import settings
 
 logger = logging.getLogger(__name__)
@@ -119,11 +120,12 @@ def create_hybrid_index(page_docs: list[Document], index_path: str):
 
 def load_hybrid_index(index_path: str):
     """
-    Load both FAISS and BM25 indexes from disk.
+    Load both FAISS and BM25 indexes from disk, ensuring local availability via GCS if needed.
     Returns (vectorstore, bm25_index). BM25 may be None if not found.
     """
-    vectorstore = FAISS.load_local(index_path, get_embedder(), allow_dangerous_deserialization=True)
-    bm25_index = load_bm25_index(index_path)
+    resolved_path = str(ensure_index_local(index_path))
+    vectorstore = FAISS.load_local(resolved_path, get_embedder(), allow_dangerous_deserialization=True)
+    bm25_index = load_bm25_index(resolved_path)
     return vectorstore, bm25_index
 
 
@@ -223,10 +225,13 @@ async def retrieve_cross_document(
         docs = sorted(docs, key=lambda d: 0 if d.id == active_doc_id else 1)
 
     for db_doc in docs:
-        if not db_doc.file_path or not os.path.exists(db_doc.file_path):
+        if not db_doc.file_path:
             continue
         try:
-            vectorstore, bm25_index = load_hybrid_index(db_doc.file_path)
+            resolved_path = str(await aensure_index_local(db_doc.file_path))
+            if not os.path.exists(resolved_path):
+                continue
+            vectorstore, bm25_index = load_hybrid_index(resolved_path)
             retrieved = retrieve_relevant_docs(query, vectorstore, bm25_index, k=k)
             for d in retrieved:
                 doc_name = db_doc.title or db_doc.filename

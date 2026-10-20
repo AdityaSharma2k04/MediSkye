@@ -20,7 +20,6 @@ import {
   deleteDocument,
   deleteAccount,
   updateProfile,
-  detachChatDocument,
 } from '../services/api';
 import { useNavigate } from 'react-router-dom';
 import { logger } from '../services/logger';
@@ -643,7 +642,7 @@ export default function ChatApp() {
 
   const handleDetachDocument = async (docId) => {
     try {
-      await detachChatDocument(sessionId, docId).catch(() => {});
+      await deleteDocument(docId).catch(() => {});
       const current = conversations.find((c) => c.id === sessionId);
       const remainingDocs = (current?.documents || []).filter((d) => d.id !== docId);
       const nextActivePdf = remainingDocs.length > 0 ? remainingDocs[0] : null;
@@ -936,28 +935,25 @@ export default function ChatApp() {
     if (!trimmed) return;
 
     const chat = conversations.find((c) => c.id === id);
-    const prevTitle = chat?.title || 'New Conversation';
-    const targetDocId = chat?.document_id;
+    const targetDocId = chat?.document_id || (chat?.pdf ? id : null);
 
-    // Optimistic local update
-    setConversations((prev) =>
-      prev.map((c) => (c.id === id ? { ...c, title: trimmed } : c))
-    );
-
-    // If it has a real document_id, persist to backend
+    // If it has a real document_id, persist to backend first
     if (targetDocId) {
       try {
         await renameDocument(targetDocId, trimmed);
+        setConversations((prev) =>
+          prev.map((c) => (c.id === id ? { ...c, title: trimmed } : c))
+        );
         showToast('success', 'Chat Renamed', 'Chat renamed');
+        await refreshDocuments();
       } catch (err) {
         logger.error('Failed to rename document:', err);
-        // Rollback title in state on failure
-        setConversations((prev) =>
-          prev.map((c) => (c.id === id ? { ...c, title: prevTitle } : c))
-        );
         showToast('error', 'Rename Failed', err.message || 'Could not rename chat.');
       }
     } else {
+      setConversations((prev) =>
+        prev.map((c) => (c.id === id ? { ...c, title: trimmed } : c))
+      );
       showToast('info', 'Chat Renamed', 'Renamed locally (this chat has no server-side document)');
     }
   };

@@ -180,6 +180,44 @@ async def extract_facts(
     except Exception as e:
         logger.warning("Could not initialize embedder for fact deduplication: %s", e)
 
+    # Collect unique texts needing embedding (only for facts that aren't already exact matches)
+    texts_to_embed = set()
+    for fact in raw_facts:
+        fact_type = fact.get("type", "")
+        fact_text = (fact.get("text") or "").strip()
+        if not fact_text:
+            continue
+
+        same_type_existing = [
+            ef for ef in normalized_existing
+            if ef.get("type", "").lower() == fact_type.lower()
+        ]
+        has_exact_match = any(
+            fact_text.lower() == (ef.get("text") or "").strip().lower()
+            for ef in same_type_existing
+        )
+        if not has_exact_match and same_type_existing:
+            texts_to_embed.add(fact_text)
+            for ef in same_type_existing:
+                ef_text = (ef.get("text") or "").strip()
+                if ef_text:
+                    texts_to_embed.add(ef_text)
+
+    # Batch embed unique texts once to avoid N×M API calls
+    embedding_cache: Dict[str, List[float]] = {}
+    if embedder and texts_to_embed:
+        try:
+            unique_list = list(texts_to_embed)
+            embeddings = await asyncio.to_thread(embedder.embed_documents, unique_list)
+            for text, emb in zip(unique_list, embeddings):
+                if emb:
+                    embedding_cache[text] = emb
+        except Exception as e:
+            logger.warning(
+                "Batch embedding for fact deduplication failed: %s; falling back to exact matching",
+                e,
+            )
+
     for fact in raw_facts:
         fact_type = fact.get("type", "")
         fact_text = (fact.get("text") or "").strip()
@@ -193,24 +231,25 @@ async def extract_facts(
         ]
 
         is_duplicate = False
+        v1 = embedding_cache.get(fact_text)
         for ef in same_type_existing:
-            ef_text = ef.get("text", "").strip()
+            ef_text = (ef.get("text") or "").strip()
             # Fast exact/case-insensitive match
             if fact_text.lower() == ef_text.lower():
                 is_duplicate = True
                 break
 
-            # Semantic similarity check
-            if embedder:
-                try:
-                    v1 = embedder.embed_query(fact_text)
-                    v2 = embedder.embed_query(ef_text)
-                    sim = _cosine_similarity(v1, v2)
-                    if sim > 0.85:
-                        is_duplicate = True
-                        break
-                except Exception as e:
-                    logger.debug("Embedder similarity check failed: %s", e)
+            # Semantic similarity check using cached embeddings
+            if v1:
+                v2 = embedding_cache.get(ef_text)
+                if v2:
+                    try:
+                        sim = _cosine_similarity(v1, v2)
+                        if sim > 0.85:
+                            is_duplicate = True
+                            break
+                    except Exception as e:
+                        logger.debug("Embedder similarity check failed: %s", e)
 
         if not is_duplicate:
             filtered_facts.append(fact)

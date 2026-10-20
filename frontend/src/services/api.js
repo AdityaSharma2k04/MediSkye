@@ -566,13 +566,6 @@ export async function clearAllMemoryFacts(dependentId = null) {
 // ── Multi-Document Chat APIs ──
 
 export async function detachChatDocument(chatId, docId) {
-  const res = await fetch(`${API_BASE}/chats/${chatId}/documents/${docId}`, {
-    method: 'DELETE',
-    headers: getAuthHeaders(),
-  });
-  if (!res.ok) {
-    const errData = await res.json().catch(() => ({}));
-    throw new Error(errData.detail || 'Failed to detach document from chat');
-  }
-  return await res.json();
+  const documentId = docId || chatId;
+  return await deleteDocument(documentId);
 }

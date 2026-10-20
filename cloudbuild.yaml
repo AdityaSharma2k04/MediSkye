@@ -13,5 +13,21 @@ steps:
       - '.'
     env:
       - 'DOCKER_BUILDKIT=0'  # Forces the legacy Docker builder instead of BuildKit
+
+  - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
+    entrypoint: gcloud
+    args:
+      - 'run'
+      - 'deploy'
+      - 'mediskye-backend'
+      - '--image=gcr.io/$PROJECT_ID/mediskye:$COMMIT_SHA'
+      - '--region=us-central1'
+      - '--platform=managed'
+      - '--port=8080'
+      - '--no-cpu-throttling'
+      - '--cpu-boost'
+      - '--allow-unauthenticated'
+      - '--set-env-vars=GOOGLE_GENAI_USE_ENTERPRISE=True,GOOGLE_CLOUD_PROJECT=$PROJECT_ID,GOOGLE_CLOUD_LOCATION=us-central1'
+
 images:
   - 'gcr.io/$PROJECT_ID/mediskye:$COMMIT_SHA'

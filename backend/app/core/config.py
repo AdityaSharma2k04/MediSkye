@@ -1,7 +1,7 @@
 import os
 import json
 from pathlib import Path
-from typing import Annotated, List
+from typing import Annotated, List, Optional
 from dotenv import load_dotenv
 from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict, NoDecode
@@ -30,6 +30,12 @@ class Settings(BaseSettings):
     # Security & API Key
     GOOGLE_API_KEY: str = Field(default_factory=lambda: os.getenv("GOOGLE_API_KEY", ""))
     GEMINI_MODEL: str = "gemini-3.8-flash"
+    EMBEDDING_MODEL: str = "models/gemini-embedding-2"
+    GEMINI_FALLBACK_MODELS: List[str] = [
+        "gemini-3.8-flash",
+        "gemini-3.6-flash",
+        "gemini-3.5-flash",
+    ]
     FERNET_KEY: str
     JWT_SECRET_KEY: str
     MEDISKYE_API_KEY: str = ""
@@ -42,9 +48,17 @@ class Settings(BaseSettings):
     SHOW_SPECIALIST_CONTACTS: bool = False
 
     # Vertex AI / Google Cloud credentials
-    GOOGLE_CLOUD_PROJECT: str = "mediskye-backend"
+    GOOGLE_CLOUD_PROJECT: str = Field(
+        default_factory=lambda: os.getenv("GOOGLE_CLOUD_PROJECT", os.getenv("GCP_PROJECT", "mediskye-backend"))
+    )
     GOOGLE_CLOUD_LOCATION: str = "us-central1"
     GOOGLE_GENAI_USE_ENTERPRISE: bool = False
+
+    # Vector Index & Cloud Storage Persistence
+    GCS_INDEX_BUCKET: Optional[str] = None
+    INDEX_STORAGE_DIR: Path = Field(
+        default_factory=lambda: Path(os.getenv("INDEX_STORAGE_DIR", str(Path(__file__).resolve().parent.parent.parent / "indexes")))
+    )
 
     # File Upload Limits
     MEDISKYE_MAX_UPLOAD_MB: int = 50
@@ -65,6 +79,21 @@ class Settings(BaseSettings):
     # Paths
     BASE_DIR: Path = Path(__file__).resolve().parent.parent.parent
     VECTOR_CACHE_DIR: Path = BASE_DIR / ".vector_cache"
+
+    @property
+    def resolved_embedding_model(self) -> str:
+        model = self.EMBEDDING_MODEL
+        if self.GOOGLE_GENAI_USE_ENTERPRISE and model.startswith("models/"):
+            return model.removeprefix("models/")
+        return model
+
+    @property
+    def resolved_fallback_models(self) -> List[str]:
+        models = self.GEMINI_FALLBACK_MODELS
+        if self.GOOGLE_GENAI_USE_ENTERPRISE:
+            return [m.removeprefix("models/") for m in models]
+        return list(models)
+
 
     model_config = SettingsConfigDict(
         env_file=str(env_path),

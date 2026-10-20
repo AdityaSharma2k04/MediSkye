@@ -451,15 +451,22 @@ export default function ChatWindow({
       </div>
 
       {/* PrintableSummary — mounted only when printing */}
-      {showPrintSummary && (
-        <PrintableSummary
-          user={printUser || currentUser}
-          document={activePdf}
-          summary={messages.filter((m) => m.sender === 'assistant').map((m) => m.text).join('\n\n')}
-          metrics={labMetrics}
-          specialists={messages.flatMap((m) => m.specialists || [])}
-        />
-      )}
+      {showPrintSummary && (() => {
+        const activePatient =
+          selectedPatientId && selectedPatientId !== 'self' && (!currentUser || String(selectedPatientId) !== String(currentUser.id))
+            ? dependents?.find((d) => String(d.id) === String(selectedPatientId)) || (printUser || currentUser)
+            : (printUser || currentUser);
+
+        return (
+          <PrintableSummary
+            user={activePatient}
+            document={activePdf}
+            summary={messages.filter((m) => m.sender === 'assistant').map((m) => m.text).join('\n\n')}
+            metrics={labMetrics}
+            specialists={messages.flatMap((m) => m.specialists || [])}
+          />
+        );
+      })()}
 
       {showScrollBtn && (
         <button

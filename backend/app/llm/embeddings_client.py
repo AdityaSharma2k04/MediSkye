@@ -34,7 +34,9 @@ async def embed_content_with_retry(
     Logs structured telemetry.
     Raises GeminiUnavailableError on final failure.
     """
-    target_model = model or "models/gemini-embedding-2"
+    target_model = model or settings.resolved_embedding_model
+    if settings.GOOGLE_GENAI_USE_ENTERPRISE and target_model.startswith("models/"):
+        target_model = target_model.removeprefix("models/")
     api_client = client or get_genai_client()
 
     last_exception = None
