@@ -20,6 +20,7 @@ import {
   deleteDocument,
   deleteAccount,
   updateProfile,
+  getDocumentSummary,
 } from '../services/api';
 import { useNavigate } from 'react-router-dom';
 import { logger } from '../services/logger';
@@ -111,15 +112,11 @@ export default function ChatApp() {
     navigate('/login', { replace: true });
   };
 
-  const [sessionId, setSessionId] = useState(() => {
-    const saved = localStorage.getItem('mediskye_session_id');
-    if (saved && saved !== 'null' && saved !== 'undefined') return saved;
-    const fresh = generateSessionId();
-    try {
-      localStorage.setItem('mediskye_session_id', fresh);
-    } catch (e) {}
-    return fresh;
-  });
+  const [sessionId, setSessionId] = useState(() => generateSessionId());
+  const sessionIdRef = useRef(sessionId);
+  sessionIdRef.current = sessionId;
+  const [loadingHistory, setLoadingHistory] = useState(false);
+  const activeChatFetchRef = useRef(null);
 
   // ── Patient Context & User State ──
   const [currentUser, setCurrentUser] = useState(null);
@@ -159,6 +156,58 @@ export default function ChatApp() {
   const chatInputRef = useRef(null);
   const [toasts, setToasts] = useState([]);
 
+  // Clean up legacy localStorage chat caches on mount
+  useEffect(() => {
+    try {
+      localStorage.removeItem('mediskye_conversations');
+      localStorage.removeItem('mediskye_session_id');
+      localStorage.removeItem('mediskye_last_active_user');
+    } catch (e) {}
+  }, []);
+
+  // In-memory conversation state (Neon DB is the single source of truth)
+  const [conversations, setConversations] = useState(() => [
+    { id: generateSessionId(), title: 'New Conversation', messages: [], pdf: null, patient_id: 'self' },
+  ]);
+
+  // Load chat history from backend with race condition protection
+  const loadChatHistory = useCallback(async (targetDocId, targetSessionId) => {
+    const fetchKey = targetDocId || targetSessionId;
+    activeChatFetchRef.current = fetchKey;
+    setLoadingHistory(true);
+    try {
+      const chats = await getDocumentChats(targetDocId);
+      // Guard against race conditions if user clicked rapidly between two documents
+      if (activeChatFetchRef.current !== fetchKey) {
+        return;
+      }
+      const formatted = Array.isArray(chats)
+        ? chats.map((c) => ({
+            id: c.id,
+            sender: c.role === 'ai' ? 'assistant' : 'user',
+            text: c.message,
+            timestamp: c.created_at
+              ? new Date(c.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+              : '',
+          }))
+        : [];
+
+      setConversations((prev) =>
+        prev.map((item) =>
+          item.id === targetSessionId || (targetDocId && (item.id === targetDocId || item.document_id === targetDocId))
+            ? { ...item, messages: formatted }
+            : item
+        )
+      );
+    } catch (e) {
+      logger.error('Failed to load chat history from backend:', e);
+    } finally {
+      if (activeChatFetchRef.current === fetchKey) {
+        setLoadingHistory(false);
+      }
+    }
+  }, []);
+
   // Load User & Dependents on Mount
   const refreshPatientContext = useCallback(async () => {
     try {
@@ -184,41 +233,6 @@ export default function ChatApp() {
   useEffect(() => {
     refreshPatientContext();
   }, [refreshPatientContext]);
-
-  // Restore conversations from localStorage with account isolation
-  const [conversations, setConversations] = useState(() => {
-    try {
-      const saved = localStorage.getItem('mediskye_conversations');
-      if (saved) {
-        const parsed = JSON.parse(saved);
-        if (Array.isArray(parsed) && parsed.length > 0) {
-          const sanitized = parsed.map((c) => ({
-            ...c,
-            id: c.id && c.id !== 'null' ? c.id : generateSessionId(),
-          }));
-          return sanitized;
-        }
-      }
-    } catch (e) {
-      logger.error('Failed to load conversations from localStorage:', e);
-    }
-    const currentId = localStorage.getItem('mediskye_session_id') || generateSessionId();
-    return [
-      { id: currentId, title: 'New Conversation', messages: [], pdf: null },
-    ];
-  });
-
-  // Keep conversations synchronized in localStorage
-  useEffect(() => {
-    try {
-      localStorage.setItem('mediskye_conversations', JSON.stringify(conversations));
-      if (currentUser?.id && userLoadedRef.current === currentUser.id) {
-        localStorage.setItem(`mediskye_conversations_${currentUser.id}`, JSON.stringify(conversations));
-      }
-    } catch (e) {
-      logger.error('Failed to save conversations to localStorage:', e);
-    }
-  }, [conversations, currentUser]);
 
   // Reusable document refresher: synchronizes server document truth with local state
   const refreshDocuments = useCallback(async (activeDocId = null) => {
@@ -246,7 +260,6 @@ export default function ChatApp() {
           if (nonDocConvs.length > 0) return nonDocConvs;
           const freshId = generateSessionId();
           setSessionId(freshId);
-          localStorage.setItem('mediskye_session_id', freshId);
           setActivePdf(null);
           return [{ id: freshId, title: 'New Conversation', messages: [], pdf: null, patient_id: 'self' }];
         }
@@ -319,23 +332,11 @@ export default function ChatApp() {
         };
         setActivePdf(pdfMeta);
         setSessionId(targetDoc.id);
-        localStorage.setItem('mediskye_session_id', targetDoc.id);
 
-        getDocumentChats(targetDoc.id).then((chats) => {
-          if (Array.isArray(chats) && chats.length > 0) {
-            const formatted = chats.map((c) => ({
-              id: c.id,
-              sender: c.role === 'ai' ? 'assistant' : 'user',
-              text: c.message,
-              timestamp: c.created_at ? new Date(c.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '',
-            }));
-            setConversations((prev) =>
-              prev.map((item) => (item.id === targetDoc.id && (!item.messages || item.messages.length === 0) ? { ...item, messages: formatted } : item))
-            );
-          }
-        }).catch(() => {});
+        loadChatHistory(targetDoc.id, targetDoc.id);
       } else {
         setActivePdf(null);
+        loadChatHistory(null, sessionIdRef.current);
       }
 
       return docs;
@@ -343,33 +344,14 @@ export default function ChatApp() {
       logger.error('Failed to refresh documents:', err);
       return [];
     }
-  }, []);
+  }, [loadChatHistory]);
 
-  // Account switch isolation & pre-linked document loading
+  // Synchronize with server truth on account load / refresh (Neon DB single source of truth)
   useEffect(() => {
     if (currentUser?.id) {
-      const isSwitch = userLoadedRef.current !== null && userLoadedRef.current !== currentUser.id;
+      if (userLoadedRef.current === currentUser.id) return;
       userLoadedRef.current = currentUser.id;
-      const lastUser = localStorage.getItem('mediskye_last_active_user');
-      const isStorageSwitch = lastUser && lastUser !== currentUser.id;
-      const userSaved = localStorage.getItem(`mediskye_conversations_${currentUser.id}`);
 
-      if (userSaved && !isSwitch && !isStorageSwitch) {
-        try {
-          const parsed = JSON.parse(userSaved);
-          if (Array.isArray(parsed) && parsed.length > 0) {
-            const sanitized = parsed.map((c) => ({
-              ...c,
-              id: c.id && c.id !== 'null' ? c.id : generateSessionId(),
-            }));
-            setConversations(sanitized);
-            setSessionId(sanitized[0].id);
-            setActivePdf(sanitized[0].pdf || null);
-          }
-        } catch (e) {}
-      }
-
-      // Always synchronize with server truth on account load / refresh
       refreshDocuments().then((docs) => {
         if (!docs || docs.length === 0) {
           setConversations((prev) => {
@@ -378,6 +360,7 @@ export default function ChatApp() {
             const freshId = generateSessionId();
             setSessionId(freshId);
             setActivePdf(null);
+            loadChatHistory(null, freshId);
             return [{ id: freshId, title: 'New Conversation', messages: [], pdf: null, patient_id: 'self' }];
           });
         }
@@ -390,10 +373,8 @@ export default function ChatApp() {
           return [{ id: freshId, title: 'New Conversation', messages: [], pdf: null, patient_id: 'self' }];
         });
       });
-
-      localStorage.setItem('mediskye_last_active_user', currentUser.id);
     }
-  }, [currentUser, refreshDocuments]);
+  }, [currentUser, refreshDocuments, loadChatHistory]);
 
   // ── Apply theme to DOM and persist the raw preference (incl. 'system') ──
   useEffect(() => {
@@ -593,7 +574,6 @@ export default function ChatApp() {
       // sidebar entry is stable across sessions (re-login fetches by doc.id).
       const prevSessionId = sessionId;
       setSessionId(newDocId);
-      localStorage.setItem('mediskye_session_id', newDocId);
 
       // 1. Optimistically update local conversation state immediately
       setConversations((prev) => {
@@ -820,10 +800,7 @@ export default function ChatApp() {
     if (isExportingSummary) return printSummaryText;
     setIsExportingSummary(true);
 
-    const promptText =
-      'Generate a comprehensive, structured clinical summary of this entire report suitable for printing. Use clean markdown. Do not use emojis. Include an overview, abnormal findings grouped by system, and next steps.';
-
-    let generatedText = '';
+    let summaryTextToUse = '';
     const activeDocId = currentChat?.document_id || activePdf?.id;
     const currentMsgs = currentChat?.messages || messages || [];
     const assistantMsgs = currentMsgs.filter((m) => m.sender === 'assistant');
@@ -831,23 +808,16 @@ export default function ChatApp() {
 
     if (activeDocId) {
       try {
-        await sendQueryStream(
-          promptText,
-          activeDocId,
-          language,
-          (chunk) => {
-            if (chunk.chunk || chunk.token) {
-              generatedText += (chunk.chunk || chunk.token);
-            }
-          },
-          selectedPatientId
-        );
+        const data = await getDocumentSummary(activeDocId);
+        if (data && data.summary && data.summary.trim()) {
+          summaryTextToUse = data.summary.trim();
+        }
       } catch (err) {
-        logger.warn('Failed on-demand summary generation, falling back:', err);
+        logger.warn('Failed to fetch cached document summary, falling back:', err);
       }
     }
 
-    const finalSummary = (generatedText && generatedText.trim()) ? generatedText : fallbackText;
+    const finalSummary = (summaryTextToUse && summaryTextToUse.trim()) ? summaryTextToUse : fallbackText;
     setPrintSummaryText(finalSummary);
     setIsExportingSummary(false);
     return finalSummary;
@@ -875,12 +845,8 @@ export default function ChatApp() {
   };
 
   const handleNewChat = () => {
-    const newId = 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (c) => {
-      const r = (Math.random() * 16) | 0;
-      return (c === 'x' ? r : (r & 0x3) | 0x8).toString(16);
-    });
+    const newId = generateSessionId();
     setSessionId(newId);
-    localStorage.setItem('mediskye_session_id', newId);
     setActivePdf(null);
     setIsProfileOpen(false);
     setConversations((prev) => [
@@ -892,43 +858,23 @@ export default function ChatApp() {
 
   const handleSelectChat = async (id) => {
     setSessionId(id);
-    localStorage.setItem('mediskye_session_id', id);
     const chat = conversations.find((c) => c.id === id);
     if (chat) {
       setActivePdf(chat.pdf || null);
       if (chat.patient_id) {
         setSelectedPatientId(chat.patient_id);
       }
-      if (chat.document_id && (!chat.messages || chat.messages.length === 0)) {
-        try {
-          const chats = await getDocumentChats(chat.document_id);
-          if (Array.isArray(chats) && chats.length > 0) {
-            const formatted = chats.map((c) => ({
-              id: c.id,
-              sender: c.role === 'ai' ? 'assistant' : 'user',
-              text: c.message,
-              timestamp: c.created_at ? new Date(c.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '',
-            }));
-            setConversations((prev) =>
-              prev.map((item) => (item.id === id ? { ...item, messages: formatted } : item))
-            );
-          }
-        } catch (e) {
-          logger.error('Failed to load chats for document:', e);
-        }
-      }
+      const targetDocId = chat.document_id || (chat.pdf ? id : null);
+      await loadChatHistory(targetDocId, id);
+    } else {
+      await loadChatHistory(null, id);
     }
     setIsProfileOpen(false);
   };
 
   const handleClearAllChats = () => {
-    const newId = 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (c) => {
-      const r = (Math.random() * 16) | 0;
-      return (c === 'x' ? r : (r & 0x3) | 0x8).toString(16);
-    });
+    const newId = generateSessionId();
     setSessionId(newId);
-    localStorage.setItem('mediskye_session_id', newId);
-    localStorage.removeItem('mediskye_conversations');
     setActivePdf(null);
     setConversations([{ id: newId, title: 'New Conversation', messages: [], pdf: null, patient_id: selectedPatientId }]);
     showToast('info', 'Chat History Cleared');
@@ -947,15 +893,15 @@ export default function ChatApp() {
         if (newConversations.length === 0) {
           const newId = generateSessionId();
           setSessionId(newId);
-          localStorage.setItem('mediskye_session_id', newId);
           setActivePdf(null);
           return [{ id: newId, title: 'New Conversation', messages: [], pdf: null, patient_id: selectedPatientId }];
         }
         if (id === sessionId || (targetDocId && targetDocId === sessionId)) {
           const nextChat = newConversations[0];
           setSessionId(nextChat.id);
-          localStorage.setItem('mediskye_session_id', nextChat.id);
           setActivePdf(nextChat.pdf || null);
+          const nextDocId = nextChat.document_id || (nextChat.pdf ? nextChat.id : null);
+          loadChatHistory(nextDocId, nextChat.id);
         }
         return newConversations;
       });
@@ -1074,6 +1020,7 @@ export default function ChatApp() {
           toggleSidebar={toggleSidebar}
           messages={messages}
           isGenerating={isGenerating}
+          loadingHistory={loadingHistory}
           onRegenerate={handleRegenerate}
           onSelectSource={(source) => setSelectedSource(source)}
           onSelectSampleQuery={handleSendMessage}

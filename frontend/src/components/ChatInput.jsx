@@ -1,5 +1,6 @@
 import React, { useRef, useState, useEffect, forwardRef, useImperativeHandle } from 'react';
 import { Paperclip, Mic, MicOff, Send, Square, FileText, X } from 'lucide-react';
+import { useTranslation } from 'react-i18next';
 import { startSpeechRecognition } from '../services/speech';
 import PatientContextSelector from './PatientContextSelector';
 
@@ -18,6 +19,7 @@ const ChatInput = forwardRef(({
   onSelectPatient,
   onOpenDependents,
 }, ref) => {
+  const { t } = useTranslation();
   const [text, setText] = useState('');
   const [isListening, setIsListening] = useState(false);
   const recognitionRef = useRef(null);
@@ -62,7 +64,7 @@ const ChatInput = forwardRef(({
       setIsListening(false);
     } else {
       setIsListening(true);
-      if (showToast) showToast('info', 'Listening...', 'Speak your medical question');
+      if (showToast) showToast('info', t('chat.listening', 'Listening...'), t('chat.speak_question', 'Speak your medical question'));
       recognitionRef.current = startSpeechRecognition(
         (transcript) => {
           setText(transcript);
@@ -141,8 +143,8 @@ const ChatInput = forwardRef(({
         <button
           type="button"
           onClick={() => fileInputRef.current?.click()}
-          title="Upload medical report (PDF, JPG, PNG · up to 50MB)"
-          aria-label="Upload medical report"
+          title={t('chat.upload_title', 'Upload medical report (PDF, JPG, PNG · up to 50MB)')}
+          aria-label={t('chat.upload_report', 'Upload medical report')}
           className={`p-2 rounded-xl transition-colors shrink-0 ${
             darkMode
               ? 'text-zinc-400 hover:text-white hover:bg-zinc-800'
@@ -157,7 +159,7 @@ const ChatInput = forwardRef(({
           value={text}
           onChange={(e) => setText(e.target.value)}
           onKeyDown={handleKeyDown}
-          placeholder="Ask a medical question about your report..."
+          placeholder={t('chat.input_placeholder', 'Ask a medical question about your report...')}
           rows={1}
           className={`flex-1 bg-transparent text-sm focus:outline-none resize-none py-1.5 max-h-40 ${
             darkMode
@@ -169,7 +171,7 @@ const ChatInput = forwardRef(({
         <button
           type="button"
           onClick={toggleVoiceInput}
-          title={isListening ? 'Stop listening' : 'Voice input'}
+          title={isListening ? t('chat.stop_listening', 'Stop listening') : t('chat.voice_input', 'Voice input')}
           className={`p-2 rounded-xl transition-colors shrink-0 ${
             isListening
               ? darkMode
@@ -187,7 +189,7 @@ const ChatInput = forwardRef(({
           <button
             type="button"
             onClick={onStopGeneration}
-            title="Stop generation"
+            title={t('chat.stop_generation', 'Stop generation')}
             className={`p-2 rounded-xl transition-opacity shrink-0 ${
               darkMode
                 ? 'bg-white text-black hover:bg-zinc-200'
@@ -200,7 +202,7 @@ const ChatInput = forwardRef(({
           <button
             type="submit"
             disabled={!text.trim()}
-            title="Send message"
+            title={t('chat.send_message', 'Send message')}
             className={`p-2 disabled:opacity-30 rounded-xl transition-all shadow-sm shrink-0 font-bold ${
               darkMode
                 ? 'bg-white hover:bg-zinc-200 text-black'
@@ -213,7 +215,7 @@ const ChatInput = forwardRef(({
       </form>
 
       <div className={`mt-2 text-center text-[11px] ${darkMode ? 'text-zinc-500' : 'text-zinc-400'}`}>
-        MediSkye AI can make mistakes. Always verify critical results with a qualified healthcare professional.
+        {t('chat.disclaimer', 'MediSkye AI can make mistakes. Always verify critical results with a qualified healthcare professional.')}
       </div>
     </div>
   );

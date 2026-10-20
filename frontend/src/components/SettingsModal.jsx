@@ -25,13 +25,19 @@ import useFocusTrap from '../hooks/useFocusTrap';
 import {
   getProfile,
   updateProfile,
-  changePassword,
   updateMemoryConsent,
   getMemoryFacts,
   deleteMemoryFact,
   clearAllMemoryFacts,
 } from '../services/api';
+import {
+  updatePassword,
+  EmailAuthProvider,
+  reauthenticateWithCredential,
+} from 'firebase/auth';
+import { auth, getFirebaseErrorMessage } from '../services/firebase';
 import { logger } from '../services/logger';
+import { useTranslation } from 'react-i18next';
 
 function getCategoryBadgeStyle(type = '') {
   const t = (type || '').toLowerCase();
@@ -61,13 +67,18 @@ const DISCLAIMER_TEXT =
 
 const BLOOD_TYPES = ['Unknown', 'A+', 'A-', 'B+', 'B-', 'AB+', 'AB-', 'O+', 'O-'];
 const BIO_SEXES = ['Prefer not to say', 'Male', 'Female', 'Other'];
-const LANGUAGES = [
-  { code: 'English', label: 'English (US)' },
-  { code: 'Spanish', label: 'Español' },
-  { code: 'Hindi', label: 'हिन्दी' },
-  { code: 'French', label: 'Français' },
-  { code: 'German', label: 'Deutsch' },
+const UI_LANGUAGES = [
+  { code: 'en', label: 'English' },
+  { code: 'hi', label: 'Hindi' },
 ];
+const AI_LANGUAGES = [
+  { code: 'English', label: 'English (US)' },
+  { code: 'Hindi', label: 'Hindi' },
+  { code: 'Spanish', label: 'Spanish' },
+  { code: 'French', label: 'French' },
+  { code: 'German', label: 'German' },
+];
+const LANGUAGES = AI_LANGUAGES;
 
 function Section({ title, icon: Icon, children, darkMode }) {
   return (
@@ -108,42 +119,58 @@ const selectClass = (darkMode) =>
       : 'bg-zinc-50 border-zinc-200 text-zinc-900 focus:border-zinc-400'
   }`;
 
-function ChangePasswordModal({ isOpen, onClose, darkMode, showToast }) {
-  const [current, setCurrent] = useState('');
-  const [next, setNext] = useState('');
-  const [confirm, setConfirm] = useState('');
+function ChangePasswordModal({ isOpen, onClose, darkMode, showToast, isGoogleUser = false }) {
+  const [currentPassword, setCurrentPassword] = useState('');
+  const [newPassword, setNewPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
   const [showCurrent, setShowCurrent] = useState(false);
   const [showNext, setShowNext] = useState(false);
   const [loading, setLoading] = useState(false);
 
   useEffect(() => {
-    if (!isOpen) { setCurrent(''); setNext(''); setConfirm(''); setLoading(false); }
+    if (!isOpen) {
+      setCurrentPassword('');
+      setNewPassword('');
+      setConfirmPassword('');
+      setLoading(false);
+    }
   }, [isOpen]);
 
   useEffect(() => {
     if (!isOpen) return;
-    const handle = (e) => { if (e.key === 'Escape') onClose(); };
+    const handle = (e) => {
+      if (e.key === 'Escape') onClose();
+    };
     document.addEventListener('keydown', handle);
     return () => document.removeEventListener('keydown', handle);
   }, [isOpen, onClose]);
 
   if (!isOpen) return null;
 
-  const canSave = current && next.length >= 8 && next === confirm;
+  const canSave = !isGoogleUser && currentPassword && newPassword.length >= 8 && newPassword === confirmPassword;
 
-  const handleSave = async () => {
+  const handleChangePassword = async () => {
     if (!canSave || loading) return;
+    if (!auth?.currentUser) {
+      if (showToast) showToast('error', 'Password Change Failed', 'No authenticated user found');
+      return;
+    }
     setLoading(true);
     try {
-      await changePassword(current, next);
+      const credential = EmailAuthProvider.credential(auth.currentUser.email, currentPassword);
+      await reauthenticateWithCredential(auth.currentUser, credential);
+      await updatePassword(auth.currentUser, newPassword);
       if (showToast) showToast('success', 'Password Changed', 'Password changed successfully');
       onClose();
     } catch (err) {
-      if (showToast) showToast('error', 'Password Change Failed', err.message);
+      const errorMsg = getFirebaseErrorMessage(err);
+      if (showToast) showToast('error', 'Password Change Failed', errorMsg || err.message);
     } finally {
       setLoading(false);
     }
   };
+
+  const handleSave = handleChangePassword;
 
   return (
     <div
@@ -166,56 +193,66 @@ function ChangePasswordModal({ isOpen, onClose, darkMode, showToast }) {
           </button>
         </div>
         <div className="px-5 py-4 space-y-3">
-          <Field label="Current password" darkMode={darkMode}>
-            <div className="relative">
-              <input
-                type={showCurrent ? 'text' : 'password'}
-                value={current}
-                onChange={(e) => setCurrent(e.target.value)}
-                aria-label="Current password"
-                className={inputClass(darkMode) + ' pr-9'}
-              />
-              <button type="button" onClick={() => setShowCurrent(!showCurrent)} aria-label="Toggle password visibility" className={`absolute right-2.5 top-2 ${darkMode ? 'text-zinc-500 hover:text-zinc-300' : 'text-zinc-400 hover:text-zinc-600'}`}>
-                {showCurrent ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
-              </button>
-            </div>
-          </Field>
-          <Field label="New password (min 8 characters)" darkMode={darkMode}>
-            <div className="relative">
-              <input
-                type={showNext ? 'text' : 'password'}
-                value={next}
-                onChange={(e) => setNext(e.target.value)}
-                aria-label="New password"
-                className={inputClass(darkMode) + ' pr-9'}
-              />
-              <button type="button" onClick={() => setShowNext(!showNext)} aria-label="Toggle password visibility" className={`absolute right-2.5 top-2 ${darkMode ? 'text-zinc-500 hover:text-zinc-300' : 'text-zinc-400 hover:text-zinc-600'}`}>
-                {showNext ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
-              </button>
-            </div>
-          </Field>
-          <Field label="Confirm new password" darkMode={darkMode}>
-            <input
-              type="password"
-              value={confirm}
-              onChange={(e) => setConfirm(e.target.value)}
-              aria-label="Confirm new password"
-              className={inputClass(darkMode)}
-            />
-            {confirm && next !== confirm && (
-              <p className="text-[10px] text-red-400 mt-1">Passwords do not match</p>
-            )}
-          </Field>
+          {isGoogleUser ? (
+            <p className={`text-xs leading-relaxed p-3 rounded-xl border ${darkMode ? 'bg-zinc-800/60 border-zinc-700 text-zinc-300' : 'bg-zinc-100 border-zinc-200 text-zinc-600'}`}>
+              You signed in with Google. To set a password, use the 'Forgot Password' link on the login page.
+            </p>
+          ) : (
+            <>
+              <Field label="Current password" darkMode={darkMode}>
+                <div className="relative">
+                  <input
+                    type={showCurrent ? 'text' : 'password'}
+                    value={currentPassword}
+                    onChange={(e) => setCurrentPassword(e.target.value)}
+                    aria-label="Current password"
+                    className={inputClass(darkMode) + ' pr-9'}
+                  />
+                  <button type="button" onClick={() => setShowCurrent(!showCurrent)} aria-label="Toggle password visibility" className={`absolute right-2.5 top-2 ${darkMode ? 'text-zinc-500 hover:text-zinc-300' : 'text-zinc-400 hover:text-zinc-600'}`}>
+                    {showCurrent ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
+                  </button>
+                </div>
+              </Field>
+              <Field label="New password (min 8 characters)" darkMode={darkMode}>
+                <div className="relative">
+                  <input
+                    type={showNext ? 'text' : 'password'}
+                    value={newPassword}
+                    onChange={(e) => setNewPassword(e.target.value)}
+                    aria-label="New password"
+                    className={inputClass(darkMode) + ' pr-9'}
+                  />
+                  <button type="button" onClick={() => setShowNext(!showNext)} aria-label="Toggle password visibility" className={`absolute right-2.5 top-2 ${darkMode ? 'text-zinc-500 hover:text-zinc-300' : 'text-zinc-400 hover:text-zinc-600'}`}>
+                    {showNext ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
+                  </button>
+                </div>
+              </Field>
+              <Field label="Confirm new password" darkMode={darkMode}>
+                <input
+                  type="password"
+                  value={confirmPassword}
+                  onChange={(e) => setConfirmPassword(e.target.value)}
+                  aria-label="Confirm new password"
+                  className={inputClass(darkMode)}
+                />
+                {confirmPassword && newPassword !== confirmPassword && (
+                  <p className="text-[10px] text-red-400 mt-1">Passwords do not match</p>
+                )}
+              </Field>
+            </>
+          )}
         </div>
         <div className={`px-5 py-3 flex justify-end gap-2 border-t ${darkMode ? 'border-zinc-800 bg-zinc-950' : 'border-zinc-100 bg-zinc-50'}`}>
           <button onClick={onClose} className={`px-4 py-2 text-xs rounded-xl border ${darkMode ? 'border-zinc-700 text-zinc-300 hover:bg-zinc-800' : 'border-zinc-200 text-zinc-600 hover:bg-zinc-100'}`}>Cancel</button>
-          <button
-            disabled={!canSave || loading}
-            onClick={handleSave}
-            className={`px-4 py-2 text-xs font-medium rounded-xl text-white transition-colors ${canSave && !loading ? 'bg-zinc-900 hover:bg-zinc-800 dark:bg-zinc-100 dark:text-zinc-900 dark:hover:bg-zinc-200' : 'bg-zinc-500 opacity-50 cursor-not-allowed'}`}
-          >
-            {loading ? 'Saving...' : 'Save'}
-          </button>
+          {!isGoogleUser && (
+            <button
+              disabled={!canSave || loading}
+              onClick={handleChangePassword}
+              className={`px-4 py-2 text-xs font-medium rounded-xl text-white transition-colors ${canSave && !loading ? 'bg-zinc-900 hover:bg-zinc-800 dark:bg-zinc-100 dark:text-zinc-900 dark:hover:bg-zinc-200' : 'bg-zinc-500 opacity-50 cursor-not-allowed'}`}
+            >
+              {loading ? 'Saving...' : 'Save'}
+            </button>
+          )}
         </div>
       </div>
     </div>
@@ -276,12 +313,33 @@ export default function SettingsModal({
   currentUser,
   onProfileUpdated,
 }) {
+  const { t, i18n } = useTranslation();
   const [theme, setTheme] = useState(darkMode ? 'dark' : 'light');
   const [showPassword, setShowPassword] = useState(false);
   const [showDisclaimer, setShowDisclaimer] = useState(false);
   const [showClearConfirm, setShowClearConfirm] = useState(false);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [showClearMemoryConfirm, setShowClearMemoryConfirm] = useState(false);
+
+  // Check if current user signed in with Google
+  const isGoogleUser = Boolean(
+    auth?.currentUser?.providerData?.some((p) => p?.providerId === 'google.com' || p?.providerId === 'google') ||
+    currentUser?.provider === 'google' ||
+    currentUser?.provider === 'google.com' ||
+    currentUser?.auth_provider === 'google' ||
+    currentUser?.auth_provider === 'google.com' ||
+    currentUser?.isGoogleUser ||
+    (() => {
+      try {
+        const token = typeof window !== 'undefined' ? localStorage.getItem('token') : null;
+        if (token) {
+          const payload = JSON.parse(atob(token.split('.')[1]));
+          return payload?.firebase?.sign_in_provider === 'google.com';
+        }
+      } catch (e) {}
+      return false;
+    })()
+  );
 
   // Patient Memory State
   const [memoryConsent, setMemoryConsent] = useState(currentUser?.memory_consent_granted ?? false);
@@ -469,6 +527,13 @@ export default function SettingsModal({
     }
   };
 
+  const handleUiLanguageChange = (value) => {
+    i18n.changeLanguage(value);
+    try {
+      localStorage.setItem('mediskye_ui_lang', value);
+    } catch (e) {}
+  };
+
   useFocusTrap(modalRef, isOpen, onClose);
 
   if (!isOpen) return null;
@@ -586,17 +651,26 @@ export default function SettingsModal({
             </Section>
 
             {/* ── PREFERENCES ── */}
-            <Section title="Preferences" icon={Palette} darkMode={darkMode}>
-              <Field label="Language" darkMode={darkMode}>
+            <Section title={t('settings.preferences', 'Preferences')} icon={Palette} darkMode={darkMode}>
+              <Field label={t('settings.ui_language', 'App Interface Language')} darkMode={darkMode}>
+                <select
+                  value={i18n.language?.startsWith('hi') ? 'hi' : 'en'}
+                  onChange={(e) => handleUiLanguageChange(e.target.value)}
+                  className={selectClass(darkMode)}
+                >
+                  {UI_LANGUAGES.map((l) => <option key={l.code} value={l.code}>{l.label}</option>)}
+                </select>
+              </Field>
+              <Field label={t('settings.ai_language', 'AI Response Language')} darkMode={darkMode}>
                 <select
                   value={language || 'English'}
                   onChange={(e) => handleLanguageChange(e.target.value)}
                   className={selectClass(darkMode)}
                 >
-                  {LANGUAGES.map((l) => <option key={l.code} value={l.code}>{l.label}</option>)}
+                  {AI_LANGUAGES.map((l) => <option key={l.code} value={l.code}>{l.label}</option>)}
                 </select>
               </Field>
-              <Field label="Theme" darkMode={darkMode}>
+              <Field label={t('settings.theme', 'Theme')} darkMode={darkMode}>
                 <div className={`flex rounded-xl border overflow-hidden ${darkMode ? 'border-zinc-700' : 'border-zinc-200'}`}>
                   {themeOptions.map(({ value, label, icon: Icon }) => (
                     <button
@@ -751,14 +825,28 @@ export default function SettingsModal({
             <Section title="Security" icon={Lock} darkMode={darkMode}>
               <div className="flex flex-col gap-2">
                 <button
-                  onClick={() => setShowPassword(true)}
+                  type="button"
+                  disabled={isGoogleUser}
+                  onClick={() => !isGoogleUser && setShowPassword(true)}
+                  aria-label="Change password"
                   className={`w-full flex items-center justify-between px-3 py-2.5 rounded-xl border text-xs transition-colors ${
-                    darkMode ? 'border-zinc-700 text-zinc-300 hover:bg-zinc-800' : 'border-zinc-200 text-zinc-700 hover:bg-zinc-50'
+                    isGoogleUser
+                      ? darkMode
+                        ? 'border-zinc-800 text-zinc-500 cursor-not-allowed opacity-60'
+                        : 'border-zinc-200 text-zinc-400 cursor-not-allowed opacity-60'
+                      : darkMode
+                        ? 'border-zinc-700 text-zinc-300 hover:bg-zinc-800'
+                        : 'border-zinc-200 text-zinc-700 hover:bg-zinc-50'
                   }`}
                 >
                   <span className="flex items-center gap-2"><Lock className="w-3.5 h-3.5" /> Change password</span>
-                  <span className={`text-[10px] ${darkMode ? 'text-zinc-500' : 'text-zinc-400'}`}>→</span>
+                  {!isGoogleUser && <span className={`text-[10px] ${darkMode ? 'text-zinc-500' : 'text-zinc-400'}`}>→</span>}
                 </button>
+                {isGoogleUser && (
+                  <p className={`text-[11px] leading-relaxed px-0.5 ${darkMode ? 'text-zinc-400' : 'text-zinc-500'}`}>
+                    You signed in with Google. To set a password, use the 'Forgot Password' link on the login page.
+                  </p>
+                )}
               </div>
             </Section>
 
@@ -844,6 +932,7 @@ export default function SettingsModal({
         onClose={() => setShowPassword(false)}
         darkMode={darkMode}
         showToast={showToast}
+        isGoogleUser={isGoogleUser}
       />
 
       <DisclaimerModal

@@ -4,15 +4,17 @@ import {
   Printer, Table, MessageSquare, AlertCircle, Sun, Moon, X,
   ChevronLeft, ChevronRight
 } from 'lucide-react';
+import { useTranslation } from 'react-i18next';
 import ChatMessage from './ChatMessage';
 import LabMetrics from './LabMetrics';
 import PrintableSummary from './PrintableSummary';
-import { fetchLabMetrics, getProfile, sendQueryStream } from '../services/api';
+import { fetchLabMetrics, getProfile, sendQueryStream, getDocumentSummary } from '../services/api';
 import PatientContextSelector from './PatientContextSelector';
 
 export default function ChatWindow({
   messages,
   isGenerating,
+  loadingHistory = false,
   onRegenerate,
   onSelectSource,
   onSelectSampleQuery,
@@ -36,7 +38,7 @@ export default function ChatWindow({
   printSummaryText: propPrintSummaryText,
   onExportSummary,
 }) {
-
+  const { t } = useTranslation();
   const scrollRef = useRef(null);
   const [showScrollBtn, setShowScrollBtn] = useState(false);
   const [viewMode, setViewMode] = useState('chat');
@@ -116,30 +118,23 @@ export default function ChatWindow({
       summaryTextToUse = await onExportSummary();
     } else {
       setLocalIsExporting(true);
-      const promptText =
-        'Generate a comprehensive, structured clinical summary of this entire report suitable for printing. Use clean markdown. Do not use emojis. Include an overview, abnormal findings grouped by system, and next steps.';
-
-      let generatedText = '';
       const assistantMsgs = (messages || []).filter((m) => m.sender === 'assistant');
       const fallbackText = assistantMsgs.length > 0 ? assistantMsgs[assistantMsgs.length - 1].text : '';
 
       if (documentId) {
         try {
-          await sendQueryStream(
-            promptText,
-            documentId,
-            'English',
-            (chunk) => {
-              if (chunk.chunk || chunk.token) {
-                generatedText += (chunk.chunk || chunk.token);
-              }
-            },
-            selectedPatientId
-          );
-        } catch (_) {}
+          const res = await getDocumentSummary(documentId);
+          if (res && res.summary) {
+            summaryTextToUse = res.summary.trim();
+          }
+        } catch (_) {
+          summaryTextToUse = fallbackText;
+        }
+      } else {
+        summaryTextToUse = fallbackText;
       }
 
-      summaryTextToUse = (generatedText && generatedText.trim()) ? generatedText : fallbackText;
+      summaryTextToUse = (summaryTextToUse && summaryTextToUse.trim()) ? summaryTextToUse : fallbackText;
       setLocalPrintSummaryText(summaryTextToUse);
       setLocalIsExporting(false);
     }
@@ -266,7 +261,7 @@ export default function ChatWindow({
                   }`}
                 >
                   <MessageSquare className="w-3.5 h-3.5" />
-                  <span>Chat</span>
+                  <span>{t('chat.view_chat', 'Chat')}</span>
                 </button>
                 <button
                   onClick={loadMetrics}
@@ -282,14 +277,14 @@ export default function ChatWindow({
                   }`}
                 >
                   <Table className="w-3.5 h-3.5" />
-                  <span>Lab Metrics</span>
+                  <span>{t('chat.lab_metrics', 'Lab Metrics')}</span>
                 </button>
               </div>
 
               <button
                 onClick={handlePrintDoctorSummary}
                 disabled={isExporting}
-                aria-label="Export printable doctor consultation summary"
+                aria-label="Export Summary"
                 className={`px-3 py-1.5 rounded-xl text-xs flex items-center gap-1.5 transition-colors border ${
                   isExporting ? 'opacity-70 cursor-not-allowed ' : ''
                 }${
@@ -301,7 +296,7 @@ export default function ChatWindow({
               >
                 <Printer className="w-3.5 h-3.5" />
                 <span className="hidden sm:inline">
-                  {isExporting ? 'Generating Summary...' : 'Export Summary'}
+                  {isExporting ? t('chat.preparing_summary', 'Preparing Summary...') : t('chat.export_summary', 'Export Summary')}
                 </span>
               </button>
             </>
@@ -314,7 +309,7 @@ export default function ChatWindow({
         <div className={`flex items-center gap-2 px-4 sm:px-6 py-2 border-b overflow-x-auto text-xs shrink-0 ${
           darkMode ? 'bg-zinc-950/80 border-zinc-800' : 'bg-zinc-100/70 border-zinc-200'
         }`}>
-          <span className={`text-[11px] font-medium shrink-0 ${textMuted}`}>Attached Reports:</span>
+          <span className={`text-[11px] font-medium shrink-0 ${textMuted}`}>{t('chat.attached_reports', 'Attached Reports:')}</span>
           <div className="flex items-center gap-2 flex-wrap sm:flex-nowrap">
             {attachedDocuments.map((doc) => (
               <div
@@ -353,7 +348,7 @@ export default function ChatWindow({
                   : 'border-zinc-300 text-zinc-600 hover:border-zinc-400 hover:text-zinc-900'
               }`}
             >
-              <span>+ Add Report</span>
+              <span>{t('chat.add_report', '+ Add Report')}</span>
             </button>
           </div>
         </div>
@@ -368,15 +363,15 @@ export default function ChatWindow({
           loadingMetrics ? (
             <div className={`p-8 text-center rounded-2xl animate-pulse border mt-4 ${cardBg} ${cardBorder}`}>
               <Sparkles className={`w-6 h-6 mx-auto mb-2 animate-spin ${textSecondary}`} />
-              <div className={`text-sm font-medium ${darkMode ? 'text-zinc-300' : 'text-zinc-700'}`}>Extracting Lab Value Metrics...</div>
-              <div className={`text-xs mt-1 ${textMuted}`}>Analyzing numerical bounds &amp; reference ranges</div>
+              <div className={`text-sm font-medium ${darkMode ? 'text-zinc-300' : 'text-zinc-700'}`}>{t('chat.extracting_metrics', 'Extracting Lab Value Metrics...')}</div>
+              <div className={`text-xs mt-1 ${textMuted}`}>{t('chat.analyzing_ranges', 'Analyzing numerical bounds & reference ranges')}</div>
             </div>
           ) : labMetrics.length === 0 ? (
             <div className={`p-8 text-center rounded-2xl border mt-4 ${cardBg} ${cardBorder}`}>
               <AlertCircle className={`w-8 h-8 mx-auto mb-3 ${textMuted}`} />
-              <div className={`text-sm font-semibold mb-1 ${textPrimary}`}>No Lab Values Found</div>
+              <div className={`text-sm font-semibold mb-1 ${textPrimary}`}>{t('chat.no_metrics_found', 'No Lab Values Found')}</div>
               <div className={`text-xs max-w-md mx-auto ${textSecondary}`}>
-                Upload a text-based diagnostic PDF report (e.g. CBC Blood Test or Lipid Panel) to extract structured lab metrics.
+                {t('chat.no_metrics_desc', 'Upload a text-based diagnostic PDF report (e.g. CBC Blood Test or Lipid Panel) to extract structured lab metrics.')}
               </div>
             </div>
           ) : (
@@ -386,6 +381,12 @@ export default function ChatWindow({
               onBack={() => setViewMode('chat')}
             />
           )
+        ) : loadingHistory ? (
+          <div className="min-h-[72vh] flex flex-col items-center justify-center text-center max-w-2xl mx-auto py-8 animate-fade-in">
+            <Sparkles className={`w-8 h-8 animate-spin ${textSecondary} mb-3`} />
+            <div className={`text-sm font-medium ${darkMode ? 'text-zinc-300' : 'text-zinc-700'}`}>{t('chat.loading_conversation', 'Loading Conversation...')}</div>
+            <div className={`text-xs mt-1 ${textMuted}`}>{t('chat.fetching_messages', 'Fetching latest messages from Neon DB')}</div>
+          </div>
         ) : messages.length === 0 ? (
           /* ── A1: EMPTY STATE ── */
           <div className="min-h-[72vh] flex flex-col items-center justify-center text-center max-w-2xl mx-auto py-8 animate-fade-in">
@@ -402,8 +403,8 @@ export default function ChatWindow({
             {/* A7: Personal welcome message */}
             <p className={`text-sm mb-6 max-w-lg leading-relaxed ${textSecondary}`}>
               {firstName
-                ? `Welcome back, ${firstName}. Upload a report to get started, or ask a general health question.`
-                : 'Upload a medical report to get started, or ask a general health question below.'}
+                ? t('chat.welcome_user', { name: firstName, defaultValue: `Welcome back, ${firstName}. Upload a report to get started, or ask a general health question.` })
+                : t('chat.welcome_guest', 'Upload a medical report to get started, or ask a general health question below.')}
             </p>
 
             {/* Active Patient Lens Selector */}
@@ -434,10 +435,10 @@ export default function ChatWindow({
                   <Upload className="w-4 h-4" />
                 </div>
                 <div className={`font-semibold text-sm mb-1 ${textPrimary}`}>
-                  Upload Medical Report (PDF)
+                  {t('chat.upload_title', 'Upload Medical Report (PDF)')}
                 </div>
                 <div className={`text-xs ${textSecondary}`}>
-                  Drag &amp; drop or click to select file • Supports files up to <strong>50MB</strong>
+                  {t('chat.upload_subtitle', 'Drag & drop or click to select file • Supports files up to 50MB')}
                 </div>
               </div>
             ) : null}
@@ -468,7 +469,7 @@ export default function ChatWindow({
             <div className={`mt-8 flex items-center gap-2 text-xs ${textMuted}`}>
               <Shield className="w-3.5 h-3.5" />
               {/* A6: No HIPAA claim */}
-              <span>End-to-end encrypted session • Discarded on close</span>
+              <span>{t('chat.encrypted_session', 'End-to-end encrypted session • Discarded on close')}</span>
             </div>
           </div>
         ) : (

@@ -8,8 +8,10 @@ import {
   updateProfile,
   getFirebaseErrorMessage,
 } from '../services/firebase';
+import { useTranslation } from 'react-i18next';
 
 export default function Register() {
+  const { t } = useTranslation();
   const navigate = useNavigate();
   const [email, setEmail] = useState('');
   const [fullName, setFullName] = useState('');
@@ -51,7 +53,7 @@ export default function Register() {
           localStorage.setItem('mediskye_user_email', userEmail);
         }
         localStorage.setItem('token', token);
-        navigate('/');
+        navigate('/chat');
       }
     } catch (err) {
       if (err.code === 'auth/popup-closed-by-user' || err.code === 'auth/cancelled-popup-request') {
@@ -135,7 +137,7 @@ export default function Register() {
 
       setSuccess('Account created! Redirecting to MediSkye…');
       setTimeout(() => {
-        navigate('/');
+        navigate('/chat');
       }, 600);
     } catch (err) {
       setError(getFirebaseErrorMessage(err));
@@ -160,9 +162,9 @@ export default function Register() {
         </div>
 
         {/* Heading */}
-        <h1 className="login-title">Create your account</h1>
+        <h1 className="login-title">{t('auth.register_title', 'Create your account')}</h1>
         <p className="login-subtitle">
-          Join MediSkye to start understanding your medical reports in plain language.
+          {t('auth.register_subtitle', 'Join MediSkye to start understanding your medical reports in plain language.')}
         </p>
 
         {/* Error */}
@@ -195,12 +197,12 @@ export default function Register() {
           onClick={handleGoogleSignIn}
           disabled={googleLoading || loading}
           className="login-btn-google"
-          aria-label="Sign up with Google"
+          aria-label={t('auth.google_signup', 'Sign up with Google')}
         >
           {googleLoading ? (
             <>
               <span className="login-google-spinner" />
-              <span>Signing up with Google...</span>
+              <span>{t('auth.google_signing_up', 'Signing up with Google...')}</span>
             </>
           ) : (
             <>
@@ -210,14 +212,14 @@ export default function Register() {
                 <path d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z" fill="#FBBC05"/>
                 <path d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z" fill="#EA4335"/>
               </svg>
-              <span>Sign up with Google</span>
+              <span>{t('auth.google_signup', 'Sign up with Google')}</span>
             </>
           )}
         </button>
 
         {/* Divider */}
         <div className="login-divider login-divider-subtle">
-          <span>or continue with email</span>
+          <span>{t('auth.or_email', 'or continue with email')}</span>
         </div>
 
         {/* Step 1: Email */}
@@ -233,14 +235,14 @@ export default function Register() {
                   setEmail(e.target.value);
                   if (error) setError('');
                 }}
-                placeholder="Email address"
+                placeholder={t('auth.email_placeholder', 'Email address')}
                 autoFocus
                 autoComplete="email"
               />
             </div>
 
             <button type="submit" className="login-btn-primary">
-              Continue
+              {t('auth.continue', 'Continue')}
             </button>
           </form>
         )}
@@ -262,7 +264,7 @@ export default function Register() {
                 type="text"
                 value={fullName}
                 onChange={(e) => setFullName(e.target.value)}
-                placeholder="Full name (optional)"
+                placeholder={t('auth.fullname_placeholder', 'Full name (optional)')}
                 autoComplete="name"
               />
             </div>
@@ -279,12 +281,12 @@ export default function Register() {
                   setPassword(e.target.value);
                   if (error) setError('');
                 }}
-                placeholder="Create a password"
+                placeholder={t('auth.create_password_placeholder', 'Create a password')}
                 autoFocus
                 autoComplete="new-password"
               />
             </div>
-            <p className="login-password-hint">Must be 8 to 72 characters</p>
+            <p className="login-password-hint">{t('auth.password_hint', 'Must be 8 to 72 characters')}</p>
 
             <label className="flex items-start gap-3 mt-4 mb-2 cursor-pointer group select-none">
               <div className="relative flex items-center justify-center mt-0.5 flex-shrink-0">
@@ -319,7 +321,7 @@ export default function Register() {
                 </div>
               </div>
               <span className="text-xs text-zinc-600 dark:text-zinc-400 leading-relaxed group-hover:text-zinc-900 dark:group-hover:text-zinc-200 transition-colors">
-                I acknowledge and consent that my Protected Health Information (PHI) will be processed by Google Gemini for AI-driven insights.
+                {t('auth.phi_consent', 'I acknowledge and consent that my Protected Health Information (PHI) will be processed by Google Gemini for AI-driven insights.')}
               </span>
             </label>
 
@@ -327,9 +329,9 @@ export default function Register() {
               {loading ? (
                 <span className="login-spinner" />
               ) : success ? (
-                'Redirecting…'
+                t('auth.redirecting', 'Redirecting…')
               ) : (
-                'Create account'
+                t('auth.create_account', 'Create account')
               )}
             </button>
           </form>
@@ -342,12 +344,12 @@ export default function Register() {
 
         {/* Switch to Login */}
         <Link to="/login" className="login-btn-secondary">
-          Already have an account? Sign in
+          {t('auth.switch_to_login', 'Already have an account? Sign in')}
         </Link>
 
         {/* Footer */}
         <p className="login-footer">
-          MediSkye AI — Making medical reports understandable for everyone.
+          {t('auth.tagline', 'MediSkye AI — Making medical reports understandable for everyone.')}
         </p>
       </div>
     </div>

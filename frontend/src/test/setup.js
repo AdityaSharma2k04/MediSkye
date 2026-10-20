@@ -1,4 +1,5 @@
 import '@testing-library/jest-dom';
+import '../i18n';
 
 // Polyfill window.matchMedia for JSDOM
 if (typeof window !== 'undefined' && !window.matchMedia) {

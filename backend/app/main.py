@@ -61,11 +61,30 @@ async def lifespan(app: FastAPI):
 
     # DEV ONLY: auto-create tables for SQLite convenience
     # In production, Alembic migrations are the source of truth
-    if settings.ENV == "development":
-        import app.db.models
-        from app.db.database import engine, Base
-        async with engine.begin() as conn:
+    import app.db.models
+    from app.db.database import engine, Base
+    async with engine.begin() as conn:
+        if settings.ENV == "development":
             await conn.run_sync(Base.metadata.create_all)
+
+        def _ensure_document_cache_columns(sync_conn):
+            from sqlalchemy import inspect, text
+            inspector = inspect(sync_conn)
+            if "documents" in inspector.get_table_names():
+                existing_cols = {c["name"] for c in inspector.get_columns("documents")}
+                dialect = sync_conn.dialect.name
+                if "cached_metrics" not in existing_cols:
+                    if dialect == "postgresql":
+                        sync_conn.execute(text("ALTER TABLE documents ADD COLUMN IF NOT EXISTS cached_metrics JSON"))
+                    else:
+                        sync_conn.execute(text("ALTER TABLE documents ADD COLUMN cached_metrics JSON"))
+                if "cached_summary" not in existing_cols:
+                    if dialect == "postgresql":
+                        sync_conn.execute(text("ALTER TABLE documents ADD COLUMN IF NOT EXISTS cached_summary TEXT"))
+                    else:
+                        sync_conn.execute(text("ALTER TABLE documents ADD COLUMN cached_summary TEXT"))
+
+        await conn.run_sync(_ensure_document_cache_columns)
 
     yield
     

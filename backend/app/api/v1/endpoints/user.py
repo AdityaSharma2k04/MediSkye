@@ -60,7 +60,9 @@ async def update_user_me(
     return user_res
 
 
-@router.post("/users/me/password")
+# DEPRECATED: Password changes are now managed directly via Firebase Auth.
+# Kept for backward compatibility with legacy clients and tests.
+@router.post("/users/me/password", deprecated=True)
 @limiter.limit("5/minute")
 async def change_password(
     body: PasswordChange,
@@ -68,7 +70,10 @@ async def change_password(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    """Change the current user's password after verifying their existing password."""
+    """
+    DEPRECATED: Password changes are now managed directly via Firebase Auth.
+    Change the current user's password after verifying their existing password.
+    """
     if not verify_password(body.current_password, current_user.hashed_password):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
@@ -125,6 +130,27 @@ async def get_my_documents(
             "dependent_id": str(doc.dependent_id) if doc.dependent_id else None
         }
         for doc in docs
+    ]
+
+@router.get("/users/me/chats")
+async def get_general_chats(
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    result = await db.execute(
+        select(Chat)
+        .filter(Chat.user_id == current_user.id, Chat.document_id.is_(None))
+        .order_by(Chat.created_at.asc())
+    )
+    chats = result.scalars().all()
+    return [
+        {
+            "id": str(c.id),
+            "role": c.role,
+            "message": c.message,
+            "created_at": c.created_at.isoformat() if c.created_at else None
+        }
+        for c in chats
     ]
 
 @router.get("/users/me/documents/{document_id}/chats")

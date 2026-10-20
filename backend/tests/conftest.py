@@ -29,9 +29,28 @@ async def setup_test_database():
     CI uses :memory: with StaticPool, so this is what actually creates the schema.
     """
     from app.db.database import Base, engine
+    from sqlalchemy import inspect, text
 
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
+
+        def _ensure_document_cache_columns(sync_conn):
+            inspector = inspect(sync_conn)
+            if "documents" in inspector.get_table_names():
+                existing_cols = {c["name"] for c in inspector.get_columns("documents")}
+                dialect = sync_conn.dialect.name
+                if "cached_metrics" not in existing_cols:
+                    if dialect == "postgresql":
+                        sync_conn.execute(text("ALTER TABLE documents ADD COLUMN IF NOT EXISTS cached_metrics JSON"))
+                    else:
+                        sync_conn.execute(text("ALTER TABLE documents ADD COLUMN cached_metrics JSON"))
+                if "cached_summary" not in existing_cols:
+                    if dialect == "postgresql":
+                        sync_conn.execute(text("ALTER TABLE documents ADD COLUMN IF NOT EXISTS cached_summary TEXT"))
+                    else:
+                        sync_conn.execute(text("ALTER TABLE documents ADD COLUMN cached_summary TEXT"))
+
+        await conn.run_sync(_ensure_document_cache_columns)
 
     yield
 

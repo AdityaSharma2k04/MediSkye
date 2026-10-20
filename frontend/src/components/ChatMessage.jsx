@@ -16,7 +16,6 @@ import {
   ChevronDown,
   AlertTriangle,
 } from 'lucide-react';
-import RagSourcesPanel from './RagSourcesPanel';
 import { speakText, stopSpeaking } from '../services/speech';
 
 export const stripAbnormalFlags = (text) => {
@@ -204,49 +203,6 @@ export default function ChatMessage({ message, onRegenerate, onSelectSource, sho
                   </table>
                 </div>
               )}
-            </div>
-          )}
-
-          {message.sources && message.sources.length > 0 && (
-            <RagSourcesPanel sources={message.sources} onSelectSource={onSelectSource} darkMode={darkMode} />
-          )}
-
-
-          {message.specialists && message.specialists.length > 0 && (
-            <div className={`mt-4 rounded-xl p-4 text-sm shadow-sm border ${
-              darkMode ? 'bg-zinc-900 border-zinc-800' : 'bg-zinc-50 border-zinc-200'
-            }`}>
-              <div className={`flex items-center gap-2 mb-2 font-semibold ${darkMode ? 'text-white' : 'text-zinc-900'}`}>
-                <Stethoscope className={`w-4 h-4 ${darkMode ? 'text-zinc-400' : 'text-zinc-500'}`} />
-                Recommended Next Steps
-              </div>
-              <p className={`text-xs mb-4 leading-relaxed ${darkMode ? 'text-zinc-400' : 'text-zinc-500'}`}>
-                Based on the abnormal findings in your query or report, you may want to consult the following specialists.
-                <strong className={`font-medium ml-1 ${darkMode ? 'text-zinc-300' : 'text-zinc-700'}`}>Disclaimer: These are algorithmic suggestions, not definitive medical referrals. Always consult your primary care physician.</strong>
-              </p>
-              <div className="space-y-2">
-                {message.specialists.map((sp, idx) => (
-                  <div key={idx} className={`p-3 rounded-lg flex flex-col sm:flex-row justify-between sm:items-center gap-2 transition-colors border ${
-                    darkMode
-                      ? 'bg-[#121212] border-zinc-800 hover:border-zinc-700'
-                      : 'bg-white border-zinc-200 hover:border-zinc-400'
-                  }`}>
-                    <div>
-                      <div className={`font-medium text-sm ${darkMode ? 'text-zinc-100' : 'text-zinc-900'}`}>{sp.name}</div>
-                      <div className={`text-xs mt-0.5 ${darkMode ? 'text-zinc-400' : 'text-zinc-500'}`}>
-                        <span className={darkMode ? 'text-zinc-300' : 'text-zinc-700'}>{sp.specialty}</span> • Flags: {sp.matched_flags.join(", ")}
-                      </div>
-                    </div>
-                    <div className={`text-[11px] font-mono px-2 py-1 rounded border ${
-                      darkMode
-                        ? 'text-zinc-400 bg-zinc-900/80 border-zinc-800'
-                        : 'text-zinc-600 bg-zinc-50 border-zinc-200'
-                    }`}>
-                      {sp.contact_info}
-                    </div>
-                  </div>
-                ))}
-              </div>
             </div>
           )}
 

@@ -8,8 +8,10 @@ import {
   sendPasswordResetEmail,
   getFirebaseErrorMessage,
 } from '../services/firebase';
+import { useTranslation } from 'react-i18next';
 
 export default function Login() {
+  const { t } = useTranslation();
   const navigate = useNavigate();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -75,7 +77,7 @@ export default function Login() {
           localStorage.setItem('mediskye_user_email', userEmail);
         }
         localStorage.setItem('token', token);
-        navigate('/');
+        navigate('/chat');
       }
     } catch (err) {
       if (err.code === 'auth/popup-closed-by-user' || err.code === 'auth/cancelled-popup-request') {
@@ -122,7 +124,7 @@ export default function Login() {
         localStorage.setItem('mediskye_user_email', userEmail);
       }
       localStorage.setItem('token', token);
-      navigate('/');
+      navigate('/chat');
     } catch (err) {
       setError(getFirebaseErrorMessage(err));
     } finally {
@@ -146,9 +148,9 @@ export default function Login() {
         </div>
 
         {/* Heading */}
-        <h1 className="login-title">Welcome back</h1>
+        <h1 className="login-title">{t('auth.login_title', 'Welcome back')}</h1>
         <p className="login-subtitle">
-          Sign in to MediSkye to continue analyzing your medical reports.
+          {t('auth.login_subtitle', 'Sign in to MediSkye to continue analyzing your medical reports.')}
         </p>
 
         {/* Error */}
@@ -170,12 +172,12 @@ export default function Login() {
           onClick={handleGoogleSignIn}
           disabled={googleLoading || loading}
           className="login-btn-google"
-          aria-label="Continue with Google"
+          aria-label={t('auth.google_continue', 'Continue with Google')}
         >
           {googleLoading ? (
             <>
               <span className="login-google-spinner" />
-              <span>Signing in with Google...</span>
+              <span>{t('auth.google_signing_in', 'Signing in with Google...')}</span>
             </>
           ) : (
             <>
@@ -185,14 +187,14 @@ export default function Login() {
                 <path d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z" fill="#FBBC05"/>
                 <path d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z" fill="#EA4335"/>
               </svg>
-              <span>Continue with Google</span>
+              <span>{t('auth.google_continue', 'Continue with Google')}</span>
             </>
           )}
         </button>
 
         {/* Divider */}
         <div className="login-divider login-divider-subtle">
-          <span>or continue with email</span>
+          <span>{t('auth.or_email', 'or continue with email')}</span>
         </div>
 
         {/* Step 1: Email */}
@@ -205,7 +207,7 @@ export default function Login() {
                 required
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
-                placeholder="Email address"
+                placeholder={t('auth.email_placeholder', 'Email address')}
                 autoFocus
                 autoComplete="email"
               />
@@ -218,7 +220,7 @@ export default function Login() {
                 disabled={resetLoading || loading}
                 className="login-forgot-btn"
               >
-                {resetLoading ? 'Sending reset link...' : 'Forgot password?'}
+                {resetLoading ? t('auth.sending_reset', 'Sending reset link...') : t('auth.forgot_password', 'Forgot password?')}
               </button>
             </div>
 
@@ -233,7 +235,7 @@ export default function Login() {
             )}
 
             <button type="submit" className="login-btn-primary">
-              Continue
+              {t('auth.continue', 'Continue')}
             </button>
           </form>
         )}
@@ -256,7 +258,7 @@ export default function Login() {
                 required
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
-                placeholder="Password"
+                placeholder={t('auth.password_placeholder', 'Password')}
                 autoFocus
                 autoComplete="current-password"
               />
@@ -269,7 +271,7 @@ export default function Login() {
                 disabled={resetLoading || loading}
                 className="login-forgot-btn"
               >
-                {resetLoading ? 'Sending reset link...' : 'Forgot password?'}
+                {resetLoading ? t('auth.sending_reset', 'Sending reset link...') : t('auth.forgot_password', 'Forgot password?')}
               </button>
             </div>
 
@@ -287,7 +289,7 @@ export default function Login() {
               {loading ? (
                 <span className="login-spinner" />
               ) : (
-                'Sign in'
+                t('auth.sign_in', 'Sign in')
               )}
             </button>
           </form>
@@ -300,12 +302,12 @@ export default function Login() {
 
         {/* Switch to Register */}
         <Link to="/register" className="login-btn-secondary">
-          Create a new account
+          {t('auth.switch_to_register', 'Create a new account')}
         </Link>
 
         {/* Footer */}
         <p className="login-footer">
-          MediSkye AI — Making medical reports understandable for everyone.
+          {t('auth.tagline', 'MediSkye AI — Making medical reports understandable for everyone.')}
         </p>
       </div>
     </div>

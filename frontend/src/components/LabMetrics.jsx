@@ -1,51 +1,5 @@
 import React, { useState, useMemo } from 'react';
-import { Download, Search, X } from 'lucide-react';
-
-// ── Category mapping for CSV export ──────────────────────────────────────────
-const CATEGORY_KEYWORDS = {
-  Diabetes:  ['glucose', 'hba1c', 'insulin', 'glycated', 'fasting blood sugar', 'fbs', 'ppbs'],
-  Lipid:     ['cholesterol', 'ldl', 'hdl', 'triglyceride', 'vldl', 'non-hdl'],
-  Kidney:    ['creatinine', 'urea', 'bun', 'egfr', 'uric acid', 'cystatin', 'albumin/creatinine'],
-  Liver:     ['alt', 'ast', 'alp', 'ggt', 'bilirubin', 'albumin', 'total protein', 'sgpt', 'sgot'],
-  Blood:     ['hemoglobin', 'hematocrit', 'rbc', 'wbc', 'platelet', 'mcv', 'mch', 'mchc', 'neutrophil', 'lymphocyte', 'eosinophil', 'basophil', 'monocyte', 'cbc'],
-  Thyroid:   ['tsh', 't3', 't4', 'free t3', 'free t4', 'thyroid'],
-  Cardiac:   ['troponin', 'ck-mb', 'bnp', 'nt-probnp', 'creatine kinase', 'ldh', 'homocysteine'],
-  Vitamins:  ['vitamin', 'folate', 'ferritin', 'iron', 'b12', 'b9', 'd3', '25-oh'],
-  Other:     [],
-};
-
-export function categorise(testName) {
-  const lower = (testName || '').toLowerCase();
-  for (const [cat, keywords] of Object.entries(CATEGORY_KEYWORDS)) {
-    if (cat === 'Other') continue;
-    if (keywords.some((k) => lower.includes(k))) return cat;
-  }
-  return 'Other';
-}
-
-// ── CSV export ────────────────────────────────────────────────────────────────
-export function exportMetricsCsv(metrics) {
-  if (!metrics || !Array.isArray(metrics)) return;
-  const header = ['Test', 'Value', 'Unit', 'Reference Range', 'Status', 'Category'];
-  const rows = metrics.map((m) => [
-    m.test ?? m.name ?? '',
-    m.value ?? '',
-    m.unit ?? '',
-    m.range ?? m.reference_range ?? '',
-    m.status ?? '',
-    categorise(m.test ?? m.name ?? ''),
-  ]);
-  const csv = [header, ...rows]
-    .map((r) => r.map((cell) => `"${String(cell).replace(/"/g, '""')}"`).join(','))
-    .join('\n');
-  const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement('a');
-  a.href = url;
-  a.download = 'lab_metrics.csv';
-  a.click();
-  URL.revokeObjectURL(url);
-}
+import { Search, X } from 'lucide-react';
 
 // ── Status plain-text styling (no background pills/badges) ───────────────────
 function getStatusColor(status, darkMode) {
@@ -107,30 +61,16 @@ export default function LabMetrics({ metrics = [], darkMode, onBack }) {
             </p>
           )}
         </div>
-        <div className="flex items-center gap-2">
-          {hasMetrics && (
-            <button
-              onClick={() => exportMetricsCsv(metrics)}
-              className={`px-3 py-1.5 rounded-xl text-xs flex items-center gap-1.5 border transition-colors ${
-                darkMode
-                  ? 'bg-zinc-900 hover:bg-zinc-800 text-zinc-200 border-zinc-800'
-                  : 'bg-white hover:bg-zinc-50 text-zinc-700 border-zinc-200'
-              }`}
-              aria-label="Export CSV"
-            >
-              <Download className="w-3.5 h-3.5" />
-              <span>Export CSV</span>
-            </button>
-          )}
-          {onBack && (
+        {onBack && (
+          <div className="flex items-center gap-2">
             <button
               onClick={onBack}
               className={`text-xs underline ${darkMode ? 'text-zinc-400 hover:text-white' : 'text-zinc-500 hover:text-zinc-900'}`}
             >
               Back to Chat →
             </button>
-          )}
-        </div>
+          </div>
+        )}
       </div>
 
       {/* Search Input (only shown when there are metrics) */}

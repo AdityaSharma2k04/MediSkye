@@ -277,9 +277,10 @@ export async function parseSSEStream(reader, callbacks = {}) {
   }
 }
 
-export async function fetchLabMetrics(documentId) {
+export async function fetchLabMetrics(documentId, forceRefresh = false) {
   try {
-    const res = await fetch(`${API_BASE}/extract-metrics`, {
+    const query = forceRefresh ? '?force_refresh=true' : '';
+    const res = await fetch(`${API_BASE}/extract-metrics${query}`, {
       method: 'POST',
       headers: {
         'X-Session-ID': documentId,
@@ -300,6 +301,27 @@ export async function fetchLabMetrics(documentId) {
     logger.error('Failed to fetch metrics:', err);
     return [];
   }
+}
+
+export async function getDocumentSummary(documentId, forceRefresh = false) {
+  const query = forceRefresh ? '?force_refresh=true' : '';
+  const res = await fetch(`${API_BASE}/users/me/documents/${documentId}/summary${query}`, {
+    method: 'POST',
+    headers: {
+      ...getAuthHeaders(),
+      'Content-Type': 'application/json',
+    },
+  });
+  const data = await res.json();
+  if (!res.ok) {
+    if (res.status === 401) {
+      localStorage.removeItem('token');
+      window.dispatchEvent(new Event('auth:expired'));
+      throw new Error('Session expired. Please log in again.');
+    }
+    throw new Error(data.detail || 'Failed to fetch document summary');
+  }
+  return data;
 }
 
 export async function getProfile() {
@@ -328,6 +350,9 @@ export async function updateProfile(data) {
   return await res.json();
 }
 
+/**
+ * @deprecated Password changes are now handled directly with Firebase Auth. Kept for backward compatibility.
+ */
 export async function changePassword(currentPassword, newPassword) {
   const res = await fetch(`${API_BASE}/users/me/password`, {
     method: 'POST',
@@ -424,7 +449,16 @@ export async function getUserDocuments() {
 }
 
 export async function getDocumentChats(docId) {
-  const res = await fetch(`${API_BASE}/users/me/documents/${docId}/chats`, {
+  const url = docId ? `${API_BASE}/users/me/documents/${docId}/chats` : `${API_BASE}/users/me/chats`;
+  const res = await fetch(url, {
+    headers: getAuthHeaders(),
+  });
+  if (!res.ok) return [];
+  return await res.json();
+}
+
+export async function getGeneralChats() {
+  const res = await fetch(`${API_BASE}/users/me/chats`, {
     headers: getAuthHeaders(),
   });
   if (!res.ok) return [];

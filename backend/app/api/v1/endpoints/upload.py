@@ -22,6 +22,7 @@ from app.core.audit import log_audit
 from app.rag.retriever import create_hybrid_index, acreate_hybrid_index
 from app.services.upload_jobs import create_job, update_job, get_job, UploadStatus
 from app.rag.index_storage import asave_index_artifacts
+from app.api.v1.endpoints.metrics import extract_and_cache_metrics
 
 logger = logging.getLogger(__name__)
 
@@ -113,6 +114,25 @@ async def process_upload_background(
             doc.file_path = index_path
             await db.commit()
             logger.info(f"[UPLOAD {job_id}] DB commit: {time.monotonic() - t0:.2f}s")
+
+            # 4. Pre-generate and cache lab metrics (non-fatal)
+            t0 = time.monotonic()
+            try:
+                metrics_result = await extract_and_cache_metrics(
+                    doc_id=doc.id,
+                    page_docs=page_docs,
+                    db=db,
+                    user_id=user_uuid,
+                )
+                if metrics_result is not None:
+                    doc.cached_metrics = metrics_result
+                    db.add(doc)
+                    await db.commit()
+                logger.info(
+                    f"[UPLOAD {job_id}] Pre-generated {len(metrics_result) if metrics_result else 0} lab metrics in {time.monotonic() - t0:.2f}s"
+                )
+            except Exception as me:
+                logger.error(f"[UPLOAD {job_id}] Lab metrics pre-generation error (non-fatal): {me}", exc_info=True)
 
             await update_job(job_id, status=UploadStatus.COMPLETED, document_id=str(doc.id))
             logger.info(f"[UPLOAD {job_id}] TOTAL: {time.monotonic() - t_start:.2f}s")

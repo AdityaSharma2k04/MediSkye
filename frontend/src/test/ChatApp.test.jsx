@@ -17,6 +17,7 @@ vi.mock('../services/api', () => ({
   deleteAccount: vi.fn(),
   updateProfile: vi.fn(),
   detachChatDocument: vi.fn(),
+  getDocumentSummary: vi.fn(),
 }));
 
 vi.mock('react-router-dom', () => ({
@@ -42,6 +43,7 @@ beforeEach(() => {
   api.getUserDocuments.mockResolvedValue([]);
   api.getDocumentChats.mockResolvedValue([]);
   api.deleteDocument.mockResolvedValue(true);
+  api.getDocumentSummary.mockResolvedValue({ summary: 'Clinical report summary', cached: true });
   api.uploadPdfReport.mockResolvedValue({
     message: 'PDF uploaded and processed successfully.',
     document_id: SERVER_DOC_ID,
@@ -73,19 +75,11 @@ describe('ChatApp — upload refreshes sidebar immediately', () => {
       expect.any(String), // sessionId (client-generated UUID)
     );
 
-    // After upload the session id in localStorage must equal the server doc id
-    await waitFor(() => {
-      expect(localStorage.getItem('mediskye_session_id')).toBe(SERVER_DOC_ID);
-    });
+    // Verify documents were refreshed from server truth
+    await waitFor(() => expect(api.getUserDocuments).toHaveBeenCalledTimes(2));
 
-    // The conversations array stored in localStorage must contain an entry
-    // whose id matches the server document_id — wait for the sync effect
-    await waitFor(() => {
-      const stored = JSON.parse(localStorage.getItem('mediskye_conversations') || '[]');
-      const match = stored.find((c) => c.id === SERVER_DOC_ID);
-      expect(match).toBeDefined();
-      expect(match.document_id).toBe(SERVER_DOC_ID);
-    });
+    // Chat persistence relies on server, not localStorage
+    expect(localStorage.getItem('mediskye_conversations')).toBeNull();
   });
 
   it('shows success toast and does NOT require re-login to see the document', async () => {
@@ -165,11 +159,9 @@ describe('ChatApp — upload refreshes sidebar immediately', () => {
     // Assert getUserDocuments is called again after upload
     await waitFor(() => expect(api.getUserDocuments).toHaveBeenCalledTimes(2));
 
-    // Assert the new document is registered in conversations
-    await waitFor(() => {
-      const stored = JSON.parse(localStorage.getItem('mediskye_conversations') || '[]');
-      expect(stored.some((c) => c.id === SERVER_DOC_ID)).toBe(true);
-    });
+    // Assert the new document is registered in UI without relying on localStorage
+    expect(await screen.findByText('Blood Test Report')).toBeInTheDocument();
+    expect(localStorage.getItem('mediskye_conversations')).toBeNull();
   });
 
   it('test_upload_polls_until_complete: polls until complete and refreshes documents', async () => {
@@ -326,7 +318,7 @@ describe('ChatApp — deletion and rename persistence', () => {
     await waitFor(() => expect(api.getUserDocuments).toHaveBeenCalled());
 
     // Open options menu on chat and click delete
-    const optionsBtn = await screen.findByRole('button', { name: 'Chat options' });
+    const [optionsBtn] = await screen.findAllByRole('button', { name: 'Chat options' });
     fireEvent.click(optionsBtn);
 
     const deleteBtn = screen.getByRole('button', { name: /^delete$/i });
@@ -356,9 +348,8 @@ describe('ChatApp — deletion and rename persistence', () => {
     localStorage.setItem('mediskye_conversations_user-1', JSON.stringify([docChat]));
 
     render(<ChatApp />);
-    await waitFor(() => expect(api.getProfile).toHaveBeenCalled());
-
-    const optionsBtn = await screen.findByRole('button', { name: 'Chat options' });
+    await waitFor(() => expect(api.getUserDocuments).toHaveBeenCalled());
+    const [optionsBtn] = await screen.findAllByRole('button', { name: 'Chat options' });
     fireEvent.click(optionsBtn);
 
     const renameBtn = screen.getByRole('button', { name: /^rename$/i });
@@ -403,4 +394,48 @@ describe('ChatApp — deletion and rename persistence', () => {
       expect(api.deleteDocument).toHaveBeenCalledWith(SERVER_DOC_ID);
     });
   });
+
+  it('calls getDocumentSummary and triggers print flow when Export Summary is clicked', async () => {
+    const printSpy = vi.spyOn(window, 'print').mockImplementation(() => {});
+    const docChat = {
+      id: SERVER_DOC_ID,
+      document_id: SERVER_DOC_ID,
+      title: 'Lab Report Chat',
+      messages: [
+        { id: 1, sender: 'user', text: 'Hello', timestamp: '10:00' },
+        { id: 2, sender: 'assistant', text: 'Assistant report note', timestamp: '10:01' },
+      ],
+      pdf: { id: SERVER_DOC_ID, name: 'lab.pdf' },
+      documents: [{ id: SERVER_DOC_ID, name: 'lab.pdf', filename: 'lab.pdf' }],
+    };
+    api.getUserDocuments.mockResolvedValue([{ id: SERVER_DOC_ID, filename: 'lab.pdf', title: 'Lab Report' }]);
+    api.getDocumentSummary.mockResolvedValue({
+      summary: 'Comprehensive clinical summary for printing.',
+      cached: true,
+    });
+
+    localStorage.setItem('mediskye_conversations', JSON.stringify([docChat]));
+    localStorage.setItem('mediskye_conversations_user-1', JSON.stringify([docChat]));
+
+    render(<ChatApp />);
+    await waitFor(() => expect(api.getProfile).toHaveBeenCalled());
+
+    const exportBtn = await screen.findByRole('button', { name: /Export Summary/i });
+    expect(exportBtn).toBeInTheDocument();
+
+    await act(async () => {
+      fireEvent.click(exportBtn);
+    });
+
+    await waitFor(() => {
+      expect(api.getDocumentSummary).toHaveBeenCalledWith(SERVER_DOC_ID);
+    });
+
+    await waitFor(() => {
+      expect(printSpy).toHaveBeenCalled();
+    });
+
+    printSpy.mockRestore();
+  });
 });
+

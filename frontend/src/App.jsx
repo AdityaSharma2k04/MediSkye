@@ -3,6 +3,7 @@ import { BrowserRouter, Routes, Route, Navigate, useNavigate } from 'react-route
 import Login from './components/Login';
 import Register from './components/Register';
 import ChatApp from './components/ChatApp';
+import LandingPage from './components/LandingPage';
 
 const ProtectedRoute = ({ children }) => {
   const token = localStorage.getItem('token');
@@ -41,16 +42,19 @@ export default function App() {
     <BrowserRouter>
       <GlobalAuthListener />
       <Routes>
+        <Route path="/" element={<LandingPage />} />
         <Route path="/login" element={<Login />} />
         <Route path="/register" element={<Register />} />
         <Route
-          path="/*"
+          path="/chat/*"
           element={
             <ProtectedRoute>
               <ChatApp />
             </ProtectedRoute>
           }
         />
+        {/* Catch-all: redirect unknown paths to landing */}
+        <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
     </BrowserRouter>
   );

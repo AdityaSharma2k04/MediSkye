@@ -332,9 +332,8 @@ async def test_query_stream_strips_abnormal_flags_json_block_and_emits_specialis
                     except json.JSONDecodeError:
                         pass
 
-            # Assert specialists event was fired with recommendations
-            assert "specialists" in stream_text
-            assert "Hematology" in stream_text
+            # Assert specialists event is NOT emitted
+            assert "specialists" not in stream_text
 
             # Assert stored message in database is clean (no abnormal_flags block)
             async with AsyncSessionLocal() as session:
@@ -402,5 +401,80 @@ async def test_query_uses_gemini():
             # Assert Gemini streaming was called
             assert mock_gemini_client.models.generate_content_stream.called
             assert "Gemini answer: Headaches have multiple etiologies." in stream_text
+
+
+@pytest.mark.asyncio
+async def test_query_stream_casual_intent_no_disclaimer_persists_chat():
+    """Verify that casual queries stream friendly response without medical disclaimer and persist turns in DB."""
+    from app.rag.safety import DISCLAIMER_TEXT
+
+    transport = ASGITransport(app=app)
+    chunk1 = MagicMock()
+    chunk1.text = "Hello! I am MediSkye, ready to help you analyze your lab reports."
+
+    mock_client = MagicMock()
+    mock_client.models.generate_content_stream.return_value = [chunk1]
+
+    with (
+        patch("google.genai.Client", return_value=mock_client),
+        patch("app.api.v1.endpoints.query.process_chat_memory_extraction", new=AsyncMock()),
+    ):
+        async with AsyncClient(transport=transport, base_url="http://test") as ac:
+            email = f"casual_user_{uuid.uuid4().hex[:8]}@test.com"
+
+            async with AsyncSessionLocal() as session:
+                user = User(
+                    email=email,
+                    hashed_password=get_password_hash(TEST_PASSWORD),
+                    phi_consent_granted=True,
+                )
+                session.add(user)
+                await session.commit()
+                await session.refresh(user)
+                user_id = user.id
+
+            login_res = await ac.post("/login", data={"username": email, "password": TEST_PASSWORD})
+            assert login_res.status_code == 200
+            token = login_res.json()["access_token"]
+            headers = {"Authorization": f"Bearer {token}"}
+
+            res = await ac.post(
+                "/query",
+                json={
+                    "session_id": str(uuid.uuid4()),
+                    "query": "hi mediskye",
+                },
+                headers=headers,
+            )
+            assert res.status_code == 200
+            stream_text = res.text
+
+            # Response content present
+            assert "Hello! I am MediSkye" in stream_text
+
+            # Disclaimer MUST NOT be in stream_text for casual intent
+            assert DISCLAIMER_TEXT.strip() not in stream_text
+
+            # Specialists MUST NOT be emitted
+            assert "specialists" not in stream_text
+
+            # Both user message and AI response must be persisted in database
+            async with AsyncSessionLocal() as session:
+                user_chat = (
+                    await session.execute(
+                        select(Chat).filter(Chat.user_id == user_id, Chat.role == "user")
+                    )
+                ).scalars().first()
+                assert user_chat is not None
+                assert user_chat.message == "hi mediskye"
+
+                ai_chat = (
+                    await session.execute(
+                        select(Chat).filter(Chat.user_id == user_id, Chat.role == "ai")
+                    )
+                ).scalars().first()
+                assert ai_chat is not None
+                assert "Hello! I am MediSkye" in ai_chat.message
+                assert DISCLAIMER_TEXT.strip() not in ai_chat.message
 
 

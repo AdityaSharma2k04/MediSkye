@@ -7,7 +7,6 @@ import * as api from '../services/api';
 vi.mock('../services/api', () => ({
   getProfile: vi.fn().mockResolvedValue(null),
   updateProfile: vi.fn(),
-  changePassword: vi.fn(),
   deleteAccount: vi.fn(),
   getMemoryStatus: vi.fn().mockResolvedValue({ memory_consent_granted: false, fact_count: 0 }),
   getMemoryFacts: vi.fn().mockResolvedValue([]),
@@ -18,6 +17,48 @@ vi.mock('../services/api', () => ({
   updateMemoryConsent: vi.fn(),
   clearAllMemoryFacts: vi.fn(),
 }));
+
+const {
+  mockCredential,
+  mockCredentialFn,
+  mockReauthenticateWithCredential,
+  mockUpdatePassword,
+  mockAuth,
+} = vi.hoisted(() => {
+  const credential = { providerId: 'password', signInMethod: 'password' };
+  return {
+    mockCredential: credential,
+    mockCredentialFn: vi.fn().mockReturnValue(credential),
+    mockReauthenticateWithCredential: vi.fn().mockResolvedValue({}),
+    mockUpdatePassword: vi.fn().mockResolvedValue({}),
+    mockAuth: {
+      currentUser: {
+        email: 'patient@example.com',
+        providerData: [{ providerId: 'password' }],
+      },
+    },
+  };
+});
+
+vi.mock('firebase/auth', async (importOriginal) => {
+  const actual = await importOriginal();
+  return {
+    ...actual,
+    EmailAuthProvider: {
+      credential: (...args) => mockCredentialFn(...args),
+    },
+    reauthenticateWithCredential: (...args) => mockReauthenticateWithCredential(...args),
+    updatePassword: (...args) => mockUpdatePassword(...args),
+  };
+});
+
+vi.mock('../services/firebase', async (importOriginal) => {
+  const actual = await importOriginal();
+  return {
+    ...actual,
+    auth: mockAuth,
+  };
+});
 
 describe('SettingsModal Account fields & Deletion', () => {
   const mockUser = {
@@ -30,6 +71,10 @@ describe('SettingsModal Account fields & Deletion', () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
+    mockAuth.currentUser = {
+      email: 'patient@example.com',
+      providerData: [{ providerId: 'password' }],
+    };
   });
 
   it('renders account fields populated from currentUser', () => {
@@ -190,9 +235,8 @@ describe('SettingsModal Account fields & Deletion', () => {
     expect(screen.getByText('Penicillin allergy')).toBeInTheDocument();
   });
 
-  it('wires change password modal to changePassword API and shows success toast on save', async () => {
+  it('wires change password modal to Firebase auth and shows success toast on save', async () => {
     const showToast = vi.fn();
-    api.changePassword.mockResolvedValueOnce({ message: 'Password changed successfully' });
 
     render(
       <SettingsModal
@@ -206,6 +250,7 @@ describe('SettingsModal Account fields & Deletion', () => {
 
     // Open change password submodal
     const changePwdBtn = screen.getByRole('button', { name: /change password/i });
+    expect(changePwdBtn).toBeEnabled();
     fireEvent.click(changePwdBtn);
 
     expect(screen.getByRole('dialog', { name: /change password/i })).toBeInTheDocument();
@@ -223,9 +268,37 @@ describe('SettingsModal Account fields & Deletion', () => {
     fireEvent.click(saveBtn);
 
     await waitFor(() => {
-      expect(api.changePassword).toHaveBeenCalledWith('OldPassword123!', 'NewPassword123!');
+      expect(mockCredentialFn).toHaveBeenCalledWith('patient@example.com', 'OldPassword123!');
+      expect(mockReauthenticateWithCredential).toHaveBeenCalledWith(mockAuth.currentUser, mockCredential);
+      expect(mockUpdatePassword).toHaveBeenCalledWith(mockAuth.currentUser, 'NewPassword123!');
       expect(showToast).toHaveBeenCalledWith('success', 'Password Changed', expect.any(String));
     });
+  });
+
+  it('disables change password button and displays informative message when signed in with Google', () => {
+    mockAuth.currentUser = {
+      email: 'patient@example.com',
+      providerData: [{ providerId: 'google.com' }],
+    };
+
+    render(
+      <SettingsModal
+        isOpen={true}
+        onClose={vi.fn()}
+        darkMode={false}
+        currentUser={mockUser}
+      />
+    );
+
+    const changePwdBtn = screen.getByRole('button', { name: /change password/i });
+    expect(changePwdBtn).toBeDisabled();
+    expect(
+      screen.getByText("You signed in with Google. To set a password, use the 'Forgot Password' link on the login page.")
+    ).toBeInTheDocument();
+
+    // Clicking disabled button should not open modal
+    fireEvent.click(changePwdBtn);
+    expect(screen.queryByRole('dialog', { name: /change password/i })).not.toBeInTheDocument();
   });
 
   it('persists the language preference via updateProfile', async () => {

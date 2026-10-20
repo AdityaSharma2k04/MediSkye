@@ -19,13 +19,13 @@ from app.core.limiter import limiter
 from app.core.audit import log_audit
 from app.db.database import get_db, AsyncSessionLocal
 from app.db.models import User, Document, Chat, ChatDocument, DependentProfile, PatientFact
-from app.llm.gemini_client import GeminiUnavailableError
+from app.llm.gemini_client import GeminiUnavailableError, get_genai_client, call_gemini_with_retry
+from app.rag.index_storage import aensure_index_local
 from app.schemas.query import QueryRequest, QueryResponse, SourceChunk
-from app.rag.prompt_builder import build_prompt, build_general_health_prompt
+from app.rag.prompt_builder import build_prompt, build_general_health_prompt, build_casual_prompt
 from app.rag.intent_router import classify_intent, QueryIntent
 from app.rag.safety import append_disclaimer, get_emergency_response, is_emergency_query
 from app.rag.retriever import load_hybrid_index, retrieve_relevant_docs
-from app.rag.specialist_router import get_recommended_specialists
 from app.rag.output_filter import scan_output
 from app.services.patient_service import calculate_age
 from app.services.patient_memory import get_active_facts, get_relevant_past_chunks, get_chat_documents
@@ -240,7 +240,12 @@ async def query_bot(
     biological_sex = active_profile.biological_sex or "Unspecified"
     pre_existing_conditions = active_profile.pre_existing_conditions or "None reported"
     current_medications = active_profile.current_medications or "None reported"
-    language_preference = getattr(active_profile, "language_preference", None) or body.language or "English"
+    language_preference = (
+        getattr(active_profile, "language_preference", None)
+        or getattr(current_user, "language_preference", None)
+        or body.language
+        or "English"
+    )
     height_cm = getattr(active_profile, "height_cm", None)
     diet_type = getattr(active_profile, "diet_type", None)
     activity_level = getattr(active_profile, "activity_level", None)
@@ -249,8 +254,11 @@ async def query_bot(
     async def generate_response_stream():
         try:
             # ── Stage 1: Analyzing ──
-            yield f'event: stage\ndata: {json.dumps({"stage": "analyzing", "message": "Analyzing your question..."})}\n\n'
-            await asyncio.sleep(0.4)
+            if intent == QueryIntent.CASUAL:
+                yield f'event: stage\ndata: {json.dumps({"stage": "generating", "message": "MediSkye is typing..."})}\n\n'
+            else:
+                yield f'event: stage\ndata: {json.dumps({"stage": "analyzing", "message": "Analyzing your question..."})}\n\n'
+                await asyncio.sleep(0.4)
 
             # ── Multi-doc retrieval (for DOCUMENT_QA only) ──
             retrieved_chunks = []
@@ -294,7 +302,7 @@ async def query_bot(
             formatted_facts = None
             formatted_past_chats = None
 
-            if current_user.memory_consent_granted and settings.PATIENT_MEMORY_ENABLED:
+            if intent != QueryIntent.CASUAL and current_user.memory_consent_granted and settings.PATIENT_MEMORY_ENABLED:
                 async with AsyncSessionLocal() as mem_session:
                     facts_by_type = await get_active_facts(
                         user_id=current_user.id,
@@ -325,10 +333,18 @@ async def query_bot(
                             formatted_past_chats = format_past_chats_for_prompt(past_chunks)
 
             # ── Stage: Generating ──
-            yield f'event: stage\ndata: {json.dumps({"stage": "generating", "message": "Preparing your answer..."})}\n\n'
+            if intent != QueryIntent.CASUAL:
+                yield f'event: stage\ndata: {json.dumps({"stage": "generating", "message": "Preparing your answer..."})}\n\n'
 
-            # Build grounded prompt
-            if intent == QueryIntent.DOCUMENT_QA:
+            # Build prompt based on intent
+            if intent == QueryIntent.CASUAL:
+                system_instruction, user_content = build_casual_prompt(
+                    user_query=body.query,
+                    language_preference=language_preference,
+                )
+                yield f'data: {json.dumps({"sources": []})}\n\n'
+
+            elif intent == QueryIntent.DOCUMENT_QA:
                 system_instruction, user_content = build_prompt(
                     user_query=body.query,
                     retrieved_docs=retrieved_chunks,
@@ -512,9 +528,10 @@ async def query_bot(
                     yield f'data: {json.dumps({"chunk": pending_buffer})}\n\n'
                 pending_buffer = ""
 
-            disclaimer = "\n\n" + append_disclaimer("").strip()
-            yield f'data: {json.dumps({"chunk": disclaimer})}\n\n'
-            visible_text += disclaimer
+            if intent != QueryIntent.CASUAL:
+                disclaimer = "\n\n" + append_disclaimer("", intent=intent.value if hasattr(intent, "value") else str(intent)).strip()
+                yield f'data: {json.dumps({"chunk": disclaimer})}\n\n'
+                visible_text += disclaimer
 
         except GeminiUnavailableError:
             logger.warning("All Gemini models unavailable during streaming", exc_info=True)
@@ -535,20 +552,6 @@ async def query_bot(
                 reason,
                 current_user.id,
             )
-
-        # ── Parse abnormal flags for specialist recommendations ──
-        match = re.search(r'```json\s*(\{.*?"abnormal_flags".*?\})\s*```', full_raw_text, re.DOTALL | re.IGNORECASE)
-        if match:
-            try:
-                flags_data = json.loads(match.group(1))
-                abnormal_flags = flags_data.get("abnormal_flags", [])
-                if abnormal_flags:
-                    async with AsyncSessionLocal() as spec_session:
-                        specialists = await get_recommended_specialists(spec_session, abnormal_flags)
-                        if specialists:
-                            yield f'data: {json.dumps({"specialists": specialists})}\n\n'
-            except Exception as e:
-                logger.warning("Error parsing abnormal flags for specialists: %s", e)
 
         # ── Record AI response in database ──
         async with AsyncSessionLocal() as persist_session:
@@ -606,3 +609,181 @@ async def query_bot(
         yield f'data: [DONE]\n\n'
 
     return StreamingResponse(generate_response_stream(), media_type="text/event-stream")
+
+
+# ─── Task 3: Dedicated Cached Document Summary ──────────────────────────────
+
+class DocumentSummaryResponse(BaseModel):
+    summary: str
+    cached: bool
+
+
+EMOJI_PATTERN = re.compile(
+    "["
+    "\U0001F600-\U0001F64F"  # emoticons
+    "\U0001F300-\U0001F5FF"  # symbols & pictographs
+    "\U0001F680-\U0001F6FF"  # transport & map symbols
+    "\U0001F1E0-\U0001F1FF"  # flags (iOS)
+    "\U00002702-\U000027B0"
+    "\U000024C2-\U0001F251"
+    "\U0001F900-\U0001F9FF"  # supplemental symbols and pictographs
+    "\U0001FA70-\U0001FAFF"  # symbols and pictographs extended-a
+    "\U00002600-\U000026FF"  # miscellaneous symbols
+    "]+",
+    flags=re.UNICODE,
+)
+
+
+def strip_emojis(text: str) -> str:
+    """Strip all emojis from generated text."""
+    if not text:
+        return ""
+    return EMOJI_PATTERN.sub("", text)
+
+
+async def _reconstruct_document_text(doc: Document) -> str:
+    """Reconstruct full text of the document from stored chunks/content in order."""
+    if not doc.file_path:
+        return f"Medical Report: {doc.title or doc.filename}"
+
+    try:
+        resolved_path = str(await aensure_index_local(doc.file_path))
+        if os.path.exists(resolved_path):
+            def _load_chunks():
+                try:
+                    v, b = load_hybrid_index(resolved_path)
+                    # 1. BM25 corpus retains original chunk ordering
+                    if b and hasattr(b, "chunks") and b.chunks:
+                        return [c.page_content for c in b.chunks if getattr(c, "page_content", None)]
+                    # 2. FAISS index_to_docstore_id order
+                    if hasattr(v, "index_to_docstore_id") and hasattr(v, "docstore"):
+                        return [
+                            v.docstore.search(v.index_to_docstore_id[i]).page_content
+                            for i in range(len(v.index_to_docstore_id))
+                            if hasattr(v.docstore.search(v.index_to_docstore_id[i]), "page_content")
+                        ]
+                    # 3. FAISS docstore dict fallback
+                    if hasattr(v, "docstore") and hasattr(v.docstore, "_dict"):
+                        return [c.page_content for c in v.docstore._dict.values() if getattr(c, "page_content", None)]
+                except Exception as ex:
+                    logger.warning("Error reading chunks from index for doc %s: %s", doc.id, ex)
+                return []
+
+            chunk_texts = await asyncio.to_thread(_load_chunks)
+            if chunk_texts:
+                return "\n\n".join(chunk_texts)
+    except Exception as e:
+        logger.warning("Failed to reconstruct text for doc %s: %s", doc.id, e)
+
+    return f"Medical Report: {doc.title or doc.filename}"
+
+
+@router.post(
+    "/users/me/documents/{document_id}/summary",
+    response_model=DocumentSummaryResponse,
+    tags=["Documents", "Summary"],
+)
+@router.get(
+    "/users/me/documents/{document_id}/summary",
+    response_model=DocumentSummaryResponse,
+    tags=["Documents", "Summary"],
+)
+@limiter.limit("10/minute")
+async def get_or_generate_document_summary(
+    request: Request,
+    document_id: str,
+    force_refresh: bool = False,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    try:
+        doc_uuid = uuid.UUID(document_id)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid document ID format.")
+
+    result = await db.execute(select(Document).filter(Document.id == doc_uuid))
+    doc = result.scalars().first()
+
+    if not doc or doc.user_id != current_user.id:
+        raise HTTPException(status_code=404, detail="Document not found.")
+
+    # 1. Check persistent database cache
+    if not force_refresh and doc.cached_summary is not None and doc.cached_summary.strip() != "":
+        return DocumentSummaryResponse(summary=doc.cached_summary, cached=True)
+
+    # 2. Reconstruct document text from stored chunks/content ordered by chunk index
+    report_text = await _reconstruct_document_text(doc)
+
+    summary_prompt = (
+        "Generate a comprehensive, structured clinical summary of this entire report suitable for printing. "
+        "Use clean markdown. Do not use emojis. Include an overview, abnormal findings grouped by system, and next steps.\n\n"
+        f"Report content:\n{report_text[:15000]}"
+    )
+
+    try:
+        client = get_genai_client()
+        response = None
+        # Call Gemini using async client.aio.models.generate_content if available
+        if hasattr(client, "aio") and hasattr(client.aio, "models"):
+            try:
+                gen_fn = client.aio.models.generate_content
+                res = gen_fn(model=settings.GEMINI_MODEL, contents=summary_prompt)
+                if asyncio.iscoroutine(res):
+                    response = await res
+                elif hasattr(res, "text") and isinstance(res.text, str) and res.text:
+                    response = res
+            except Exception as aio_err:
+                logger.debug("client.aio generate_content error/bypassed: %s", aio_err)
+
+        if response is None or not getattr(response, "text", None):
+            response = await call_gemini_with_retry(
+                contents=summary_prompt,
+                user_id=current_user.id,
+            )
+
+        raw_text = getattr(response, "text", "") or ""
+        summary_text = strip_emojis(raw_text).strip()
+
+        # Guard Against Caching Empty/Error Responses:
+        if summary_text:
+            doc.cached_summary = summary_text
+            db.add(doc)
+            await db.commit()
+            await db.refresh(doc)
+            return DocumentSummaryResponse(summary=summary_text, cached=False)
+        else:
+            return DocumentSummaryResponse(summary="", cached=False)
+    except Exception as err:
+        logger.error("Error generating document summary: %s", err)
+        raise HTTPException(status_code=500, detail="Failed to generate document summary.")
+
+
+async def prewarm_document_summary_and_metrics(doc_id: uuid.UUID, user_id: uuid.UUID) -> None:
+    """Pre-warm cached lab metrics and printable summary in the background."""
+    try:
+        async with AsyncSessionLocal() as session:
+            result = await session.execute(select(Document).filter(Document.id == doc_id, Document.user_id == user_id))
+            doc = result.scalars().first()
+            if not doc:
+                return
+
+            # If summary not cached, generate it
+            if doc.cached_summary is None or doc.cached_summary.strip() == "":
+                report_text = await _reconstruct_document_text(doc)
+                prompt = (
+                    "Generate a comprehensive, structured clinical summary of this entire report suitable for printing. "
+                    "Use clean markdown. Do not use emojis. Include an overview, abnormal findings grouped by system, and next steps.\n\n"
+                    f"Report content:\n{report_text[:15000]}"
+                )
+                try:
+                    res = await call_gemini_with_retry(contents=prompt, user_id=user_id)
+                    text = strip_emojis(getattr(res, "text", "") or "").strip()
+                    if text:
+                        doc.cached_summary = text
+                        session.add(doc)
+                        await session.commit()
+                except Exception as ex:
+                    logger.debug("Pre-warm summary LLM call failed: %s", ex)
+    except Exception as e:
+        logger.warning("Pre-warm cache background job failed: %s", e)
+

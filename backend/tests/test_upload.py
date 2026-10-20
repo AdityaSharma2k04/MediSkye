@@ -119,6 +119,7 @@ async def test_upload_returns_202_with_job_id():
     with (
         patch("app.api.v1.endpoints.upload.extract_text_from_file", new=AsyncMock(return_value=mock_docs)),
         patch("app.api.v1.endpoints.upload.acreate_hybrid_index", new=AsyncMock(return_value=(None, None, mock_docs))),
+        patch("app.api.v1.endpoints.upload.extract_and_cache_metrics", new=AsyncMock(return_value=[])),
         patch("app.rag.retriever.get_embedder", return_value=FakeEmbedder()),
         patch("app.rag.embedder.get_embedder", return_value=FakeEmbedder()),
     ):
@@ -255,6 +256,7 @@ async def test_background_task_creates_own_db_session():
     with (
         patch("app.db.database.AsyncSessionLocal", side_effect=session_factory),
         patch("app.api.v1.endpoints.upload.extract_text_from_file", new=AsyncMock(return_value=mock_docs)),
+        patch("app.api.v1.endpoints.upload.extract_and_cache_metrics", new=AsyncMock(return_value=[])),
         patch("app.rag.retriever.get_embedder", return_value=FakeEmbedder()),
         patch("app.rag.embedder.get_embedder", return_value=FakeEmbedder()),
     ):
@@ -268,6 +270,129 @@ async def test_background_task_creates_own_db_session():
     # Assert background task called AsyncSessionLocal to instantiate its own session
     assert len(session_instances) >= 1
     job = await get_job(job_id)
+    assert job["status"] == UploadStatus.COMPLETED
+    assert job["document_id"] is not None
+    assert not os.path.exists(tmp_path)
+
+
+@pytest.mark.anyio
+async def test_upload_background_pre_generates_and_caches_metrics():
+    """Verify that process_upload_background automatically pre-generates and caches lab metrics."""
+    import tempfile
+    import os
+    from app.services.upload_jobs import create_job, get_job, UploadStatus
+    from app.api.v1.endpoints.upload import process_upload_background
+    from app.db.models import Document
+    from langchain_core.documents import Document as LCDocument
+    from unittest.mock import AsyncMock
+
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as ac:
+        await get_authenticated_headers(ac, email="pregen_metrics@test.com")
+
+    async with AsyncSessionLocal() as session:
+        user = (await session.execute(select(User).filter(User.email == "pregen_metrics@test.com"))).scalars().first()
+        user_id = str(user.id)
+
+    job_id = await create_job(user_id)
+
+    with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as tmp:
+        import pymupdf as fitz
+        doc = fitz.open()
+        page = doc.new_page()
+        page.insert_text((50, 72), "Sample medical report text.")
+        tmp.write(doc.tobytes())
+        tmp_path = tmp.name
+
+    mock_docs = [
+        LCDocument(
+            page_content="Complete Blood Count Report. Hemoglobin: 14.5 g/dL Normal.",
+            metadata={"type": "lab_report", "page": 1}
+        )
+    ]
+
+    mock_metrics_result = [
+        {"test": "Hemoglobin", "value": "14.5", "unit": "g/dL", "range": "13.8 - 17.2", "status": "Normal"}
+    ]
+
+    with (
+        patch("app.api.v1.endpoints.upload.extract_text_from_file", new=AsyncMock(return_value=mock_docs)),
+        patch("app.api.v1.endpoints.upload.acreate_hybrid_index", new=AsyncMock(return_value=(None, None, mock_docs))),
+        patch("app.api.v1.endpoints.upload.extract_and_cache_metrics", new=AsyncMock(return_value=mock_metrics_result)) as mock_extract,
+        patch("app.rag.retriever.get_embedder", return_value=FakeEmbedder()),
+        patch("app.rag.embedder.get_embedder", return_value=FakeEmbedder()),
+    ):
+        await process_upload_background(
+            job_id=job_id,
+            tmp_path=tmp_path,
+            filename="sample.pdf",
+            user_id=user_id,
+        )
+
+    job = await get_job(job_id)
+    assert job["status"] == UploadStatus.COMPLETED
+    assert job["document_id"] is not None
+    mock_extract.assert_awaited_once()
+
+    # Query DB directly to verify doc.cached_metrics is saved
+    async with AsyncSessionLocal() as session:
+        doc_res = await session.execute(select(Document).filter(Document.id == uuid.UUID(job["document_id"])))
+        doc_obj = doc_res.scalars().first()
+        assert doc_obj is not None
+        assert doc_obj.cached_metrics == mock_metrics_result
+
+
+@pytest.mark.anyio
+async def test_upload_background_succeeds_even_if_metrics_extraction_fails():
+    """Verify that if metrics pre-generation throws an exception, upload still succeeds and logs error."""
+    import tempfile
+    import os
+    from app.services.upload_jobs import create_job, get_job, UploadStatus
+    from app.api.v1.endpoints.upload import process_upload_background
+    from langchain_core.documents import Document as LCDocument
+    from unittest.mock import AsyncMock
+
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as ac:
+        await get_authenticated_headers(ac, email="metrics_fail_upload@test.com")
+
+    async with AsyncSessionLocal() as session:
+        user = (await session.execute(select(User).filter(User.email == "metrics_fail_upload@test.com"))).scalars().first()
+        user_id = str(user.id)
+
+    job_id = await create_job(user_id)
+
+    with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as tmp:
+        import pymupdf as fitz
+        doc = fitz.open()
+        page = doc.new_page()
+        page.insert_text((50, 72), "Sample medical report text.")
+        tmp.write(doc.tobytes())
+        tmp_path = tmp.name
+
+    mock_docs = [
+        LCDocument(
+            page_content="Sample report text.",
+            metadata={"type": "lab_report", "page": 1}
+        )
+    ]
+
+    with (
+        patch("app.api.v1.endpoints.upload.extract_text_from_file", new=AsyncMock(return_value=mock_docs)),
+        patch("app.api.v1.endpoints.upload.acreate_hybrid_index", new=AsyncMock(return_value=(None, None, mock_docs))),
+        patch("app.api.v1.endpoints.upload.extract_and_cache_metrics", side_effect=RuntimeError("LLM service unavailable")),
+        patch("app.rag.retriever.get_embedder", return_value=FakeEmbedder()),
+        patch("app.rag.embedder.get_embedder", return_value=FakeEmbedder()),
+    ):
+        await process_upload_background(
+            job_id=job_id,
+            tmp_path=tmp_path,
+            filename="sample.pdf",
+            user_id=user_id,
+        )
+
+    job = await get_job(job_id)
+    # Upload job MUST still complete successfully despite metrics failure
     assert job["status"] == UploadStatus.COMPLETED
     assert job["document_id"] is not None
     assert not os.path.exists(tmp_path)

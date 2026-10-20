@@ -17,6 +17,7 @@ import {
   X,
   LogOut,
 } from 'lucide-react';
+import { useTranslation } from 'react-i18next';
 import ConfirmModal from './ConfirmModal';
 
 function formatRelativeTime(ts) {
@@ -50,6 +51,7 @@ export default function Sidebar({
   onRenameChat,
   currentUser,
 }) {
+  const { t } = useTranslation();
   const [searchQuery, setSearchQuery] = useState('');
   const [pendingDeleteId, setPendingDeleteId] = useState(null);
   const [pendingLogout, setPendingLogout] = useState(false);
@@ -135,9 +137,9 @@ export default function Sidebar({
                 <Activity className="w-3.5 h-3.5" />
               </div>
               <div>
-                <h1 className={`font-semibold text-sm tracking-tight ${darkMode ? 'text-white' : 'text-zinc-900'}`}>MediSkye AI</h1>
+                <h1 className={`font-semibold text-sm tracking-tight ${darkMode ? 'text-white' : 'text-zinc-900'}`}>{t('sidebar.title', 'MediSkye AI')}</h1>
                 <span className={`text-[10px] font-medium uppercase tracking-wider block ${darkMode ? 'text-zinc-400' : 'text-zinc-500'}`}>
-                  Medical Assistant
+                  {t('sidebar.medical_assistant', 'Medical Assistant')}
                 </span>
               </div>
             </div>
@@ -172,7 +174,7 @@ export default function Sidebar({
               }`}
             >
               <Plus className="w-3.5 h-3.5" />
-              <span>New Conversation</span>
+              <span>{t('sidebar.new_consultation', 'New Conversation')}</span>
             </button>
 
             {activePdf && (
@@ -180,7 +182,7 @@ export default function Sidebar({
                 <FileText className={`w-4 h-4 shrink-0 ${darkMode ? 'text-zinc-300' : 'text-zinc-500'}`} />
                 <div className="overflow-hidden">
                   <div className={`font-medium truncate ${darkMode ? 'text-white' : 'text-zinc-900'}`}>{activePdf.name}</div>
-                  <div className={`text-[10px] ${darkMode ? 'text-zinc-400' : 'text-zinc-500'}`}>Active report</div>
+                  <div className={`text-[10px] ${darkMode ? 'text-zinc-400' : 'text-zinc-500'}`}>{t('sidebar.active_report', 'Active report')}</div>
                 </div>
               </div>
             )}
@@ -191,7 +193,7 @@ export default function Sidebar({
                 type="text"
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
-                placeholder="Search chats..."
+                placeholder={t('sidebar.search', 'Search chats...')}
                 className={`w-full pl-8 pr-3 py-1.5 text-xs rounded-xl border focus:outline-none transition-all ${
                   darkMode
                     ? 'bg-zinc-900/60 text-white placeholder-zinc-500 border-zinc-800 focus:border-zinc-700'
@@ -203,11 +205,11 @@ export default function Sidebar({
             {/* HISTORY section — no duplicate "New Consultation" (A2) */}
             <div className="flex-1 overflow-y-auto space-y-0.5 pr-1">
               <div className={`text-[10px] font-semibold uppercase tracking-wider px-2 py-1 ${darkMode ? 'text-zinc-500' : 'text-zinc-400'}`}>
-                History
+                {t('sidebar.history', 'History')}
               </div>
 
               {filteredChats.length === 0 ? (
-                <div className={`text-center py-6 text-xs ${darkMode ? 'text-zinc-500' : 'text-zinc-400'}`}>No chats found</div>
+                <div className={`text-center py-6 text-xs ${darkMode ? 'text-zinc-500' : 'text-zinc-400'}`}>{t('sidebar.no_chats', 'No chats found')}</div>
               ) : (
                 filteredChats.map((chat, index) => {
                   const isActive = Boolean(chat.id) && chat.id === activeSessionId;
@@ -310,7 +312,7 @@ export default function Sidebar({
                                 }`}
                               >
                                 <Pencil className="w-3.5 h-3.5" />
-                                <span>Rename</span>
+                                <span>{t('sidebar.rename', 'Rename')}</span>
                               </button>
                               <button
                                 onClick={(e) => {
@@ -321,7 +323,7 @@ export default function Sidebar({
                                 className="w-full flex items-center gap-2 px-3 py-2 text-red-400 hover:bg-red-950/40 hover:text-red-300 transition-colors"
                               >
                                 <Trash2 className="w-3.5 h-3.5" />
-                                <span>Delete</span>
+                                <span>{t('sidebar.delete', 'Delete')}</span>
                               </button>
                             </div>
                           )}
@@ -345,7 +347,7 @@ export default function Sidebar({
               >
                 <div className="flex items-center gap-2">
                   <User className="w-3.5 h-3.5 text-indigo-400" />
-                  <span>Profile &amp; Caregiver Hub</span>
+                  <span>{t('sidebar.profile', 'Profile & Caregiver Hub')}</span>
                 </div>
               </button>
 
@@ -358,7 +360,7 @@ export default function Sidebar({
                 }`}
               >
                 <Settings className="w-3.5 h-3.5" />
-                <span>Settings</span>
+                <span>{t('sidebar.settings', 'Settings')}</span>
               </button>
 
               <button
@@ -370,7 +372,7 @@ export default function Sidebar({
                 }`}
               >
                 <LogOut className="w-3.5 h-3.5 text-red-400" />
-                <span>Log out</span>
+                <span>{t('sidebar.logout', 'Log out')}</span>
               </button>
 
               {/* A6: End-to-end encrypted badge (not HIPAA claim) */}
@@ -383,7 +385,7 @@ export default function Sidebar({
                     {currentUser?.full_name || (currentUser?.email ? currentUser.email.split('@')[0] : 'Patient Session')}
                   </div>
                   <div className={`text-[10px] truncate ${darkMode ? 'text-zinc-500' : 'text-zinc-400'}`}>
-                    End-to-end encrypted
+                    {t('sidebar.encrypted', 'End-to-end encrypted')}
                   </div>
                 </div>
               </div>

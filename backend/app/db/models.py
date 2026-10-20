@@ -108,6 +108,8 @@ class Document(Base):
     filename = Column(String, nullable=False)
     file_path = Column(String, nullable=True)  # Path to FAISS index or PDF
     title = Column(String(60), nullable=True)  # User-defined or auto-generated chat title
+    cached_metrics = Column(JSON, nullable=True)
+    cached_summary = Column(Text, nullable=True)
     created_at = Column(DateTime(timezone=True), default=utcnow)
 
     owner = orm_relationship("User", back_populates="documents")

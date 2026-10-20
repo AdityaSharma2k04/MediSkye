@@ -1,3 +1,5 @@
+from typing import Optional, Any
+
 EMERGENCY_KEYWORDS = [
     "chest pain",
     "heart attack",
@@ -35,7 +37,11 @@ def get_emergency_response() -> str:
     return EMERGENCY_RESPONSE
 
 
-def append_disclaimer(response_text: str) -> str:
+def append_disclaimer(response_text: str, intent: Optional[Any] = None) -> str:
+    if intent is not None:
+        intent_val = getattr(intent, "value", intent)
+        if str(intent_val).upper() == "CASUAL" or "CASUAL" in str(intent).upper():
+            return response_text
     if DISCLAIMER_TEXT.strip() in response_text:
         return response_text
     return response_text + DISCLAIMER_TEXT
