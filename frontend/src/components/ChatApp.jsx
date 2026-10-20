@@ -152,6 +152,8 @@ export default function ChatApp() {
 
   const [activePdf, setActivePdf] = useState(null);
   const [isGenerating, setIsGenerating] = useState(false);
+  const [isExportingSummary, setIsExportingSummary] = useState(false);
+  const [printSummaryText, setPrintSummaryText] = useState('');
   const [uploadProgress, setUploadProgress] = useState(null);
   const abortControllerRef = useRef(null);
   const chatInputRef = useRef(null);
@@ -814,6 +816,43 @@ export default function ChatApp() {
     setIsGenerating(false);
   };
 
+  const handleExportSummary = async () => {
+    if (isExportingSummary) return printSummaryText;
+    setIsExportingSummary(true);
+
+    const promptText =
+      'Generate a comprehensive, structured clinical summary of this entire report suitable for printing. Use clean markdown. Do not use emojis. Include an overview, abnormal findings grouped by system, and next steps.';
+
+    let generatedText = '';
+    const activeDocId = currentChat?.document_id || activePdf?.id;
+    const currentMsgs = currentChat?.messages || messages || [];
+    const assistantMsgs = currentMsgs.filter((m) => m.sender === 'assistant');
+    const fallbackText = assistantMsgs.length > 0 ? assistantMsgs[assistantMsgs.length - 1].text : '';
+
+    if (activeDocId) {
+      try {
+        await sendQueryStream(
+          promptText,
+          activeDocId,
+          language,
+          (chunk) => {
+            if (chunk.chunk || chunk.token) {
+              generatedText += (chunk.chunk || chunk.token);
+            }
+          },
+          selectedPatientId
+        );
+      } catch (err) {
+        logger.warn('Failed on-demand summary generation, falling back:', err);
+      }
+    }
+
+    const finalSummary = (generatedText && generatedText.trim()) ? generatedText : fallbackText;
+    setPrintSummaryText(finalSummary);
+    setIsExportingSummary(false);
+    return finalSummary;
+  };
+
   const handleRegenerate = () => {
     if (isGenerating) return;
     const lastUserMsg = [...messages].reverse().find((m) => m.sender === 'user');
@@ -1056,6 +1095,9 @@ export default function ChatApp() {
           selectedPatientId={selectedPatientId}
           onSelectPatient={handlePatientSelect}
           onOpenDependents={handleOpenDependents}
+          isExportingSummary={isExportingSummary}
+          printSummaryText={printSummaryText}
+          onExportSummary={handleExportSummary}
         />
 
         {uploadProgress && (

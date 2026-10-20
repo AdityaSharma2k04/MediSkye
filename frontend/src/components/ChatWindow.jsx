@@ -7,7 +7,7 @@ import {
 import ChatMessage from './ChatMessage';
 import LabMetrics from './LabMetrics';
 import PrintableSummary from './PrintableSummary';
-import { fetchLabMetrics, getProfile } from '../services/api';
+import { fetchLabMetrics, getProfile, sendQueryStream } from '../services/api';
 import PatientContextSelector from './PatientContextSelector';
 
 export default function ChatWindow({
@@ -32,6 +32,9 @@ export default function ChatWindow({
   onOpenUpload,
   sidebarOpen = true,
   toggleSidebar,
+  isExportingSummary: propIsExportingSummary,
+  printSummaryText: propPrintSummaryText,
+  onExportSummary,
 }) {
 
   const scrollRef = useRef(null);
@@ -40,8 +43,13 @@ export default function ChatWindow({
   const [labMetrics, setLabMetrics] = useState([]);
   const [loadingMetrics, setLoadingMetrics] = useState(false);
   const [showPrintSummary, setShowPrintSummary] = useState(false);
+  const [localIsExporting, setLocalIsExporting] = useState(false);
+  const [localPrintSummaryText, setLocalPrintSummaryText] = useState('');
   // Resolved user for the print summary — falls back to a fresh fetch if currentUser is null
   const [printUser, setPrintUser] = useState(null);
+
+  const isExporting = propIsExportingSummary !== undefined ? propIsExportingSummary : localIsExporting;
+  const currentSummaryText = propPrintSummaryText !== undefined ? propPrintSummaryText : localPrintSummaryText;
 
   // When activePdf is removed, reset to chat view
   useEffect(() => {
@@ -86,6 +94,8 @@ export default function ChatWindow({
   };
 
   const handlePrintDoctorSummary = async () => {
+    if (isExporting) return;
+
     // Resolve user — prefer prop, fall back to fresh GET /users/me
     let resolvedUser = currentUser;
     if (!resolvedUser) {
@@ -100,8 +110,42 @@ export default function ChatWindow({
         setLabMetrics(m);
       } catch (_) {}
     }
+
+    let summaryTextToUse = '';
+    if (onExportSummary) {
+      summaryTextToUse = await onExportSummary();
+    } else {
+      setLocalIsExporting(true);
+      const promptText =
+        'Generate a comprehensive, structured clinical summary of this entire report suitable for printing. Use clean markdown. Do not use emojis. Include an overview, abnormal findings grouped by system, and next steps.';
+
+      let generatedText = '';
+      const assistantMsgs = (messages || []).filter((m) => m.sender === 'assistant');
+      const fallbackText = assistantMsgs.length > 0 ? assistantMsgs[assistantMsgs.length - 1].text : '';
+
+      if (documentId) {
+        try {
+          await sendQueryStream(
+            promptText,
+            documentId,
+            'English',
+            (chunk) => {
+              if (chunk.chunk || chunk.token) {
+                generatedText += (chunk.chunk || chunk.token);
+              }
+            },
+            selectedPatientId
+          );
+        } catch (_) {}
+      }
+
+      summaryTextToUse = (generatedText && generatedText.trim()) ? generatedText : fallbackText;
+      setLocalPrintSummaryText(summaryTextToUse);
+      setLocalIsExporting(false);
+    }
+
     setShowPrintSummary(true);
-    // Give React one tick to mount PrintableSummary before printing
+    // Give React time to commit PrintableSummary to the DOM before printing
     setTimeout(() => {
       window.print();
       const cleanup = () => {
@@ -244,8 +288,11 @@ export default function ChatWindow({
 
               <button
                 onClick={handlePrintDoctorSummary}
+                disabled={isExporting}
                 aria-label="Export printable doctor consultation summary"
                 className={`px-3 py-1.5 rounded-xl text-xs flex items-center gap-1.5 transition-colors border ${
+                  isExporting ? 'opacity-70 cursor-not-allowed ' : ''
+                }${
                   darkMode
                     ? 'bg-zinc-900 hover:bg-zinc-800 text-zinc-200 border-zinc-800'
                     : 'bg-white hover:bg-zinc-50 text-zinc-700 border-zinc-200'
@@ -253,7 +300,9 @@ export default function ChatWindow({
                 title="Export 1-Click Printable Doctor Consultation Summary"
               >
                 <Printer className="w-3.5 h-3.5" />
-                <span className="hidden sm:inline">Export Summary</span>
+                <span className="hidden sm:inline">
+                  {isExporting ? 'Generating Summary...' : 'Export Summary'}
+                </span>
               </button>
             </>
           )}
@@ -313,7 +362,7 @@ export default function ChatWindow({
       <div
         ref={scrollRef}
         onScroll={handleScroll}
-        className="flex-1 overflow-y-auto p-4 sm:p-6 lg:p-8 max-w-4xl w-full mx-auto"
+        className="chat-messages-container flex-1 overflow-y-auto p-4 sm:p-6 lg:p-8 max-w-4xl w-full mx-auto"
       >
         {viewMode === 'metrics' ? (
           loadingMetrics ? (
@@ -457,11 +506,15 @@ export default function ChatWindow({
             ? dependents?.find((d) => String(d.id) === String(selectedPatientId)) || (printUser || currentUser)
             : (printUser || currentUser);
 
+        const summaryToPrint =
+          currentSummaryText ||
+          messages.filter((m) => m.sender === 'assistant').map((m) => m.text).join('\n\n');
+
         return (
           <PrintableSummary
             user={activePatient}
             document={activePdf}
-            summary={messages.filter((m) => m.sender === 'assistant').map((m) => m.text).join('\n\n')}
+            summary={summaryToPrint}
             metrics={labMetrics}
             specialists={messages.flatMap((m) => m.specialists || [])}
           />

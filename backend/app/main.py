@@ -49,6 +49,16 @@ async def lifespan(app: FastAPI):
     else:
         logger.info("Gemini API Key mode active (enterprise mode disabled).")
 
+    import firebase_admin
+
+    if not firebase_admin._apps:
+        # Cloud Run uses ADC automatically. No JSON keys needed!
+        try:
+            firebase_admin.initialize_app()
+            logger.info("Firebase Admin initialized successfully via ADC.")
+        except Exception as fb_err:
+            logger.warning("Firebase Admin initialization deferred/failed: %s", fb_err)
+
     # DEV ONLY: auto-create tables for SQLite convenience
     # In production, Alembic migrations are the source of truth
     if settings.ENV == "development":

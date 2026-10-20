@@ -3,15 +3,36 @@ import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import React from 'react';
 import { MemoryRouter } from 'react-router-dom';
 import Register from '../components/Register';
-import * as api from '../services/api';
 
-vi.mock('../services/api', () => ({
-  register: vi.fn(),
-}));
+const mockNavigate = vi.fn();
+vi.mock('react-router-dom', async () => {
+  const actual = await vi.importActual('react-router-dom');
+  return {
+    ...actual,
+    useNavigate: () => mockNavigate,
+  };
+});
 
-describe('Register Component', () => {
+const mockCreateUserWithEmailAndPassword = vi.fn();
+const mockUpdateProfile = vi.fn();
+const mockSignInWithPopup = vi.fn();
+
+vi.mock('../services/firebase', async () => {
+  const actual = await vi.importActual('../services/firebase');
+  return {
+    ...actual,
+    auth: {},
+    googleProvider: {},
+    createUserWithEmailAndPassword: (...args) => mockCreateUserWithEmailAndPassword(...args),
+    updateProfile: (...args) => mockUpdateProfile(...args),
+    signInWithPopup: (...args) => mockSignInWithPopup(...args),
+  };
+});
+
+describe('Register Component with Firebase Auth', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    localStorage.clear();
   });
 
   it('renders initial step with email input and continue button', () => {
@@ -83,7 +104,7 @@ describe('Register Component', () => {
     fireEvent.click(screen.getByRole('button', { name: /create account/i }));
 
     expect(screen.getByText(/password must be at least 8 characters/i)).toBeInTheDocument();
-    expect(api.register).not.toHaveBeenCalled();
+    expect(mockCreateUserWithEmailAndPassword).not.toHaveBeenCalled();
   });
 
   it('shows error if PHI consent is not checked', async () => {
@@ -102,11 +123,15 @@ describe('Register Component', () => {
     fireEvent.click(screen.getByRole('button', { name: /create account/i }));
 
     expect(screen.getByText(/you must consent to phi processing/i)).toBeInTheDocument();
-    expect(api.register).not.toHaveBeenCalled();
+    expect(mockCreateUserWithEmailAndPassword).not.toHaveBeenCalled();
   });
 
-  it('calls register API with trimmed email, password, and consent', async () => {
-    api.register.mockResolvedValueOnce({ id: '123', email: 'user@example.com' });
+  it('calls createUserWithEmailAndPassword with trimmed email, password, and stores token', async () => {
+    const mockUser = {
+      email: 'user@example.com',
+      getIdToken: vi.fn().mockResolvedValue('mock_register_token_789'),
+    };
+    mockCreateUserWithEmailAndPassword.mockResolvedValueOnce({ user: mockUser });
 
     render(
       <MemoryRouter>
@@ -126,14 +151,47 @@ describe('Register Component', () => {
     fireEvent.click(screen.getByRole('button', { name: /create account/i }));
 
     await waitFor(() => {
-      expect(api.register).toHaveBeenCalledWith('user@example.com', 'validPassword123', true);
+      expect(mockCreateUserWithEmailAndPassword).toHaveBeenCalledWith(expect.anything(), 'user@example.com', 'validPassword123');
+      expect(localStorage.getItem('token')).toBe('mock_register_token_789');
+      expect(localStorage.getItem('mediskye_user_email')).toBe('user@example.com');
     });
 
     expect(screen.getByText(/account created! redirecting/i)).toBeInTheDocument();
   });
 
-  it('displays API error message clearly', async () => {
-    api.register.mockRejectedValueOnce(new Error('The user with this email already exists in the system.'));
+  it('syncs display name with updateProfile when full name is provided', async () => {
+    const mockUser = {
+      email: 'user@example.com',
+      getIdToken: vi.fn().mockResolvedValue('mock_token_with_name'),
+    };
+    mockCreateUserWithEmailAndPassword.mockResolvedValueOnce({ user: mockUser });
+    mockUpdateProfile.mockResolvedValueOnce();
+
+    render(
+      <MemoryRouter>
+        <Register />
+      </MemoryRouter>
+    );
+
+    fireEvent.change(screen.getByPlaceholderText(/email address/i), { target: { value: 'user@example.com' } });
+    fireEvent.click(screen.getByRole('button', { name: /continue/i }));
+
+    fireEvent.change(screen.getByPlaceholderText(/full name/i), { target: { value: 'Jane Doe' } });
+    fireEvent.change(screen.getByPlaceholderText(/create a password/i), { target: { value: 'validPassword123' } });
+    fireEvent.click(document.getElementById('register-phi-consent'));
+
+    fireEvent.click(screen.getByRole('button', { name: /create account/i }));
+
+    await waitFor(() => {
+      expect(mockUpdateProfile).toHaveBeenCalledWith(mockUser, { displayName: 'Jane Doe' });
+      expect(mockUser.getIdToken).toHaveBeenCalledWith(true);
+    });
+  });
+
+  it('displays mapped auth/email-already-in-use error message clearly', async () => {
+    const err = new Error('Email exists');
+    err.code = 'auth/email-already-in-use';
+    mockCreateUserWithEmailAndPassword.mockRejectedValueOnce(err);
 
     render(
       <MemoryRouter>
@@ -151,7 +209,7 @@ describe('Register Component', () => {
     fireEvent.click(screen.getByRole('button', { name: /create account/i }));
 
     await waitFor(() => {
-      expect(screen.getByText(/the user with this email already exists in the system/i)).toBeInTheDocument();
+      expect(screen.getByText(/an account with this email already exists/i)).toBeInTheDocument();
     });
   });
 });

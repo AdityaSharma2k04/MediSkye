@@ -19,15 +19,16 @@ steps:
     args:
       - 'run'
       - 'deploy'
-      - 'mediskye-backend'
+      - 'mediskye'
       - '--image=gcr.io/$PROJECT_ID/mediskye:$COMMIT_SHA'
-      - '--region=us-central1'
+      - '--region=asia-southeast1'
       - '--platform=managed'
-      - '--port=8080'
-      - '--no-cpu-throttling'
-      - '--cpu-boost'
       - '--allow-unauthenticated'
-      - '--set-env-vars=GOOGLE_GENAI_USE_ENTERPRISE=True,GOOGLE_CLOUD_PROJECT=$PROJECT_ID,GOOGLE_CLOUD_LOCATION=us-central1'
+      - '--port=8080'
+      - '--memory=1Gi'
+      - '--cpu=1'
+      - '--cpu-boost'
+      - '--set-env-vars=GOOGLE_GENAI_USE_ENTERPRISE=True,GOOGLE_CLOUD_PROJECT=$PROJECT_ID,GOOGLE_CLOUD_LOCATION=global,ALLOWED_ORIGINS=https://your-cloudflare-url.pages.dev'
 
 images:
   - 'gcr.io/$PROJECT_ID/mediskye:$COMMIT_SHA'

@@ -17,6 +17,7 @@ from app.db.models import User, Document
 from app.schemas.upload import MetricsResponse, LabMetricItem
 from app.rag.retriever import retrieve_relevant_docs
 from app.rag.embedder import get_embedder
+from app.llm.gemini_client import call_gemini_with_retry
 
 logger = logging.getLogger(__name__)
 
@@ -53,25 +54,32 @@ async def extract_metrics(
     )
     combined_text = "\n".join([d.page_content for d in docs])
 
-    extract_prompt = f"""
-    Extract structured medical lab values from the following report text into a clean JSON array.
-    Return ONLY raw JSON with schema:
-    [
-      {{
-        "test": "Name of test (e.g. Hemoglobin, LDL Cholesterol)",
-        "value": "Observed value (e.g. 14.5)",
-        "unit": "Unit (e.g. g/dL, mg/dL)",
-        "range": "Reference range (e.g. 13.8 - 17.2)",
-        "status": "Normal" | "High" | "Low"
-      }}
-    ]
+    extract_prompt = f"""You are a specialized medical lab data extraction system.
+Extract structured clinical biomarker values from the following medical report text into a clean JSON array.
 
-    Report text:
-    {combined_text[:4000]}
-    """
+CRITICAL EXTRACTION RULES:
+1. ONLY extract actual clinical biomarkers and laboratory analytes (e.g., Hemoglobin, HbA1c, TSH, LDL Cholesterol, Creatinine, WBC).
+2. DO NOT extract metadata, accreditation numbers, addresses, or text from document headers/footers.
+3. Strictly Ignore any line or test name containing: "ISO", "NABL", "CAP", "Certified", "Facility", "Hospital", "Lab", "Laboratory", "Helpline", "Boulevard", "Street", "Report ID", "Accession", "Sample", "Patient Name", "Referred By", "Page", or "Phone".
+4. Validation Rule: Every extracted item MUST have both a numeric/qualitative clinical value AND a valid physiological unit (e.g., mg/dL, g/dL, %, mIU/L, U/L, mmol/L, 10^3/uL, pg/mL) or be a recognized clinical ratio/index. If it lacks a valid unit or medical biomarker name, discard it.
+5. If no valid metrics are found, return an empty list `[]`.
+
+Return ONLY raw JSON with schema:
+[
+  {{
+    "test": "Name of test (e.g. Hemoglobin, LDL Cholesterol)",
+    "value": "Observed value (e.g. 14.5)",
+    "unit": "Unit (e.g. g/dL, mg/dL)",
+    "range": "Reference range (e.g. 13.8 - 17.2)",
+    "status": "Normal" | "High" | "Low"
+  }}
+]
+
+Report text:
+{combined_text[:4000]}
+"""
 
     try:
-        from app.llm.gemini_client import call_gemini_with_retry
         response = await call_gemini_with_retry(
             contents=extract_prompt,
             user_id=current_user.id,
@@ -85,7 +93,43 @@ async def extract_metrics(
         elif text.startswith("```"):
             text = text[3:-3].strip()
         parsed = json.loads(text)
-        metrics = [LabMetricItem(**item) for item in parsed]
+        if not isinstance(parsed, list):
+            return MetricsResponse(metrics=[])
+
+        ignored_keywords = (
+            "iso 15189", "iso", "nabl", "cap", "certified", "central facility", "facility",
+            "hospital", "laboratory", "lab", "helpline", "boulevard", "street",
+            "report id", "accession", "sample", "patient name", "referred by", "page", "phone"
+        )
+
+        metrics = []
+        for item in parsed:
+            if not isinstance(item, dict):
+                continue
+            test_name = str(item.get("test") or item.get("name") or "").strip()
+            val_str = str(item.get("value", "")).strip()
+            unit_str = str(item.get("unit", "")).strip()
+
+            test_lower = test_name.lower()
+            val_lower = val_str.lower()
+
+            # Ignore entries matching banned header/footer keywords case-insensitively
+            if any(kw in test_lower or kw in val_lower for kw in ignored_keywords):
+                continue
+
+            # Require valid biomarker name, value, and non-empty unit
+            if not test_name or not val_str or not unit_str:
+                continue
+
+            metric_dict = {
+                "test": test_name,
+                "value": val_str,
+                "unit": unit_str,
+                "range": str(item.get("range") or item.get("reference_range") or "").strip(),
+                "status": str(item.get("status") or "Normal").strip(),
+            }
+            metrics.append(LabMetricItem(**metric_dict))
+
         return MetricsResponse(metrics=metrics)
     except Exception as err:
         logger.error("Metrics extraction error: %s", err)

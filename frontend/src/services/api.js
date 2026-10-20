@@ -1,5 +1,6 @@
 // API Service for FastAPI backend
 import { logger } from './logger';
+import { auth, signOut } from './firebase';
 
 const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:8000';
 
@@ -117,6 +118,13 @@ export async function logout() {
   } catch (err) {
     logger.error('Logout error:', err);
   } finally {
+    try {
+      if (auth && typeof signOut === 'function') {
+        await signOut(auth);
+      }
+    } catch (e) {
+      // ignore
+    }
     clearLocalAuthStorage();
   }
 }

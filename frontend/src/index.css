@@ -431,6 +431,76 @@ html:not(.dark) .login-divider::after { background: rgba(228, 228, 231, 0.8); }
 html.dark .login-divider span { color: #52525b; }
 html:not(.dark) .login-divider span { color: #a1a1aa; }
 
+.login-divider.login-divider-subtle {
+  margin: 18px 0;
+}
+.login-divider.login-divider-subtle span {
+  font-size: 12px;
+  text-transform: none;
+  letter-spacing: normal;
+  font-weight: 400;
+}
+html.dark .login-divider.login-divider-subtle span { color: #71717a; }
+html:not(.dark) .login-divider.login-divider-subtle span { color: #a1a1aa; }
+
+/* ── Google Button ── */
+.login-btn-google {
+  width: 100%;
+  padding: 11px 16px;
+  font-size: 14px;
+  font-weight: 500;
+  font-family: inherit;
+  border-radius: 12px;
+  cursor: pointer;
+  transition: all 0.15s cubic-bezier(0.4, 0, 0.2, 1);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  box-sizing: border-box;
+}
+html.dark .login-btn-google {
+  color: #f4f4f5;
+  background: rgba(24, 24, 27, 0.7);
+  border: 1px solid rgba(63, 63, 70, 0.6);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.3);
+}
+html.dark .login-btn-google:hover:not(:disabled) {
+  background: rgba(39, 39, 42, 0.9);
+  border-color: rgba(113, 113, 122, 0.7);
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.35);
+}
+html:not(.dark) .login-btn-google {
+  color: #18181b;
+  background: #ffffff;
+  border: 1px solid #e4e4e7;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
+}
+html:not(.dark) .login-btn-google:hover:not(:disabled) {
+  background: #fbfbfb;
+  border-color: #d4d4d8;
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.06);
+}
+.login-btn-google:active:not(:disabled) {
+  transform: scale(0.98);
+}
+.login-btn-google:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.login-google-spinner {
+  display: inline-block;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  border: 2px solid rgba(66, 133, 244, 0.2);
+  border-top-color: #4285F4;
+  animation: spin 0.6s linear infinite;
+}
+
 /* ── Secondary Button (outline) ── */
 .login-btn-secondary {
   display: block;
@@ -492,6 +562,44 @@ html:not(.dark) .login-btn-secondary:hover {
   border-radius: 12px;
   margin-bottom: 8px;
   animation: cardFadeIn 0.3s ease-out;
+}
+
+/* ── Forgot Password ── */
+.login-forgot-wrapper {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 4px;
+  margin-bottom: 12px;
+}
+
+.login-forgot-btn {
+  background: transparent;
+  border: none;
+  padding: 0;
+  font-size: 12px;
+  color: #a1a1aa;
+  cursor: pointer;
+  transition: color 0.15s ease;
+  text-decoration: none;
+}
+
+.login-forgot-btn:hover:not(:disabled) {
+  color: #18181b;
+  text-decoration: underline;
+}
+
+html.dark .login-forgot-btn {
+  color: #71717a;
+}
+
+html.dark .login-forgot-btn:hover:not(:disabled) {
+  color: #f4f4f5;
+  text-decoration: underline;
+}
+
+.login-forgot-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
 }
 
 /* ── Footer ── */

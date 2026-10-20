@@ -177,7 +177,7 @@ describe('PrintableSummary', () => {
     expect(screen.getAllByText(/LDL Cholesterol/).length).toBeGreaterThan(0);
   });
 
-  it('shows Not provided fallback when user fields are missing', () => {
+  it('shows Not Specified fallback when patient name is missing and Not provided for DOB', () => {
     render(
       <PrintableSummary
         user={{}}
@@ -187,7 +187,8 @@ describe('PrintableSummary', () => {
         specialists={[]}
       />
     );
-    expect(screen.getAllByText(/Not provided/).length).toBeGreaterThanOrEqual(2);
+    expect(screen.getByText(/Not Specified/)).toBeInTheDocument();
+    expect(screen.getByText(/Not provided/)).toBeInTheDocument();
   });
 
   it('abnormal table excludes Normal-status rows', () => {

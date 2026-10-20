@@ -1,52 +1,64 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { render } from '@testing-library/react';
+import { render, screen } from '@testing-library/react';
 import React from 'react';
-import { ReferenceBar, exportMetricsCsv } from '../components/LabMetrics';
+import LabMetrics, { exportMetricsCsv } from '../components/LabMetrics';
 
-describe('ReferenceBar status colors', () => {
-  it('renders green dot when value is within range', () => {
-    const { container } = render(<ReferenceBar value={5.0} low={4.0} high={6.0} />);
-    const dot = container.querySelector('.bg-green-500');
-    expect(dot).toBeInTheDocument();
+describe('LabMetrics Clinical Table', () => {
+  const sampleMetrics = [
+    { test: 'Hemoglobin', value: '14.2', unit: 'g/dL', range: '12–17', status: 'Normal' },
+    { test: 'TSH', value: '0.2', unit: 'mIU/L', range: '0.4–4.0', status: 'Low' },
+    { test: 'LDL Cholesterol', value: '160', unit: 'mg/dL', range: '0–100', status: 'High' },
+  ];
+
+  it('renders clinical table with semantic columns', () => {
+    render(<LabMetrics metrics={sampleMetrics} />);
+    expect(screen.getByText('Test Name')).toBeInTheDocument();
+    expect(screen.getByText('Value')).toBeInTheDocument();
+    expect(screen.getByText('Unit')).toBeInTheDocument();
+    expect(screen.getByText('Reference Range')).toBeInTheDocument();
+    expect(screen.getByText('Status')).toBeInTheDocument();
+
+    expect(screen.getByText('Hemoglobin')).toBeInTheDocument();
+    expect(screen.getByText('TSH')).toBeInTheDocument();
+    expect(screen.getByText('LDL Cholesterol')).toBeInTheDocument();
   });
 
-  it('renders red dot when value is above high', () => {
-    const { container } = render(<ReferenceBar value={8.0} low={4.0} high={6.0} />);
-    const dot = container.querySelector('.bg-red-500');
-    expect(dot).toBeInTheDocument();
+  it('sorts abnormal metrics (High, Low) to the top before Normal metrics', () => {
+    const { container } = render(<LabMetrics metrics={sampleMetrics} />);
+    const rows = container.querySelectorAll('tbody tr');
+    expect(rows.length).toBe(3);
+
+    // First two rows should be the abnormal tests (TSH and LDL Cholesterol)
+    const firstRowText = rows[0].textContent;
+    const secondRowText = rows[1].textContent;
+    const thirdRowText = rows[2].textContent;
+
+    expect(firstRowText).toMatch(/Low|High/);
+    expect(secondRowText).toMatch(/Low|High/);
+    expect(thirdRowText).toContain('Hemoglobin');
+    expect(thirdRowText).toContain('Normal');
   });
 
-  it('renders amber dot when value is below low', () => {
-    const { container } = render(<ReferenceBar value={2.0} low={4.0} high={6.0} />);
-    const dot = container.querySelector('.bg-amber-500');
-    expect(dot).toBeInTheDocument();
+  it('renders status as plain text without background pill badges', () => {
+    const { container } = render(<LabMetrics metrics={sampleMetrics} />);
+    const statusSpans = container.querySelectorAll('tbody tr td:last-child span');
+
+    expect(statusSpans.length).toBe(3);
+    statusSpans.forEach((span) => {
+      // Must not have pill background classes or borders
+      expect(span.className).not.toContain('rounded-full');
+      expect(span.className).not.toContain('bg-red');
+      expect(span.className).not.toContain('bg-emerald');
+      expect(span.style.fontWeight).toBe('600');
+    });
   });
 
-  it('renders green normal-range band', () => {
-    const { container } = render(<ReferenceBar value={5.0} low={4.0} high={6.0} />);
-    const band = container.querySelector('.bg-green-300');
-    expect(band).toBeInTheDocument();
-  });
+  it('renders graceful empty state when metrics is empty or null', () => {
+    const { rerender } = render(<LabMetrics metrics={[]} />);
+    expect(screen.getByText(/No lab metrics available for this report/i)).toBeInTheDocument();
 
-  it('clamps dot position to 0–100% for extreme values', () => {
-    // Should not throw even when value is far outside range
-    expect(() => render(<ReferenceBar value={100} low={4.0} high={6.0} />)).not.toThrow();
-    expect(() => render(<ReferenceBar value={-100} low={4.0} high={6.0} />)).not.toThrow();
-  });
-
-  it('safely handles zero-range where low === high without division by zero', () => {
-    const { container } = render(<ReferenceBar value={5.0} low={5.0} high={5.0} />);
-    const dot = container.querySelector('.bg-green-500');
-    expect(dot).toBeInTheDocument();
-    // Verify no NaN in inline style
-    expect(dot.getAttribute('style')).not.toContain('NaN');
-  });
-
-  it('safely handles inverted range where low > high without crashing', () => {
-    const { container } = render(<ReferenceBar value={8.0} low={10.0} high={5.0} />);
-    const dot = container.querySelector('.bg-red-500');
-    expect(dot).toBeInTheDocument();
-    expect(dot.getAttribute('style')).not.toContain('NaN');
+    rerender(<LabMetrics metrics={null} />);
+    expect(screen.getByText(/No lab metrics available for this report/i)).toBeInTheDocument();
   });
 });
 
@@ -58,7 +70,6 @@ describe('exportMetricsCsv', () => {
     createdUrl = null;
     clickedAnchor = null;
 
-    // JSDOM doesn't implement URL.createObjectURL — define it
     if (!URL.createObjectURL) {
       URL.createObjectURL = () => 'blob:mock-url';
     }
@@ -72,7 +83,6 @@ describe('exportMetricsCsv', () => {
     });
     vi.spyOn(URL, 'revokeObjectURL').mockImplementation(() => {});
 
-    // Intercept anchor creation
     const origCreate = document.createElement.bind(document);
     vi.spyOn(document, 'createElement').mockImplementation((tag) => {
       const el = origCreate(tag);

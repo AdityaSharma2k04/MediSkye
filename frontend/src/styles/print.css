@@ -1,50 +1,157 @@
 @media print {
-  body * { visibility: hidden; }
-  #print-summary, #print-summary * { visibility: visible; }
-  #print-summary { position: absolute; left: 0; top: 0; width: 100%; }
-  .sidebar, .header, .chat-input, nav, button { display: none !important; }
-  @page { margin: 20mm 15mm; size: A4; }
-  body { font-family: Georgia, serif; font-size: 11pt; color: #000; }
-
-  /* Force black on white — no dark-mode bleed */
-  #print-summary,
-  #print-summary * {
-    color: #000 !important;
-    background: #fff !important;
+  @page {
+    margin: 18mm 15mm;
+    size: auto;
   }
 
-  table { width: 100%; border-collapse: collapse; }
-  th, td { padding: 4pt; border-bottom: 1px solid #ddd; font-size: 10pt; }
-  tr { page-break-inside: avoid; }
+  /* Unblock multi-page flow: reset root containers to visible block flow */
+  html, body, #root {
+    height: auto !important;
+    min-height: 0 !important;
+    overflow: visible !important;
+    background: #ffffff !important;
+    color: #000000 !important;
+  }
+
+  /* Reset all ancestors of #print-summary */
+  body,
+  #root,
+  #root > div,
+  main,
+  .chat-container,
+  div[class*="h-screen"],
+  div[class*="h-full"],
+  div[class*="min-h-0"],
+  div[class*="overflow-"] {
+    height: auto !important;
+    min-height: 0 !important;
+    max-height: none !important;
+    overflow: visible !important;
+    position: static !important;
+    background: #ffffff !important;
+    color: #000000 !important;
+  }
+
+  /* Hide the interactive app shell so only #print-summary prints */
+  .sidebar,
+  aside,
+  header,
+  nav,
+  .chat-input,
+  .chat-scroll-area,
+  .chat-messages-container,
+  form,
+  button,
+  [data-testid="upload-progress-banner"],
+  [role="dialog"] {
+    display: none !important;
+  }
+
+  /* Ensure #print-summary is a visible flow block */
+  #print-summary {
+    display: block !important;
+    position: static !important;
+    width: 100% !important;
+    overflow: visible !important;
+    background: #ffffff !important;
+    color: #000000 !important;
+    font-family: "Georgia", "Times New Roman", Times, serif;
+    font-size: 11pt;
+  }
+
+  #print-summary * {
+    color: #000000 !important;
+    background: transparent !important;
+    box-shadow: none !important;
+  }
+
+  /* Clean pagination breaks */
+  table {
+    page-break-inside: auto;
+    break-inside: auto;
+    width: 100%;
+    border-collapse: collapse;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  }
+
+  tr {
+    page-break-inside: avoid;
+    break-inside: avoid;
+    page-break-after: auto;
+  }
+
+  th, td {
+    padding: 6pt 8pt;
+    border-bottom: 1px solid #000000;
+    font-size: 9.5pt;
+  }
+
+  th {
+    font-weight: 700;
+    border-bottom: 2px solid #000000;
+    text-align: left;
+  }
+
+  h1, h2, h3 {
+    page-break-after: avoid;
+    break-after: avoid;
+    font-family: "Georgia", "Times New Roman", Times, serif;
+    color: #000000;
+  }
 
   /* Rendered markdown inside clinical summary */
   .clinical-summary h1,
-  .clinical-summary h2 { font-size: 12pt; margin-top: 10pt; margin-bottom: 4pt; }
-  .clinical-summary h3 {
-    font-size: 11pt;
+  .clinical-summary h2 {
+    font-size: 13pt;
     margin-top: 12pt;
     margin-bottom: 6pt;
-    border-bottom: 1px solid #666;
-    padding-bottom: 4pt;
   }
-  .clinical-summary strong { font-weight: 700; }
-  .clinical-summary em { font-style: italic; }
+
+  .clinical-summary h3 {
+    font-size: 11pt;
+    margin-top: 10pt;
+    margin-bottom: 4pt;
+    border-bottom: 1px solid #000000;
+    padding-bottom: 2pt;
+  }
+
+  .clinical-summary strong {
+    font-weight: 700;
+  }
+
+  .clinical-summary em {
+    font-style: italic;
+  }
+
   .clinical-summary ul,
-  .clinical-summary ol { margin-left: 20pt; margin-bottom: 6pt; }
-  .clinical-summary li { margin-bottom: 4pt; }
-  .clinical-summary p { margin-bottom: 6pt; }
+  .clinical-summary ol {
+    margin-left: 18pt;
+    margin-bottom: 6pt;
+  }
+
+  .clinical-summary li {
+    margin-bottom: 3pt;
+  }
+
+  .clinical-summary p {
+    margin-bottom: 6pt;
+    line-height: 1.5;
+  }
 
   /* Footer */
   .print-footer {
+    page-break-inside: avoid;
+    break-inside: avoid;
     margin-top: 24pt;
     padding-top: 12pt;
-    border-top: 1px solid #666;
+    border-top: 1px solid #000000;
     font-size: 9pt;
-    color: #333;
+    color: #000000;
   }
+
   .print-footer .generated-at {
     margin-top: 4pt;
     font-size: 8pt;
-    color: #555;
+    color: #444444;
   }
 }

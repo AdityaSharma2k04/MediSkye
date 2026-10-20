@@ -28,3 +28,4 @@ aiosqlite
 reportlab
 email-validator
 google-cloud-storage
+firebase-admin
