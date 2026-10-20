@@ -1,0 +1,14 @@
+steps:
+  - name: 'gcr.io/cloud-builders/docker'
+    dir: 'backend'
+    args:
+      - 'build'
+      - '--platform=linux/amd64'
+      - '--provenance=false'
+      - '-t'
+      - 'gcr.io/$PROJECT_ID/mediskye:$COMMIT_SHA'
+      - '-f'
+      - 'Dockerfile'
+      - '.'
+images:
+  - 'gcr.io/$PROJECT_ID/mediskye:$COMMIT_SHA'
