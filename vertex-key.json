@@ -1,0 +1,13 @@
+{
+  "type": "service_account",
+  "project_id": "mediskye-backend",
+  "private_key_id": "f6e7888e7660a3968d491e2b9b77c904bc7bfe0e",
+  "private_key": "-----BEGIN PRIVATE KEY-----\nMIIEvwIBADANBgkqhkiG9w0BAQEFAASCBKkwggSlAgEAAoIBAQC4/fAZyyIUZbNX\nI/UQpZDJj9emWp/y5TdHtDalMq6TtKJmfqZlVUFvK23HXagXzxZZUNmoUqbgXvjt\nbzOgY18iR5dYQkWsWlpR9sNHAZibcOgukBXgUIWbyVip3rZftQUBHQ4scySXgoFj\n1Li5B12toEaOTXUfEsfqYtTYXsr2phquPhzX1ADSgAiP4ol3OVV/70RoRjMHBg5o\n4GbHI+U21KU0MOsEVu/NY+KCJDNDYEmLMN6FtT+Enl/+Lom7eGOpuoiDIUnxJnFv\nnRY/l7fXtWSAP5vPOpH+hGlWbTiBnCW4HJGcc93myp9pYcxjbXtjtpwCZoZHzfJ+\n+7HOxTs3AgMBAAECggEAAiBFzox7gclOPFjypUeIPtv8wH6xVxtNsIp6FLMpnaz2\nL0Ask8sp2CgJno1aNAI/R+hNka+rF1BAHPDdCQgOidhRlvdI0bUTU90Gjx30YQtb\njJClwuqdMa/1gufgwYAISxdh/rf8Dazqsiw5sanlNVLVCY5xib/itRqAE7rsxKGz\nC62tcATNpAydIYxeQzr7g5VhXo2jeZ9xr8oFqv9RLBlop8dQStq1lM04WVgHZR7y\nUVdfaGS9uAbRvOWTXLvJ9Njs1X9F7sBHxEozLWaxtl0G5z++KynaSe4pFffQ6gE/\nj37fCNkpkkXyQNHImeIBAWAO15nrTwhY9RtXUeYrAQKBgQDy807aiATG23iPDcWe\nKopVoKpWo1G80RNwzSMLjOnxsHZe94dn20Cj64wdeftXUgbkHb4EnVmXhO8bFuNd\n68qUIaJesEyXJUFQuD5mSRWLFG5ZjUlRaoZp4tF7VDdxvZ+0Uq8/bSnFgdYH44k8\n3WPjYs13tfz6QB6D7d7IQ9Nc9wKBgQDC7ava0ZAftUb4tJX7V64z4sWf5AR+nnSM\nvSWuWzM7XuFZRlNLOgNAOHHSTLAEeVKEdobah+qkESz4UoWt0D1HXLKUIaW3aR7e\nLWN9qOw/b9Kk4+xtkbJwglOwYMyFTAUn3VO3s4FJHxp62Sw7nirfUXEFar41YE7F\nwy2gHUTDwQKBgQDVfYVPd7Nq47V/UATWRl+lezf0RjQvjjJdL4aaQcvafMyoCzBL\nzVlyMizAQk7hns07a/9sorD1+vT6gxRtliRAI4ZBWv8S2sQYoK8ExzhNLTkDLKq/\nBrLzHUQj8g9+vbk3hmlFfTH1w3BHImWYvJtoV4xio+OYLPwjxsW8ig2UZQKBgQCD\nreqaN1cVFHCNMfDfiau0gUzfZjljD8fMCzqZPiKtyLqShF9gQiBQEdFSL1v4qbyE\nn00Z8xcfHjsyxQxpDnNW8dfxGYnJDMo9bIv5J1PwxqmVmiLtIa9ZMbE3RSzkHyac\nd3dGcYy0yL4qnuqym3Z6xZmD/0fe5uBP2DnKH/uEAQKBgQDNZ0pMlZW+HK7JNskp\no8xKeFd8d1JYU5aHcR2drlnq97bWFsRsZMr33PiEMtUwAcl0a8f7ylL8K1OmRmwF\n5i6XDl4rJyxkMHqieHjRROnS47HGHX7PLosJYB7BdOQhGGjP2pblm+HL7pag6PGQ\ns7/ajDQoFccmI9FiVyG0OdrE5Q==\n-----END PRIVATE KEY-----\n",
+  "client_email": "aditya@mediskye-backend.iam.gserviceaccount.com",
+  "client_id": "118078549150987265941",
+  "auth_uri": "https://accounts.google.com/o/oauth2/auth",
+  "token_uri": "https://oauth2.googleapis.com/token",
+  "auth_provider_x509_cert_url": "https://www.googleapis.com/oauth2/v1/certs",
+  "client_x509_cert_url": "https://www.googleapis.com/robot/v1/metadata/x509/aditya%40mediskye-backend.iam.gserviceaccount.com",
+  "universe_domain": "googleapis.com"
+}

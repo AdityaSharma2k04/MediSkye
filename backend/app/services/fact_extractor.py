@@ -8,7 +8,7 @@ from typing import List, Dict, Any, Optional
 from pathlib import Path
 import numpy as np
 
-from app.core.config import settings
+
 
 logger = logging.getLogger(__name__)
 
@@ -132,23 +132,16 @@ async def extract_facts(
     )
 
     try:
-        if settings.LLM_PROVIDER == "agentrouter":
-            from app.llm.agentrouter_client import call_agentrouter
-            response_text = await call_agentrouter(
-                system_instruction="You are a medical fact extraction system. Extract durable patient facts and retractions into JSON format.",
-                user_content=prompt,
+        from app.llm.gemini_client import call_gemini_with_retry, GeminiUnavailableError
+        try:
+            response = await call_gemini_with_retry(
+                contents=prompt,
+                user_id=user_id,
             )
-        else:
-            from app.llm.gemini_client import call_gemini_with_retry, GeminiUnavailableError
-            try:
-                response = await call_gemini_with_retry(
-                    contents=prompt,
-                    user_id=user_id,
-                )
-                response_text = response.text or ""
-            except GeminiUnavailableError as e:
-                logger.warning("Skipping fact extraction — LLM unavailable: %s", e)
-                return {"facts": [], "retractions": []}
+            response_text = response.text or ""
+        except GeminiUnavailableError as e:
+            logger.warning("Skipping fact extraction — LLM unavailable: %s", e)
+            return {"facts": [], "retractions": []}
 
         # Extract JSON (handling markdown fences if returned; take last match to counter user-injected blocks)
         json_matches = list(re.finditer(

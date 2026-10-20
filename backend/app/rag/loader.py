@@ -26,7 +26,7 @@ logger = logging.getLogger(__name__)
 
 from app.core.config import settings
 from app.core.security import sanitize_text
-from app.llm.gemini_client import call_gemini_with_retry
+from app.llm.gemini_client import call_gemini_with_retry, get_genai_client
 
 MIN_EXTRACTED_CHARS = 100
 
@@ -59,7 +59,7 @@ async def classify_image_type(image_bytes: bytes) -> str:
     compressed_bytes = await asyncio.to_thread(_compress)
     from google import genai
     from google.genai.types import Part
-    client = genai.Client(api_key=settings.GOOGLE_API_KEY)
+    client = get_genai_client()
     
     try:
         image_part = Part.from_bytes(data=compressed_bytes, mime_type="image/jpeg")
@@ -96,7 +96,7 @@ async def process_image_path(image_type: str, image_bytes: bytes, source_meta: s
         enhanced_bytes = await asyncio.to_thread(_apply_clahe)
         from google import genai
         from google.genai.types import Part
-        client = genai.Client(api_key=settings.GOOGLE_API_KEY)
+        client = get_genai_client()
         
         try:
             image_part = Part.from_bytes(data=enhanced_bytes, mime_type="image/png")
@@ -304,7 +304,7 @@ async def _extract_table_pages_with_vision(pdf_path: str, table_page_indices: li
         return []
 
     docs: list[Document] = []
-    client = genai.Client(api_key=settings.GOOGLE_API_KEY)
+    client = get_genai_client()
 
     VISION_PROMPT = """You are a precise medical document parser. Extract ALL content from this medical report page into well-structured Markdown.
 

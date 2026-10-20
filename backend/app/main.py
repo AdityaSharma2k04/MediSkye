@@ -39,7 +39,14 @@ async def lifespan(app: FastAPI):
         )
     setup_logging()
     logger.info(f"Starting {settings.PROJECT_NAME} v{settings.VERSION} [{settings.ENV}]")
-    
+
+    if settings.GOOGLE_GENAI_USE_ENTERPRISE:
+        logger.info(
+            "Vertex AI enterprise mode enabled via Cloud Run ADC (project=%s, location=%s)",
+            settings.GOOGLE_CLOUD_PROJECT,
+            settings.GOOGLE_CLOUD_LOCATION,
+        )
+
     # DEV ONLY: auto-create tables for SQLite convenience
     # In production, Alembic migrations are the source of truth
     if settings.ENV == "development":

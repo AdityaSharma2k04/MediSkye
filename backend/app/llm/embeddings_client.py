@@ -3,7 +3,7 @@ import logging
 from typing import Any, Optional
 from google import genai
 from app.core.config import settings
-from app.llm.gemini_client import GeminiUnavailableError, _is_retryable_error
+from app.llm.gemini_client import GeminiUnavailableError, _is_retryable_error, get_genai_client
 
 logger = logging.getLogger(__name__)
 
@@ -35,7 +35,7 @@ async def embed_content_with_retry(
     Raises GeminiUnavailableError on final failure.
     """
     target_model = model or "models/gemini-embedding-2"
-    api_client = client or genai.Client(api_key=settings.GOOGLE_API_KEY)
+    api_client = client or get_genai_client()
 
     last_exception = None
     delays = backoff_delays if backoff_delays is not None else [1.0, 4.0, 16.0]

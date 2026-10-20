@@ -297,30 +297,4 @@ describe('SettingsModal Account fields & Deletion', () => {
     expect(privacyBtn).toBeDisabled();
     expect(privacyBtn).toHaveAttribute('title', 'Policy coming soon');
   });
-
-  it('renders LLM Provider selector and saves preference to localStorage', () => {
-    localStorage.removeItem('mediskye_llm_provider');
-    const showToast = vi.fn();
-
-    render(
-      <SettingsModal
-        isOpen={true}
-        onClose={vi.fn()}
-        darkMode={false}
-        currentUser={mockUser}
-        showToast={showToast}
-      />
-    );
-
-    const providerSelect = screen.getByDisplayValue('Agent Router - DeepSeek (default)');
-    expect(providerSelect).toBeInTheDocument();
-
-    fireEvent.change(providerSelect, { target: { value: 'gemini' } });
-    expect(localStorage.getItem('mediskye_llm_provider')).toBe('gemini');
-    expect(showToast).toHaveBeenCalledWith(
-      'success',
-      'Provider Updated',
-      'Switched to Gemini'
-    );
-  });
 });

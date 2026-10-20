@@ -79,7 +79,7 @@ export async function register(email, password, phi_consent_granted) {
  * Pure UI preferences (theme, language) are NOT auth/PHI state, so they are
  * preserved across logout to avoid a theme/language flash on re-login.
  */
-const PRESERVED_STORAGE_KEYS = new Set(['mediskye_theme', 'mediskye_language', 'mediskye_llm_provider']);
+const PRESERVED_STORAGE_KEYS = new Set(['mediskye_theme', 'mediskye_language']);
 
 export function clearLocalAuthStorage() {
   try {
@@ -175,14 +175,12 @@ export async function getUploadStatus(jobId, timeoutMs = 10000) {
   }
 }
 
-export async function sendQueryStream(queryText, documentId, language = 'English', onChunk, patientId = null, signal = undefined, provider = null) {
+export async function sendQueryStream(queryText, documentId, language = 'English', onChunk, patientId = null, signal = undefined) {
   // documentId can be null for general-health queries (no PDF uploaded)
-  const selectedProvider = provider || localStorage.getItem('mediskye_llm_provider') || 'agentrouter';
   const payload = {
     session_id: documentId || 'general-health-' + Date.now(), // dummy UUID-like string; backend checks document existence
     query: queryText,
     language: language,
-    provider: selectedProvider,
   };
   if (patientId && patientId !== 'self') {
     payload.patient_id = patientId;
@@ -447,6 +445,21 @@ export async function renameDocument(documentId, newTitle) {
 }
 
 export const renameChat = renameDocument;
+
+export async function deleteDocument(documentId) {
+  const res = await fetch(`${API_BASE}/users/me/documents/${documentId}`, {
+    method: 'DELETE',
+    headers: { ...getAuthHeaders() },
+  });
+  if (res.status === 404) {
+    // Already deleted or not a server document
+    return true;
+  }
+  if (!res.ok) throw new Error('Failed to delete document');
+  return true;
+}
+
+export const deleteChat = deleteDocument;
 
 // ── Patient Memory System APIs ──
 

@@ -7,7 +7,6 @@ os.environ.setdefault(
 )
 os.environ.setdefault("DATABASE_URL", "sqlite+aiosqlite:///:memory:")
 os.environ.setdefault("ENV", "test")
-os.environ.setdefault("LLM_PROVIDER", "gemini")
 
 # Shared test password — must be ≤72 bytes for bcrypt compatibility across OSes.
 TEST_PASSWORD = "TestPassword123!"

@@ -15,7 +15,7 @@ import asyncio
 from enum import Enum
 import logging
 from typing import Optional
-from app.core.config import settings
+
 from app.core.security import escape_xml_content
 from app.llm.gemini_client import call_gemini_with_retry
 
@@ -54,36 +54,27 @@ Respond with ONLY the category name, nothing else.
 Category:"""
 
 
-async def classify_intent(query: str, has_document: bool = True, provider: Optional[str] = None) -> QueryIntent:
+async def classify_intent(query: str, has_document: bool = True, **kwargs) -> QueryIntent:
     """
-    Classify user intent using a fast LLM call (Gemini or Agent Router).
+    Classify user intent using a fast Gemini LLM call.
     Falls back to DOCUMENT_QA on any error (safest default).
 
     Args:
         query: The user's query string.
         has_document: Whether the current session has a linked document.
                       If False, DOCUMENT_QA is always downgraded to GENERAL_HEALTH.
-        provider: Optional LLM provider override ('gemini' | 'agentrouter').
     """
     try:
         escaped_query = escape_xml_content(query)
-        selected_provider = (provider or settings.LLM_PROVIDER).lower() if (provider or settings.LLM_PROVIDER) else "gemini"
 
-        if selected_provider == "agentrouter":
-            from app.llm.agentrouter_client import call_agentrouter
-            raw_text = await call_agentrouter(
-                system_instruction="You are a medical query classifier. Classify the user query into EXACTLY ONE category.",
-                user_content=CLASSIFICATION_PROMPT.format(query=escaped_query),
-            )
-        else:
-            response = await call_gemini_with_retry(
-                contents=CLASSIFICATION_PROMPT.format(query=escaped_query),
-                config={
-                    "temperature": 0.0,
-                    "max_output_tokens": 10,
-                },
-            )
-            raw_text = getattr(response, "text", None)
+        response = await call_gemini_with_retry(
+            contents=CLASSIFICATION_PROMPT.format(query=escaped_query),
+            config={
+                "temperature": 0.0,
+                "max_output_tokens": 10,
+            },
+        )
+        raw_text = getattr(response, "text", None)
         if not raw_text:
             logger.warning("Intent classification returned empty response, defaulting to DOCUMENT_QA")
             # DOCUMENT_QA is the safer default (grounds the answer in retrieved docs)
@@ -111,3 +102,4 @@ async def classify_intent(query: str, has_document: bool = True, provider: Optio
         logger.warning("Intent classification failed: %s", e)
         # On error, fall back based on document availability
         return QueryIntent.DOCUMENT_QA if has_document else QueryIntent.GENERAL_HEALTH
+

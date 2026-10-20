@@ -167,6 +167,58 @@ async def get_document_chats(
         for c in chats
     ]
 
+@router.delete("/users/me/documents/{document_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_my_document(
+    document_id: str,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    try:
+        doc_uuid = uuid.UUID(document_id)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid document ID")
+
+    result = await db.execute(
+        select(Document).filter(Document.id == doc_uuid, Document.user_id == current_user.id)
+    )
+    doc = result.scalars().first()
+    if not doc:
+        raise HTTPException(status_code=404, detail="Document not found")
+
+    if doc.file_path:
+        # Delete FAISS index directory if it exists
+        try:
+            if os.path.exists(doc.file_path):
+                if os.path.isdir(doc.file_path):
+                    shutil.rmtree(doc.file_path)
+                else:
+                    os.remove(doc.file_path)
+        except Exception as e:
+            logger.error("Error removing physical files for doc %s: %s", doc.id, e)
+
+        # Delete corresponding BM25 index pickle file even if FAISS directory was missing
+        try:
+            bm25_path = Path(doc.file_path).parent / f"{Path(doc.file_path).stem}_bm25.pkl"
+            os.remove(bm25_path)
+        except FileNotFoundError:
+            pass
+        except Exception as e:
+            logger.error("Error removing BM25 index for doc %s: %s", doc.id, e)
+
+    # Clean up vector cache session directory if present
+    try:
+        from app.core.config import settings
+        session_cache = settings.VECTOR_CACHE_DIR / str(doc.id)
+        if session_cache.is_dir():
+            shutil.rmtree(session_cache, ignore_errors=True)
+    except Exception as e:
+        logger.error("Error removing vector cache for doc %s: %s", doc.id, e)
+
+    await db.execute(Chat.__table__.delete().where(Chat.document_id == doc.id, Chat.user_id == current_user.id))
+    await db.delete(doc)
+    await db.commit()
+    return None
+
 # ==========================================
 # Dependent Profile Endpoints (Caregiver Mode)
 # ==========================================

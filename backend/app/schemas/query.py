@@ -8,7 +8,7 @@ class QueryRequest(BaseModel):
     query: str = Field(..., min_length=1, max_length=2000, description="Medical query string")
     language: Optional[str] = Field("English", description="Target response language")
     patient_id: Optional[str] = Field(None, description="Optional patient/dependent ID")
-    provider: Optional[str] = Field(None, description="Optional LLM provider: 'gemini' | 'agentrouter'")
+
 
     @field_validator("query")
     def sanitize_query_text(cls, v: str) -> str:

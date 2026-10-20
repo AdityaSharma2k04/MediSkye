@@ -17,6 +17,7 @@ import {
   getUserDocuments,
   getDocumentChats,
   renameDocument,
+  deleteDocument,
   deleteAccount,
   updateProfile,
   detachChatDocument,
@@ -224,22 +225,38 @@ export default function ChatApp() {
       const docs = await getUserDocuments();
       if (!Array.isArray(docs)) return [];
 
-      if (docs.length === 0) return [];
-
-      const targetDocId = activeDocId || docs[0]?.id;
-      let targetDocChats = [];
-      if (targetDocId) {
-        targetDocChats = await getDocumentChats(targetDocId).catch(() => []);
-      }
+      let effectiveDocs = [...docs];
 
       setConversations((prev) => {
+        if (activeDocId && !effectiveDocs.some((d) => d.id === activeDocId)) {
+          const match = prev.find((c) => c.id === activeDocId || c.document_id === activeDocId);
+          if (match?.pdf) {
+            effectiveDocs.push({
+              id: activeDocId,
+              filename: match.pdf.name || match.pdf.filename || 'report.pdf',
+              title: match.title,
+              created_at: match.created_at || new Date().toISOString(),
+            });
+          }
+        }
+
+        if (effectiveDocs.length === 0) {
+          const nonDocConvs = prev.filter((c) => !c.document_id && !c.pdf);
+          if (nonDocConvs.length > 0) return nonDocConvs;
+          const freshId = generateSessionId();
+          setSessionId(freshId);
+          localStorage.setItem('mediskye_session_id', freshId);
+          setActivePdf(null);
+          return [{ id: freshId, title: 'New Conversation', messages: [], pdf: null, patient_id: 'self' }];
+        }
+
         const existingMap = new Map();
         prev.forEach((c) => {
           if (c.id) existingMap.set(c.id, c);
           if (c.document_id) existingMap.set(c.document_id, c);
         });
 
-        const syncedDocConvs = docs.map((doc) => {
+        const syncedDocConvs = effectiveDocs.map((doc) => {
           const existing = existingMap.get(doc.id);
           const pdfMeta = {
             id: doc.id,
@@ -250,14 +267,6 @@ export default function ChatApp() {
           const autoTitle = doc.title || cleanFilename(doc.filename);
 
           let messages = existing?.messages || [];
-          if (doc.id === targetDocId && targetDocChats.length > 0 && messages.length === 0) {
-            messages = targetDocChats.map((c) => ({
-              id: c.id,
-              sender: c.role === 'ai' ? 'assistant' : 'user',
-              text: c.message,
-              timestamp: c.created_at ? new Date(c.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '',
-            }));
-          }
 
           if (existing) {
             return {
@@ -265,9 +274,9 @@ export default function ChatApp() {
               id: doc.id,
               document_id: doc.id,
               patient_id: doc.dependent_id || existing.patient_id || 'self',
-              title: existing.title && existing.title !== 'New Conversation' && existing.title !== 'New chat'
+              title: doc.title || (existing.title && existing.title !== 'New Conversation' && existing.title !== 'New chat'
                 ? existing.title
-                : autoTitle,
+                : autoTitle),
               messages,
               pdf: existing.pdf || pdfMeta,
               documents: Array.isArray(existing.documents) && existing.documents.length > 0
@@ -289,16 +298,18 @@ export default function ChatApp() {
           };
         });
 
-        // Retain any conversation that does not correspond to a server document (e.g. empty new conversation)
+        // Retain only genuinely non-document conversations (e.g. empty new conversation).
+        // Any conversation with a document_id or pdf missing from the server response is strictly removed.
         const nonDocConvs = prev.filter(
-          (c) => !c.document_id && !docs.some((d) => d.id === c.id)
+          (c) => !c.document_id && !c.pdf && !effectiveDocs.some((d) => d.id === c.id)
         );
 
         return [...syncedDocConvs, ...nonDocConvs];
       });
 
-      if (targetDocId) {
-        const targetDoc = docs.find((d) => d.id === targetDocId) || docs[0];
+      const targetDocId = activeDocId || effectiveDocs[0]?.id;
+      if (targetDocId && effectiveDocs.length > 0) {
+        const targetDoc = effectiveDocs.find((d) => d.id === targetDocId) || effectiveDocs[0];
         const pdfMeta = {
           id: targetDoc.id,
           name: targetDoc.filename,
@@ -308,7 +319,24 @@ export default function ChatApp() {
         setActivePdf(pdfMeta);
         setSessionId(targetDoc.id);
         localStorage.setItem('mediskye_session_id', targetDoc.id);
+
+        getDocumentChats(targetDoc.id).then((chats) => {
+          if (Array.isArray(chats) && chats.length > 0) {
+            const formatted = chats.map((c) => ({
+              id: c.id,
+              sender: c.role === 'ai' ? 'assistant' : 'user',
+              text: c.message,
+              timestamp: c.created_at ? new Date(c.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '',
+            }));
+            setConversations((prev) =>
+              prev.map((item) => (item.id === targetDoc.id && (!item.messages || item.messages.length === 0) ? { ...item, messages: formatted } : item))
+            );
+          }
+        }).catch(() => {});
+      } else {
+        setActivePdf(null);
       }
+
       return docs;
     } catch (err) {
       logger.error('Failed to refresh documents:', err);
@@ -325,38 +353,43 @@ export default function ChatApp() {
       const isStorageSwitch = lastUser && lastUser !== currentUser.id;
       const userSaved = localStorage.getItem(`mediskye_conversations_${currentUser.id}`);
 
-      if (isSwitch || isStorageSwitch || !userSaved) {
-        if (userSaved && !isSwitch && !isStorageSwitch) {
-          try {
-            const parsed = JSON.parse(userSaved);
-            if (Array.isArray(parsed) && parsed.length > 0) {
-              const sanitized = parsed.map((c) => ({
-                ...c,
-                id: c.id && c.id !== 'null' ? c.id : generateSessionId(),
-              }));
-              setConversations(sanitized);
-              setSessionId(sanitized[0].id);
-              setActivePdf(sanitized[0].pdf || null);
-              return;
-            }
-          } catch (e) {}
-        }
+      if (userSaved && !isSwitch && !isStorageSwitch) {
+        try {
+          const parsed = JSON.parse(userSaved);
+          if (Array.isArray(parsed) && parsed.length > 0) {
+            const sanitized = parsed.map((c) => ({
+              ...c,
+              id: c.id && c.id !== 'null' ? c.id : generateSessionId(),
+            }));
+            setConversations(sanitized);
+            setSessionId(sanitized[0].id);
+            setActivePdf(sanitized[0].pdf || null);
+          }
+        } catch (e) {}
+      }
 
-        // Fresh account or switched account without valid saved chats: check backend
-        refreshDocuments().then((docs) => {
-          if (!docs || docs.length === 0) {
+      // Always synchronize with server truth on account load / refresh
+      refreshDocuments().then((docs) => {
+        if (!docs || docs.length === 0) {
+          setConversations((prev) => {
+            const nonDoc = prev.filter((c) => !c.document_id && !c.pdf);
+            if (nonDoc.length > 0) return nonDoc;
             const freshId = generateSessionId();
             setSessionId(freshId);
             setActivePdf(null);
-            setConversations([{ id: freshId, title: 'New Conversation', messages: [], pdf: null }]);
-          }
-        }).catch(() => {
+            return [{ id: freshId, title: 'New Conversation', messages: [], pdf: null, patient_id: 'self' }];
+          });
+        }
+      }).catch(() => {
+        setConversations((prev) => {
+          if (prev.length > 0) return prev;
           const freshId = generateSessionId();
           setSessionId(freshId);
           setActivePdf(null);
-          setConversations([{ id: freshId, title: 'New Conversation', messages: [], pdf: null }]);
+          return [{ id: freshId, title: 'New Conversation', messages: [], pdf: null, patient_id: 'self' }];
         });
-      }
+      });
+
       localStorage.setItem('mediskye_last_active_user', currentUser.id);
     }
   }, [currentUser, refreshDocuments]);
@@ -863,21 +896,24 @@ export default function ChatApp() {
     showToast('info', 'Chat History Cleared');
   };
 
-  const handleDeleteChat = (id, skipConfirm = false) => {
-    const doDelete = () => {
+  const handleDeleteChat = async (id, skipConfirm = false) => {
+    try {
+      const chat = conversations.find((c) => c.id === id);
+      const targetDocId = chat?.document_id || (chat?.pdf ? id : null);
+      if (targetDocId) {
+        await deleteDocument(targetDocId);
+      }
+
       setConversations((prev) => {
-        const newConversations = prev.filter((c) => c.id !== id);
+        const newConversations = prev.filter((c) => c.id !== id && c.document_id !== targetDocId);
         if (newConversations.length === 0) {
-          const newId = 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (c) => {
-            const r = (Math.random() * 16) | 0;
-            return (c === 'x' ? r : (r & 0x3) | 0x8).toString(16);
-          });
+          const newId = generateSessionId();
           setSessionId(newId);
           localStorage.setItem('mediskye_session_id', newId);
           setActivePdf(null);
           return [{ id: newId, title: 'New Conversation', messages: [], pdf: null, patient_id: selectedPatientId }];
         }
-        if (id === sessionId) {
+        if (id === sessionId || (targetDocId && targetDocId === sessionId)) {
           const nextChat = newConversations[0];
           setSessionId(nextChat.id);
           localStorage.setItem('mediskye_session_id', nextChat.id);
@@ -885,14 +921,12 @@ export default function ChatApp() {
         }
         return newConversations;
       });
-      showToast('info', 'Chat Deleted');
-    };
 
-    if (skipConfirm) {
-      doDelete();
-    } else {
-      logger.warn('handleDeleteChat called without skipConfirm. Falling back to immediate deletion.');
-      doDelete();
+      showToast('success', 'Deleted', 'Conversation deleted.');
+      await refreshDocuments();
+    } catch (err) {
+      logger.error('Delete failed:', err);
+      showToast('error', 'Delete Failed', 'Could not delete conversation.');
     }
   };
 
@@ -901,20 +935,27 @@ export default function ChatApp() {
     const trimmed = newTitle.trim().slice(0, 60);
     if (!trimmed) return;
 
+    const chat = conversations.find((c) => c.id === id);
+    const prevTitle = chat?.title || 'New Conversation';
+    const targetDocId = chat?.document_id;
+
     // Optimistic local update
     setConversations((prev) =>
       prev.map((c) => (c.id === id ? { ...c, title: trimmed } : c))
     );
 
     // If it has a real document_id, persist to backend
-    const chat = conversations.find((c) => c.id === id);
-    if (chat?.document_id) {
+    if (targetDocId) {
       try {
-        await renameDocument(chat.document_id, trimmed);
+        await renameDocument(targetDocId, trimmed);
         showToast('success', 'Chat Renamed', 'Chat renamed');
       } catch (err) {
         logger.error('Failed to rename document:', err);
-        showToast('error', 'Rename Failed', err.message);
+        // Rollback title in state on failure
+        setConversations((prev) =>
+          prev.map((c) => (c.id === id ? { ...c, title: prevTitle } : c))
+        );
+        showToast('error', 'Rename Failed', err.message || 'Could not rename chat.');
       }
     } else {
       showToast('info', 'Chat Renamed', 'Renamed locally (this chat has no server-side document)');

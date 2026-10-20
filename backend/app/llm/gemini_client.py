@@ -8,6 +8,21 @@ from app.core.config import settings
 logger = logging.getLogger(__name__)
 
 
+def get_genai_client():
+    """Return a google.genai Client configured for Vertex AI or API-key auth."""
+    if settings.GOOGLE_GENAI_USE_ENTERPRISE:
+        # Cloud Run handles auth automatically via ADC
+        return genai.Client(
+            vertexai=True,
+            project=settings.GOOGLE_CLOUD_PROJECT,
+            location=settings.GOOGLE_CLOUD_LOCATION,
+        )
+    else:
+        # Legacy API key fallback
+        return genai.Client(api_key=settings.GOOGLE_API_KEY)
+
+
+
 class GeminiUnavailableError(Exception):
     """Raised when Gemini API remains unavailable after all retry attempts."""
 
@@ -23,10 +38,9 @@ def reset_cooldown() -> None:
 
 
 FALLBACK_MODELS = [
-    "gemini-3.8-flash",   # primary
-    "gemini-3.6-flash",   # fallback 1
-    "gemini-3.5-flash",   # fallback 2
-    # "gemini-2.5-flash" REMOVED — Google deprecated it for new users
+    "gemini-3.8-flash",
+    "gemini-3.6-flash",
+    "gemini-3.5-flash",
 ]
 
 
@@ -82,7 +96,7 @@ async def call_gemini_with_retry(
         raise ValueError("Either contents or prompt must be provided to call_gemini_with_retry.")
 
     primary = model or settings.GEMINI_MODEL
-    api_client = client or genai.Client(api_key=settings.GOOGLE_API_KEY)
+    api_client = client or get_genai_client()
 
     if fallback_models is not None:
         models_to_try = fallback_models

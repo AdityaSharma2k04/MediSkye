@@ -41,12 +41,10 @@ class Settings(BaseSettings):
     ]
     SHOW_SPECIALIST_CONTACTS: bool = False
 
-    # LLM Provider selection
-    LLM_PROVIDER: str = "agentrouter"  # "gemini" | "agentrouter"
-
-    # Agent Router settings (used only when LLM_PROVIDER="agentrouter")
-    AGENTROUTER_API_KEY: str = ""
-    AGENTROUTER_BASE_URL: str = "https://agentrouter.org/v1"
+    # Vertex AI / Google Cloud credentials
+    GOOGLE_CLOUD_PROJECT: str = "mediskye-backend"
+    GOOGLE_CLOUD_LOCATION: str = "us-central1"
+    GOOGLE_GENAI_USE_ENTERPRISE: bool = False
 
     # File Upload Limits
     MEDISKYE_MAX_UPLOAD_MB: int = 50
@@ -98,7 +96,6 @@ class Settings(BaseSettings):
 settings = Settings()
 if not settings.GOOGLE_API_KEY:
     settings.GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY", "")
-if not settings.AGENTROUTER_API_KEY:
-    settings.AGENTROUTER_API_KEY = os.getenv("AGENTROUTER_API_KEY", "")
+
 
 settings.VECTOR_CACHE_DIR.mkdir(exist_ok=True)

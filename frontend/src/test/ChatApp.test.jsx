@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, fireEvent, waitFor, act } from '@testing-library/react';
+import { render, screen, fireEvent, waitFor, act, within } from '@testing-library/react';
 import React from 'react';
 
 // ── Module mocks (must be declared before imports that use them) ──────────────
@@ -13,6 +13,7 @@ vi.mock('../services/api', () => ({
   getUserDocuments: vi.fn(),
   getDocumentChats: vi.fn(),
   renameDocument: vi.fn(),
+  deleteDocument: vi.fn(),
   deleteAccount: vi.fn(),
   updateProfile: vi.fn(),
   detachChatDocument: vi.fn(),
@@ -40,6 +41,7 @@ beforeEach(() => {
   api.getDependents.mockResolvedValue([]);
   api.getUserDocuments.mockResolvedValue([]);
   api.getDocumentChats.mockResolvedValue([]);
+  api.deleteDocument.mockResolvedValue(true);
   api.uploadPdfReport.mockResolvedValue({
     message: 'PDF uploaded and processed successfully.',
     document_id: SERVER_DOC_ID,
@@ -303,5 +305,74 @@ describe('ChatApp — upload refreshes sidebar immediately', () => {
 
     delete window.__POLL_INTERVAL__;
     delete window.__UPLOAD_MAX_WAIT__;
+  });
+});
+
+describe('ChatApp — deletion and rename persistence', () => {
+  it('deletes document on server and updates local state when chat deleted', async () => {
+    const docChat = {
+      id: SERVER_DOC_ID,
+      document_id: SERVER_DOC_ID,
+      title: 'Lab Report',
+      messages: [],
+      pdf: { id: SERVER_DOC_ID, name: 'lab.pdf' },
+    };
+    api.getUserDocuments.mockResolvedValue([{ id: SERVER_DOC_ID, filename: 'lab.pdf', title: 'Lab Report' }]);
+    localStorage.setItem('mediskye_conversations', JSON.stringify([docChat]));
+    localStorage.setItem('mediskye_conversations_user-1', JSON.stringify([docChat]));
+
+    render(<ChatApp />);
+    await waitFor(() => expect(api.getProfile).toHaveBeenCalled());
+    await waitFor(() => expect(api.getUserDocuments).toHaveBeenCalled());
+
+    // Open options menu on chat and click delete
+    const optionsBtn = await screen.findByRole('button', { name: 'Chat options' });
+    fireEvent.click(optionsBtn);
+
+    const deleteBtn = screen.getByRole('button', { name: /^delete$/i });
+    fireEvent.click(deleteBtn);
+
+    // Confirm deletion in modal
+    const dialog = await screen.findByRole('dialog');
+    const confirmBtn = within(dialog).getByRole('button', { name: /^delete$/i });
+    fireEvent.click(confirmBtn);
+
+    await waitFor(() => {
+      expect(api.deleteDocument).toHaveBeenCalledWith(SERVER_DOC_ID);
+    });
+  });
+
+  it('rolls back rename title when server renameDocument fails', async () => {
+    const docChat = {
+      id: SERVER_DOC_ID,
+      document_id: SERVER_DOC_ID,
+      title: 'Original Title',
+      messages: [],
+      pdf: { id: SERVER_DOC_ID, name: 'lab.pdf' },
+    };
+    api.getUserDocuments.mockResolvedValue([{ id: SERVER_DOC_ID, filename: 'lab.pdf', title: 'Original Title' }]);
+    api.renameDocument.mockRejectedValue(new Error('Network error'));
+    localStorage.setItem('mediskye_conversations', JSON.stringify([docChat]));
+    localStorage.setItem('mediskye_conversations_user-1', JSON.stringify([docChat]));
+
+    render(<ChatApp />);
+    await waitFor(() => expect(api.getProfile).toHaveBeenCalled());
+
+    const optionsBtn = await screen.findByRole('button', { name: 'Chat options' });
+    fireEvent.click(optionsBtn);
+
+    const renameBtn = screen.getByRole('button', { name: /^rename$/i });
+    fireEvent.click(renameBtn);
+
+    const input = screen.getByRole('textbox', { name: 'Rename chat' });
+    fireEvent.change(input, { target: { value: 'New Failed Title' } });
+    fireEvent.keyDown(input, { key: 'Enter' });
+
+    await waitFor(() => {
+      expect(api.renameDocument).toHaveBeenCalledWith(SERVER_DOC_ID, 'New Failed Title');
+    });
+
+    // Error toast should appear and title rolls back
+    expect(await screen.findByText('Rename Failed')).toBeInTheDocument();
   });
 });
