@@ -47,6 +47,82 @@ export async function getFreshAuthHeaders(forceRefresh = false) {
   return token ? { 'Authorization': `Bearer ${token}` } : {};
 }
 
+export async function apiFetch(url, options = {}, timeoutMs = 30000) {
+  if (typeof navigator !== 'undefined' && navigator.onLine === false) {
+    throw new Error('You appear to be offline. Please check your internet connection and try again.');
+  }
+
+  const controller = new AbortController();
+  let timedOut = false;
+  const timeoutId = setTimeout(() => {
+    timedOut = true;
+    controller.abort();
+  }, timeoutMs);
+
+  let combinedSignal = controller.signal;
+  if (options.signal) {
+    if (options.signal.aborted) {
+      clearTimeout(timeoutId);
+      throw new DOMException('The user aborted a request.', 'AbortError');
+    }
+    options.signal.addEventListener('abort', () => {
+      controller.abort();
+    });
+  }
+
+  const baseHeaders = getAuthHeaders();
+  const headers = {
+    ...baseHeaders,
+    ...(options.headers || {}),
+  };
+
+  const fetchOptions = {
+    ...options,
+    headers,
+    signal: combinedSignal,
+  };
+
+  let res;
+  try {
+    res = await fetch(url, fetchOptions);
+  } catch (err) {
+    clearTimeout(timeoutId);
+    if (timedOut) {
+      throw new Error(`Request timed out after ${Math.round(timeoutMs / 1000)}s. Please check your connection and try again.`);
+    }
+    throw err;
+  }
+
+  // 401 Interceptor: retry with fresh token if available
+  if (res.status === 401 && auth && auth.currentUser) {
+    try {
+      const freshToken = await auth.currentUser.getIdToken(true);
+      if (freshToken) {
+        localStorage.setItem('token', freshToken);
+        const retryHeaders = {
+          ...headers,
+          'Authorization': `Bearer ${freshToken}`,
+        };
+        res = await fetch(url, { ...fetchOptions, headers: retryHeaders });
+      }
+    } catch (refreshErr) {
+      logger.warn('Token auto-refresh failed:', refreshErr);
+    }
+  }
+
+  clearTimeout(timeoutId);
+
+  if (res.status === 401) {
+    localStorage.removeItem('token');
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new Event('auth:expired'));
+    }
+    throw new Error('Session expired. Please log in again.');
+  }
+
+  return res;
+}
+
 export async function login(email, password) {
   const normalizedEmail = (email || '').trim().toLowerCase();
   const formData = new URLSearchParams();
@@ -155,48 +231,25 @@ export async function uploadPdfReport(file, patientId = null, chatId = null) {
     formData.append('chat_id', chatId);
   }
 
-  const res = await fetch(`${API_BASE}/upload`, {
+  const res = await apiFetch(`${API_BASE}/upload`, {
     method: 'POST',
-    headers: {
-      ...getAuthHeaders(),
-    },
     body: formData,
-  });
+  }, 60000);
 
-  const data = await res.json();
+  const data = await res.json().catch(() => ({}));
   if (!res.ok) {
-    if (res.status === 401) {
-      localStorage.removeItem('token');
-      window.dispatchEvent(new Event('auth:expired'));
-      throw new Error('Session expired. Please log in again.');
-    }
     throw new Error(data.detail || 'Failed to extract text from PDF report.');
   }
   return data;
 }
 
 export async function getUploadStatus(jobId, timeoutMs = 10000) {
-  const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
-
-  try {
-    const res = await fetch(`${API_BASE}/upload/status/${jobId}`, {
-      headers: { ...getAuthHeaders() },
-      signal: controller.signal,
-    });
-    if (!res.ok) {
-      if (res.status === 401) {
-        localStorage.removeItem('token');
-        window.dispatchEvent(new Event('auth:expired'));
-        throw new Error('Session expired. Please log in again.');
-      }
-      const data = await res.json().catch(() => null);
-      throw new Error(data?.detail || 'Failed to fetch upload status');
-    }
-    return await res.json();
-  } finally {
-    clearTimeout(timeoutId);
+  const res = await apiFetch(`${API_BASE}/upload/status/${jobId}`, {}, timeoutMs);
+  if (!res.ok) {
+    const data = await res.json().catch(() => null);
+    throw new Error(data?.detail || 'Failed to fetch upload status');
   }
+  return await res.json();
 }
 
 export async function sendQueryStream(queryText, documentId, language = 'English', onChunk, patientId = null, signal = undefined) {
@@ -210,23 +263,16 @@ export async function sendQueryStream(queryText, documentId, language = 'English
     payload.patient_id = patientId;
   }
 
-  const res = await fetch(`${API_BASE}/query`, {
+  const res = await apiFetch(`${API_BASE}/query`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
-      ...getAuthHeaders(),
     },
     body: JSON.stringify(payload),
-    ...(signal ? { signal } : {}),
-  });
+    signal,
+  }, 45000);
 
   if (!res.ok) {
-    if (res.status === 401) {
-      localStorage.removeItem('token');
-      window.dispatchEvent(new Event('auth:expired'));
-      throw new Error('Session expired. Please log in again.');
-    }
-
     let errorDetail = 'Server error while querying MediSkye.';
     try {
       const errorData = await res.json();
@@ -321,20 +367,14 @@ export async function fetchLabMetrics(documentId, forceRefresh = false) {
 
 export async function getDocumentSummary(documentId, forceRefresh = false) {
   const query = forceRefresh ? '?force_refresh=true' : '';
-  const res = await fetch(`${API_BASE}/users/me/documents/${documentId}/summary${query}`, {
+  const res = await apiFetch(`${API_BASE}/users/me/documents/${documentId}/summary${query}`, {
     method: 'POST',
     headers: {
-      ...getAuthHeaders(),
       'Content-Type': 'application/json',
     },
-  });
-  const data = await res.json();
+  }, 60000);
+  const data = await res.json().catch(() => ({}));
   if (!res.ok) {
-    if (res.status === 401) {
-      localStorage.removeItem('token');
-      window.dispatchEvent(new Event('auth:expired'));
-      throw new Error('Session expired. Please log in again.');
-    }
     throw new Error(data.detail || 'Failed to fetch document summary');
   }
   return data;

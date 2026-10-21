@@ -1,3 +1,4 @@
+import os
 import re
 import uuid
 import secrets
@@ -50,4 +51,31 @@ def escape_xml_content(text: str) -> str:
             .replace("<", "&lt;")
             .replace(">", "&gt;")
             .replace('"', "&quot;")
+            .replace("'", "&apos;")
     )
+
+
+def sanitize_filename(filename: str, max_len: int = 100) -> str:
+    """Sanitize and strip dangerous control characters, XML/HTML tags, path traversal,
+    and excessive length from filenames before database storage or prompt interpolation.
+    """
+    if not filename:
+        return "document.pdf"
+    # Strip HTML tags first so closing tags (e.g. </script>) do not act as path separators
+    base = re.sub(r"<[^>]*>", "", filename.strip())
+    # Take basename only to prevent directory traversal
+    base = os.path.basename(base.replace("\\", "/"))
+    # Remove null bytes and non-printable control characters
+    base = re.sub(r"[\x00-\x1f\x7f-\x9f]", "", base)
+    # Strip XML/HTML brackets, quotes, and dangerous injection characters
+    base = re.sub(r'[<>"\'`;$|&{}]', "", base)
+    # Normalize multiple whitespace
+    base = re.sub(r"\s+", " ", base).strip()
+    name, ext = os.path.splitext(base)
+    if not ext:
+        ext = ".pdf"
+    # Bound max length while preserving extension
+    allowed_name_len = max(1, max_len - len(ext))
+    name = name[:allowed_name_len].strip()
+    clean_name = f"{name}{ext}".strip()
+    return clean_name if clean_name and clean_name != ext else f"document{ext}"

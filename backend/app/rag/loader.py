@@ -376,7 +376,11 @@ async def extract_text_from_file(file_path: str, filename: str) -> list[Document
         image_bytes = await asyncio.to_thread(_read_image)
         image_type = await classify_image_type(image_bytes)
         doc = await process_image_path(image_type, image_bytes, source_meta="direct_image")
-        return [doc] if doc.page_content and doc.page_content.strip() else []
+        if not doc.page_content or len(doc.page_content.strip()) < 20:
+            raise PDFExtractionError(
+                "This image contains no readable text or clinical content. Please upload a clear medical document or digital PDF."
+            )
+        return [doc]
         
     # Phase 1: Detect table-heavy pages
     table_pages = await asyncio.to_thread(_detect_table_pages, file_path)
@@ -426,6 +430,11 @@ async def extract_text_from_file(file_path: str, filename: str) -> list[Document
     all_docs = [d for d in vision_docs + best_docs if d.page_content and d.page_content.strip()]
     # Sort by page number for consistent ordering
     all_docs.sort(key=lambda d: d.metadata.get("page", 0))
+
+    if not all_docs or _char_count(all_docs) < 20:
+        raise PDFExtractionError(
+            "This PDF contains no readable text (it may be a scanned image or empty). Please upload a digital text PDF."
+        )
 
     if _char_count(all_docs) < MIN_EXTRACTED_CHARS:
         raise PDFExtractionError(

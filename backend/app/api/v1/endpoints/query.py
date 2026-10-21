@@ -37,6 +37,7 @@ logger = logging.getLogger(__name__)
 
 # Hold strong references to background tasks to prevent GC mid-execution
 _background_tasks: set = set()
+_active_query_sessions: set = set()
 
 router = APIRouter()
 
@@ -174,32 +175,44 @@ async def query_bot(
 
         return StreamingResponse(emergency_stream(), media_type="text/event-stream")
 
-    # Record user message in DB
-    user_chat = Chat(
-        user_id=current_user.id,
-        document_id=primary_doc.id if primary_doc else None,
-        role="user",
-        message=body.query,
-    )
-    db.add(user_chat)
-    await db.commit()
-    await db.refresh(user_chat)
-    current_chat_id = user_chat.id
-
-    # Ensure ChatDocument associations exist for all attached docs (single batch query)
-    if chat_docs:
-        doc_ids = [cd_doc.id for cd_doc in chat_docs]
-        existing_cds = await db.execute(
-            select(ChatDocument.document_id).filter(
-                ChatDocument.chat_id == current_chat_id,
-                ChatDocument.document_id.in_(doc_ids),
-            )
+    session_lock_key = f"{current_user.id}:{body.session_id or 'general'}"
+    if session_lock_key in _active_query_sessions:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="A query stream is already active for this document or conversation. Please wait for it to complete.",
         )
-        already_linked = set(existing_cds.scalars().all())
-        for doc_id in doc_ids:
-            if doc_id not in already_linked:
-                db.add(ChatDocument(chat_id=current_chat_id, document_id=doc_id))
+    _active_query_sessions.add(session_lock_key)
+
+    try:
+        # Record user message in DB
+        user_chat = Chat(
+            user_id=current_user.id,
+            document_id=primary_doc.id if primary_doc else None,
+            role="user",
+            message=body.query,
+        )
+        db.add(user_chat)
         await db.commit()
+        await db.refresh(user_chat)
+        current_chat_id = user_chat.id
+
+        # Ensure ChatDocument associations exist for all attached docs (single batch query)
+        if chat_docs:
+            doc_ids = [cd_doc.id for cd_doc in chat_docs]
+            existing_cds = await db.execute(
+                select(ChatDocument.document_id).filter(
+                    ChatDocument.chat_id == current_chat_id,
+                    ChatDocument.document_id.in_(doc_ids),
+                )
+            )
+            already_linked = set(existing_cds.scalars().all())
+            for doc_id in doc_ids:
+                if doc_id not in already_linked:
+                    db.add(ChatDocument(chat_id=current_chat_id, document_id=doc_id))
+            await db.commit()
+    except Exception:
+        _active_query_sessions.discard(session_lock_key)
+        raise
 
     # ── Intent Classification ──
     intent = await classify_intent(body.query, has_document=has_document)
@@ -460,13 +473,21 @@ async def query_bot(
                     loop.call_soon_threadsafe(queue.put_nowait, fatal_exc)
                     loop.call_soon_threadsafe(queue.put_nowait, SENTINEL)
 
+            stream_task = None
             stream_task = asyncio.create_task(asyncio.to_thread(_stream_producer))
 
             pending_buffer = ""
             in_json_block = False
 
             while True:
-                item = await queue.get()
+                try:
+                    item = await asyncio.wait_for(queue.get(), timeout=35.0)
+                except asyncio.TimeoutError:
+                    logger.warning("Stream token queue read timed out for user_id=%s", current_user.id)
+                    yield f'data: {json.dumps({"error": "The AI service timed out while generating your response. Please try again."})}\n\n'
+                    yield "data: [DONE]\n\n"
+                    return
+
                 if item is SENTINEL:
                     break
                 if isinstance(item, Exception):
@@ -546,6 +567,29 @@ async def query_bot(
                 yield f'data: {json.dumps({"chunk": disclaimer})}\n\n'
                 visible_text += disclaimer
 
+        except (asyncio.CancelledError, GeneratorExit):
+            logger.info(
+                "Client disconnected or query stream cancelled for user_id=%s, chat_id=%s",
+                current_user.id,
+                current_chat_id,
+            )
+            if stream_task and not stream_task.done():
+                stream_task.cancel()
+            if visible_text.strip():
+                try:
+                    async with AsyncSessionLocal() as cancel_session:
+                        partial_msg = visible_text.strip() + " [interrupted]"
+                        ai_chat = Chat(
+                            user_id=current_user.id,
+                            document_id=primary_doc.id if primary_doc else None,
+                            role="ai",
+                            message=partial_msg,
+                        )
+                        cancel_session.add(ai_chat)
+                        await cancel_session.commit()
+                except Exception as db_err:
+                    logger.warning("Failed saving partial chat turn on disconnect: %s", db_err)
+            raise
         except GeminiUnavailableError:
             logger.warning("All Gemini models unavailable during streaming", exc_info=True)
             yield f'data: {json.dumps({"error": "The AI service is temporarily busy due to high demand. Please try again in 1-2 minutes."})}\n\n'
@@ -556,6 +600,10 @@ async def query_bot(
             yield f'data: {json.dumps({"error": "An unexpected error occurred while generating the response."})}\n\n'
             yield "data: [DONE]\n\n"
             return
+        finally:
+            _active_query_sessions.discard(session_lock_key)
+            if stream_task and not stream_task.done():
+                stream_task.cancel()
 
         # ── Output filter scan (monitoring only) ──
         is_safe, reason = scan_output(visible_text)

@@ -175,8 +175,22 @@ export default function ChatApp() {
   const [printSummaryText, setPrintSummaryText] = useState('');
   const [uploadProgress, setUploadProgress] = useState(null);
   const abortControllerRef = useRef(null);
+  const isSubmittingRef = useRef(false);
+  const isMountedRef = useRef(true);
   const chatInputRef = useRef(null);
   const [toasts, setToasts] = useState([]);
+
+  useEffect(() => {
+    isMountedRef.current = true;
+    return () => {
+      isMountedRef.current = false;
+      stopSpeaking();
+      if (abortControllerRef.current) {
+        abortControllerRef.current.abort();
+        abortControllerRef.current = null;
+      }
+    };
+  }, []);
 
   const showToast = useCallback((type, title, message) => {
     const id = Date.now();
@@ -228,7 +242,7 @@ export default function ChatApp() {
     try {
       const chats = await getDocumentChats(targetDocId);
       // Guard against race conditions if user clicked rapidly between two documents
-      if (activeChatFetchRef.current !== fetchKey) {
+      if (activeChatFetchRef.current !== fetchKey || (targetSessionId && sessionIdRef.current !== targetSessionId)) {
         return;
       }
       const formatted = Array.isArray(chats)
@@ -553,7 +567,7 @@ export default function ChatApp() {
         let consecutiveFailures = 0;
         const MAX_CONSECUTIVE_FAILURES = 5;
 
-        while (Date.now() - startTime < MAX_WAIT) {
+        while (isMountedRef.current && Date.now() - startTime < MAX_WAIT) {
           await new Promise((r) => setTimeout(r, POLL_INTERVAL));
           let status;
           try {
@@ -709,7 +723,8 @@ export default function ChatApp() {
   };
 
   const handleSendMessage = async (userQuery, options = {}) => {
-    if (!userQuery || isGenerating) return;
+    if (!userQuery || isSubmittingRef.current || isGenerating) return;
+    isSubmittingRef.current = true;
     const { appendUserMessage = true } = options;
 
     // Any new question immediately silences previously spoken answers.
@@ -783,6 +798,11 @@ export default function ChatApp() {
       let assistantAccum = '';
       let hadStreamError = false;
       await sendQueryStream(userQuery, chatDocId || sessionId, language, (chunk) => {
+        // Guard against race conditions if user switched active document mid-stream
+        if (sessionIdRef.current !== activeTargetId) {
+          return;
+        }
+
         if (chunk.chunk || chunk.token) {
           assistantAccum += chunk.chunk || chunk.token || '';
         }
@@ -865,6 +885,7 @@ export default function ChatApp() {
       });
       setIsGenerating(false);
       abortControllerRef.current = null;
+      isSubmittingRef.current = false;
     }
   };
 
@@ -929,6 +950,14 @@ export default function ChatApp() {
   };
 
   const handleNewChat = () => {
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort();
+      abortControllerRef.current = null;
+    }
+    stopSpeaking();
+    setIsGenerating(false);
+    isSubmittingRef.current = false;
+
     const newId = generateSessionId();
     setSessionId(newId);
     setActivePdf(null);
@@ -941,6 +970,14 @@ export default function ChatApp() {
   };
 
   const handleSelectChat = async (id) => {
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort();
+      abortControllerRef.current = null;
+    }
+    stopSpeaking();
+    setIsGenerating(false);
+    isSubmittingRef.current = false;
+
     setSessionId(id);
     const chat = conversations.find((c) => c.id === id);
     if (chat) {
@@ -957,6 +994,14 @@ export default function ChatApp() {
   };
 
   const handleClearAllChats = () => {
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort();
+      abortControllerRef.current = null;
+    }
+    stopSpeaking();
+    setIsGenerating(false);
+    isSubmittingRef.current = false;
+
     const newId = generateSessionId();
     setSessionId(newId);
     setActivePdf(null);

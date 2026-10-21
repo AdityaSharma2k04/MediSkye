@@ -32,7 +32,7 @@ function inferLanguagePreference() {
   try {
     // 1. AI response language persisted by the settings flow
     const storedLang = localStorage.getItem('mediskye_language');
-    if (storedLang) return storedLang;
+    if (storedLang && VOICE_PREFIXES[storedLang]) return storedLang;
     // 2. UI language (i18n) — 'hi' means the user reads/writes Hindi
     const uiLang = localStorage.getItem('mediskye_ui_lang');
     if (uiLang === 'hi') return 'Hindi';

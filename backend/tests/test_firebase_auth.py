@@ -197,7 +197,13 @@ async def test_firebase_token_recovers_when_adc_credentials_fail():
     mock_fb_admin._apps = [True]
     mock_fb_admin.auth = mock_fb_auth
 
-    with patch.dict("sys.modules", {"firebase_admin": mock_fb_admin, "firebase_admin.auth": mock_fb_auth}):
+    mock_signing_key = MagicMock()
+    mock_signing_key.key = key.public_key()
+    mock_jwks_client = MagicMock()
+    mock_jwks_client.get_signing_key_from_jwt.return_value = mock_signing_key
+
+    with patch.dict("sys.modules", {"firebase_admin": mock_fb_admin, "firebase_admin.auth": mock_fb_auth}), \
+         patch("app.core.auth.jwt.PyJWKClient", return_value=mock_jwks_client):
         transport = ASGITransport(app=app)
         async with AsyncClient(transport=transport, base_url="http://test") as ac:
             headers = {"Authorization": f"Bearer {token}"}

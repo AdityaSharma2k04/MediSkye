@@ -25,6 +25,18 @@ const ChatInput = forwardRef(({
   const recognitionRef = useRef(null);
   const textareaRef = useRef(null);
   const fileInputRef = useRef(null);
+  const isSubmittingRef = useRef(false);
+
+  // Clean up speech recognition on unmount to prevent memory leaks / background listening
+  useEffect(() => {
+    return () => {
+      if (recognitionRef.current) {
+        try {
+          recognitionRef.current.stop();
+        } catch (e) {}
+      }
+    };
+  }, []);
 
   useImperativeHandle(ref, () => ({
     openFileUpload: () => {
@@ -43,12 +55,16 @@ const ChatInput = forwardRef(({
 
   const handleSubmit = (e) => {
     if (e) e.preventDefault();
-    if (!text.trim() || isGenerating) return;
+    if (!text.trim() || isSubmittingRef.current || isGenerating) return;
+    isSubmittingRef.current = true;
     onSendMessage(text.trim());
     setText('');
     if (textareaRef.current) {
       textareaRef.current.style.height = 'auto';
     }
+    setTimeout(() => {
+      isSubmittingRef.current = false;
+    }, 300);
   };
 
   const handleKeyDown = (e) => {

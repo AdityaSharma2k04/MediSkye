@@ -22,7 +22,10 @@ asyncpg
 alembic
 passlib[bcrypt]
 bcrypt==4.0.1
-pyjwt
+pyjwt[crypto]
+cryptography
+numpy
+langchain-text-splitters
 redis
 aiosqlite
 reportlab

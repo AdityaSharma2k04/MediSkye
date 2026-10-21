@@ -158,8 +158,10 @@ async def upload_file(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
+    from app.core.security import sanitize_filename
+    sanitized_filename = sanitize_filename(file.filename or "report.pdf")
     content = await file.read()
-    validate_file_upload(content, filename=file.filename or "report.pdf")
+    validate_file_upload(content, filename=sanitized_filename)
 
     dep_id = None
     if patient_id and patient_id.lower() != "self" and patient_id != str(current_user.id):
@@ -178,10 +180,10 @@ async def upload_file(
         except ValueError:
             raise HTTPException(status_code=400, detail="Invalid patient_id format.")
 
-    ext = os.path.splitext(file.filename or ".pdf")[1].lower()
+    ext = os.path.splitext(sanitized_filename)[1].lower() or ".pdf"
 
     def _write_temp():
-        with tempfile.NamedTemporaryFile(delete=False, suffix=ext) as tmp:
+        with tempfile.NamedTemporaryFile(dir=tempfile.gettempdir(), delete=False, suffix=ext) as tmp:
             tmp.write(content)
             return tmp.name
 
@@ -194,7 +196,7 @@ async def upload_file(
         process_upload_background,
         job_id=job_id,
         tmp_path=tmp_path,
-        filename=file.filename or "report.pdf",
+        filename=sanitized_filename,
         user_id=str(current_user.id),
         dependent_id=dep_id,
         chat_id=chat_id,

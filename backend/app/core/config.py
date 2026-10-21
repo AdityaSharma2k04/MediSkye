@@ -1,5 +1,6 @@
 import os
 import json
+import tempfile
 from pathlib import Path
 from typing import Annotated, List, Optional
 from dotenv import load_dotenv
@@ -45,6 +46,7 @@ class Settings(BaseSettings):
         "http://localhost:3000",
         "http://localhost:5173",
     ]
+    ALLOWED_ORIGIN_REGEX: str = r"^https:\/\/.*\.pages\.dev$"
     SHOW_SPECIALIST_CONTACTS: bool = False
 
     # Vertex AI / Google Cloud credentials
@@ -57,7 +59,7 @@ class Settings(BaseSettings):
     # Vector Index & Cloud Storage Persistence
     GCS_INDEX_BUCKET: Optional[str] = None
     INDEX_STORAGE_DIR: Path = Field(
-        default_factory=lambda: Path(os.getenv("INDEX_STORAGE_DIR", str(Path(__file__).resolve().parent.parent.parent / "indexes")))
+        default_factory=lambda: Path(os.getenv("INDEX_STORAGE_DIR", str(Path(tempfile.gettempdir()) / "mediskye_indexes")))
     )
 
     # File Upload Limits
@@ -118,6 +120,20 @@ class Settings(BaseSettings):
                 except json.JSONDecodeError:
                     pass
             return [item.strip() for item in raw.split(",") if item.strip()]
+        return value
+
+    @field_validator("DATABASE_URL", mode="before")
+    @classmethod
+    def _normalize_database_url(cls, value):
+        if not value:
+            return value
+        if isinstance(value, str):
+            s = value.strip()
+            if s.startswith("postgres://"):
+                s = "postgresql+asyncpg://" + s[len("postgres://"):]
+            elif s.startswith("postgresql://"):
+                s = "postgresql+asyncpg://" + s[len("postgresql://"):]
+            return s
         return value
 
 

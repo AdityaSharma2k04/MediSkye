@@ -17,7 +17,7 @@ describe('getUploadStatus', () => {
     vi.stubGlobal('fetch', fetchMock);
 
     const request = getUploadStatus('job-timeout', 100);
-    const requestRejection = expect(request).rejects.toMatchObject({ name: 'AbortError' });
+    const requestRejection = expect(request).rejects.toThrow(/Request timed out/);
     await vi.advanceTimersByTimeAsync(100);
 
     await requestRejection;

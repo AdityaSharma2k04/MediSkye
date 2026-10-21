@@ -41,6 +41,8 @@ FALLBACK_MODELS = list(settings.GEMINI_FALLBACK_MODELS)
 
 
 def _is_retryable_error(exc: Exception) -> bool:
+    if isinstance(exc, (TimeoutError, asyncio.TimeoutError)):
+        return True
     err_str = str(exc).lower()
     # 429 daily quota is NOT retryable within a request — it resets in hours
     if "resource_exhausted" in err_str or "429" in err_str:
@@ -118,12 +120,15 @@ async def call_gemini_with_retry(
                     call_kwargs["config"] = config
                 call_kwargs.update(kwargs)
 
-                response = await asyncio.to_thread(
-                    _sync_generate_content,
-                    api_client,
-                    current_model,
-                    contents,
-                    **call_kwargs,
+                response = await asyncio.wait_for(
+                    asyncio.to_thread(
+                        _sync_generate_content,
+                        api_client,
+                        current_model,
+                        contents,
+                        **call_kwargs,
+                    ),
+                    timeout=float(timeout),
                 )
 
                 input_tokens = getattr(getattr(response, "usage_metadata", None), "prompt_token_count", None)
