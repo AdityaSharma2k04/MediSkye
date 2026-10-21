@@ -15,7 +15,6 @@ export default function ChatWindow({
   isGenerating,
   loadingHistory = false,
   onRegenerate,
-  onSelectSource,
   onSelectSampleQuery,
   onAttachFile,
   activePdf,
@@ -532,7 +531,6 @@ export default function ChatWindow({
                 key={msg.id || index}
                 message={msg}
                 onRegenerate={index === messages.length - 1 && msg.sender === 'assistant' ? onRegenerate : null}
-                onSelectSource={onSelectSource}
                 showToast={showToast}
                 darkMode={darkMode}
               />

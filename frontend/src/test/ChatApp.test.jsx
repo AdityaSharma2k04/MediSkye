@@ -437,5 +437,30 @@ describe('ChatApp — deletion and rename persistence', () => {
 
     printSpy.mockRestore();
   });
+
+  it('handles 409 conflict gracefully without rendering duplicate user bubble or error state', async () => {
+    const conflictErr = new Error('A query stream is already active for this conversation.');
+    conflictErr.status = 409;
+    api.sendQueryStream.mockRejectedValue(conflictErr);
+
+    render(<ChatApp />);
+    await waitFor(() => expect(api.getProfile).toHaveBeenCalled());
+
+    const input = screen.getByPlaceholderText(/Ask a medical question/i);
+    fireEvent.change(input, { target: { value: 'Duplicate query during generation' } });
+    const form = input.closest('form');
+
+    await act(async () => {
+      fireEvent.submit(form);
+    });
+
+    // 1. Toast notification was displayed
+    await waitFor(() => {
+      expect(screen.getByText(/A response is already generating/i)).toBeInTheDocument();
+    });
+
+    // 2. The duplicate user bubble is NOT left in the chat
+    expect(screen.queryByText('Duplicate query during generation')).not.toBeInTheDocument();
+  });
 });
 

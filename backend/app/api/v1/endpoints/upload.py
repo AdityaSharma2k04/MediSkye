@@ -21,6 +21,7 @@ from app.rag.loader import PDFExtractionError, extract_text_from_file
 from app.core.audit import log_audit
 from app.rag.retriever import create_hybrid_index, acreate_hybrid_index
 from app.services.upload_jobs import create_job, update_job, get_job, UploadStatus
+from app.core.security import clean_filename_to_title
 from app.rag.index_storage import asave_index_artifacts
 from app.api.v1.endpoints.metrics import extract_and_cache_metrics
 
@@ -57,11 +58,12 @@ async def process_upload_background(
             user_uuid = uuid.UUID(user_id)
             dep_uuid = uuid.UUID(dependent_id) if dependent_id else None
 
-            # Create Document record in DB
+            # Create Document record in DB with cleaned title
             doc = Document(
                 user_id=user_uuid,
                 dependent_id=dep_uuid,
                 filename=filename,
+                title=clean_filename_to_title(filename),
             )
             db.add(doc)
             await db.commit()

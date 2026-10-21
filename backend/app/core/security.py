@@ -79,3 +79,41 @@ def sanitize_filename(filename: str, max_len: int = 100) -> str:
     name = name[:allowed_name_len].strip()
     clean_name = f"{name}{ext}".strip()
     return clean_name if clean_name and clean_name != ext else f"document{ext}"
+
+
+def clean_filename_to_title(filename: str) -> str:
+    """Derive a clean, readable human title from an uploaded file name."""
+    if not filename:
+        return "New Conversation"
+    # Strip extension (e.g. .pdf, .png, .jpg, .jpeg)
+    raw_name = re.sub(r"\.[a-zA-Z0-9]+$", "", filename)
+    name = re.sub(r"[_-]+", " ", raw_name)
+    # Remove common noise words (case-insensitive)
+    noise_pattern = r"\b(report|final|v\d+|rev|draft|scan|result|results|lab|blood|test|copy|sample|patient)\b"
+    cleaned = re.sub(noise_pattern, "", name, flags=re.IGNORECASE)
+    cleaned = re.sub(r"\b\d{4,}\b", "", cleaned)
+    cleaned = re.sub(r"\s{2,}", " ", cleaned).strip()
+    if not cleaned:
+        cleaned = re.sub(r"\s{2,}", " ", name).strip()
+    # Title-case each word
+    title = " ".join(w.capitalize() for w in cleaned.split())
+    # Limit to 40 chars, truncate at word boundary
+    if len(title) > 40:
+        truncated = title[:40].rsplit(" ", 1)[0]
+        title = truncated if truncated else title[:40]
+    return title or "New Conversation"
+
+
+def generate_title_from_query(query: str, max_words: int = 5, max_len: int = 60) -> str:
+    """Generate a clean chat title from the first N words of a user query."""
+    if not query:
+        return "New Conversation"
+    cleaned = sanitize_text(query).strip()
+    words = cleaned.split()
+    if not words:
+        return "New Conversation"
+    title = " ".join(words[:max_words])
+    if len(title) > max_len:
+        title = title[:max_len].strip()
+    return title or "New Conversation"
+

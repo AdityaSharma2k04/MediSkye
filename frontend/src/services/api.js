@@ -270,7 +270,7 @@ export async function sendQueryStream(queryText, documentId, language = 'English
     },
     body: JSON.stringify(payload),
     signal,
-  }, 45000);
+  }, 180000);
 
   if (!res.ok) {
     let errorDetail = 'Server error while querying MediSkye.';
@@ -278,7 +278,9 @@ export async function sendQueryStream(queryText, documentId, language = 'English
       const errorData = await res.json();
       errorDetail = errorData.detail || errorData.error || errorDetail;
     } catch (e) {}
-    throw new Error(errorDetail);
+    const err = new Error(errorDetail);
+    err.status = res.status;
+    throw err;
   }
 
   const reader = res.body.getReader();
@@ -550,7 +552,7 @@ export async function getGeneralChats() {
 }
 
 export async function renameDocument(documentId, newTitle) {
-  const res = await fetch(`${API_BASE}/documents/${documentId}/title`, {
+  let res = await fetch(`${API_BASE}/users/me/documents/${documentId}/title`, {
     method: 'PATCH',
     headers: {
       'Content-Type': 'application/json',
@@ -558,6 +560,16 @@ export async function renameDocument(documentId, newTitle) {
     },
     body: JSON.stringify({ title: newTitle }),
   });
+  if (!res.ok && res.status === 404) {
+    res = await fetch(`${API_BASE}/documents/${documentId}/title`, {
+      method: 'PATCH',
+      headers: {
+        'Content-Type': 'application/json',
+        ...getAuthHeaders(),
+      },
+      body: JSON.stringify({ title: newTitle }),
+    });
+  }
   if (!res.ok) {
     const errData = await res.json().catch(() => ({}));
     logger.warn('Failed to rename document on server:', {

@@ -37,7 +37,11 @@ def reset_cooldown() -> None:
     _llm_dead_until = 0.0
 
 
-FALLBACK_MODELS = list(settings.GEMINI_FALLBACK_MODELS)
+FALLBACK_MODELS = [
+    "gemini-3.6-flash",
+    "gemini-3.5-flash",
+    "gemini-3.8-flash",
+]
 
 
 def _is_retryable_error(exc: Exception) -> bool:

@@ -105,8 +105,8 @@ async def test_gemini_fallback_chain_triggers_on_503():
     mock_fallback_resp.usage_metadata.prompt_token_count = 10
     mock_fallback_resp.usage_metadata.candidates_token_count = 15
 
-    # Primary model ("gemini-3.8-flash") fails 3 times with 503,
-    # then fallback model ("gemini-3.6-flash") succeeds on first attempt.
+    # Primary model ("gemini-3.6-flash") fails 3 times with 503,
+    # then fallback model ("gemini-3.5-flash") succeeds on first attempt.
     mock_client.models.generate_content.side_effect = [
         Exception("503 Service Unavailable"),
         Exception("503 Service Unavailable"),
@@ -124,10 +124,10 @@ async def test_gemini_fallback_chain_triggers_on_503():
     assert res == mock_fallback_resp
     assert mock_client.models.generate_content.call_count == 4
     calls = mock_client.models.generate_content.call_args_list
-    assert calls[0].kwargs["model"] == "gemini-3.8-flash"
-    assert calls[1].kwargs["model"] == "gemini-3.8-flash"
-    assert calls[2].kwargs["model"] == "gemini-3.8-flash"
-    assert calls[3].kwargs["model"] == "gemini-3.6-flash"
+    assert calls[0].kwargs["model"] == "gemini-3.6-flash"
+    assert calls[1].kwargs["model"] == "gemini-3.6-flash"
+    assert calls[2].kwargs["model"] == "gemini-3.6-flash"
+    assert calls[3].kwargs["model"] == "gemini-3.5-flash"
 
 
 @pytest.mark.asyncio

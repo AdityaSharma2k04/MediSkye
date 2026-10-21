@@ -213,14 +213,14 @@ async def test_streaming_falls_back_on_first_chunk_failure():
 
     def succeed_fallback():
         chunk = MagicMock()
-        chunk.text = "Answer from gemini-3.6-flash fallback."
+        chunk.text = "Answer from gemini-3.5-flash fallback."
         yield chunk
 
     def stream_dispatcher(*args, **kwargs):
         model = kwargs.get("model")
-        if model == "gemini-3.8-flash":
+        if model == "gemini-3.6-flash":
             return fail_first_chunk()
-        elif model == "gemini-3.6-flash":
+        elif model == "gemini-3.5-flash":
             return succeed_fallback()
         raise RuntimeError(f"Unexpected model called: {model}")
 
@@ -248,7 +248,7 @@ async def test_streaming_falls_back_on_first_chunk_failure():
 
             assert res.status_code == 200
             body_text = res.text
-            assert "Answer from gemini-3.6-flash fallback." in body_text
+            assert "Answer from gemini-3.5-flash fallback." in body_text
             assert "data: [DONE]\n\n" in body_text
             assert mock_client.models.generate_content_stream.call_count == 2
 

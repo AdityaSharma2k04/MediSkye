@@ -22,10 +22,13 @@ from app.schemas.user import (
     PatientFactResponse,
     PatientFactCreate,
     PatientFactUpdate,
+    DocumentResponse,
+    RenameDocumentRequest,
 )
 from app.schemas.dependent import DependentCreate, DependentUpdate, DependentResponse
 from app.core.audit import log_audit
 from app.core.limiter import limiter
+from app.core.security import clean_filename_to_title
 from app.services.patient_service import calculate_age
 from app.rag.index_storage import delete_index_artifacts, adelete_index_artifacts
 
@@ -110,7 +113,7 @@ async def delete_user_me(
 # User Documents & History Endpoints
 # ==========================================
 
-@router.get("/users/me/documents")
+@router.get("/users/me/documents", response_model=List[DocumentResponse])
 async def get_my_documents(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
@@ -126,12 +129,40 @@ async def get_my_documents(
             "id": str(doc.id),
             "filename": doc.filename,
             "file_path": doc.file_path,
-            "title": doc.title,  # nullable — frontend uses filename fallback
+            "title": doc.title or clean_filename_to_title(doc.filename),
             "created_at": doc.created_at.isoformat() if doc.created_at else None,
             "dependent_id": str(doc.dependent_id) if doc.dependent_id else None
         }
         for doc in docs
     ]
+
+
+@router.patch("/users/me/documents/{document_id}/title", tags=["Documents", "Users & Dependents"])
+async def rename_user_document_title(
+    document_id: str,
+    body: RenameDocumentRequest,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Rename a document's title (auth-gated to document owner)."""
+    try:
+        doc_uuid = uuid.UUID(document_id)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid document ID.")
+
+    result = await db.execute(
+        select(Document).filter(Document.id == doc_uuid, Document.user_id == current_user.id)
+    )
+    doc = result.scalars().first()
+    if not doc:
+        raise HTTPException(status_code=404, detail="Document not found or access denied.")
+
+    doc.title = body.title.strip()
+    db.add(doc)
+    await db.commit()
+    await db.refresh(doc)
+    return {"id": str(doc.id), "title": doc.title}
+
 
 @router.get("/users/me/chats")
 async def get_general_chats(

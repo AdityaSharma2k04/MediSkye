@@ -13,7 +13,6 @@ import {
   Share2,
   User,
   Sparkles,
-  ChevronDown,
   AlertTriangle,
 } from 'lucide-react';
 import { speakText, stopSpeaking } from '../services/speech';
@@ -26,11 +25,10 @@ export const stripAbnormalFlags = (text) => {
     .trim();
 };
 
-export default function ChatMessage({ message, onRegenerate, onSelectSource, showToast, darkMode }) {
+export default function ChatMessage({ message, onRegenerate, showToast, darkMode }) {
   const [copied, setCopied] = useState(false);
   const [speaking, setSpeaking] = useState(false);
   const [liked, setLiked] = useState(null);
-  const [showDetails, setShowDetails] = useState(false);
   const [showThinkingSkeleton, setShowThinkingSkeleton] = useState(false);
   const speakTokenRef = useRef(null);
 
@@ -209,55 +207,6 @@ export default function ChatMessage({ message, onRegenerate, onSelectSource, sho
               <ReactMarkdown remarkPlugins={[remarkGfm]}>
                 {content}
               </ReactMarkdown>
-            </div>
-          )}
-
-          {/* Task A6: Collapsed Details Expander for structured lab values */}
-          {message.metrics && message.metrics.length > 0 && (
-            <div className="mt-3">
-              <button
-                onClick={() => setShowDetails(!showDetails)}
-                className={`text-xs font-medium flex items-center gap-1.5 py-1 px-2.5 rounded-lg border transition-colors ${
-                  darkMode ? 'bg-zinc-800/80 border-zinc-700 text-zinc-300 hover:bg-zinc-700' : 'bg-zinc-100 border-zinc-200 text-zinc-700 hover:bg-zinc-200'
-                }`}
-              >
-                <span>{showDetails ? 'Hide details' : `View details (${message.metrics.length} tests)`}</span>
-                <ChevronDown className={`w-3.5 h-3.5 transition-transform ${showDetails ? 'rotate-180' : ''}`} />
-              </button>
-              {showDetails && (
-                <div className={`mt-2 rounded-xl overflow-hidden border text-xs ${
-                  darkMode ? 'bg-black border-zinc-800' : 'bg-zinc-50 border-zinc-200'
-                }`}>
-                  <table className="w-full text-left">
-                    <thead className={`border-b ${darkMode ? 'bg-zinc-900 border-zinc-800 text-zinc-400' : 'bg-white border-zinc-200 text-zinc-500'}`}>
-                      <tr>
-                        <th className="p-2.5 px-3">Test</th>
-                        <th className="p-2.5 px-3">Your value</th>
-                        <th className="p-2.5 px-3">Reference range</th>
-                        <th className="p-2.5 px-3">Status</th>
-                      </tr>
-                    </thead>
-                    <tbody className={`divide-y ${darkMode ? 'divide-zinc-800/80' : 'divide-zinc-200/60'}`}>
-                      {message.metrics.map((m, i) => (
-                        <tr key={m.test || m.name || i}>
-                          <td className="p-2.5 px-3 font-medium">{m.test || m.name}</td>
-                          <td className="p-2.5 px-3 font-semibold">{m.value} {m.unit}</td>
-                          <td className="p-2.5 px-3 text-zinc-400">{m.range || 'N/A'}</td>
-                          <td className="p-2.5 px-3">
-                            <span className={`px-2 py-0.5 rounded text-[10px] font-semibold ${
-                              m.status === 'High' ? 'bg-rose-500/10 text-rose-500 border border-rose-500/20' :
-                              m.status === 'Low' ? 'bg-amber-500/10 text-amber-500 border border-amber-500/20' :
-                              'bg-emerald-500/10 text-emerald-500 border border-emerald-500/20'
-                            }`}>
-                              {m.status || 'Normal'}
-                            </span>
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              )}
             </div>
           )}
 

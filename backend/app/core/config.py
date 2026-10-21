@@ -30,12 +30,12 @@ class Settings(BaseSettings):
 
     # Security & API Key
     GOOGLE_API_KEY: str = Field(default_factory=lambda: os.getenv("GOOGLE_API_KEY", ""))
-    GEMINI_MODEL: str = "gemini-3.8-flash"
+    GEMINI_MODEL: str = "gemini-3.6-flash"
     EMBEDDING_MODEL: str = "models/gemini-embedding-2"
     GEMINI_FALLBACK_MODELS: List[str] = [
-        "gemini-3.8-flash",
         "gemini-3.6-flash",
         "gemini-3.5-flash",
+        "gemini-3.8-flash",
     ]
     FERNET_KEY: str
     JWT_SECRET_KEY: str

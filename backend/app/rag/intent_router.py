@@ -17,6 +17,7 @@ import logging
 import re
 from typing import Optional
 
+from app.core.config import settings
 from app.core.security import escape_xml_content
 from app.llm.gemini_client import call_gemini_with_retry
 
@@ -134,6 +135,7 @@ async def classify_intent(query: str, has_document: bool = True, **kwargs) -> Qu
 
         response = await call_gemini_with_retry(
             contents=CLASSIFICATION_PROMPT.format(query=escaped_query),
+            model=settings.GEMINI_MODEL,
             config={
                 "temperature": 0.0,
                 "max_output_tokens": 10,

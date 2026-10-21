@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import React from 'react';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { safeStorage } from '../services/storage';
-import { apiFetch } from '../services/api';
+import { apiFetch, sendQueryStream } from '../services/api';
 import { auth } from '../services/firebase';
 import ChatInput from '../components/ChatInput';
 
@@ -143,6 +143,36 @@ describe('Frontend Chaos QA & Edge Cases', () => {
       // Verify second request used fresh Bearer token
       const secondCallHeaders = fetchMock.mock.calls[1][1].headers;
       expect(secondCallHeaders['Authorization']).toBe('Bearer fresh-jwt-token-123');
+    });
+
+    it('sendQueryStream enforces 180s timeout and attaches status on 409 response', async () => {
+      vi.stubGlobal('navigator', { onLine: true });
+
+      const fetchMock = vi.fn().mockResolvedValue({
+        ok: false,
+        status: 409,
+        json: () => Promise.resolve({ detail: 'A query stream is already active' }),
+      });
+      vi.stubGlobal('fetch', fetchMock);
+
+      let caughtErr;
+      try {
+        await sendQueryStream('Test question', 'session-123', 'English', () => {});
+      } catch (err) {
+        caughtErr = err;
+      }
+
+      expect(caughtErr).toBeDefined();
+      expect(caughtErr.status).toBe(409);
+      expect(caughtErr.message).toContain('already active');
+
+      expect(fetchMock).toHaveBeenCalledWith(
+        expect.stringContaining('/query'),
+        expect.objectContaining({
+          method: 'POST',
+          body: expect.stringContaining('Test question'),
+        })
+      );
     });
   });
 

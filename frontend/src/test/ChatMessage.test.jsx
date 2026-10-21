@@ -92,7 +92,7 @@ describe('ChatMessage rendering', () => {
     expect(handleRegenerate).toHaveBeenCalledTimes(1);
   });
 
-  it('renders collapsed metrics expander and reveals table when clicked', () => {
+  it('does not render View details or metadata table when message has metrics', () => {
     const message = {
       sender: 'assistant',
       text: 'Analysis complete.',
@@ -105,26 +105,15 @@ describe('ChatMessage rendering', () => {
 
     render(<ChatMessage message={message} darkMode={false} />);
 
-    const expanderBtn = screen.getByText(/View details \(2 tests\)/i);
-    expect(expanderBtn).toBeInTheDocument();
-
-    // Table not shown yet
+    expect(screen.queryByText(/View details/i)).not.toBeInTheDocument();
     expect(screen.queryByText('Reference range')).not.toBeInTheDocument();
-
-    // Click to expand
-    fireEvent.click(expanderBtn);
-
-    expect(screen.getByText('Hide details')).toBeInTheDocument();
-    expect(screen.getByText('Reference range')).toBeInTheDocument();
-    expect(screen.getByText('Hemoglobin')).toBeInTheDocument();
-    expect(screen.getByText('Glucose')).toBeInTheDocument();
-    expect(screen.getByText('High')).toBeInTheDocument();
+    expect(screen.getByText('Analysis complete.')).toBeInTheDocument();
   });
 
-  it('shows correct count when response has 5 abnormal metrics', () => {
+  it('renders only plain response text and no test counts for multiple metrics', () => {
     const message = {
       sender: 'assistant',
-      text: 'Analysis complete.',
+      text: 'Your blood panel summary.',
       metrics: [
         { test: 'HbA1c', value: '7.2', unit: '%', range: '4.0 - 5.6', status: 'High' },
         { test: 'LDL', value: '145', unit: 'mg/dL', range: '0 - 100', status: 'High' },
@@ -137,7 +126,9 @@ describe('ChatMessage rendering', () => {
 
     render(<ChatMessage message={message} darkMode={false} />);
 
-    expect(screen.getByText(/View details \(5 tests\)/i)).toBeInTheDocument();
+    expect(screen.queryByText(/View details/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/tests/i)).not.toBeInTheDocument();
+    expect(screen.getByText('Your blood panel summary.')).toBeInTheDocument();
   });
 
   describe('abnormal_flags stripping', () => {

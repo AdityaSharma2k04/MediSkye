@@ -132,3 +132,19 @@ class PatientFactResponse(BaseModel):
     created_at: Optional[datetime] = None
 
     model_config = ConfigDict(from_attributes=True)
+
+
+class DocumentResponse(BaseModel):
+    id: str
+    filename: str
+    file_path: Optional[str] = None
+    title: Optional[str] = None
+    created_at: Optional[str] = None
+    dependent_id: Optional[str] = None
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class RenameDocumentRequest(BaseModel):
+    title: str = Field(..., min_length=1, max_length=60, description="New document title (max 60 chars)")
+

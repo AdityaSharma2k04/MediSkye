@@ -17,11 +17,12 @@ from app.core.config import settings
 from app.core.auth import get_current_user
 from app.core.limiter import limiter
 from app.core.audit import log_audit
+from app.core.security import generate_title_from_query
 from app.db.database import get_db, AsyncSessionLocal
 from app.db.models import User, Document, Chat, ChatDocument, DependentProfile, PatientFact
 from app.llm.gemini_client import GeminiUnavailableError, get_genai_client, call_gemini_with_retry
 from app.rag.index_storage import aensure_index_local
-from app.schemas.query import QueryRequest, QueryResponse, SourceChunk
+from app.schemas.query import QueryRequest, QueryResponse
 from app.rag.prompt_builder import build_prompt, build_general_health_prompt, build_casual_prompt
 from app.rag.intent_router import classify_intent, QueryIntent
 from app.rag.safety import append_disclaimer, get_emergency_response, is_emergency_query
@@ -73,38 +74,6 @@ async def rename_document_title(
     return {"id": str(doc.id), "title": doc.title}
 
 
-def _extract_metrics_from_docs(retrieved_docs: List[Any]) -> List[Dict[str, Any]]:
-    """
-    Heuristically extract structured lab metrics from retrieved document chunks for the reference ranges expander.
-    Matches lines like: Glucose 105 mg/dL (70-99) High
-    """
-    metrics = []
-    seen = set()
-    pattern = re.compile(
-        r"(?P<name>[A-Za-z0-9\s\-/]+?)\s*[:=\t]\s*(?P<val>\d+(?:\.\d+)?)\s*(?P<unit>[a-zA-Z/%μ]+(?:\/[a-zA-Z0-9]+)?)\s*(?:\((?:ref:?\s*)?(?P<range>\d+(?:\.\d+)?\s*-\s*\d+(?:\.\d+)?)\))?\s*(?P<status>High|Low|Normal|Abnormal)?",
-        re.IGNORECASE,
-    )
-
-    for d in retrieved_docs:
-        text = d.page_content if hasattr(d, "page_content") else str(d)
-        for line in text.split("\n"):
-            line = line.strip()
-            m = pattern.search(line)
-            if m:
-                name = m.group("name").strip()
-                if len(name) > 35 or len(name) < 3 or name.lower() in seen:
-                    continue
-                seen.add(name.lower())
-                metrics.append({
-                    "name": name,
-                    "value": m.group("val"),
-                    "unit": m.group("unit"),
-                    "status": m.group("status").capitalize() if m.group("status") else "Normal",
-                    "range": m.group("range") or "Standard reference range",
-                })
-                if len(metrics) >= 50:
-                    return metrics
-    return metrics
 
 
 @router.post("/query", tags=["RAG Query"])
@@ -151,6 +120,29 @@ async def query_bot(
 
     has_document = len(chat_docs) > 0 and any(bool(d.file_path) for d in chat_docs)
 
+    # ── Auto-naming on first query if title is default ──
+    updated_chat_title: Optional[str] = None
+    DEFAULT_TITLES = {
+        "New Conversation",
+        "New conversation",
+        "New Chat",
+        "New chat",
+        "New Consultation",
+        "New consultation",
+        "Untitled",
+        "",
+        None,
+    }
+    if primary_doc and (primary_doc.title is None or primary_doc.title.strip() in DEFAULT_TITLES):
+        new_title = generate_title_from_query(body.query, max_words=5, max_len=60)
+        primary_doc.title = new_title
+        db.add(primary_doc)
+        await db.commit()
+        await db.refresh(primary_doc)
+        updated_chat_title = new_title
+    elif not primary_doc:
+        updated_chat_title = generate_title_from_query(body.query, max_words=5, max_len=60)
+
     # ── Emergency keyword gate ──
     if is_emergency_query(body.query):
         ai_msg = get_emergency_response()
@@ -170,6 +162,8 @@ async def query_bot(
         await db.commit()
 
         async def emergency_stream():
+            if updated_chat_title:
+                yield f'data: {json.dumps({"title": updated_chat_title, "document_id": str(primary_doc.id) if primary_doc else None})}\n\n'
             yield f'data: {json.dumps({"chunk": ai_msg})}\n\n'
             yield f'data: [DONE]\n\n'
 
@@ -270,6 +264,9 @@ async def query_bot(
 
     async def generate_response_stream():
         try:
+            if updated_chat_title:
+                yield f'data: {json.dumps({"title": updated_chat_title, "document_id": str(primary_doc.id) if primary_doc else None})}\n\n'
+
             # ── Stage 1: Analyzing ──
             if intent == QueryIntent.CASUAL:
                 yield f'event: stage\ndata: {json.dumps({"stage": "generating", "message": "MediSkye is typing..."})}\n\n'
@@ -368,7 +365,6 @@ async def query_bot(
                     user_query=body.query,
                     language_preference=language_preference,
                 )
-                yield f'data: {json.dumps({"sources": []})}\n\n'
 
             elif intent == QueryIntent.DOCUMENT_QA:
                 system_instruction, user_content = build_prompt(
@@ -387,22 +383,6 @@ async def query_bot(
                     occupation=occupation,
                 )
 
-                sources = [
-                    SourceChunk(
-                        title=d.metadata.get("source") or d.metadata.get("filename") or "Medical Report",
-                        page=d.metadata.get("page", 1),
-                        score="98%",
-                        excerpt=d.page_content[:140] + "...",
-                    ).model_dump()
-                    for d in retrieved_chunks[:4]
-                ]
-                yield f'data: {json.dumps({"sources": sources})}\n\n'
-
-                # Attach metrics for reference ranges expander
-                extracted_metrics = _extract_metrics_from_docs(retrieved_chunks)
-                if extracted_metrics:
-                    yield f'data: {json.dumps({"metrics": extracted_metrics})}\n\n'
-
             else:
                 system_instruction, user_content = build_general_health_prompt(
                     user_query=body.query,
@@ -418,7 +398,6 @@ async def query_bot(
                     activity_level=activity_level,
                     occupation=occupation,
                 )
-                yield f'data: {json.dumps({"sources": []})}\n\n'
 
             full_raw_text = ""
             visible_text = ""

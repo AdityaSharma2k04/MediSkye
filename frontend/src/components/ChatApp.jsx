@@ -347,7 +347,7 @@ export default function ChatApp() {
             filename: doc.filename,
             size: 8192,
           };
-          const autoTitle = doc.title || cleanFilename(doc.filename);
+          const autoTitle = doc.title || (doc.filename ? cleanFilename(doc.filename) : 'New Chat');
 
           let messages = existing?.messages || [];
 
@@ -359,7 +359,7 @@ export default function ChatApp() {
               patient_id: doc.dependent_id || existing.patient_id || 'self',
               title: doc.title || (existing.title && existing.title !== 'New Conversation' && existing.title !== 'New chat'
                 ? existing.title
-                : autoTitle),
+                : 'New Chat'),
               messages,
               pdf: existing.pdf || pdfMeta,
               documents: Array.isArray(existing.documents) && existing.documents.length > 0
@@ -373,7 +373,7 @@ export default function ChatApp() {
             id: doc.id,
             document_id: doc.id,
             patient_id: doc.dependent_id || 'self',
-            title: autoTitle,
+            title: doc.title || 'New Chat',
             messages,
             pdf: pdfMeta,
             documents: [pdfMeta],
@@ -747,12 +747,13 @@ export default function ChatApp() {
       text: '',
       status: 'Analyzing your question...',
       isStreaming: true,
-      sources: [],
       timestamp,
     };
 
     // Bug 9 Fix: Atomically create user bubble AND assistant placeholder in one update
     const activeTargetId = sessionId;
+    const prevChat = conversations.find((c) => c.id === activeTargetId);
+    const prevTitle = prevChat?.title || 'New Conversation';
     const newMessages = appendUserMessage ? [userMsgObj, assistantMsgObj] : [assistantMsgObj];
     setConversations((prev) => {
       const matchExists = prev.some((c) => c.id === activeTargetId);
@@ -786,6 +787,7 @@ export default function ChatApp() {
     const controller = new AbortController();
     abortControllerRef.current = controller;
 
+    let isConflict = false;
     try {
       // Read document ID from current conversation
       let chatDocId = null;
@@ -811,17 +813,17 @@ export default function ChatApp() {
         }
         setConversations((prev) => {
           return prev.map((c) => {
-            if (c.id !== activeTargetId) return c;
+            if (c.id !== activeTargetId && c.document_id !== activeTargetId) return c;
+            const updatedChat = { ...c };
+            if (chunk.title) {
+              updatedChat.title = chunk.title;
+            }
             const targetIdx = c.messages.findIndex((m) => m.id === assistantMsgId);
-            if (targetIdx === -1) return c;
+            if (targetIdx === -1) return updatedChat;
 
             const targetMsg = { ...c.messages[targetIdx] };
             if (chunk.stage && chunk.message) {
               targetMsg.status = chunk.message;
-            } else if (chunk.metrics) {
-              targetMsg.metrics = chunk.metrics;
-            } else if (chunk.sources) {
-              targetMsg.sources = chunk.sources;
             } else if (chunk.specialists) {
               targetMsg.specialists = chunk.specialists;
             } else if (chunk.chunk || chunk.token) {
@@ -835,7 +837,8 @@ export default function ChatApp() {
 
             const updatedMsgs = [...c.messages];
             updatedMsgs[targetIdx] = targetMsg;
-            return { ...c, messages: updatedMsgs };
+            updatedChat.messages = updatedMsgs;
+            return updatedChat;
           });
         });
       }, chatPatientId, controller.signal);
@@ -848,6 +851,20 @@ export default function ChatApp() {
     } catch (err) {
       if (err && err.name === 'AbortError') {
         // User stopped generation — keep any partial text, skip the error toast.
+      } else if (err?.status === 409 || err?.message?.includes('already active')) {
+        isConflict = true;
+        showToast('info', 'Please Wait', 'A response is already generating. Please wait for it to finish.');
+        // Do NOT render a second user bubble or an error state in the chat; remove the newly added messages
+        setConversations((prev) => {
+          return prev.map((c) => {
+            if (c.id !== activeTargetId) return c;
+            return {
+              ...c,
+              title: prevTitle,
+              messages: c.messages.filter((m) => m.id !== userMsgId && m.id !== assistantMsgId),
+            };
+          });
+        });
       } else {
         showToast('error', 'Query Error', err.message);
         setConversations((prev) => {
@@ -868,23 +885,25 @@ export default function ChatApp() {
         });
       }
     } finally {
-      setConversations((prev) => {
-        return prev.map((c) => {
-          if (c.id !== activeTargetId) return c;
-          const targetIdx = c.messages.findIndex((m) => m.id === assistantMsgId);
-          if (targetIdx === -1) return c;
+      if (!isConflict) {
+        setConversations((prev) => {
+          return prev.map((c) => {
+            if (c.id !== activeTargetId) return c;
+            const targetIdx = c.messages.findIndex((m) => m.id === assistantMsgId);
+            if (targetIdx === -1) return c;
 
-          const targetMsg = { ...c.messages[targetIdx] };
-          targetMsg.isStreaming = false;
-          targetMsg.status = null;
+            const targetMsg = { ...c.messages[targetIdx] };
+            targetMsg.isStreaming = false;
+            targetMsg.status = null;
 
-          const updatedMsgs = [...c.messages];
-          updatedMsgs[targetIdx] = targetMsg;
-          return { ...c, messages: updatedMsgs };
+            const updatedMsgs = [...c.messages];
+            updatedMsgs[targetIdx] = targetMsg;
+            return { ...c, messages: updatedMsgs };
+          });
         });
-      });
-      setIsGenerating(false);
-      abortControllerRef.current = null;
+        setIsGenerating(false);
+        abortControllerRef.current = null;
+      }
       isSubmittingRef.current = false;
     }
   };
@@ -1054,9 +1073,10 @@ export default function ChatApp() {
     // If it has a real document_id, persist to backend first
     if (targetDocId) {
       try {
-        await renameDocument(targetDocId, trimmed);
+        const res = await renameDocument(targetDocId, trimmed);
+        const savedTitle = res?.title || trimmed;
         setConversations((prev) =>
-          prev.map((c) => (c.id === id ? { ...c, title: trimmed } : c))
+          prev.map((c) => (c.id === id ? { ...c, title: savedTitle } : c))
         );
         showToast('success', 'Chat Renamed', 'Chat renamed');
         await refreshDocuments();
@@ -1151,7 +1171,6 @@ export default function ChatApp() {
           isGenerating={isGenerating}
           loadingHistory={loadingHistory}
           onRegenerate={handleRegenerate}
-          onSelectSource={(source) => setSelectedSource(source)}
           onSelectSampleQuery={handleSendMessage}
           onAttachFile={handleAttachFile}
           activePdf={activePdf}

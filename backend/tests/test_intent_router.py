@@ -59,9 +59,10 @@ async def test_classify_intent_casual_llm_fallback():
     mock_resp = MagicMock()
     mock_resp.text = "CASUAL"
 
-    with patch("app.rag.intent_router.call_gemini_with_retry", return_value=mock_resp):
+    with patch("app.rag.intent_router.call_gemini_with_retry", return_value=mock_resp) as mock_gemini:
         intent = await classify_intent("who created you and what can you help me with?")
         assert intent == QueryIntent.CASUAL
+        assert mock_gemini.call_args.kwargs["model"] == "gemini-3.6-flash"
 
 
 def test_append_disclaimer_conditional():
