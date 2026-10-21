@@ -7,6 +7,7 @@ import SettingsModal from './SettingsModal';
 import Profile from './Profile';
 import Toast from './Toast';
 import MemoryConsentModal from './MemoryConsentModal';
+import ExportModal from './ExportModal';
 import {
   uploadPdfReport,
   getUploadStatus,
@@ -24,6 +25,7 @@ import {
 } from '../services/api';
 import { useNavigate } from 'react-router-dom';
 import { logger } from '../services/logger';
+import { speakText, stopSpeaking } from '../services/speech';
 
 // ── Theme helpers ──────────────────────────────────────────
 function getSystemTheme() {
@@ -34,7 +36,7 @@ function getSystemTheme() {
 function getStoredThemePreference() {
   try {
     const stored = localStorage.getItem('mediskye_theme');
-    if (stored === 'dark' || stored === 'light' || stored === 'system') return stored;
+    if (stored === 'dark' || stored === 'light') return stored;
   } catch {}
   return 'system';
 }
@@ -112,7 +114,8 @@ export default function ChatApp() {
     navigate('/login', { replace: true });
   };
 
-  const [sessionId, setSessionId] = useState(() => generateSessionId());
+  const [initialSessionId] = useState(() => generateSessionId());
+  const [sessionId, setSessionId] = useState(initialSessionId);
   const sessionIdRef = useRef(sessionId);
   sessionIdRef.current = sessionId;
   const [loadingHistory, setLoadingHistory] = useState(false);
@@ -138,6 +141,24 @@ export default function ChatApp() {
     return localStorage.getItem('mediskye_sidebar_open') !== 'false';
   });
 
+  // Auto-read AI responses aloud (persisted UI preference, no server round-trip)
+  const [autoRead, setAutoRead] = useState(() => {
+    try {
+      return localStorage.getItem('mediskye_auto_read') === 'true';
+    } catch {
+      return false;
+    }
+  });
+
+  const setAutoReadPersist = (val) => {
+    setAutoRead(Boolean(val));
+    try {
+      localStorage.setItem('mediskye_auto_read', String(Boolean(val)));
+    } catch (e) {
+      logger.error('Failed to persist auto-read preference:', e);
+    }
+  };
+
   const toggleSidebar = () => {
     const next = !sidebarOpen;
     setSidebarOpen(next);
@@ -145,6 +166,7 @@ export default function ChatApp() {
   };
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [isProfileOpen, setIsProfileOpen] = useState(false);
+  const [isExportOpen, setIsExportOpen] = useState(false);
   const [selectedSource, setSelectedSource] = useState(null);
 
   const [activePdf, setActivePdf] = useState(null);
@@ -155,6 +177,34 @@ export default function ChatApp() {
   const abortControllerRef = useRef(null);
   const chatInputRef = useRef(null);
   const [toasts, setToasts] = useState([]);
+
+  const showToast = useCallback((type, title, message) => {
+    const id = Date.now();
+    setToasts((prev) => [...prev, { id, type, title, message }]);
+    setTimeout(() => {
+      setToasts((prev) => prev.filter((t) => t.id !== id));
+    }, 4500);
+  }, []);
+
+  const dismissToast = useCallback((id) => {
+    setToasts((prev) => prev.filter((t) => t.id !== id));
+  }, []);
+
+  // ── Connection status watcher: never fail silently ──
+  useEffect(() => {
+    const handleOffline = () => {
+      showToast('error', 'Connection Lost', 'You are offline. MediSkye will reconnect automatically when your connection returns.');
+    };
+    const handleOnline = () => {
+      showToast('success', 'Back Online', 'Connection restored.');
+    };
+    window.addEventListener('offline', handleOffline);
+    window.addEventListener('online', handleOnline);
+    return () => {
+      window.removeEventListener('offline', handleOffline);
+      window.removeEventListener('online', handleOnline);
+    };
+  }, [showToast]);
 
   // Clean up legacy localStorage chat caches on mount
   useEffect(() => {
@@ -167,7 +217,7 @@ export default function ChatApp() {
 
   // In-memory conversation state (Neon DB is the single source of truth)
   const [conversations, setConversations] = useState(() => [
-    { id: generateSessionId(), title: 'New Conversation', messages: [], pdf: null, patient_id: 'self' },
+    { id: initialSessionId, title: 'New Conversation', messages: [], pdf: null, patient_id: 'self' },
   ]);
 
   // Load chat history from backend with race condition protection
@@ -193,22 +243,30 @@ export default function ChatApp() {
         : [];
 
       setConversations((prev) =>
-        prev.map((item) =>
-          item.id === targetSessionId || (targetDocId && (item.id === targetDocId || item.document_id === targetDocId))
-            ? { ...item, messages: formatted }
-            : item
-        )
+        prev.map((item) => {
+          const isTarget = item.id === targetSessionId || (targetDocId && (item.id === targetDocId || item.document_id === targetDocId));
+          if (!isTarget) return item;
+          if (!targetDocId && (!formatted || formatted.length === 0) && item.messages && item.messages.length > 0) {
+            return item;
+          }
+          return { ...item, messages: formatted };
+        })
       );
     } catch (e) {
       logger.error('Failed to load chat history from backend:', e);
+      showToast(
+        'error',
+        'Could Not Load Chats',
+        'Connection to MediSkye failed. Your chats are safe — check your connection and try again.'
+      );
     } finally {
       if (activeChatFetchRef.current === fetchKey) {
         setLoadingHistory(false);
       }
     }
-  }, []);
+  }, [showToast]);
 
-  // Load User & Dependents on Mount
+  // Load User, Dependents, and Documents simultaneously on Mount (Bug 10 & Bug 1)
   const refreshPatientContext = useCallback(async () => {
     try {
       const [userRes, depsRes] = await Promise.all([
@@ -258,10 +316,7 @@ export default function ChatApp() {
         if (effectiveDocs.length === 0) {
           const nonDocConvs = prev.filter((c) => !c.document_id && !c.pdf);
           if (nonDocConvs.length > 0) return nonDocConvs;
-          const freshId = generateSessionId();
-          setSessionId(freshId);
-          setActivePdf(null);
-          return [{ id: freshId, title: 'New Conversation', messages: [], pdf: null, patient_id: 'self' }];
+          return [{ id: sessionIdRef.current, title: 'New Conversation', messages: [], pdf: null, patient_id: 'self' }];
         }
 
         const existingMap = new Map();
@@ -312,10 +367,9 @@ export default function ChatApp() {
           };
         });
 
-        // Retain only genuinely non-document conversations (e.g. empty new conversation).
-        // Any conversation with a document_id or pdf missing from the server response is strictly removed.
+        // Retain only genuinely non-document conversations with messages when documents exist (Bug 8)
         const nonDocConvs = prev.filter(
-          (c) => !c.document_id && !c.pdf && !effectiveDocs.some((d) => d.id === c.id)
+          (c) => !c.document_id && !c.pdf && !effectiveDocs.some((d) => d.id === c.id) && Array.isArray(c.messages) && c.messages.length > 0
         );
 
         return [...syncedDocConvs, ...nonDocConvs];
@@ -342,9 +396,14 @@ export default function ChatApp() {
       return docs;
     } catch (err) {
       logger.error('Failed to refresh documents:', err);
+      showToast(
+        'error',
+        'Could Not Refresh Reports',
+        'MediSkye could not reach the server to sync your reports. They are safe — please try again in a moment.'
+      );
       return [];
     }
-  }, [loadChatHistory]);
+  }, [loadChatHistory, showToast]);
 
   // Synchronize with server truth on account load / refresh (Neon DB single source of truth)
   useEffect(() => {
@@ -354,35 +413,26 @@ export default function ChatApp() {
 
       refreshDocuments().then((docs) => {
         if (!docs || docs.length === 0) {
-          setConversations((prev) => {
-            const nonDoc = prev.filter((c) => !c.document_id && !c.pdf);
-            if (nonDoc.length > 0) return nonDoc;
-            const freshId = generateSessionId();
-            setSessionId(freshId);
-            setActivePdf(null);
-            loadChatHistory(null, freshId);
-            return [{ id: freshId, title: 'New Conversation', messages: [], pdf: null, patient_id: 'self' }];
-          });
+          setActivePdf(null);
+          loadChatHistory(null, sessionIdRef.current);
         }
       }).catch(() => {
-        setConversations((prev) => {
-          if (prev.length > 0) return prev;
-          const freshId = generateSessionId();
-          setSessionId(freshId);
-          setActivePdf(null);
-          return [{ id: freshId, title: 'New Conversation', messages: [], pdf: null, patient_id: 'self' }];
-        });
+        setActivePdf(null);
       });
     }
   }, [currentUser, refreshDocuments, loadChatHistory]);
 
-  // ── Apply theme to DOM and persist the raw preference (incl. 'system') ──
+  // ── Apply theme to DOM and persist explicit preference ('dark' | 'light') ──
   useEffect(() => {
     const isDark = resolveDarkMode(themePreference);
     setDarkMode(isDark);
     applyThemeToDOM(isDark ? 'dark' : 'light');
     try {
-      localStorage.setItem('mediskye_theme', themePreference);
+      if (themePreference === 'dark' || themePreference === 'light') {
+        localStorage.setItem('mediskye_theme', themePreference);
+      } else {
+        localStorage.removeItem('mediskye_theme');
+      }
     } catch (e) {
       logger.error('Failed to persist theme preference:', e);
     }
@@ -449,18 +499,6 @@ export default function ChatApp() {
   };
 
   const messages = currentChat.messages || [];
-
-  const showToast = (type, title, message) => {
-    const id = Date.now();
-    setToasts((prev) => [...prev, { id, type, title, message }]);
-    setTimeout(() => {
-      setToasts((prev) => prev.filter((t) => t.id !== id));
-    }, 4500);
-  };
-
-  const dismissToast = (id) => {
-    setToasts((prev) => prev.filter((t) => t.id !== id));
-  };
 
   const handlePatientSelect = (patientId) => {
     setSelectedPatientId(patientId);
@@ -546,7 +584,7 @@ export default function ChatApp() {
             throw new Error(status.error || 'Upload processing failed');
           }
 
-          setUploadProgress(`Processing... (${Math.floor((Date.now() - startTime) / 1000)}s)`);
+          setUploadProgress('Processing report...');
         }
 
         if (!newDocId) {
@@ -614,6 +652,16 @@ export default function ChatApp() {
 
       // 2. Refetch document list from server to synchronize state with server truth
       await refreshDocuments(newDocId);
+
+      // Bug 8: Ensure the newly uploaded document replaces any empty "New Conversation"
+      setConversations((prev) => {
+        return prev.filter((c) => {
+          if (c.id === newDocId || c.document_id === newDocId) return true;
+          const hasMessages = Array.isArray(c.messages) && c.messages.length > 0;
+          const hasDoc = Boolean(c.document_id || c.pdf);
+          return hasMessages || hasDoc;
+        });
+      });
     } catch (err) {
       showToast('error', 'Upload Failed', err.message);
     } finally {
@@ -664,29 +712,60 @@ export default function ChatApp() {
     if (!userQuery || isGenerating) return;
     const { appendUserMessage = true } = options;
 
-    if (appendUserMessage) {
-      const userMsgObj = {
-        id: Date.now(),
-        sender: 'user',
-        text: userQuery,
-        timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-      };
+    // Any new question immediately silences previously spoken answers.
+    stopSpeaking();
 
-      // Auto-name from first message if title is still generic
-      setConversations((prev) =>
-        prev.map((c) =>
-          c.id === sessionId
-            ? {
-                ...c,
-                title: (c.title === 'New Conversation' || c.title === 'New chat')
-                  ? autoNameFromQuery(userQuery)
-                  : c.title,
-                messages: [...c.messages, userMsgObj],
-              }
-            : c
-        )
+    const timestamp = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    const userMsgId = `user-${Date.now()}-${Math.random().toString(36).substr(2, 6)}`;
+    const assistantMsgId = `asst-${Date.now()}-${Math.random().toString(36).substr(2, 6)}`;
+
+    const userMsgObj = {
+      id: userMsgId,
+      sender: 'user',
+      text: userQuery,
+      timestamp,
+    };
+
+    const assistantMsgObj = {
+      id: assistantMsgId,
+      sender: 'assistant',
+      text: '',
+      status: 'Analyzing your question...',
+      isStreaming: true,
+      sources: [],
+      timestamp,
+    };
+
+    // Bug 9 Fix: Atomically create user bubble AND assistant placeholder in one update
+    const activeTargetId = sessionId;
+    const newMessages = appendUserMessage ? [userMsgObj, assistantMsgObj] : [assistantMsgObj];
+    setConversations((prev) => {
+      const matchExists = prev.some((c) => c.id === activeTargetId);
+      if (!matchExists) {
+        return [
+          {
+            id: activeTargetId,
+            title: (appendUserMessage && userQuery) ? autoNameFromQuery(userQuery) : 'New Conversation',
+            messages: newMessages,
+            pdf: null,
+            documents: [],
+            patient_id: selectedPatientId,
+          },
+          ...prev,
+        ];
+      }
+      return prev.map((c) =>
+        c.id === activeTargetId
+          ? {
+              ...c,
+              title: (appendUserMessage && (c.title === 'New Conversation' || c.title === 'New chat'))
+                ? autoNameFromQuery(userQuery)
+                : c.title,
+              messages: [...c.messages, ...newMessages],
+            }
+          : c
       );
-    }
+    });
 
     setIsGenerating(true);
     const controller = new AbortController();
@@ -696,93 +775,94 @@ export default function ChatApp() {
       // Read document ID from current conversation
       let chatDocId = null;
       let chatPatientId = selectedPatientId;
-      const chatObj = conversations.find(c => c.id === sessionId);
+      const chatObj = conversations.find((c) => c.id === sessionId);
       chatDocId = chatObj?.document_id || null;
       if (chatObj?.patient_id) chatPatientId = chatObj.patient_id;
 
-      const assistantMsgObj = {
-        id: Date.now() + 1,
-        sender: 'assistant',
-        text: '',
-        status: 'Analyzing your question...',
-        isStreaming: true,
-        sources: [],
-        timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-      };
-
-      setConversations((prev) =>
-        prev.map((c) =>
-          c.id === sessionId
-            ? { ...c, messages: [...c.messages, assistantMsgObj] }
-            : c
-        )
-      );
-
-      // Send query — route through sessionId so backend searches ALL attached docs
+      // Bug 9 Fix: Stream query chunks directly to assistantMsgId ONLY
+      let assistantAccum = '';
+      let hadStreamError = false;
       await sendQueryStream(userQuery, chatDocId || sessionId, language, (chunk) => {
-        setConversations((prev) =>
-          prev.map((c) => {
-            if (c.id !== sessionId) return c;
-            const newMsgs = [...c.messages];
-            const lastMsg = { ...newMsgs[newMsgs.length - 1] };
+        if (chunk.chunk || chunk.token) {
+          assistantAccum += chunk.chunk || chunk.token || '';
+        }
+        if (chunk.error) {
+          hadStreamError = true;
+        }
+        setConversations((prev) => {
+          return prev.map((c) => {
+            if (c.id !== activeTargetId) return c;
+            const targetIdx = c.messages.findIndex((m) => m.id === assistantMsgId);
+            if (targetIdx === -1) return c;
 
+            const targetMsg = { ...c.messages[targetIdx] };
             if (chunk.stage && chunk.message) {
-              lastMsg.status = chunk.message;
+              targetMsg.status = chunk.message;
             } else if (chunk.metrics) {
-              lastMsg.metrics = chunk.metrics;
+              targetMsg.metrics = chunk.metrics;
             } else if (chunk.sources) {
-              lastMsg.sources = chunk.sources;
+              targetMsg.sources = chunk.sources;
             } else if (chunk.specialists) {
-              lastMsg.specialists = chunk.specialists;
+              targetMsg.specialists = chunk.specialists;
             } else if (chunk.chunk || chunk.token) {
-              lastMsg.text = (lastMsg.text || '') + (chunk.chunk || chunk.token);
-              lastMsg.status = null;
+              targetMsg.text = (targetMsg.text || '') + (chunk.chunk || chunk.token);
+              targetMsg.status = null;
             } else if (chunk.error) {
-              lastMsg.error = chunk.error || 'Something went wrong. Tap to retry.';
-              lastMsg.status = null;
-              lastMsg.isStreaming = false;
+              targetMsg.error = chunk.error || 'Something went wrong. Tap to retry.';
+              targetMsg.status = null;
+              targetMsg.isStreaming = false;
             }
 
-            newMsgs[newMsgs.length - 1] = lastMsg;
-            return { ...c, messages: newMsgs };
-          })
-        );
+            const updatedMsgs = [...c.messages];
+            updatedMsgs[targetIdx] = targetMsg;
+            return { ...c, messages: updatedMsgs };
+          });
+        });
       }, chatPatientId, controller.signal);
+
+      // Auto-read: speak the finished answer aloud when enabled.
+      if (autoRead && !hadStreamError && assistantAccum.trim()) {
+        speakText(assistantAccum, undefined, language);
+      }
 
     } catch (err) {
       if (err && err.name === 'AbortError') {
         // User stopped generation — keep any partial text, skip the error toast.
       } else {
         showToast('error', 'Query Error', err.message);
-        setConversations((prev) =>
-          prev.map((c) => {
-            if (c.id !== sessionId) return c;
-            const newMsgs = [...c.messages];
-            if (newMsgs.length > 0 && newMsgs[newMsgs.length - 1].sender === 'assistant') {
-              const lastMsg = { ...newMsgs[newMsgs.length - 1] };
-              lastMsg.error = err.message;
-              lastMsg.status = null;
-              lastMsg.isStreaming = false;
-              newMsgs[newMsgs.length - 1] = lastMsg;
-            }
-            return { ...c, messages: newMsgs };
-          })
-        );
+        setConversations((prev) => {
+          return prev.map((c) => {
+            if (c.id !== activeTargetId) return c;
+            const targetIdx = c.messages.findIndex((m) => m.id === assistantMsgId);
+            if (targetIdx === -1) return c;
+
+            const targetMsg = { ...c.messages[targetIdx] };
+            targetMsg.error = err.message;
+            targetMsg.status = null;
+            targetMsg.isStreaming = false;
+
+            const updatedMsgs = [...c.messages];
+            updatedMsgs[targetIdx] = targetMsg;
+            return { ...c, messages: updatedMsgs };
+          });
+        });
       }
     } finally {
-      setConversations((prev) =>
-        prev.map((c) => {
-          if (c.id !== sessionId) return c;
-          const newMsgs = [...c.messages];
-          if (newMsgs.length > 0 && newMsgs[newMsgs.length - 1].sender === 'assistant') {
-            const lastMsg = { ...newMsgs[newMsgs.length - 1] };
-            lastMsg.isStreaming = false;
-            lastMsg.status = null;
-            newMsgs[newMsgs.length - 1] = lastMsg;
-          }
-          return { ...c, messages: newMsgs };
-        })
-      );
+      setConversations((prev) => {
+        return prev.map((c) => {
+          if (c.id !== activeTargetId) return c;
+          const targetIdx = c.messages.findIndex((m) => m.id === assistantMsgId);
+          if (targetIdx === -1) return c;
+
+          const targetMsg = { ...c.messages[targetIdx] };
+          targetMsg.isStreaming = false;
+          targetMsg.status = null;
+
+          const updatedMsgs = [...c.messages];
+          updatedMsgs[targetIdx] = targetMsg;
+          return { ...c, messages: updatedMsgs };
+        });
+      });
       setIsGenerating(false);
       abortControllerRef.current = null;
     }
@@ -793,6 +873,7 @@ export default function ChatApp() {
       abortControllerRef.current.abort();
       abortControllerRef.current = null;
     }
+    stopSpeaking();
     setIsGenerating(false);
   };
 
@@ -827,6 +908,9 @@ export default function ChatApp() {
     if (isGenerating) return;
     const lastUserMsg = [...messages].reverse().find((m) => m.sender === 'user');
     if (!lastUserMsg) return;
+
+    // Regenerating replaces the answer — silence anything still being spoken.
+    stopSpeaking();
 
     // Drop ONLY the trailing assistant message; the user's question is preserved.
     setConversations((prev) =>
@@ -968,7 +1052,7 @@ export default function ChatApp() {
   };
 
   return (
-    <div className={`relative flex h-screen w-screen overflow-hidden transition-colors duration-200 ${
+    <div className={`relative flex h-dvh w-screen overflow-hidden transition-colors duration-200 ${
       darkMode ? 'bg-black text-slate-100' : 'bg-zinc-50 text-zinc-900'
     }`}>
       {/* Mobile overlay backdrop when open on < 768px */}
@@ -1012,7 +1096,7 @@ export default function ChatApp() {
       <main
         className={`flex-1 flex flex-col h-full overflow-hidden relative transition-all duration-250 ease-in-out ${
           sidebarOpen ? 'md:ml-72' : 'md:ml-0'
-        } ${darkMode ? 'bg-black' : 'bg-zinc-50'}`}
+        } ${darkMode ? 'bg-zinc-950' : 'bg-zinc-50'}`}
         style={{ transitionDuration: '250ms' }}
       >
         <ChatWindow
@@ -1045,6 +1129,7 @@ export default function ChatApp() {
           isExportingSummary={isExportingSummary}
           printSummaryText={printSummaryText}
           onExportSummary={handleExportSummary}
+          onOpenExport={() => setIsExportOpen(true)}
         />
 
         {uploadProgress && (
@@ -1081,6 +1166,17 @@ export default function ChatApp() {
 
       <DocumentModal source={selectedSource} onClose={() => setSelectedSource(null)} />
 
+      <ExportModal
+        isOpen={isExportOpen}
+        onClose={() => setIsExportOpen(false)}
+        darkMode={darkMode}
+        documentId={currentChat.document_id || null}
+        documentTitle={currentChat.title || (activePdf ? activePdf.name : null)}
+        messages={messages}
+        user={currentUser}
+        showToast={showToast}
+      />
+
       <SettingsModal
         isOpen={isSettingsOpen}
         onClose={() => setIsSettingsOpen(false)}
@@ -1095,6 +1191,9 @@ export default function ChatApp() {
         setLanguage={setLanguage}
         showToast={showToast}
         currentUser={currentUser}
+        autoRead={autoRead}
+        setAutoRead={setAutoReadPersist}
+        onOpenProfile={handleOpenProfile}
       />
 
       {isProfileOpen && (
@@ -1104,6 +1203,8 @@ export default function ChatApp() {
           darkMode={darkMode}
           initialTab={profileInitialTab}
           onProfileUpdated={refreshPatientContext}
+          profile={currentUser}
+          dependents={dependents}
         />
       )}
 

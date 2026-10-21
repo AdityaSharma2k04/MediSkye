@@ -21,7 +21,7 @@ export default function Toast({ toasts, onDismiss }) {
         return (
           <div
             key={toast.id}
-            className={`pointer-events-auto flex items-start gap-3 p-4 bg-white dark:bg-zinc-900 border-l-4 ${borderClass} rounded-xl shadow-lg border border-zinc-200/80 dark:border-zinc-800 transition-all duration-200 animate-slide-in`}
+            className={`pointer-events-auto flex items-start gap-3 p-4 bg-white dark:bg-zinc-900 border-l-4 ${borderClass} rounded-xl shadow-lg border border-zinc-200/80 dark:border-zinc-800 transition-all duration-200 animate-toast-in`}
           >
             {icon}
             <div className="flex-1 text-sm">
@@ -30,6 +30,7 @@ export default function Toast({ toasts, onDismiss }) {
             </div>
             <button
               onClick={() => onDismiss(toast.id)}
+              aria-label="Dismiss notification"
               className="text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-200 p-0.5"
             >
               <X className="w-4 h-4" />

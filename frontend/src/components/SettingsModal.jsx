@@ -6,9 +6,6 @@ import {
   Shield,
   Database,
   Info,
-  Moon,
-  Sun,
-  Monitor,
   Download,
   Trash2,
   UserX,
@@ -18,9 +15,9 @@ import {
   ExternalLink,
   Brain,
   Activity,
+  Volume2,
 } from 'lucide-react';
 import ConfirmModal from './ConfirmModal';
-import HealthProfile from './HealthProfile';
 import useFocusTrap from '../hooks/useFocusTrap';
 import {
   getProfile,
@@ -174,11 +171,11 @@ function ChangePasswordModal({ isOpen, onClose, darkMode, showToast, isGoogleUse
 
   return (
     <div
-      className="fixed inset-0 z-[70] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm"
+      className="fixed inset-0 z-[70] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-backdrop-in"
       onMouseDown={onClose}
     >
       <div
-        className={`relative rounded-2xl shadow-2xl max-w-sm w-full border ${darkMode ? 'bg-zinc-900 border-zinc-800' : 'bg-white border-zinc-200'}`}
+        className={`relative rounded-2xl shadow-2xl max-w-sm w-full border animate-modal-in ${darkMode ? 'bg-zinc-900 border-zinc-800' : 'bg-white border-zinc-200'}`}
         onMouseDown={(e) => e.stopPropagation()}
         role="dialog"
         aria-modal="true"
@@ -271,11 +268,11 @@ function DisclaimerModal({ isOpen, onClose, darkMode }) {
 
   return (
     <div
-      className="fixed inset-0 z-[70] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm"
+      className="fixed inset-0 z-[70] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-backdrop-in"
       onMouseDown={onClose}
     >
       <div
-        className={`relative rounded-2xl shadow-2xl max-w-sm w-full border ${darkMode ? 'bg-zinc-900 border-zinc-800' : 'bg-white border-zinc-200'}`}
+        className={`relative rounded-2xl shadow-2xl max-w-sm w-full border animate-modal-in ${darkMode ? 'bg-zinc-900 border-zinc-800' : 'bg-white border-zinc-200'}`}
         onMouseDown={(e) => e.stopPropagation()}
         role="dialog"
         aria-modal="true"
@@ -312,14 +309,17 @@ export default function SettingsModal({
   showToast,
   currentUser,
   onProfileUpdated,
+  autoRead = false,
+  setAutoRead,
+  onOpenProfile,
 }) {
   const { t, i18n } = useTranslation();
-  const [theme, setTheme] = useState(darkMode ? 'dark' : 'light');
   const [showPassword, setShowPassword] = useState(false);
   const [showDisclaimer, setShowDisclaimer] = useState(false);
   const [showClearConfirm, setShowClearConfirm] = useState(false);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [showClearMemoryConfirm, setShowClearMemoryConfirm] = useState(false);
+  const [showUnsavedConfirm, setShowUnsavedConfirm] = useState(false);
 
   // Check if current user signed in with Google
   const isGoogleUser = Boolean(
@@ -333,8 +333,12 @@ export default function SettingsModal({
       try {
         const token = typeof window !== 'undefined' ? localStorage.getItem('token') : null;
         if (token) {
-          const payload = JSON.parse(atob(token.split('.')[1]));
-          return payload?.firebase?.sign_in_provider === 'google.com';
+          const base64Url = token.split('.')[1];
+          if (base64Url) {
+            const base64 = base64Url.replace(/-/g, '+').replace(/_/g, '/');
+            const payload = JSON.parse(atob(base64));
+            return payload?.firebase?.sign_in_provider === 'google.com';
+          }
         }
       } catch (e) {}
       return false;
@@ -355,40 +359,53 @@ export default function SettingsModal({
     onProfileUpdatedRef.current = onProfileUpdated;
   }, [onProfileUpdated]);
 
-  // Profile fields (synced with currentUser and persisted via PUT /users/me on blur)
-  const [fullName, setFullName] = useState(currentUser?.full_name || '');
-  const [dob, setDob] = useState(currentUser?.date_of_birth || '');
-  const [bioSex, setBioSex] = useState(currentUser?.biological_sex || 'Prefer not to say');
-  const [bloodType, setBloodType] = useState(currentUser?.blood_type || 'Unknown');
+  // Initial and draft state for unsaved changes detection
+  const [initialState, setInitialState] = useState(() => ({
+    aiLanguage: language || 'English',
+    uiLanguage: i18n.language?.startsWith('hi') ? 'hi' : 'en',
+    autoRead: autoRead ?? false,
+  }));
+  const [draftState, setDraftState] = useState(() => ({
+    aiLanguage: language || 'English',
+    uiLanguage: i18n.language?.startsWith('hi') ? 'hi' : 'en',
+    autoRead: autoRead ?? false,
+  }));
+  const [saving, setSaving] = useState(false);
 
   useEffect(() => {
-    if (currentUser) {
-      setFullName(currentUser.full_name || '');
-      setDob(currentUser.date_of_birth || '');
-      setBioSex(currentUser.biological_sex || 'Prefer not to say');
-      setBloodType(currentUser.blood_type || 'Unknown');
-      if (typeof currentUser.memory_consent_granted === 'boolean') {
-        setMemoryConsent(currentUser.memory_consent_granted);
-      }
+    if (isOpen) {
+      const state = {
+        aiLanguage: language || 'English',
+        uiLanguage: i18n.language?.startsWith('hi') ? 'hi' : 'en',
+        autoRead: autoRead ?? false,
+      };
+      setInitialState(state);
+      setDraftState(state);
+      setSaving(false);
+      setShowUnsavedConfirm(false);
+    }
+  }, [isOpen, language, i18n.language, autoRead]);
+
+  useEffect(() => {
+    if (currentUser && typeof currentUser.memory_consent_granted === 'boolean') {
+      setMemoryConsent(currentUser.memory_consent_granted);
     }
   }, [currentUser]);
 
   useEffect(() => {
     if (!isOpen) return;
+    let isMounted = true;
     async function loadSettingsData() {
       try {
-        setLoadingMemory(true);
+        if (isMounted) setLoadingMemory(true);
         const profilePromise = typeof getProfile === 'function' ? Promise.resolve(getProfile()).catch(() => null) : Promise.resolve(null);
         const factsPromise = typeof getMemoryFacts === 'function' ? Promise.resolve(getMemoryFacts()).catch(() => []) : Promise.resolve([]);
         const [profile, facts] = await Promise.all([profilePromise, factsPromise]);
+        if (!isMounted) return;
         if (profile) {
           if (typeof profile.memory_consent_granted === 'boolean') {
             setMemoryConsent(profile.memory_consent_granted);
           }
-          if (profile.full_name !== undefined) setFullName(profile.full_name || '');
-          if (profile.date_of_birth !== undefined) setDob(profile.date_of_birth || '');
-          if (profile.biological_sex !== undefined) setBioSex(profile.biological_sex || 'Prefer not to say');
-          if (profile.blood_type !== undefined) setBloodType(profile.blood_type || 'Unknown');
           if (onProfileUpdatedRef.current) {
             onProfileUpdatedRef.current(profile);
           }
@@ -399,17 +416,26 @@ export default function SettingsModal({
       } catch (err) {
         logger.error('Error fetching settings data:', err);
       } finally {
-        setLoadingMemory(false);
+        if (isMounted) {
+          setLoadingMemory(false);
+        }
       }
     }
     loadSettingsData();
+    return () => {
+      isMounted = false;
+    };
   }, [isOpen]);
 
   const handleToggleMemoryConsent = async () => {
     const nextVal = !memoryConsent;
     setMemoryConsent(nextVal);
     try {
-      await updateMemoryConsent(nextVal);
+      try {
+        await updateMemoryConsent(nextVal);
+      } catch (consentErr) {
+        await updateProfile({ memory_consent_granted: nextVal });
+      }
       if (showToast) {
         showToast(
           'success',
@@ -452,80 +478,8 @@ export default function SettingsModal({
     }
   };
 
-  const saveAccountField = async (fieldKey, value, setter) => {
-    const backendKeyMap = {
-      fullName: 'full_name',
-      dob: 'date_of_birth',
-      bioSex: 'biological_sex',
-      bloodType: 'blood_type',
-    };
-    const dbKey = backendKeyMap[fieldKey] || fieldKey;
-
-    const previousDbVal = currentUser?.[dbKey] ?? null;
-    const normalizedNewVal = (value === '' || value === undefined) ? null : value;
-    const normalizedPrevVal = (previousDbVal === '' || previousDbVal === undefined) ? null : previousDbVal;
-
-    // If unchanged, don't trigger unnecessary network call
-    if (normalizedNewVal === normalizedPrevVal) return;
-
-    // Optimistic local update
-    setter(value);
-
-    try {
-      const payload = { [dbKey]: normalizedNewVal };
-      const updatedUser = await updateProfile(payload);
-      if (showToast) {
-        showToast('success', 'Changes Saved', 'Account details updated successfully.');
-      }
-      if (onProfileUpdated) {
-        onProfileUpdated(updatedUser);
-      }
-    } catch (err) {
-      // Rollback on failure
-      const fallbackVal = previousDbVal ?? (fieldKey === 'bioSex' ? 'Prefer not to say' : fieldKey === 'bloodType' ? 'Unknown' : '');
-      setter(fallbackVal);
-      if (showToast) {
-        showToast('error', 'Update Failed', err.message || 'Could not update account detail.');
-      }
-    }
-  };
-
   const modalRef = useRef(null);
   const closeRef = useRef(null);
-
-  // Sync theme toggle with parent preference (falls back to resolved darkMode)
-  useEffect(() => {
-    if (themePreference) setTheme(themePreference);
-    else setTheme(darkMode ? 'dark' : 'light');
-  }, [themePreference, darkMode]);
-
-  // Apply theme selection — persist 'system' as-is when the parent supports it
-  const applyTheme = (t) => {
-    setTheme(t);
-    if (setThemePreference) {
-      setThemePreference(t);
-    } else if (t === 'dark') {
-      setDarkMode(true);
-    } else if (t === 'light') {
-      setDarkMode(false);
-    } else {
-      const sys = window.matchMedia('(prefers-color-scheme: dark)').matches;
-      setDarkMode(sys);
-    }
-  };
-
-  const handleLanguageChange = async (value) => {
-    const previous = language;
-    if (setLanguage) setLanguage(value);
-    try {
-      const updated = await updateProfile({ language_preference: value });
-      if (onProfileUpdated) onProfileUpdated(updated);
-      if (showToast) showToast('success', 'Language Updated', 'Your language preference has been saved.');
-    } catch (err) {
-      if (setLanguage && previous) setLanguage(previous);
-      if (showToast) showToast('error', 'Update Failed', err.message || 'Could not save language preference.');
-    }
-  };
 
   const handleUiLanguageChange = (value) => {
     i18n.changeLanguage(value);
@@ -534,7 +488,57 @@ export default function SettingsModal({
     } catch (e) {}
   };
 
-  useFocusTrap(modalRef, isOpen, onClose);
+  // Close attempt handler guarding unsaved changes
+  const handleAttemptClose = () => {
+    if (JSON.stringify(initialState) !== JSON.stringify(draftState)) {
+      setShowUnsavedConfirm(true);
+    } else {
+      onClose();
+    }
+  };
+
+  const handleDiscardChanges = () => {
+    setDraftState(initialState);
+    setShowUnsavedConfirm(false);
+    onClose();
+  };
+
+  // Manual save handler for preferences (Task 1 & Bug 5)
+  const handleSaveChanges = async () => {
+    setSaving(true);
+    try {
+      const initialAiLang = language || 'English';
+      let updatedUser = null;
+      if (draftState.aiLanguage !== initialAiLang) {
+        updatedUser = await updateProfile({ language_preference: draftState.aiLanguage });
+        if (setLanguage) setLanguage(draftState.aiLanguage);
+        if (onProfileUpdated && updatedUser) onProfileUpdated(updatedUser);
+      }
+
+      const activeUiLang = i18n.language?.startsWith('hi') ? 'hi' : 'en';
+      if (draftState.uiLanguage !== activeUiLang) {
+        handleUiLanguageChange(draftState.uiLanguage);
+      }
+
+      if (draftState.autoRead !== autoRead) {
+        if (setAutoRead) setAutoRead(draftState.autoRead);
+      }
+
+      if (showToast) {
+        showToast('success', 'Changes Saved', 'Settings updated successfully.');
+      }
+      setInitialState(draftState);
+      onClose();
+    } catch (err) {
+      if (showToast) {
+        showToast('error', 'Update Failed', err.message || 'Could not save settings.');
+      }
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  useFocusTrap(modalRef, isOpen && !showUnsavedConfirm, handleAttemptClose);
 
   if (!isOpen) return null;
 
@@ -542,25 +546,19 @@ export default function SettingsModal({
     ? 'bg-zinc-900 border-zinc-800 text-zinc-100'
     : 'bg-white border-zinc-200 text-zinc-900';
 
-  const themeOptions = [
-    { value: 'light', label: 'Light', icon: Sun },
-    { value: 'dark', label: 'Dark', icon: Moon },
-    { value: 'system', label: 'System', icon: Monitor },
-  ];
-
   return (
     <>
       {/* Main Settings Modal */}
       <div
-        className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm animate-fade-in"
-        onMouseDown={onClose}
+        className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm animate-backdrop-in"
+        onMouseDown={handleAttemptClose}
         role="dialog"
         aria-modal="true"
         aria-label="Settings"
       >
         <div
           ref={modalRef}
-          className={`${base} rounded-2xl shadow-2xl border max-w-lg w-full max-h-[88vh] flex flex-col overflow-hidden`}
+          className={`${base} rounded-2xl shadow-2xl border max-w-lg w-full max-h-[88vh] flex flex-col overflow-hidden animate-modal-in`}
           onMouseDown={(e) => e.stopPropagation()}
         >
           {/* Header */}
@@ -568,7 +566,7 @@ export default function SettingsModal({
             <h3 className="font-semibold text-sm">Settings &amp; Preferences</h3>
             <button
               ref={closeRef}
-              onClick={onClose}
+              onClick={handleAttemptClose}
               aria-label="Close settings"
               className={`p-1.5 rounded-lg transition-colors ${darkMode ? 'text-zinc-400 hover:text-zinc-100 hover:bg-zinc-800' : 'text-zinc-400 hover:text-zinc-700 hover:bg-zinc-100'}`}
             >
@@ -579,83 +577,41 @@ export default function SettingsModal({
           {/* Scrollable body */}
           <div className="flex-1 overflow-y-auto px-5 py-5 space-y-7 text-sm">
 
-            {/* ── ACCOUNT ── */}
-            <Section title="Account" icon={User} darkMode={darkMode}>
-              <Field label="Full name" darkMode={darkMode}>
-                <input
-                  type="text"
-                  value={fullName}
-                  onChange={(e) => setFullName(e.target.value)}
-                  onBlur={() => saveAccountField('fullName', fullName, setFullName)}
-                  placeholder="Your full name"
-                  className={inputClass(darkMode)}
-                />
-              </Field>
-              <Field label="Email" darkMode={darkMode}>
-                <div className="flex items-center gap-2">
-                  <input
-                    type="email"
-                    value={currentUser?.email || ''}
-                    readOnly
-                    className={inputClass(darkMode) + ' flex-1 opacity-60 cursor-not-allowed'}
-                  />
-                  <button
-                    type="button"
-                    disabled
-                    title="Coming soon — contact support to change your email"
-                    className={`text-[11px] px-2.5 py-1.5 rounded-lg border whitespace-nowrap cursor-not-allowed opacity-50 ${darkMode ? 'border-zinc-700 text-zinc-500' : 'border-zinc-200 text-zinc-400'}`}
-                  >
-                    Change email
-                  </button>
+            {/* Quick link to Profile & Caregiver Hub (Bug 11) */}
+            <div className={`p-4 rounded-xl border flex items-center justify-between gap-3 ${
+              darkMode ? 'bg-zinc-950 border-zinc-800' : 'bg-zinc-50 border-zinc-200'
+            }`}>
+              <div className="space-y-0.5">
+                <div className={`text-xs font-semibold ${darkMode ? 'text-zinc-200' : 'text-zinc-800'}`}>
+                  Health Profile &amp; Caregivers
                 </div>
-              </Field>
-              <div className="grid grid-cols-2 gap-3">
-                <Field label="Date of birth" darkMode={darkMode}>
-                  <input
-                    type="date"
-                    value={dob}
-                    onChange={(e) => setDob(e.target.value)}
-                    onBlur={() => saveAccountField('dob', dob, setDob)}
-                    className={inputClass(darkMode)}
-                  />
-                </Field>
-                <Field label="Biological sex" darkMode={darkMode}>
-                  <select
-                    value={bioSex}
-                    onChange={(e) => {
-                      const val = e.target.value;
-                      setBioSex(val);
-                      saveAccountField('bioSex', val, setBioSex);
-                    }}
-                    onBlur={() => saveAccountField('bioSex', bioSex, setBioSex)}
-                    className={selectClass(darkMode)}
-                  >
-                    {BIO_SEXES.map((s) => <option key={s} value={s}>{s}</option>)}
-                  </select>
-                </Field>
+                <p className={`text-[11px] leading-relaxed ${darkMode ? 'text-zinc-400' : 'text-zinc-500'}`}>
+                  Manage clinical vitals, allergies, conditions, and family dependent profiles.
+                </p>
               </div>
-              <Field label="Blood type" darkMode={darkMode}>
-                <select
-                  value={bloodType}
-                  onChange={(e) => {
-                    const val = e.target.value;
-                    setBloodType(val);
-                    saveAccountField('bloodType', val, setBloodType);
-                  }}
-                  onBlur={() => saveAccountField('bloodType', bloodType, setBloodType)}
-                  className={selectClass(darkMode)}
-                >
-                  {BLOOD_TYPES.map((bt) => <option key={bt} value={bt}>{bt}</option>)}
-                </select>
-              </Field>
-            </Section>
+              <button
+                type="button"
+                onClick={() => {
+                  onClose();
+                  if (onOpenProfile) onOpenProfile();
+                }}
+                className={`px-3.5 py-2 text-xs font-medium rounded-xl border whitespace-nowrap transition-colors flex items-center gap-1.5 ${
+                  darkMode
+                    ? 'bg-zinc-900 border-zinc-700 text-zinc-200 hover:bg-zinc-800 hover:text-white'
+                    : 'bg-white border-zinc-300 text-zinc-700 hover:bg-zinc-100 hover:text-zinc-900'
+                }`}
+              >
+                <span>Manage Health Profile &amp; Caregivers</span>
+                <span>→</span>
+              </button>
+            </div>
 
             {/* ── PREFERENCES ── */}
             <Section title={t('settings.preferences', 'Preferences')} icon={Palette} darkMode={darkMode}>
               <Field label={t('settings.ui_language', 'App Interface Language')} darkMode={darkMode}>
                 <select
-                  value={i18n.language?.startsWith('hi') ? 'hi' : 'en'}
-                  onChange={(e) => handleUiLanguageChange(e.target.value)}
+                  value={draftState.uiLanguage}
+                  onChange={(e) => setDraftState((prev) => ({ ...prev, uiLanguage: e.target.value }))}
                   className={selectClass(darkMode)}
                 >
                   {UI_LANGUAGES.map((l) => <option key={l.code} value={l.code}>{l.label}</option>)}
@@ -663,35 +619,53 @@ export default function SettingsModal({
               </Field>
               <Field label={t('settings.ai_language', 'AI Response Language')} darkMode={darkMode}>
                 <select
-                  value={language || 'English'}
-                  onChange={(e) => handleLanguageChange(e.target.value)}
+                  value={draftState.aiLanguage || 'English'}
+                  onChange={(e) => setDraftState((prev) => ({ ...prev, aiLanguage: e.target.value }))}
                   className={selectClass(darkMode)}
                 >
                   {AI_LANGUAGES.map((l) => <option key={l.code} value={l.code}>{l.label}</option>)}
                 </select>
               </Field>
-              <Field label={t('settings.theme', 'Theme')} darkMode={darkMode}>
-                <div className={`flex rounded-xl border overflow-hidden ${darkMode ? 'border-zinc-700' : 'border-zinc-200'}`}>
-                  {themeOptions.map(({ value, label, icon: Icon }) => (
-                    <button
-                      key={value}
-                      onClick={() => applyTheme(value)}
-                      className={`flex-1 flex items-center justify-center gap-1.5 py-2 text-xs transition-colors ${
-                        theme === value
-                          ? darkMode
-                            ? 'bg-zinc-700 text-white font-medium'
-                            : 'bg-zinc-900 text-white font-medium'
-                          : darkMode
-                            ? 'text-zinc-400 hover:text-zinc-200'
-                            : 'text-zinc-500 hover:text-zinc-900'
-                      }`}
-                    >
-                      <Icon className="w-3.5 h-3.5" />
-                      {label}
-                    </button>
-                  ))}
+
+              {/* Auto-read AI responses aloud */}
+              <div className={`p-3.5 rounded-xl border flex items-center justify-between gap-3 ${
+                darkMode ? 'bg-zinc-950 border-zinc-800' : 'bg-zinc-50 border-zinc-200'
+              }`}>
+                <div className="space-y-0.5 pr-2">
+                  <div className="flex items-center gap-2">
+                    <Volume2 className={`w-3.5 h-3.5 ${draftState.autoRead ? 'text-emerald-400' : darkMode ? 'text-zinc-500' : 'text-zinc-400'}`} />
+                    <span className={`text-xs font-semibold ${darkMode ? 'text-zinc-200' : 'text-zinc-800'}`}>
+                      {t('settings.auto_read', 'Auto-read AI responses aloud')}
+                    </span>
+                    <span className={`text-[10px] px-1.5 py-0.2 rounded-full font-medium border ${
+                      draftState.autoRead
+                        ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20'
+                        : 'bg-zinc-500/10 text-zinc-400 border-zinc-500/20'
+                    }`}>
+                      {draftState.autoRead ? t('settings.on', 'On') : t('settings.off', 'Off')}
+                    </span>
+                  </div>
+                  <p className={`text-[11px] leading-relaxed ${darkMode ? 'text-zinc-400' : 'text-zinc-500'}`}>
+                    {t('settings.auto_read_desc', 'Speaks each completed answer in the selected AI language. Any new question or Stop immediately silences the reading.')}
+                  </p>
                 </div>
-              </Field>
+                <button
+                  type="button"
+                  role="switch"
+                  aria-checked={draftState.autoRead}
+                  aria-label="Auto-read AI responses aloud"
+                  onClick={() => setDraftState((prev) => ({ ...prev, autoRead: !prev.autoRead }))}
+                  className={`relative inline-flex h-5 w-9 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none ${
+                    draftState.autoRead ? 'bg-emerald-500' : darkMode ? 'bg-zinc-700' : 'bg-zinc-300'
+                  }`}
+                >
+                  <span
+                    className={`pointer-events-none inline-block h-4 w-4 transform rounded-full bg-white shadow-lg ring-0 transition duration-200 ease-in-out ${
+                      draftState.autoRead ? 'translate-x-4' : 'translate-x-0'
+                    }`}
+                  />
+                </button>
+              </div>
             </Section>
 
             {/* ── PATIENT MEMORY ── */}
@@ -720,6 +694,7 @@ export default function SettingsModal({
                     type="button"
                     role="switch"
                     aria-checked={memoryConsent}
+                    aria-label="Cross-Session Memory"
                     onClick={handleToggleMemoryConsent}
                     className={`relative inline-flex h-5 w-9 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none ${
                       memoryConsent ? 'bg-emerald-500' : darkMode ? 'bg-zinc-700' : 'bg-zinc-300'
@@ -811,15 +786,7 @@ export default function SettingsModal({
               </div>
             </Section>
 
-            {/* ── HEALTH PROFILE ── */}
-            <Section title="Health Profile" icon={Activity} darkMode={darkMode}>
-              <HealthProfile
-                currentUser={currentUser}
-                onProfileUpdated={onProfileUpdated}
-                darkMode={darkMode}
-                showToast={showToast}
-              />
-            </Section>
+
 
             {/* ── SECURITY ── */}
             <Section title="Security" icon={Lock} darkMode={darkMode}>
@@ -911,16 +878,29 @@ export default function SettingsModal({
           </div>
 
           {/* Footer */}
-          <div className={`px-5 py-4 border-t shrink-0 flex justify-end ${darkMode ? 'border-zinc-800 bg-zinc-950' : 'border-zinc-100 bg-zinc-50'}`}>
+          <div className={`px-5 py-4 border-t shrink-0 flex items-center justify-end gap-2 ${darkMode ? 'border-zinc-800 bg-zinc-950' : 'border-zinc-100 bg-zinc-50'}`}>
             <button
-              onClick={onClose}
-              className={`px-5 py-2 text-xs font-medium rounded-xl transition-colors ${
-                darkMode
-                  ? 'bg-zinc-100 text-zinc-900 hover:bg-white'
-                  : 'bg-zinc-900 text-white hover:bg-zinc-800'
+              type="button"
+              onClick={handleAttemptClose}
+              className={`px-4 py-2 text-xs font-medium rounded-xl border transition-colors ${
+                darkMode ? 'border-zinc-700 text-zinc-300 hover:bg-zinc-800' : 'border-zinc-200 text-zinc-600 hover:bg-zinc-100'
               }`}
             >
-              Done
+              Cancel
+            </button>
+            <button
+              type="button"
+              onClick={handleSaveChanges}
+              disabled={saving}
+              className={`px-5 py-2 text-xs font-medium rounded-xl transition-colors ${
+                saving
+                  ? 'opacity-60 cursor-not-allowed bg-zinc-500 text-white'
+                  : darkMode
+                    ? 'bg-zinc-100 text-zinc-900 hover:bg-white'
+                    : 'bg-zinc-900 text-white hover:bg-zinc-800'
+              }`}
+            >
+              {saving ? 'Saving...' : 'Save Changes'}
             </button>
           </div>
         </div>
@@ -974,6 +954,18 @@ export default function SettingsModal({
         confirmLabel="Delete my account"
         requireTyping={currentUser?.email || 'confirm'}
         closeable={false}
+        darkMode={darkMode}
+      />
+
+      <ConfirmModal
+        isOpen={showUnsavedConfirm}
+        onClose={() => setShowUnsavedConfirm(false)}
+        onConfirm={handleDiscardChanges}
+        title="Unsaved Changes"
+        body="You have unsaved changes. Are you sure you want to discard them?"
+        cancelLabel="Keep Editing"
+        confirmLabel="Discard Changes"
+        closeable={true}
         darkMode={darkMode}
       />
     </>

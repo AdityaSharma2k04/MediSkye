@@ -22,7 +22,9 @@ export default function ConfirmModal({
   onConfirm,
   title,
   body,
+  message,
   confirmLabel = 'Delete',
+  cancelLabel = 'Cancel',
   requireTyping = null,
   closeable = true,
   darkMode = true,
@@ -53,12 +55,12 @@ export default function ConfirmModal({
 
   return (
     <div
-      className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-fade-in"
+      className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-backdrop-in"
       onMouseDown={handleBackdrop}
     >
       <div
         ref={modalRef}
-        className={`relative rounded-2xl shadow-2xl max-w-sm w-full border overflow-hidden ${
+        className={`relative rounded-2xl shadow-2xl max-w-sm w-full border overflow-hidden animate-modal-in ${
           darkMode
             ? 'bg-zinc-900 border-zinc-800'
             : 'bg-white border-zinc-200'
@@ -90,7 +92,7 @@ export default function ConfirmModal({
         {/* Body */}
         <div className="px-5 py-4">
           <p className={`text-sm leading-relaxed ${darkMode ? 'text-zinc-300' : 'text-zinc-600'}`}>
-            {body}
+            {body || message}
           </p>
 
           {requireTyping && (
@@ -125,7 +127,7 @@ export default function ConfirmModal({
                 : 'border-zinc-200 text-zinc-600 hover:bg-zinc-100 hover:text-zinc-900'
             }`}
           >
-            Cancel
+            {cancelLabel}
           </button>
           <button
             onClick={() => { if (canConfirm) { onConfirm(); onClose(); } }}

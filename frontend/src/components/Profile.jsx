@@ -1,8 +1,9 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { User, Users, HeartPulse, Save, X, Trash2, Edit2, Plus, Shield, Phone, Activity } from 'lucide-react';
 import { getProfile, updateProfile, deleteAccount, getDependents, createDependent, updateDependent, deleteDependent, createMemoryFact, getMemoryFacts } from '../services/api';
 import { logger } from '../services/logger';
 import ConfirmModal from './ConfirmModal';
+import useFocusTrap from '../hooks/useFocusTrap';
 import { useNavigate } from 'react-router-dom';
 
 const Input = ({ label, name, type = 'text', placeholder = '', value, onChange, darkMode, required = false }) => (
@@ -99,35 +100,45 @@ const ACTIVITY_OPTIONS = [
   { value: 'very_active', label: 'Very Active (physical job or athlete)' },
 ];
 
-export default function Profile({ onClose, showToast, darkMode, initialTab = 'profile', onProfileUpdated }) {
+export default function Profile({
+  onClose,
+  showToast,
+  darkMode,
+  initialTab = 'profile',
+  onProfileUpdated,
+  profile,
+  dependents: propsDependents,
+}) {
   const navigate = useNavigate();
+  const modalRef = useRef(null);
+  useFocusTrap(modalRef, true, onClose);
   const [activeTab, setActiveTab] = useState(initialTab); // 'profile' or 'dependents'
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(!profile);
   const [saving, setSaving] = useState(false);
   const [pendingDeleteAccount, setPendingDeleteAccount] = useState(false);
   const [pendingDeleteDependent, setPendingDeleteDependent] = useState(null);
 
   // User Profile Form
-  const [formData, setFormData] = useState({
-    full_name: '',
-    date_of_birth: '',
-    biological_sex: '',
-    blood_type: '',
-    pre_existing_conditions: '',
-    known_allergies: '',
-    current_medications: '',
-    language_preference: 'English',
-    emergency_contact_name: '',
-    emergency_contact_phone: '',
-    height_cm: '',
+  const [formData, setFormData] = useState(() => ({
+    full_name: profile?.full_name || '',
+    date_of_birth: profile?.date_of_birth || '',
+    biological_sex: profile?.biological_sex || '',
+    blood_type: profile?.blood_type || '',
+    pre_existing_conditions: profile?.pre_existing_conditions || '',
+    known_allergies: profile?.known_allergies || '',
+    current_medications: profile?.current_medications || '',
+    language_preference: profile?.language_preference || 'English',
+    emergency_contact_name: profile?.emergency_contact_name || '',
+    emergency_contact_phone: profile?.emergency_contact_phone || '',
+    height_cm: profile?.height_cm !== null && profile?.height_cm !== undefined ? String(profile?.height_cm) : '',
     weight: '',
-    diet_type: '',
-    activity_level: '',
-    occupation: '',
-  });
+    diet_type: profile?.diet_type || '',
+    activity_level: profile?.activity_level || '',
+    occupation: profile?.occupation || '',
+  }));
 
   // Dependents List & Form State
-  const [dependents, setDependents] = useState([]);
+  const [dependents, setDependents] = useState(() => Array.isArray(propsDependents) ? propsDependents : []);
   const [isEditingDependent, setIsEditingDependent] = useState(false);
   const [editingDependentId, setEditingDependentId] = useState(null);
   const [dependentForm, setDependentForm] = useState({
@@ -147,11 +158,40 @@ export default function Profile({ onClose, showToast, darkMode, initialTab = 'pr
   });
 
   useEffect(() => {
+    if (profile) {
+      setFormData((prev) => ({
+        ...prev,
+        full_name: profile.full_name || '',
+        date_of_birth: profile.date_of_birth || '',
+        biological_sex: profile.biological_sex || '',
+        blood_type: profile.blood_type || '',
+        pre_existing_conditions: profile.pre_existing_conditions || '',
+        known_allergies: profile.known_allergies || '',
+        current_medications: profile.current_medications || '',
+        language_preference: profile.language_preference || 'English',
+        emergency_contact_name: profile.emergency_contact_name || '',
+        emergency_contact_phone: profile.emergency_contact_phone || '',
+        height_cm: profile.height_cm !== null && profile.height_cm !== undefined ? String(profile.height_cm) : '',
+        diet_type: profile.diet_type || '',
+        activity_level: profile.activity_level || '',
+        occupation: profile.occupation || '',
+      }));
+      setLoading(false);
+    }
+  }, [profile]);
+
+  useEffect(() => {
+    if (Array.isArray(propsDependents) && propsDependents.length > 0) {
+      setDependents(propsDependents);
+    }
+  }, [propsDependents]);
+
+  useEffect(() => {
     async function loadData() {
       try {
         const [profileData, depsData, factsData] = await Promise.all([
-          getProfile().catch(() => null),
-          getDependents().catch(() => []),
+          !profile ? getProfile().catch(() => null) : Promise.resolve(profile),
+          !propsDependents ? getDependents().catch(() => []) : Promise.resolve(propsDependents),
           getMemoryFacts().catch(() => []),
         ]);
 
@@ -166,26 +206,27 @@ export default function Profile({ onClose, showToast, darkMode, initialTab = 'pr
         }
 
         if (profileData) {
-          setFormData({
-            full_name: profileData.full_name || '',
-            date_of_birth: profileData.date_of_birth || '',
-            biological_sex: profileData.biological_sex || '',
-            blood_type: profileData.blood_type || '',
-            pre_existing_conditions: profileData.pre_existing_conditions || '',
-            known_allergies: profileData.known_allergies || '',
-            current_medications: profileData.current_medications || '',
-            language_preference: profileData.language_preference || 'English',
-            emergency_contact_name: profileData.emergency_contact_name || '',
-            emergency_contact_phone: profileData.emergency_contact_phone || '',
-            height_cm: profileData.height_cm !== null && profileData.height_cm !== undefined ? String(profileData.height_cm) : '',
-            weight: initialWeight,
-            diet_type: profileData.diet_type || '',
-            activity_level: profileData.activity_level || '',
-            occupation: profileData.occupation || '',
-          });
+          setFormData((prev) => ({
+            ...prev,
+            full_name: profileData.full_name || prev.full_name || '',
+            date_of_birth: profileData.date_of_birth || prev.date_of_birth || '',
+            biological_sex: profileData.biological_sex || prev.biological_sex || '',
+            blood_type: profileData.blood_type || prev.blood_type || '',
+            pre_existing_conditions: profileData.pre_existing_conditions || prev.pre_existing_conditions || '',
+            known_allergies: profileData.known_allergies || prev.known_allergies || '',
+            current_medications: profileData.current_medications || prev.current_medications || '',
+            language_preference: profileData.language_preference || prev.language_preference || 'English',
+            emergency_contact_name: profileData.emergency_contact_name || prev.emergency_contact_name || '',
+            emergency_contact_phone: profileData.emergency_contact_phone || prev.emergency_contact_phone || '',
+            height_cm: profileData.height_cm !== null && profileData.height_cm !== undefined ? String(profileData.height_cm) : prev.height_cm,
+            weight: initialWeight || prev.weight,
+            diet_type: profileData.diet_type || prev.diet_type || '',
+            activity_level: profileData.activity_level || prev.activity_level || '',
+            occupation: profileData.occupation || prev.occupation || '',
+          }));
         }
 
-        if (depsData) {
+        if (depsData && Array.isArray(depsData)) {
           setDependents(depsData);
         }
       } catch (error) {
@@ -195,7 +236,7 @@ export default function Profile({ onClose, showToast, darkMode, initialTab = 'pr
       }
     }
     loadData();
-  }, []);
+  }, [profile, propsDependents]);
 
   const handleChange = (e) => {
     const { name, value } = e.target;
@@ -413,10 +454,21 @@ export default function Profile({ onClose, showToast, darkMode, initialTab = 'pr
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-6 bg-black/80 backdrop-blur-sm animate-fade-in overflow-y-auto">
-      <div className={`w-full max-w-3xl my-auto rounded-2xl border shadow-2xl overflow-hidden flex flex-col max-h-[92vh] ${
-        darkMode ? 'bg-[#09090B] border-zinc-800' : 'bg-white border-zinc-200'
-      }`}>
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-6 bg-black/80 backdrop-blur-sm animate-backdrop-in overflow-y-auto"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="profile-modal-title"
+      onMouseDown={(e) => {
+        if (e.target === e.currentTarget) onClose();
+      }}
+    >
+      <div
+        ref={modalRef}
+        className={`w-full max-w-3xl my-auto rounded-2xl border shadow-2xl overflow-hidden flex flex-col max-h-[92vh] animate-modal-in ${
+          darkMode ? 'bg-[#09090B] border-zinc-800' : 'bg-white border-zinc-200'
+        }`}
+      >
         {/* Header */}
         <div className={`p-5 flex items-center justify-between border-b ${
           darkMode ? 'border-zinc-800 bg-zinc-900/50' : 'border-zinc-200 bg-zinc-50'
@@ -428,12 +480,13 @@ export default function Profile({ onClose, showToast, darkMode, initialTab = 'pr
               <Shield className="w-5 h-5 text-indigo-400" />
             </div>
             <div>
-              <h2 className={`font-semibold text-lg ${textPrimary}`}>Patient Profile & Caregiver Hub</h2>
+              <h2 id="profile-modal-title" className={`font-semibold text-lg ${textPrimary}`}>Patient Profile & Caregiver Hub</h2>
               <p className={`text-xs ${textSecondary}`}>Dynamic personalization & dependent management</p>
             </div>
           </div>
           <button
             onClick={onClose}
+            aria-label="Close profile modal"
             className={`p-2 rounded-xl transition-colors ${
               darkMode ? 'text-zinc-400 hover:text-white hover:bg-zinc-800' : 'text-zinc-500 hover:text-zinc-900 hover:bg-zinc-200'
             }`}

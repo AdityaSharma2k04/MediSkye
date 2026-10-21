@@ -88,8 +88,8 @@ const ChatInput = forwardRef(({
   };
 
   return (
-    <div className={`max-w-3xl w-full mx-auto px-4 pb-4 sm:pb-6 transition-colors duration-200 ${
-      darkMode ? 'bg-black' : 'bg-zinc-50'
+    <div className={`max-w-3xl w-full mx-auto px-4 pb-safe transition-colors duration-200 ${
+      darkMode ? 'bg-zinc-950' : 'bg-zinc-50'
     }`}>
       {/* Context Selector Header Bar */}
       <div className="mb-2 flex items-center justify-between">
@@ -116,6 +116,7 @@ const ChatInput = forwardRef(({
           </div>
           <button
             onClick={onRemoveFile}
+            aria-label="Remove attached file"
             className={`p-1 rounded-lg ${darkMode ? 'text-zinc-400 hover:text-white' : 'text-zinc-400 hover:text-zinc-900'}`}
             title="Remove file"
           >
@@ -145,7 +146,7 @@ const ChatInput = forwardRef(({
           onClick={() => fileInputRef.current?.click()}
           title={t('chat.upload_title', 'Upload medical report (PDF, JPG, PNG · up to 50MB)')}
           aria-label={t('chat.upload_report', 'Upload medical report')}
-          className={`p-2 rounded-xl transition-colors shrink-0 ${
+          className={`p-2 rounded-xl transition-all active:scale-[0.9] shrink-0 ${
             darkMode
               ? 'text-zinc-400 hover:text-white hover:bg-zinc-800'
               : 'text-zinc-400 hover:text-zinc-900 hover:bg-zinc-100'
@@ -172,7 +173,8 @@ const ChatInput = forwardRef(({
           type="button"
           onClick={toggleVoiceInput}
           title={isListening ? t('chat.stop_listening', 'Stop listening') : t('chat.voice_input', 'Voice input')}
-          className={`p-2 rounded-xl transition-colors shrink-0 ${
+          aria-label={isListening ? t('chat.stop_listening', 'Stop listening') : t('chat.voice_input', 'Voice input')}
+          className={`p-2 rounded-xl transition-all active:scale-[0.9] shrink-0 ${
             isListening
               ? darkMode
                 ? 'text-white bg-zinc-800 animate-pulse'
@@ -190,6 +192,7 @@ const ChatInput = forwardRef(({
             type="button"
             onClick={onStopGeneration}
             title={t('chat.stop_generation', 'Stop generation')}
+            aria-label={t('chat.stop_generation', 'Stop generation')}
             className={`p-2 rounded-xl transition-opacity shrink-0 ${
               darkMode
                 ? 'bg-white text-black hover:bg-zinc-200'
@@ -201,9 +204,11 @@ const ChatInput = forwardRef(({
         ) : (
           <button
             type="submit"
+            onClick={handleSubmit}
             disabled={!text.trim()}
             title={t('chat.send_message', 'Send message')}
-            className={`p-2 disabled:opacity-30 rounded-xl transition-all shadow-sm shrink-0 font-bold ${
+            aria-label={t('chat.send_message', 'Send message')}
+            className={`p-2 disabled:opacity-30 rounded-xl transition-all active:scale-[0.92] shadow-sm shrink-0 font-bold ${
               darkMode
                 ? 'bg-white hover:bg-zinc-200 text-black'
                 : 'bg-zinc-900 hover:bg-zinc-800 text-white'

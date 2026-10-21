@@ -103,12 +103,32 @@ export default function LabMetrics({ metrics = [], darkMode, onBack }) {
 
       {/* Main Clinical Data Table or Empty State */}
       {!hasMetrics ? (
-        <div className={`py-8 text-center text-sm ${textSecondary}`}>
-          No lab metrics available for this report.
+        <div className={`py-10 text-center rounded-xl border border-dashed animate-fade-in ${borderCol}`}>
+          <div className={`w-12 h-12 rounded-2xl flex items-center justify-center mx-auto mb-3 ${
+            darkMode ? 'bg-zinc-800/80 text-zinc-400' : 'bg-zinc-100 text-zinc-500'
+          }`}>
+            <Search className="w-5 h-5" />
+          </div>
+          <div className={`text-sm font-semibold mb-1 ${textPrimary}`}>
+            No lab metrics available for this report.
+          </div>
+          <div className={`text-xs max-w-xs mx-auto ${textSecondary}`}>
+            Metrics appear here once values are extracted from a text-based report.
+          </div>
         </div>
       ) : filteredMetrics.length === 0 ? (
-        <div className={`py-8 text-center text-sm ${textSecondary}`}>
-          No tests match your search.
+        <div className={`py-10 text-center rounded-xl border border-dashed animate-fade-in ${borderCol}`}>
+          <div className={`w-12 h-12 rounded-2xl flex items-center justify-center mx-auto mb-3 ${
+            darkMode ? 'bg-zinc-800/80 text-zinc-400' : 'bg-zinc-100 text-zinc-500'
+          }`}>
+            <Search className="w-5 h-5" />
+          </div>
+          <div className={`text-sm font-semibold mb-1 ${textPrimary}`}>
+            No tests match your search.
+          </div>
+          <div className={`text-xs ${textSecondary}`}>
+            Try a different test name, or clear the search to see all values.
+          </div>
         </div>
       ) : (
         <div className={`rounded-xl border overflow-hidden ${cardBg} ${borderCol}`}>

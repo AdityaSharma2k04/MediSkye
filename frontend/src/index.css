@@ -2,6 +2,11 @@
 @tailwind components;
 @tailwind utilities;
 
+:root {
+  --bg-app: #09090b;
+  --text-app: #fafafa;
+}
+
 @layer base {
   body {
     @apply font-sans;
@@ -9,7 +14,7 @@
 
   /* Dark mode body defaults */
   html.dark body {
-    @apply text-slate-100 bg-black;
+    @apply text-zinc-50 bg-zinc-950;
   }
 
   /* Light mode body defaults */
@@ -80,9 +85,106 @@ html:not(.dark) ::-webkit-scrollbar-thumb:hover {
   animation: slideIn 0.2s ease-out;
 }
 
+/* ── Premium micro-interaction keyframes ── */
+
+/* Chat bubbles: graceful rise + settle with a slight scale */
+@keyframes bubbleIn {
+  0%   { opacity: 0; transform: translateY(14px) scale(0.97); }
+  60%  { opacity: 1; transform: translateY(-2px) scale(1.005); }
+  100% { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+.animate-bubble-in {
+  animation: bubbleIn 0.32s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+/* Modals: scale up from 94% with fade */
+@keyframes modalIn {
+  from { opacity: 0; transform: translateY(10px) scale(0.94); }
+  to   { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+.animate-modal-in {
+  animation: modalIn 0.22s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+/* Modal backdrop fade */
+@keyframes backdropIn {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+
+.animate-backdrop-in {
+  animation: backdropIn 0.18s ease-out both;
+}
+
+/* Toast: slide in from the right edge */
+@keyframes toastIn {
+  from { opacity: 0; transform: translateX(28px); }
+  to   { opacity: 1; transform: translateX(0); }
+}
+
+.animate-toast-in {
+  animation: toastIn 0.28s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+/* Skeleton loading shimmer sweep */
+@keyframes skeletonSweep {
+  0%   { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
+}
+
+.skeleton-shimmer {
+  background: linear-gradient(
+    90deg,
+    rgba(113, 113, 122, 0.08) 25%,
+    rgba(113, 113, 122, 0.2) 50%,
+    rgba(113, 113, 122, 0.08) 75%
+  );
+  background-size: 200% 100%;
+  animation: skeletonSweep 1.6s linear infinite;
+}
+
+html.dark .skeleton-shimmer {
+  background: linear-gradient(
+    90deg,
+    rgba(63, 63, 70, 0.35) 25%,
+    rgba(113, 113, 122, 0.55) 50%,
+    rgba(63, 63, 70, 0.35) 75%
+  );
+  background-size: 200% 100%;
+  animation: skeletonSweep 1.6s linear infinite;
+}
+
+/* Mobile safe-area helper for the sticky chat input */
+.pb-safe {
+  padding-bottom: max(1rem, env(safe-area-inset-bottom));
+}
+
+@media (min-width: 640px) {
+  .pb-safe {
+    padding-bottom: max(1.5rem, env(safe-area-inset-bottom));
+  }
+}
+
+/* Accessibility: honor reduced-motion preferences */
+@media (prefers-reduced-motion: reduce) {
+  .animate-shimmer,
+  .animate-fade-in,
+  .animate-slide-in,
+  .animate-bubble-in,
+  .animate-modal-in,
+  .animate-backdrop-in,
+  .animate-toast-in,
+  .skeleton-shimmer {
+    animation: none !important;
+  }
+}
+
 /* Hide the print summary on screen — it appears only during window.print() */
 @media screen {
-  #print-summary {
+  #print-summary,
+  #print-transcript {
     display: none;
   }
 }
@@ -92,10 +194,12 @@ html:not(.dark) ::-webkit-scrollbar-thumb:hover {
   body * {
     visibility: hidden;
   }
-  #print-summary, #print-summary * {
+  #print-summary, #print-summary *,
+  #print-transcript, #print-transcript * {
     visibility: visible;
   }
-  #print-summary {
+  #print-summary,
+  #print-transcript {
     position: absolute;
     left: 0;
     top: 0;
@@ -119,22 +223,97 @@ html:not(.dark) ::-webkit-scrollbar-thumb:hover {
   }
 
   /* Tables in the print summary */
-  #print-summary table {
+  #print-summary table,
+  #print-transcript table {
     width: 100%;
     border-collapse: collapse;
     font-size: 9pt;
     margin-bottom: 8pt;
   }
   #print-summary th,
-  #print-summary td {
+  #print-summary td,
+  #print-transcript th,
+  #print-transcript td {
     border: 1px solid #ccc;
     padding: 4pt 6pt;
     text-align: left;
   }
-  #print-summary thead tr {
+  #print-summary thead tr,
+  #print-transcript thead tr {
     background: #f0f0f0 !important;
     -webkit-print-color-adjust: exact;
     print-color-adjust: exact;
+  }
+
+  /* ── Full transcript export layout ── */
+  #print-transcript {
+    font-family: 'Inter', -apple-system, 'Segoe UI', sans-serif;
+  }
+  #print-transcript .ts-header {
+    border-bottom: 2px solid #000;
+    padding-bottom: 10pt;
+    margin-bottom: 12pt;
+  }
+  #print-transcript .ts-logo {
+    font-size: 18pt;
+    font-weight: 700;
+    letter-spacing: -0.01em;
+  }
+  #print-transcript .ts-subtitle {
+    font-size: 10pt;
+    color: #444;
+    margin-top: 2pt;
+  }
+  #print-transcript .ts-meta {
+    display: flex;
+    gap: 18pt;
+    flex-wrap: wrap;
+    font-size: 9pt;
+    color: #222;
+    margin-bottom: 14pt;
+  }
+  #print-transcript .ts-section-title {
+    font-size: 11pt;
+    font-weight: 700;
+    margin: 14pt 0 6pt;
+    border-bottom: 1px solid #999;
+    padding-bottom: 3pt;
+  }
+  #print-transcript .ts-msg {
+    margin-bottom: 8pt;
+    padding: 6pt 9pt;
+    border-radius: 6pt;
+    page-break-inside: avoid;
+  }
+  #print-transcript .ts-msg-ai {
+    background: #f7f7f7;
+    border-left: 3pt solid #111;
+  }
+  #print-transcript .ts-msg-user {
+    background: #efefef;
+    border-left: 3pt solid #888;
+  }
+  #print-transcript .ts-msg-meta {
+    font-size: 8pt;
+    font-weight: 700;
+    color: #555;
+    margin-bottom: 2pt;
+  }
+  #print-transcript .ts-msg-body {
+    font-size: 9.5pt;
+    line-height: 1.45;
+    white-space: pre-wrap;
+    color: #111;
+  }
+  #print-transcript .ts-empty {
+    font-size: 9pt;
+    color: #555;
+    font-style: italic;
+  }
+  #print-transcript .ts-generated {
+    font-size: 8pt;
+    color: #666;
+    margin-top: 4pt;
   }
 }
 

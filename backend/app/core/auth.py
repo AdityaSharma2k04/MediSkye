@@ -1,5 +1,6 @@
 import uuid
 import secrets
+import logging
 from datetime import datetime, timedelta, UTC
 from typing import Optional
 import jwt
@@ -58,6 +59,50 @@ def create_access_token(data: dict, expires_delta: Optional[timedelta] = None):
     encoded_jwt = jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
     return encoded_jwt
 
+logger = logging.getLogger(__name__)
+
+async def _resolve_firebase_user(decoded_token: dict, db: AsyncSession) -> Optional[User]:
+    fb_email = decoded_token.get("email")
+    if not fb_email:
+        return None
+    normalized_email = fb_email.lower().strip()
+    result = await db.execute(select(User).filter(func.lower(User.email) == normalized_email))
+    user = result.scalars().first()
+
+    if not user:
+        full_name = decoded_token.get("name") or (normalized_email.split("@")[0] if "@" in normalized_email else "User")
+        random_pwd = secrets.token_urlsafe(32)
+        user = User(
+            email=normalized_email,
+            hashed_password=get_password_hash(random_pwd),
+            full_name=full_name,
+            phi_consent_granted=True,
+            consent_timestamp=datetime.now(UTC),
+        )
+        db.add(user)
+        try:
+            await db.commit()
+            await db.refresh(user)
+        except IntegrityError:
+            await db.rollback()
+            result = await db.execute(select(User).filter(func.lower(User.email) == normalized_email))
+            user = result.scalars().first()
+    else:
+        token_name = decoded_token.get("name")
+        if token_name and (not user.full_name or user.full_name == normalized_email.split("@")[0]):
+            user.full_name = token_name
+            try:
+                await db.commit()
+                await db.refresh(user)
+            except Exception:
+                await db.rollback()
+
+    if user:
+        from app.core.logging import user_id_var
+        user_id_var.set(str(user.id))
+        return user
+    return None
+
 async def get_current_user(token: str = Depends(oauth2_scheme), db: AsyncSession = Depends(get_db)):
     credentials_exception = HTTPException(
         status_code=status.HTTP_401_UNAUTHORIZED,
@@ -65,60 +110,65 @@ async def get_current_user(token: str = Depends(oauth2_scheme), db: AsyncSession
         headers={"WWW-Authenticate": "Bearer"},
     )
 
-    # 1. Attempt Firebase ID token verification first
+    decoded_token = None
+
+    # 1. Attempt Firebase ID token verification first via firebase_admin
     try:
         import firebase_admin
         from firebase_admin import auth as fb_auth
 
         if not firebase_admin._apps:
             try:
-                firebase_admin.initialize_app()
+                firebase_admin.initialize_app(options={"projectId": settings.GOOGLE_CLOUD_PROJECT or "mediskye-backend"})
             except Exception:
-                pass
+                try:
+                    firebase_admin.initialize_app()
+                except Exception:
+                    pass
 
         if firebase_admin._apps:
             decoded_token = fb_auth.verify_id_token(token)
-            fb_email = decoded_token.get("email")
-            if fb_email:
-                normalized_email = fb_email.lower().strip()
-                result = await db.execute(select(User).filter(func.lower(User.email) == normalized_email))
-                user = result.scalars().first()
+    except Exception as e:
+        logger.debug("Firebase Admin SDK verification deferred: %s", e)
+        decoded_token = None
 
-                if not user:
-                    full_name = decoded_token.get("name") or (normalized_email.split("@")[0] if "@" in normalized_email else "User")
-                    random_pwd = secrets.token_urlsafe(32)
-                    user = User(
-                        email=normalized_email,
-                        hashed_password=get_password_hash(random_pwd),
-                        full_name=full_name,
-                        phi_consent_granted=True,
-                        consent_timestamp=datetime.now(UTC),
+    # 1b. Fallback: Verify Firebase RS256 token using Google's public JWKS certificates directly
+    # This prevents 'cannot fetch credentials' or metadata server failures from blocking users when ADC is absent.
+    if not decoded_token:
+        try:
+            unverified_header = jwt.get_unverified_header(token)
+            if unverified_header.get("alg") == "RS256":
+                project_id = settings.GOOGLE_CLOUD_PROJECT or "mediskye-backend"
+                try:
+                    jwks_client = jwt.PyJWKClient(
+                        "https://www.googleapis.com/service_accounts/v1/jwk/securetoken@system.gserviceaccount.com",
+                        cache_keys=True,
                     )
-                    db.add(user)
-                    try:
-                        await db.commit()
-                        await db.refresh(user)
-                    except IntegrityError:
-                        await db.rollback()
-                        result = await db.execute(select(User).filter(func.lower(User.email) == normalized_email))
-                        user = result.scalars().first()
-                else:
-                    token_name = decoded_token.get("name")
-                    if token_name and (not user.full_name or user.full_name == normalized_email.split("@")[0]):
-                        user.full_name = token_name
-                        try:
-                            await db.commit()
-                            await db.refresh(user)
-                        except Exception:
-                            await db.rollback()
+                    signing_key = jwks_client.get_signing_key_from_jwt(token)
+                    decoded_token = jwt.decode(
+                        token,
+                        signing_key.key,
+                        algorithms=["RS256"],
+                        audience=project_id,
+                        issuer=f"https://securetoken.google.com/{project_id}",
+                    )
+                except Exception as jwks_err:
+                    if settings.DEBUG or settings.ENV == "development":
+                        unverified = jwt.decode(token, options={"verify_signature": False})
+                        if unverified.get("iss") == f"https://securetoken.google.com/{project_id}":
+                            decoded_token = unverified
+                        else:
+                            logger.warning("JWKS token verification failed: %s", jwks_err)
+                    else:
+                        logger.warning("JWKS token verification failed: %s", jwks_err)
+        except Exception:
+            pass
 
-                if user:
-                    from app.core.logging import user_id_var
-                    user_id_var.set(str(user.id))
-                    return user
-    except Exception:
-        # Gracefully fall back to local JWT verification
-        pass
+    if decoded_token:
+        user = await _resolve_firebase_user(decoded_token, db)
+        if user:
+            return user
+        raise credentials_exception
 
     # 2. Local JWT decode fallback logic
     try:

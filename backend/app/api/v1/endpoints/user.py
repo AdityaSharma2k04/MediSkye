@@ -1,4 +1,5 @@
 import uuid
+import json
 import logging
 from typing import List, Optional
 from uuid import UUID
@@ -164,6 +165,12 @@ async def get_document_chats(
     except ValueError:
         raise HTTPException(status_code=400, detail="Invalid document ID")
         
+    doc_res = await db.execute(
+        select(Document).filter(Document.id == doc_uuid, Document.user_id == current_user.id)
+    )
+    if not doc_res.scalars().first():
+        raise HTTPException(status_code=404, detail="Document not found")
+
     result = await db.execute(
         select(Chat)
         .filter(Chat.user_id == current_user.id, Chat.document_id == doc_uuid)
@@ -179,6 +186,81 @@ async def get_document_chats(
         }
         for c in chats
     ]
+
+
+def _normalize_cached_metrics(cached) -> List[dict]:
+    """Normalize Document.cached_metrics into a plain list of dicts (no-op for empty)."""
+    if cached is None:
+        return []
+    if isinstance(cached, str):
+        try:
+            cached = json.loads(cached)
+        except Exception:
+            return []
+    if isinstance(cached, dict) and "metrics" in cached:
+        cached = cached["metrics"]
+    if not isinstance(cached, list):
+        return []
+    metrics = []
+    for item in cached:
+        if isinstance(item, dict):
+            metrics.append(item)
+        elif hasattr(item, "model_dump"):
+            metrics.append(item.model_dump())
+    return metrics
+
+
+@router.get("/users/me/documents/{document_id}/export")
+async def export_document_data(
+    document_id: str,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    Export a document's full chat transcript and cached lab metrics as JSON.
+
+    Returns the document metadata, every stored chat message (user + assistant)
+    in chronological order, and the cached lab metrics ([] when none extracted).
+    Read-only: does not invoke LLM extraction or mutate any state.
+    """
+    try:
+        doc_uuid = uuid.UUID(document_id)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid document ID")
+
+    result = await db.execute(
+        select(Document).filter(Document.id == doc_uuid, Document.user_id == current_user.id)
+    )
+    doc = result.scalars().first()
+    if not doc:
+        raise HTTPException(status_code=404, detail="Document not found")
+
+    chats_res = await db.execute(
+        select(Chat)
+        .filter(Chat.user_id == current_user.id, Chat.document_id == doc_uuid)
+        .order_by(Chat.created_at.asc())
+    )
+    chats = chats_res.scalars().all()
+
+    return {
+        "document": {
+            "id": str(doc.id),
+            "filename": doc.filename,
+            "title": doc.title or doc.filename,
+            "created_at": doc.created_at.isoformat() if doc.created_at else None,
+            "dependent_id": str(doc.dependent_id) if doc.dependent_id else None,
+        },
+        "messages": [
+            {
+                "id": str(c.id),
+                "role": c.role,
+                "message": c.message,
+                "created_at": c.created_at.isoformat() if c.created_at else None,
+            }
+            for c in chats
+        ],
+        "lab_metrics": _normalize_cached_metrics(doc.cached_metrics),
+    }
 
 @router.delete("/users/me/documents/{document_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_my_document(
@@ -345,13 +427,16 @@ async def update_memory_consent(
     db.add(current_user)
     await db.commit()
     await db.refresh(current_user)
-    await log_audit(
-        db,
-        "MEMORY_CONSENT_GRANTED" if body.consent else "MEMORY_CONSENT_REVOKED",
-        current_user.id,
-        "memory_consent",
-        request.client.host if request.client else "unknown",
-    )
+    try:
+        await log_audit(
+            db,
+            "MEMORY_CONSENT_GRANTED" if body.consent else "MEMORY_CONSENT_REVOKED",
+            current_user.id,
+            "memory_consent",
+            request.client.host if request.client else "unknown",
+        )
+    except Exception as audit_err:
+        logger.warning("Failed to log audit event for memory consent: %s", audit_err)
     return {
         "status": "success",
         "memory_consent_granted": current_user.memory_consent_granted,

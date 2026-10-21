@@ -1,7 +1,7 @@
 import pytest
 import time
 import asyncio
-from unittest.mock import patch
+from unittest.mock import patch, AsyncMock
 from httpx import AsyncClient, ASGITransport
 from langchain_core.documents import Document
 
@@ -40,7 +40,9 @@ async def test_upload_status_endpoint_never_blocked():
 
         with patch("app.api.v1.endpoints.upload.validate_file_upload"), \
              patch("app.api.v1.endpoints.upload.extract_text_from_file", side_effect=mock_extract), \
-             patch("app.api.v1.endpoints.upload.acreate_hybrid_index", side_effect=mock_acreate_index):
+             patch("app.api.v1.endpoints.upload.acreate_hybrid_index", side_effect=mock_acreate_index), \
+             patch("app.api.v1.endpoints.upload.extract_and_cache_metrics", new=AsyncMock(return_value=[])), \
+             patch("app.api.v1.endpoints.upload.asave_index_artifacts", new=AsyncMock(return_value="artifacts/test")):
 
             # 1. Start upload (returns 202 immediately with job_id)
             upload_res = await ac.post(

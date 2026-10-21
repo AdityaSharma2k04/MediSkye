@@ -10,14 +10,14 @@ export default function MemoryConsentModal({ isOpen, onAllow, onSkip, darkMode =
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-fade-in"
+      className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-backdrop-in"
       role="dialog"
       aria-modal="true"
       aria-labelledby="memory-consent-title"
     >
       <div
         ref={modalRef}
-        className={`max-w-md w-full rounded-2xl p-6 shadow-2xl border transition-all ${
+        className={`max-w-md w-full rounded-2xl p-6 shadow-2xl border animate-modal-in transition-all ${
           darkMode ? 'bg-zinc-900 border-zinc-800 text-white' : 'bg-white border-zinc-200 text-zinc-900'
         }`}
       >

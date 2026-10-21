@@ -43,28 +43,29 @@ describe('Sidebar DeepSeek-style Slide Collapse Animation', () => {
       </MemoryRouter>
     );
 
+    const toggleButton = await screen.findByRole('button', { name: /toggle sidebar/i });
     const sidebarWrapper = container.querySelector('[data-testid="sidebar-wrapper"]');
     expect(sidebarWrapper).toBeInTheDocument();
     expect(sidebarWrapper.className).toContain('translate-x-0');
     expect(sidebarWrapper.className).not.toContain('-translate-x-full');
 
-    // Find the toggle button in the chat header
-    const toggleButton = screen.getByRole('button', { name: /toggle sidebar/i });
-    expect(toggleButton).toBeInTheDocument();
-
     // Click toggle to collapse sidebar
     fireEvent.click(toggleButton);
 
-    expect(sidebarWrapper.className).toContain('-translate-x-full');
-    expect(sidebarWrapper.className).not.toContain('translate-x-0');
-    expect(localStorage.getItem('mediskye_sidebar_open')).toBe('false');
+    await waitFor(() => {
+      expect(sidebarWrapper.className).toContain('-translate-x-full');
+      expect(sidebarWrapper.className).not.toContain('translate-x-0');
+      expect(localStorage.getItem('mediskye_sidebar_open')).toBe('false');
+    });
 
     // Click toggle again to expand sidebar
     fireEvent.click(toggleButton);
 
-    expect(sidebarWrapper.className).toContain('translate-x-0');
-    expect(sidebarWrapper.className).not.toContain('-translate-x-full');
-    expect(localStorage.getItem('mediskye_sidebar_open')).toBe('true');
+    await waitFor(() => {
+      expect(sidebarWrapper.className).toContain('translate-x-0');
+      expect(sidebarWrapper.className).not.toContain('-translate-x-full');
+      expect(localStorage.getItem('mediskye_sidebar_open')).toBe('true');
+    });
   });
 
   it('defaults closed on mobile screens (< 768px)', async () => {
@@ -77,8 +78,11 @@ describe('Sidebar DeepSeek-style Slide Collapse Animation', () => {
       </MemoryRouter>
     );
 
-    const sidebarWrapper = container.querySelector('[data-testid="sidebar-wrapper"]');
-    expect(sidebarWrapper.className).toContain('-translate-x-full');
+    await waitFor(() => {
+      const sidebarWrapper = container.querySelector('[data-testid="sidebar-wrapper"]');
+      expect(sidebarWrapper).toBeInTheDocument();
+      expect(sidebarWrapper.className).toContain('-translate-x-full');
+    });
   });
 
   it('exposes a Log out control that clears auth after confirmation', async () => {

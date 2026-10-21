@@ -14,10 +14,11 @@ import logging
 from pathlib import Path
 from typing import Optional
 
-from langchain_text_splitters import RecursiveCharacterTextSplitter
-from langchain_community.vectorstores import FAISS
+import re
+from langchain_community.vectorstores.faiss import FAISS
 from langchain_core.documents import Document
 
+from app.rag.chunking import MedicalTextSplitter, split_medical_documents
 from app.rag.embedder import get_embedder
 from app.rag.hybrid_search import BM25Index, save_bm25_index, load_bm25_index, reciprocal_rank_fusion
 from app.rag.index_storage import ensure_index_local, aensure_index_local
@@ -29,14 +30,58 @@ CHUNK_SIZE = 1200
 CHUNK_OVERLAP = 200
 RETRIEVAL_K = 8
 RETRIEVAL_FETCH_K = 24
+MAX_RETRIEVAL_K = 12
+MAX_FETCH_K = 48
 
 
-def _build_splitter() -> RecursiveCharacterTextSplitter:
-    return RecursiveCharacterTextSplitter(
+def _build_splitter() -> MedicalTextSplitter:
+    """Table/bullet-aware splitter — keeps Markdown tables and bullet runs intact."""
+    return MedicalTextSplitter(
         chunk_size=CHUNK_SIZE,
         chunk_overlap=CHUNK_OVERLAP,
-        separators=["\n\n", "\n", ". ", "; ", ", ", " ", ""],
     )
+
+
+def dynamic_retrieval_k(query: str) -> int:
+    """
+    Scale the number of retrieved chunks to query complexity:
+      - k=4  for short, single-fact questions  (<= 6 words)
+      - k=6  for medium questions              (7-15 words)
+      - k=12 for long or multi-part questions  (>15 words, or explicit
+             multi-part markers such as extra "?" or " and "/"also" joins)
+    """
+    q = (query or "").strip()
+    words = re.findall(r"[A-Za-z0-9]+", q)
+    word_count = len(words)
+
+    # A single trailing "?" is normal; only EXTRA question marks or explicit
+    # joiners ("and", "also", "vs") signal a genuinely multi-part question.
+    extra_questions = max(0, q.count("?") - 1)
+    multi_part_markers = (
+        extra_questions
+        + q.lower().count(" and ")
+        + q.lower().count(" also ")
+        + q.lower().count(" vs ")
+    )
+
+    if word_count <= 6:
+        k = 4
+    elif word_count <= 15:
+        k = 6
+    else:
+        k = 12
+
+    # Promote to a broader sweep when the question explicitly bundles
+    # several sub-questions (and it is long enough for that to matter).
+    if multi_part_markers >= 1 and word_count >= 10:
+        k = 12
+
+    return min(k, MAX_RETRIEVAL_K)
+
+
+def dynamic_fetch_k(k: int) -> int:
+    """MMR fetch_k scaled to the requested k (bounded, never below the default)."""
+    return max(RETRIEVAL_FETCH_K, min(3 * k, MAX_FETCH_K))
 
 
 def build_hybrid_index_from_embeddings(
@@ -159,11 +204,12 @@ def retrieve_relevant_docs(
     If no BM25 index is available, falls back to FAISS-only MMR search
     (backward compatible with existing indexes).
     """
-    # FAISS semantic search (MMR for diversity)
+    # FAISS semantic search (MMR for diversity; fetch_k scales with k so a
+    # wider sweep keeps enough candidates when k grows for complex queries)
     faiss_results = vectorstore.max_marginal_relevance_search(
         query,
         k=k,
-        fetch_k=RETRIEVAL_FETCH_K,
+        fetch_k=dynamic_fetch_k(k),
     )
     
     # If BM25 index is available, do hybrid fusion

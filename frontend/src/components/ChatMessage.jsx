@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import {
@@ -31,10 +31,45 @@ export default function ChatMessage({ message, onRegenerate, onSelectSource, sho
   const [speaking, setSpeaking] = useState(false);
   const [liked, setLiked] = useState(null);
   const [showDetails, setShowDetails] = useState(false);
+  const [showThinkingSkeleton, setShowThinkingSkeleton] = useState(false);
+  const speakTokenRef = useRef(null);
 
   const isUser = message?.sender === 'user';
   // Hide the abnormal_flags JSON block from the user interface
   const content = stripAbnormalFlags(message?.text || '');
+
+  // Keep the Listen button in sync with speech started/stopped anywhere in
+  // the app (manual button, auto-read, stop-on-send, regenerate, ...).
+  useEffect(() => {
+    const onStart = (e) => {
+      if (speakTokenRef.current != null && e.detail?.token === speakTokenRef.current) {
+        setSpeaking(true);
+      }
+    };
+    const onEnd = (e) => {
+      if (speakTokenRef.current != null && e.detail?.token === speakTokenRef.current) {
+        setSpeaking(false);
+        speakTokenRef.current = null;
+      }
+    };
+    window.addEventListener('mediskye:speechstart', onStart);
+    window.addEventListener('mediskye:speechend', onEnd);
+    return () => {
+      window.removeEventListener('mediskye:speechstart', onStart);
+      window.removeEventListener('mediskye:speechend', onEnd);
+    };
+  }, []);
+
+  // Premium loading state: if no token has arrived within 3s, show a
+  // "Thinking..." skeleton so slow generations never feel stuck.
+  useEffect(() => {
+    if (!message?.isStreaming || content || message?.error) {
+      setShowThinkingSkeleton(false);
+      return undefined;
+    }
+    const timer = setTimeout(() => setShowThinkingSkeleton(true), 3000);
+    return () => clearTimeout(timer);
+  }, [message?.isStreaming, content, message?.error]);
 
   const handleCopy = () => {
     navigator.clipboard.writeText(content);
@@ -47,15 +82,23 @@ export default function ChatMessage({ message, onRegenerate, onSelectSource, sho
     if (speaking) {
       stopSpeaking();
       setSpeaking(false);
+      speakTokenRef.current = null;
     } else {
-      setSpeaking(true);
-      speakText(content, () => setSpeaking(false));
+      const token = speakText(content, () => setSpeaking(false));
+      if (token != null) {
+        speakTokenRef.current = token;
+        setSpeaking(true);
+      }
     }
   };
 
   const handleShare = () => {
     if (navigator.share) {
-      navigator.share({ title: 'MediSkye Explanation', text: content });
+      navigator
+        .share({ title: 'MediSkye Explanation', text: content })
+        .catch((err) => {
+          if (err.name !== 'AbortError') console.error(err);
+        });
     } else {
       navigator.clipboard.writeText(content);
       if (showToast) showToast('info', 'Share link copied');
@@ -64,7 +107,7 @@ export default function ChatMessage({ message, onRegenerate, onSelectSource, sho
 
   if (isUser) {
     return (
-      <div className="flex justify-end mb-5 animate-fade-in group">
+      <div className="flex justify-end mb-5 animate-bubble-in group">
         <div className="flex items-start gap-3 max-w-[85%] sm:max-w-[75%] flex-row-reverse">
           <div className={`w-7 h-7 rounded-full flex items-center justify-center font-semibold text-xs shrink-0 shadow-sm ${
             darkMode ? 'bg-zinc-100 text-zinc-900' : 'bg-zinc-900 text-white'
@@ -82,10 +125,10 @@ export default function ChatMessage({ message, onRegenerate, onSelectSource, sho
   }
 
   // Common button styles for the action bar
-  const actionBtn = `p-1.5 rounded-lg transition-colors ${
+  const actionBtn = `p-1.5 rounded-lg transition-all active:scale-[0.92] ${
     darkMode ? 'hover:text-zinc-200 hover:bg-zinc-800' : 'hover:text-zinc-700 hover:bg-zinc-100'
   }`;
-  const actionBtnActive = `p-1.5 rounded-lg ${
+  const actionBtnActive = `p-1.5 rounded-lg transition-all active:scale-[0.92] ${
     darkMode ? 'text-zinc-100 bg-zinc-800' : 'text-zinc-900 bg-zinc-100'
   }`;
 
@@ -93,7 +136,7 @@ export default function ChatMessage({ message, onRegenerate, onSelectSource, sho
   const statusText = message.status || 'Analyzing your question...';
 
   return (
-    <div className="flex justify-start mb-5 animate-fade-in group">
+    <div className="flex justify-start mb-5 animate-bubble-in group">
       <div className="flex items-start gap-3 max-w-[92%] sm:max-w-[85%]">
         <div className={`w-7 h-7 rounded-full flex items-center justify-center font-bold text-xs shrink-0 shadow-sm mt-0.5 ${
           darkMode ? 'bg-zinc-100 text-zinc-900' : 'bg-zinc-900 text-white'
@@ -119,13 +162,25 @@ export default function ChatMessage({ message, onRegenerate, onSelectSource, sho
 
           {/* Progressive rotating status line while generating before text arrives */}
           {isStreaming && !content && !message.error && (
-            <div className="flex items-center gap-2.5 py-2 text-xs font-medium text-zinc-400">
-              <div className="flex items-center gap-1">
-                <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
-                <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse [animation-delay:200ms]" />
-                <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse [animation-delay:400ms]" />
+            <div className="py-1.5">
+              <div className="flex items-center gap-2.5 text-xs font-medium text-zinc-400">
+                <div className="flex items-center gap-1">
+                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
+                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse [animation-delay:200ms]" />
+                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse [animation-delay:400ms]" />
+                </div>
+                <span className="text-zinc-400 transition-opacity duration-300">{statusText}</span>
               </div>
-              <span className="text-zinc-400 transition-opacity duration-300">{statusText}</span>
+
+              {/* Thinking skeleton — appears only if the first token takes >3s */}
+              {showThinkingSkeleton && (
+                <div className="mt-3.5 space-y-2.5" role="status" aria-label="Thinking">
+                  <div className="skeleton-shimmer h-3.5 rounded-lg w-3/4" />
+                  <div className="skeleton-shimmer h-3.5 rounded-lg w-full" />
+                  <div className="skeleton-shimmer h-3.5 rounded-lg w-5/6" />
+                  <div className="skeleton-shimmer h-3.5 rounded-lg w-2/5" />
+                </div>
+              )}
             </div>
           )}
 
@@ -184,7 +239,7 @@ export default function ChatMessage({ message, onRegenerate, onSelectSource, sho
                     </thead>
                     <tbody className={`divide-y ${darkMode ? 'divide-zinc-800/80' : 'divide-zinc-200/60'}`}>
                       {message.metrics.map((m, i) => (
-                        <tr key={i}>
+                        <tr key={m.test || m.name || i}>
                           <td className="p-2.5 px-3 font-medium">{m.test || m.name}</td>
                           <td className="p-2.5 px-3 font-semibold">{m.value} {m.unit}</td>
                           <td className="p-2.5 px-3 text-zinc-400">{m.range || 'N/A'}</td>

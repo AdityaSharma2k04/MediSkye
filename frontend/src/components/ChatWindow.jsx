@@ -1,7 +1,7 @@
 import React, { useRef, useEffect, useState } from 'react';
 import {
   Stethoscope, ArrowDown, Upload, FileText, Sparkles, Shield,
-  Printer, Table, MessageSquare, AlertCircle, Sun, Moon, X,
+  Printer, Table, MessageSquare, AlertCircle, Sun, Moon, X, Download,
   ChevronLeft, ChevronRight
 } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
@@ -9,7 +9,6 @@ import ChatMessage from './ChatMessage';
 import LabMetrics from './LabMetrics';
 import PrintableSummary from './PrintableSummary';
 import { fetchLabMetrics, getProfile, sendQueryStream, getDocumentSummary } from '../services/api';
-import PatientContextSelector from './PatientContextSelector';
 
 export default function ChatWindow({
   messages,
@@ -37,6 +36,7 @@ export default function ChatWindow({
   isExportingSummary: propIsExportingSummary,
   printSummaryText: propPrintSummaryText,
   onExportSummary,
+  onOpenExport,
 }) {
   const { t } = useTranslation();
   const scrollRef = useRef(null);
@@ -171,7 +171,7 @@ export default function ChatWindow({
   // Shared color helpers
   const cardBg = darkMode ? 'bg-[#121212]' : 'bg-white';
   const cardBorder = darkMode ? 'border-zinc-800' : 'border-zinc-200';
-  const headerBg = darkMode ? 'bg-[#09090B]' : 'bg-white';
+  const headerBg = darkMode ? 'bg-zinc-950' : 'bg-white';
   const textPrimary = darkMode ? 'text-white' : 'text-zinc-900';
   const textSecondary = darkMode ? 'text-zinc-400' : 'text-zinc-500';
   const textMuted = darkMode ? 'text-zinc-500' : 'text-zinc-400';
@@ -184,7 +184,7 @@ export default function ChatWindow({
 
   return (
     <div className={`flex-1 flex flex-col h-full overflow-hidden relative transition-colors duration-200 ${
-      darkMode ? 'bg-black text-slate-100' : 'bg-zinc-50 text-zinc-900'
+      darkMode ? 'bg-zinc-950 text-zinc-50' : 'bg-zinc-50 text-zinc-900'
     }`}>
       {/* Header */}
       <header className={`flex items-center justify-between p-3.5 px-4 sm:px-6 border-b z-10 transition-colors duration-200 ${headerBg} ${cardBorder}`}>
@@ -242,6 +242,22 @@ export default function ChatWindow({
           )}
 
           {/* A4: Lab Metrics + Export Summary only when a document is loaded */}
+          {onOpenExport && (
+            <button
+              onClick={onOpenExport}
+              aria-label="Export chat data"
+              className={`px-3 py-1.5 rounded-xl text-xs flex items-center gap-1.5 transition-all active:scale-[0.97] border ${
+                darkMode
+                  ? 'bg-zinc-900 hover:bg-zinc-800 text-zinc-200 border-zinc-800'
+                  : 'bg-white hover:bg-zinc-50 text-zinc-700 border-zinc-200'
+              }`}
+              title="Export full chat transcript and lab metrics (PDF or JSON)"
+            >
+              <Download className="w-3.5 h-3.5" />
+              <span className="hidden md:inline">{t('chat.export_data', 'Export Data')}</span>
+            </button>
+          )}
+
           {activePdf && (
             <>
               <div className={`flex items-center rounded-xl p-0.5 text-xs border ${
@@ -357,22 +373,57 @@ export default function ChatWindow({
       <div
         ref={scrollRef}
         onScroll={handleScroll}
-        className="chat-messages-container flex-1 overflow-y-auto p-4 sm:p-6 lg:p-8 max-w-4xl w-full mx-auto"
+        className="chat-messages-container flex-1 overflow-y-auto p-4 sm:p-6 lg:p-8 max-w-4xl w-full mx-auto flex flex-col"
       >
         {viewMode === 'metrics' ? (
           loadingMetrics ? (
-            <div className={`p-8 text-center rounded-2xl animate-pulse border mt-4 ${cardBg} ${cardBorder}`}>
-              <Sparkles className={`w-6 h-6 mx-auto mb-2 animate-spin ${textSecondary}`} />
-              <div className={`text-sm font-medium ${darkMode ? 'text-zinc-300' : 'text-zinc-700'}`}>{t('chat.extracting_metrics', 'Extracting Lab Value Metrics...')}</div>
-              <div className={`text-xs mt-1 ${textMuted}`}>{t('chat.analyzing_ranges', 'Analyzing numerical bounds & reference ranges')}</div>
+            <div className="py-4 animate-fade-in" data-testid="metrics-skeleton">
+              <div className="flex items-center gap-3 mb-4">
+                <Sparkles className={`w-5 h-5 animate-spin ${textSecondary}`} />
+                <div>
+                  <div className={`text-sm font-medium ${darkMode ? 'text-zinc-300' : 'text-zinc-700'}`}>{t('chat.extracting_metrics', 'Extracting Lab Value Metrics...')}</div>
+                  <div className={`text-xs mt-0.5 ${textMuted}`}>{t('chat.analyzing_ranges', 'Analyzing numerical bounds & reference ranges')}</div>
+                </div>
+              </div>
+              <div className={`rounded-xl border overflow-hidden ${cardBg} ${cardBorder}`} role="status" aria-label="Loading lab metrics">
+                <div className="grid grid-cols-5 gap-4 px-4 py-3 border-b border-zinc-800/70">
+                  {[0, 1, 2, 3, 4].map((i) => (
+                    <div key={`h${i}`} className="skeleton-shimmer h-3 rounded-md" style={{ width: i === 0 ? '60%' : '45%' }} />
+                  ))}
+                </div>
+                {[0, 1, 2, 3, 4].map((row) => (
+                  <div key={`r${row}`} className="grid grid-cols-5 gap-4 px-4 py-3 border-b border-zinc-800/60 last:border-b-0">
+                    <div className="skeleton-shimmer h-3 rounded-md" />
+                    <div className="skeleton-shimmer h-3 rounded-md w-2/3" />
+                    <div className="skeleton-shimmer h-3 rounded-md w-1/3" />
+                    <div className="skeleton-shimmer h-3 rounded-md w-3/4" />
+                    <div className="skeleton-shimmer h-3 rounded-md w-1/2" />
+                  </div>
+                ))}
+              </div>
             </div>
           ) : labMetrics.length === 0 ? (
-            <div className={`p-8 text-center rounded-2xl border mt-4 ${cardBg} ${cardBorder}`}>
-              <AlertCircle className={`w-8 h-8 mx-auto mb-3 ${textMuted}`} />
-              <div className={`text-sm font-semibold mb-1 ${textPrimary}`}>{t('chat.no_metrics_found', 'No Lab Values Found')}</div>
-              <div className={`text-xs max-w-md mx-auto ${textSecondary}`}>
+            <div className={`p-8 sm:p-10 text-center rounded-2xl border mt-4 ${cardBg} ${cardBorder} animate-fade-in`}>
+              <div className={`w-14 h-14 rounded-2xl flex items-center justify-center mx-auto mb-4 ${
+                darkMode ? 'bg-zinc-800 text-zinc-400' : 'bg-zinc-100 text-zinc-500'
+              }`}>
+                <AlertCircle className="w-6 h-6" />
+              </div>
+              <div className={`text-sm font-semibold mb-1.5 ${textPrimary}`}>{t('chat.no_metrics_found', 'No Lab Values Found')}</div>
+              <div className={`text-xs max-w-md mx-auto leading-relaxed mb-5 ${textSecondary}`}>
                 {t('chat.no_metrics_desc', 'Upload a text-based diagnostic PDF report (e.g. CBC Blood Test or Lipid Panel) to extract structured lab metrics.')}
               </div>
+              <button
+                onClick={onOpenUpload}
+                className={`inline-flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-medium border transition-all active:scale-[0.97] ${
+                  darkMode
+                    ? 'bg-white text-black border-zinc-700 hover:bg-zinc-200'
+                    : 'bg-zinc-900 text-white border-zinc-800 hover:bg-zinc-700'
+                }`}
+              >
+                <Upload className="w-3.5 h-3.5" />
+                <span>{t('chat.upload_report', 'Upload a Report')}</span>
+              </button>
             </div>
           ) : (
             <LabMetrics
@@ -389,52 +440,42 @@ export default function ChatWindow({
           </div>
         ) : messages.length === 0 ? (
           /* ── A1: EMPTY STATE ── */
-          <div className="min-h-[72vh] flex flex-col items-center justify-center text-center max-w-2xl mx-auto py-8 animate-fade-in">
-            <div className={`w-12 h-12 rounded-2xl flex items-center justify-center mb-5 ${
+          <div className="w-full flex flex-col items-center justify-center text-center max-w-2xl mx-auto py-4 sm:py-6 my-auto animate-fade-in">
+            <div className={`w-11 h-11 rounded-2xl flex items-center justify-center mb-3 ${
               darkMode ? 'bg-white text-black' : 'bg-zinc-900 text-white'
             }`}>
-              <Stethoscope className="w-6 h-6" />
+              <Stethoscope className="w-5 h-5" />
             </div>
 
-            <h1 className={`text-2xl sm:text-3xl font-bold tracking-tight mb-2 ${textPrimary}`}>
-              MediSkye AI Medical Assistant
+            <h1 className={`text-2xl sm:text-3xl font-bold tracking-tight mb-1.5 ${textPrimary}`}>
+              {activePdf ? t('chat.ask_report_title', 'Ask about this report') : 'MediSkye AI Medical Assistant'}
             </h1>
 
             {/* A7: Personal welcome message */}
-            <p className={`text-sm mb-6 max-w-lg leading-relaxed ${textSecondary}`}>
-              {firstName
+            <p className={`text-sm mb-4 max-w-lg leading-relaxed ${textSecondary}`}>
+              {activePdf
+                ? t('chat.ask_report_subtitle', 'No questions yet — start with one of these, or ask your own question below.')
+                : firstName
                 ? t('chat.welcome_user', { name: firstName, defaultValue: `Welcome back, ${firstName}. Upload a report to get started, or ask a general health question.` })
                 : t('chat.welcome_guest', 'Upload a medical report to get started, or ask a general health question below.')}
             </p>
-
-            {/* Active Patient Lens Selector */}
-            <div className="mb-6 flex justify-center">
-              <PatientContextSelector
-                currentUser={currentUser}
-                dependents={dependents}
-                selectedPatientId={selectedPatientId}
-                onSelectPatient={onSelectPatient}
-                onOpenDependents={onOpenDependents}
-                darkMode={darkMode}
-              />
-            </div>
 
             {/* A1 & A3: Dropzone when no document, compact chip when loaded */}
             {!activePdf ? (
               <div
                 onClick={onOpenUpload}
-                className={`w-full p-6 border border-dashed rounded-2xl cursor-pointer transition-all duration-150 shadow-sm mb-6 group ${
+                className={`w-full p-4 sm:p-5 border border-dashed rounded-2xl cursor-pointer transition-all duration-150 shadow-sm mb-4 group ${
                   darkMode
                     ? 'border-zinc-800 bg-[#121212] hover:border-zinc-700 hover:bg-zinc-900/50'
                     : 'border-zinc-300 bg-white hover:border-zinc-400 hover:bg-zinc-50'
                 }`}
               >
-                <div className={`w-9 h-9 rounded-full flex items-center justify-center mx-auto mb-3 group-hover:scale-105 transition-transform ${
+                <div className={`w-8 h-8 rounded-full flex items-center justify-center mx-auto mb-2 group-hover:scale-105 transition-transform ${
                   darkMode ? 'bg-zinc-800 text-zinc-300' : 'bg-zinc-100 text-zinc-600'
                 }`}>
                   <Upload className="w-4 h-4" />
                 </div>
-                <div className={`font-semibold text-sm mb-1 ${textPrimary}`}>
+                <div className={`font-semibold text-sm mb-0.5 ${textPrimary}`}>
                   {t('chat.upload_title', 'Upload Medical Report (PDF)')}
                 </div>
                 <div className={`text-xs ${textSecondary}`}>
@@ -444,12 +485,12 @@ export default function ChatWindow({
             ) : null}
 
             {/* A1b: Context-aware suggestion cards (work with AND without document) */}
-            <div className="w-full grid grid-cols-1 sm:grid-cols-2 gap-3 text-left">
+            <div className="w-full grid grid-cols-1 sm:grid-cols-2 gap-2.5 text-left">
               {sampleQueries.map((item, idx) => (
                 <button
                   key={idx}
                   onClick={() => onSelectSampleQuery(item.query)}
-                  className={`p-4 rounded-2xl text-xs transition-all duration-150 shadow-sm group flex flex-col justify-between min-h-[90px] border ${
+                  className={`p-3 sm:p-3.5 rounded-2xl text-xs transition-all duration-150 shadow-sm group flex flex-col justify-between min-h-[72px] border active:scale-[0.98] ${
                     darkMode
                       ? 'bg-[#121212] border-zinc-800/80 hover:border-zinc-700'
                       : 'bg-white border-zinc-200 hover:border-zinc-400'
@@ -459,14 +500,14 @@ export default function ChatWindow({
                     <span>{item.title}</span>
                     <Sparkles className={`w-3.5 h-3.5 opacity-0 group-hover:opacity-100 transition-opacity ${textSecondary}`} />
                   </div>
-                  <div className={`text-[11px] line-clamp-2 mt-2 ${textSecondary}`}>
+                  <div className={`text-[11px] line-clamp-2 mt-1.5 ${textSecondary}`}>
                     "{item.query}"
                   </div>
                 </button>
               ))}
             </div>
 
-            <div className={`mt-8 flex items-center gap-2 text-xs ${textMuted}`}>
+            <div className={`mt-5 flex items-center gap-2 text-xs ${textMuted}`}>
               <Shield className="w-3.5 h-3.5" />
               {/* A6: No HIPAA claim */}
               <span>{t('chat.encrypted_session', 'End-to-end encrypted session • Discarded on close')}</span>
@@ -525,12 +566,13 @@ export default function ChatWindow({
       {showScrollBtn && (
         <button
           onClick={scrollToBottom}
+          aria-label="Scroll to latest message"
+          title="Scroll to latest message"
           className={`absolute bottom-20 right-6 z-20 p-2.5 rounded-full shadow-lg transition-all duration-150 ${
             darkMode
               ? 'bg-zinc-100 text-black hover:bg-zinc-200'
               : 'bg-zinc-900 text-white hover:bg-zinc-800'
           }`}
-          title="Scroll to latest message"
         >
           <ArrowDown className="w-4 h-4" />
         </button>

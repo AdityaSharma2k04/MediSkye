@@ -126,7 +126,7 @@ export default function Sidebar({
       <aside
         className={`w-72 h-full flex flex-col border-r ${
           darkMode
-            ? 'bg-[#09090B] border-zinc-800/80'
+            ? 'bg-zinc-950 border-zinc-800/80'
             : 'bg-white border-zinc-200'
         }`}
       >
@@ -148,18 +148,6 @@ export default function Sidebar({
               M
             </div>
           )}
-
-          <button
-            onClick={onToggle}
-            aria-label={isOpen ? 'Collapse sidebar' : 'Expand sidebar'}
-            className={`p-1.5 rounded-lg transition-colors ${
-              darkMode
-                ? 'text-zinc-400 hover:text-white hover:bg-zinc-800'
-                : 'text-zinc-500 hover:text-zinc-900 hover:bg-zinc-100'
-            }`}
-          >
-            {isOpen ? <ChevronLeft className="w-4 h-4" /> : <ChevronRight className="w-4 h-4" />}
-          </button>
         </div>
 
         {isOpen && (
@@ -167,7 +155,7 @@ export default function Sidebar({
             {/* A2: Keep only this top "New Consultation" button */}
             <button
               onClick={onNewChat}
-              className={`w-full flex items-center justify-center gap-2 py-2 px-3.5 rounded-xl font-medium text-xs transition-all duration-150 ${
+              className={`w-full flex items-center justify-center gap-2 py-2 px-3.5 rounded-xl font-medium text-xs transition-all duration-150 active:scale-[0.98] ${
                 darkMode
                   ? 'bg-zinc-100 hover:bg-zinc-200 text-black'
                   : 'bg-zinc-900 hover:bg-zinc-800 text-white'
@@ -209,7 +197,36 @@ export default function Sidebar({
               </div>
 
               {filteredChats.length === 0 ? (
-                <div className={`text-center py-6 text-xs ${darkMode ? 'text-zinc-500' : 'text-zinc-400'}`}>{t('sidebar.no_chats', 'No chats found')}</div>
+                conversations.length === 0 ? (
+                  <div className="flex flex-col items-center text-center py-8 px-3 animate-fade-in">
+                    <div className={`w-10 h-10 rounded-2xl flex items-center justify-center mb-3 ${
+                      darkMode ? 'bg-zinc-800/80 text-zinc-400' : 'bg-zinc-100 text-zinc-500'
+                    }`}>
+                      <MessageSquare className="w-5 h-5" />
+                    </div>
+                    <div className={`text-xs font-semibold mb-1 ${darkMode ? 'text-zinc-200' : 'text-zinc-700'}`}>
+                      {t('sidebar.no_conversations_title', 'No conversations yet')}
+                    </div>
+                    <div className={`text-[11px] leading-relaxed mb-4 ${darkMode ? 'text-zinc-500' : 'text-zinc-400'}`}>
+                      {t('sidebar.no_conversations_subtitle', 'Upload a medical report or start a new conversation to see it here.')}
+                    </div>
+                    <button
+                      onClick={onNewChat}
+                      className={`px-3 py-1.5 rounded-lg text-[11px] font-medium border transition-all active:scale-[0.97] ${
+                        darkMode
+                          ? 'border-zinc-700 text-zinc-300 hover:bg-zinc-800 hover:text-white'
+                          : 'border-zinc-300 text-zinc-600 hover:bg-zinc-50 hover:text-zinc-900'
+                      }`}
+                    >
+                      {t('sidebar.new_consultation', 'New Conversation')}
+                    </button>
+                  </div>
+                ) : (
+                  <div className="flex flex-col items-center text-center py-8 px-3 animate-fade-in">
+                    <Search className={`w-5 h-5 mb-2 ${darkMode ? 'text-zinc-600' : 'text-zinc-400'}`} />
+                    <div className={`text-xs ${darkMode ? 'text-zinc-500' : 'text-zinc-400'}`}>{t('sidebar.no_chats', 'No chats found')}</div>
+                  </div>
+                )
               ) : (
                 filteredChats.map((chat, index) => {
                   const isActive = Boolean(chat.id) && chat.id === activeSessionId;
@@ -233,13 +250,21 @@ export default function Sidebar({
                             }}
                             maxLength={60}
                             aria-label="Rename chat"
-                            className="flex-1 min-w-0 text-xs bg-gray-800 text-white px-2 py-1 rounded border border-gray-600 focus:outline-none focus:border-blue-500"
+                            className={`flex-1 min-w-0 text-xs px-2 py-1 rounded border focus:outline-none focus:border-blue-500 transition-colors ${
+                              darkMode
+                                ? 'bg-gray-800 text-white border-gray-600'
+                                : 'bg-slate-100 text-zinc-900 border-zinc-300'
+                            }`}
                           />
                           <button
                             type="button"
                             onClick={() => commitRename(chat.id)}
                             aria-label="Confirm rename"
-                            className="shrink-0 p-1 rounded text-emerald-400 hover:text-emerald-300 hover:bg-zinc-700/50 transition-colors"
+                            className={`shrink-0 p-1 rounded transition-colors ${
+                              darkMode
+                                ? 'text-emerald-400 hover:text-emerald-300 hover:bg-zinc-700/50'
+                                : 'text-emerald-600 hover:text-emerald-500 hover:bg-zinc-200'
+                            }`}
                           >
                             <Check className="w-3.5 h-3.5" />
                           </button>
@@ -247,7 +272,11 @@ export default function Sidebar({
                             type="button"
                             onClick={cancelRename}
                             aria-label="Cancel rename"
-                            className="shrink-0 p-1 rounded text-zinc-400 hover:text-zinc-200 hover:bg-zinc-700/50 transition-colors"
+                            className={`shrink-0 p-1 rounded transition-colors ${
+                              darkMode
+                                ? 'text-zinc-400 hover:text-zinc-200 hover:bg-zinc-700/50'
+                                : 'text-zinc-500 hover:text-zinc-800 hover:bg-zinc-200'
+                            }`}
                           >
                             <X className="w-3.5 h-3.5" />
                           </button>

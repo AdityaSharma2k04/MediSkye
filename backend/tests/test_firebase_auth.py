@@ -157,3 +157,54 @@ async def test_firebase_token_without_name_claim_provisions_user():
         assert user.phi_consent_granted is True
         assert len(user.hashed_password) > 0
 
+
+@pytest.mark.asyncio
+async def test_firebase_token_recovers_when_adc_credentials_fail():
+    """Verify that when Firebase Admin throws 'cannot fetch credentials' / DefaultCredentialsError,
+    the JWKS fallback successfully recovers and authenticates the user."""
+    random_id = uuid.uuid4().hex[:8]
+    fb_email = f"cred_recovery_{random_id}@example.com"
+    
+    # Create an RS256 token mimicking Firebase ID token
+    import jwt as pyjwt
+    from cryptography.hazmat.primitives.asymmetric import rsa
+    from cryptography.hazmat.primitives import serialization
+    
+    key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+    private_pem = key.private_bytes(
+        encoding=serialization.Encoding.PEM,
+        format=serialization.PrivateFormat.PKCS8,
+        encryption_algorithm=serialization.NoEncryption()
+    )
+    
+    project_id = "mediskye-backend"
+    token = pyjwt.encode(
+        {
+            "iss": f"https://securetoken.google.com/{project_id}",
+            "aud": project_id,
+            "sub": f"uid_{random_id}",
+            "email": fb_email,
+            "name": "Recovery User",
+        },
+        private_pem,
+        algorithm="RS256"
+    )
+
+    mock_fb_auth = MagicMock()
+    mock_fb_auth.verify_id_token.side_effect = Exception("cannot fetch credentials from metadata server")
+
+    mock_fb_admin = MagicMock()
+    mock_fb_admin._apps = [True]
+    mock_fb_admin.auth = mock_fb_auth
+
+    with patch.dict("sys.modules", {"firebase_admin": mock_fb_admin, "firebase_admin.auth": mock_fb_auth}):
+        transport = ASGITransport(app=app)
+        async with AsyncClient(transport=transport, base_url="http://test") as ac:
+            headers = {"Authorization": f"Bearer {token}"}
+            res = await ac.get("/users/me", headers=headers)
+            assert res.status_code == 200
+            data = res.json()
+            assert data["email"] == fb_email
+            assert data["full_name"] == "Recovery User"
+
+

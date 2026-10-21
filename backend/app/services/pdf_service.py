@@ -44,14 +44,14 @@ def validate_file_upload(content: bytes, filename: str = "report.pdf") -> None:
             doc = fitz.open(stream=content, filetype="pdf")
             if doc.is_encrypted:
                 raise HTTPException(
-                    status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                    status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
                     detail="Uploaded PDF is encrypted or password protected. Please provide an unencrypted PDF.",
                 )
                 
             page_count = len(doc)
             if page_count == 0:
                 raise HTTPException(
-                    status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                    status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
                     detail="PDF report contains no readable pages.",
                 )
                 
@@ -65,6 +65,6 @@ def validate_file_upload(content: bytes, filename: str = "report.pdf") -> None:
             raise
         except Exception as exc:
             raise HTTPException(
-                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
                 detail="Corrupted or unreadable PDF document format.",
             ) from exc

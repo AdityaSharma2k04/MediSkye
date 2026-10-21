@@ -25,7 +25,7 @@ from app.schemas.query import QueryRequest, QueryResponse, SourceChunk
 from app.rag.prompt_builder import build_prompt, build_general_health_prompt, build_casual_prompt
 from app.rag.intent_router import classify_intent, QueryIntent
 from app.rag.safety import append_disclaimer, get_emergency_response, is_emergency_query
-from app.rag.retriever import load_hybrid_index, retrieve_relevant_docs
+from app.rag.retriever import load_hybrid_index, retrieve_relevant_docs, dynamic_retrieval_k
 from app.rag.output_filter import scan_output
 from app.services.patient_service import calculate_age
 from app.services.patient_memory import get_active_facts, get_relevant_past_chunks, get_chat_documents
@@ -124,10 +124,12 @@ async def query_bot(
             parsed_id = uuid.UUID(body.session_id)
             # 1. Check if session_id is an existing chat_id
             chat_check = await db.execute(
-                select(Chat).filter(Chat.id == parsed_id, Chat.user_id == current_user.id)
+                select(Chat).filter(Chat.id == parsed_id)
             )
             chat_found = chat_check.scalars().first()
             if chat_found:
+                if chat_found.user_id != current_user.id:
+                    raise HTTPException(status_code=403, detail="Forbidden: You do not have access to this session.")
                 target_chat_id = chat_found.id
                 chat_docs = await get_chat_documents(target_chat_id, session=db)
                 if chat_docs:
@@ -135,10 +137,12 @@ async def query_bot(
             else:
                 # 2. Check if session_id is a document_id
                 doc_check = await db.execute(
-                    select(Document).filter(Document.id == parsed_id, Document.user_id == current_user.id)
+                    select(Document).filter(Document.id == parsed_id)
                 )
                 doc_found = doc_check.scalars().first()
                 if doc_found:
+                    if doc_found.user_id != current_user.id:
+                        raise HTTPException(status_code=403, detail="Forbidden: You do not have access to this document.")
                     primary_doc = doc_found
                     chat_docs = [doc_found]
         except ValueError:
@@ -265,21 +269,30 @@ async def query_bot(
             if intent == QueryIntent.DOCUMENT_QA:
                 yield f'event: stage\ndata: {json.dumps({"stage": "retrieving", "message": "Searching your reports..."})}\n\n'
                 all_doc_results = []
+                # Adapt retrieval breadth to query complexity: short factual
+                # questions get a tight k=4; long/multi-part questions sweep k=12.
+                per_doc_k = dynamic_retrieval_k(body.query)
                 for d in chat_docs:
-                    if d.file_path and os.path.exists(d.file_path):
-                        try:
-                            def _load_and_retrieve(path, q):
-                                v, b = load_hybrid_index(path)
-                                return retrieve_relevant_docs(q, v, b, k=4)
+                    if not d.file_path:
+                        continue
+                    try:
+                        resolved_path = str(await aensure_index_local(d.file_path))
+                        if not os.path.exists(resolved_path):
+                            logger.warning("Index file missing after ensure_local: %s", resolved_path)
+                            continue
 
-                            doc_chunks = await asyncio.to_thread(_load_and_retrieve, d.file_path, body.query)
-                            for c in doc_chunks:
-                                c.metadata["source"] = d.title or d.filename
-                                c.metadata["filename"] = d.filename
-                            if doc_chunks:
-                                all_doc_results.append(doc_chunks)
-                        except Exception as e:
-                            logger.warning("Failed to search index for doc %s: %s", d.filename, e)
+                        def _load_and_retrieve(path, q):
+                            v, b = load_hybrid_index(path)
+                            return retrieve_relevant_docs(q, v, b, k=per_doc_k)
+
+                        doc_chunks = await asyncio.to_thread(_load_and_retrieve, resolved_path, body.query)
+                        for c in doc_chunks:
+                            c.metadata["source"] = d.title or d.filename
+                            c.metadata["filename"] = d.filename
+                        if doc_chunks:
+                            all_doc_results.append(doc_chunks)
+                    except Exception as e:
+                        logger.warning("Failed to search index for doc %s: %s", d.filename, e)
 
                 if len(all_doc_results) == 1:
                     retrieved_chunks = all_doc_results[0]

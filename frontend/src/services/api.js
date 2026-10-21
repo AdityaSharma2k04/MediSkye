@@ -26,8 +26,24 @@ export function formatApiError(data, fallback = 'Request failed') {
   return fallback;
 }
 
-function getAuthHeaders() {
+export function getAuthHeaders() {
   const token = localStorage.getItem('token');
+  return token ? { 'Authorization': `Bearer ${token}` } : {};
+}
+
+export async function getFreshAuthHeaders(forceRefresh = false) {
+  let token = localStorage.getItem('token');
+  if (auth && auth.currentUser) {
+    try {
+      const freshToken = await auth.currentUser.getIdToken(forceRefresh);
+      if (freshToken) {
+        token = freshToken;
+        localStorage.setItem('token', freshToken);
+      }
+    } catch (e) {
+      logger.warn('Failed to refresh Firebase auth token:', e);
+    }
+  }
   return token ? { 'Authorization': `Bearer ${token}` } : {};
 }
 
@@ -325,10 +341,22 @@ export async function getDocumentSummary(documentId, forceRefresh = false) {
 }
 
 export async function getProfile() {
-  const res = await fetch(`${API_BASE}/users/me`, {
+  const headers = await getFreshAuthHeaders();
+  let res = await fetch(`${API_BASE}/users/me`, {
     method: 'GET',
-    headers: getAuthHeaders(),
+    headers,
   });
+  if (res.status === 401 && auth && auth.currentUser) {
+    try {
+      const retryHeaders = await getFreshAuthHeaders(true);
+      res = await fetch(`${API_BASE}/users/me`, {
+        method: 'GET',
+        headers: retryHeaders,
+      });
+    } catch (e) {
+      // ignore retry error
+    }
+  }
   if (!res.ok) {
     throw new Error('Failed to fetch profile');
   }
@@ -336,14 +364,30 @@ export async function getProfile() {
 }
 
 export async function updateProfile(data) {
-  const res = await fetch(`${API_BASE}/users/me`, {
+  const headers = await getFreshAuthHeaders();
+  let res = await fetch(`${API_BASE}/users/me`, {
     method: 'PUT',
     headers: {
       'Content-Type': 'application/json',
-      ...getAuthHeaders(),
+      ...headers,
     },
     body: JSON.stringify(data),
   });
+  if (res.status === 401 && auth && auth.currentUser) {
+    try {
+      const retryHeaders = await getFreshAuthHeaders(true);
+      res = await fetch(`${API_BASE}/users/me`, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+          ...retryHeaders,
+        },
+        body: JSON.stringify(data),
+      });
+    } catch (e) {
+      // ignore retry error
+    }
+  }
   if (!res.ok) {
     throw new Error('Failed to update profile');
   }
@@ -506,23 +550,65 @@ export const deleteChat = deleteDocument;
 // ── Patient Memory System APIs ──
 
 export async function getMemoryStatus() {
-  const res = await fetch(`${API_BASE}/users/me/memory/status`, {
-    headers: getAuthHeaders(),
+  const headers = await getFreshAuthHeaders();
+  let res = await fetch(`${API_BASE}/users/me/memory/status`, {
+    headers,
   });
+  if (res.status === 401 && auth && auth.currentUser) {
+    try {
+      const retryHeaders = await getFreshAuthHeaders(true);
+      res = await fetch(`${API_BASE}/users/me/memory/status`, {
+        headers: retryHeaders,
+      });
+    } catch (e) {
+      // ignore
+    }
+  }
   if (!res.ok) return { memory_consent_granted: false, fact_count: 0 };
   return await res.json();
 }
 
 export async function updateMemoryConsent(consent) {
-  const res = await fetch(`${API_BASE}/users/me/memory/consent`, {
+  const headers = await getFreshAuthHeaders();
+  let res = await fetch(`${API_BASE}/users/me/memory/consent`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
-      ...getAuthHeaders(),
+      ...headers,
     },
     body: JSON.stringify({ consent }),
   });
+
+  // If 401 Unauthorized, force-refresh the Firebase ID token and retry
+  if (res.status === 401 && auth && auth.currentUser) {
+    try {
+      const retryHeaders = await getFreshAuthHeaders(true);
+      res = await fetch(`${API_BASE}/users/me/memory/consent`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...retryHeaders,
+        },
+        body: JSON.stringify({ consent }),
+      });
+    } catch (retryErr) {
+      logger.warn('Retry with refreshed token failed:', retryErr);
+    }
+  }
+
+  // Graceful fallback to updateProfile if /users/me/memory/consent fails
   if (!res.ok) {
+    try {
+      const updatedProfile = await updateProfile({ memory_consent_granted: consent });
+      if (updatedProfile) {
+        return {
+          status: 'success',
+          memory_consent_granted: updatedProfile.memory_consent_granted ?? consent,
+        };
+      }
+    } catch (fallbackErr) {
+      // Re-raise original error if fallback also fails
+    }
     const errData = await res.json().catch(() => ({}));
     throw new Error(errData.detail || 'Failed to update memory consent');
   }
@@ -534,9 +620,20 @@ export async function getFacts(dependentId = null) {
   if (dependentId && dependentId !== 'self') {
     url += `?dependent_id=${dependentId}`;
   }
-  const res = await fetch(url, {
-    headers: getAuthHeaders(),
+  const headers = await getFreshAuthHeaders();
+  let res = await fetch(url, {
+    headers,
   });
+  if (res.status === 401 && auth && auth.currentUser) {
+    try {
+      const retryHeaders = await getFreshAuthHeaders(true);
+      res = await fetch(url, {
+        headers: retryHeaders,
+      });
+    } catch (e) {
+      // ignore
+    }
+  }
   if (!res.ok) return [];
   return await res.json();
 }
@@ -544,14 +641,30 @@ export async function getFacts(dependentId = null) {
 export const getMemoryFacts = getFacts;
 
 export async function createFact(factData) {
-  const res = await fetch(`${API_BASE}/users/me/facts`, {
+  const headers = await getFreshAuthHeaders();
+  let res = await fetch(`${API_BASE}/users/me/facts`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
-      ...getAuthHeaders(),
+      ...headers,
     },
     body: JSON.stringify(factData),
   });
+  if (res.status === 401 && auth && auth.currentUser) {
+    try {
+      const retryHeaders = await getFreshAuthHeaders(true);
+      res = await fetch(`${API_BASE}/users/me/facts`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...retryHeaders,
+        },
+        body: JSON.stringify(factData),
+      });
+    } catch (e) {
+      // ignore
+    }
+  }
   if (!res.ok) {
     const errData = await res.json().catch(() => ({}));
     throw new Error(errData.detail || 'Failed to save health fact');
@@ -562,14 +675,30 @@ export async function createFact(factData) {
 export const createMemoryFact = createFact;
 
 export async function updateFact(factId, factData) {
-  const res = await fetch(`${API_BASE}/users/me/facts/${factId}`, {
+  const headers = await getFreshAuthHeaders();
+  let res = await fetch(`${API_BASE}/users/me/facts/${factId}`, {
     method: 'PATCH',
     headers: {
       'Content-Type': 'application/json',
-      ...getAuthHeaders(),
+      ...headers,
     },
     body: JSON.stringify(factData),
   });
+  if (res.status === 401 && auth && auth.currentUser) {
+    try {
+      const retryHeaders = await getFreshAuthHeaders(true);
+      res = await fetch(`${API_BASE}/users/me/facts/${factId}`, {
+        method: 'PATCH',
+        headers: {
+          'Content-Type': 'application/json',
+          ...retryHeaders,
+        },
+        body: JSON.stringify(factData),
+      });
+    } catch (e) {
+      // ignore
+    }
+  }
   if (!res.ok) {
     const errData = await res.json().catch(() => ({}));
     throw new Error(errData.detail || 'Failed to update health fact');
@@ -578,10 +707,22 @@ export async function updateFact(factId, factData) {
 }
 
 export async function deleteFact(factId) {
-  const res = await fetch(`${API_BASE}/users/me/facts/${factId}`, {
+  const headers = await getFreshAuthHeaders();
+  let res = await fetch(`${API_BASE}/users/me/facts/${factId}`, {
     method: 'DELETE',
-    headers: getAuthHeaders(),
+    headers,
   });
+  if (res.status === 401 && auth && auth.currentUser) {
+    try {
+      const retryHeaders = await getFreshAuthHeaders(true);
+      res = await fetch(`${API_BASE}/users/me/facts/${factId}`, {
+        method: 'DELETE',
+        headers: retryHeaders,
+      });
+    } catch (e) {
+      // ignore
+    }
+  }
   if (!res.ok) {
     throw new Error('Failed to delete memory fact');
   }
@@ -595,10 +736,22 @@ export async function clearAllMemoryFacts(dependentId = null) {
   if (dependentId && dependentId !== 'self') {
     url += `?dependent_id=${dependentId}`;
   }
-  const res = await fetch(url, {
+  const headers = await getFreshAuthHeaders();
+  let res = await fetch(url, {
     method: 'DELETE',
-    headers: getAuthHeaders(),
+    headers,
   });
+  if (res.status === 401 && auth && auth.currentUser) {
+    try {
+      const retryHeaders = await getFreshAuthHeaders(true);
+      res = await fetch(url, {
+        method: 'DELETE',
+        headers: retryHeaders,
+      });
+    } catch (e) {
+      // ignore
+    }
+  }
   if (!res.ok) {
     throw new Error('Failed to clear memory facts');
   }
@@ -610,4 +763,23 @@ export async function clearAllMemoryFacts(dependentId = null) {
 export async function detachChatDocument(chatId, docId) {
   const documentId = docId || chatId;
   return await deleteDocument(documentId);
+}
+
+// ── Chat History Export ──
+
+export async function exportDocumentData(documentId) {
+  const res = await fetch(`${API_BASE}/users/me/documents/${documentId}/export`, {
+    method: 'GET',
+    headers: getAuthHeaders(),
+  });
+  if (!res.ok) {
+    if (res.status === 401) {
+      localStorage.removeItem('token');
+      window.dispatchEvent(new Event('auth:expired'));
+      throw new Error('Session expired. Please log in again.');
+    }
+    const data = await res.json().catch(() => null);
+    throw new Error(data?.detail || 'Failed to export document data');
+  }
+  return await res.json();
 }

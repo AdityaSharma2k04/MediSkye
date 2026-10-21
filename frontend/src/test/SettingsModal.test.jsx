@@ -77,7 +77,27 @@ describe('SettingsModal Account fields & Deletion', () => {
     };
   });
 
-  it('renders account fields populated from currentUser', () => {
+  it('renders Manage Health Profile & Caregivers button which triggers onOpenProfile and closes modal', async () => {
+    const onOpenProfile = vi.fn();
+    const onClose = vi.fn();
+    render(
+      <SettingsModal
+        isOpen={true}
+        onClose={onClose}
+        darkMode={false}
+        currentUser={mockUser}
+        onOpenProfile={onOpenProfile}
+      />
+    );
+
+    const profileBtn = await screen.findByRole('button', { name: /manage health profile & caregivers/i });
+    expect(profileBtn).toBeInTheDocument();
+    fireEvent.click(profileBtn);
+    expect(onClose).toHaveBeenCalled();
+    expect(onOpenProfile).toHaveBeenCalled();
+  });
+
+  it('does not render redundant account form fields in Settings modal', async () => {
     render(
       <SettingsModal
         isOpen={true}
@@ -87,20 +107,17 @@ describe('SettingsModal Account fields & Deletion', () => {
       />
     );
 
-    expect(screen.getByDisplayValue('Original Name')).toBeInTheDocument();
-    expect(screen.getByDisplayValue('patient@example.com')).toBeInTheDocument();
-    expect(screen.getByDisplayValue('1990-05-15')).toBeInTheDocument();
-    expect(screen.getByDisplayValue('Male')).toBeInTheDocument();
-    expect(screen.getByDisplayValue('O+')).toBeInTheDocument();
+    await screen.findByRole('button', { name: /manage health profile & caregivers/i });
+    expect(screen.queryByPlaceholderText('Your full name')).not.toBeInTheDocument();
+    expect(screen.queryByDisplayValue('Original Name')).not.toBeInTheDocument();
+    expect(screen.queryByDisplayValue('1990-05-15')).not.toBeInTheDocument();
   });
 
-  it('optimistically updates and persists full_name on blur with success toast', async () => {
+  it('updates draft state on change and persists preferences only after clicking Save Changes button', async () => {
     const showToast = vi.fn();
+    const setLanguage = vi.fn();
     const onProfileUpdated = vi.fn();
-    api.updateProfile.mockResolvedValueOnce({
-      ...mockUser,
-      full_name: 'Jane Smith',
-    });
+    api.updateProfile.mockResolvedValueOnce({ ...mockUser, language_preference: 'Spanish' });
 
     render(
       <SettingsModal
@@ -108,28 +125,31 @@ describe('SettingsModal Account fields & Deletion', () => {
         onClose={vi.fn()}
         darkMode={false}
         currentUser={mockUser}
+        language="English"
+        setLanguage={setLanguage}
         showToast={showToast}
         onProfileUpdated={onProfileUpdated}
       />
     );
 
-    const nameInput = screen.getByDisplayValue('Original Name');
-    fireEvent.change(nameInput, { target: { value: 'Jane Smith' } });
-    expect(nameInput.value).toBe('Jane Smith');
+    const select = screen.getByDisplayValue('English (US)');
+    fireEvent.change(select, { target: { value: 'Spanish' } });
 
-    fireEvent.blur(nameInput);
+    // API should NOT be called before clicking Save Changes
+    expect(api.updateProfile).not.toHaveBeenCalled();
+
+    const saveBtn = screen.getByRole('button', { name: 'Save Changes' });
+    fireEvent.click(saveBtn);
 
     await waitFor(() => {
-      expect(api.updateProfile).toHaveBeenCalledWith({ full_name: 'Jane Smith' });
-    });
-
-    await waitFor(() => {
+      expect(api.updateProfile).toHaveBeenCalledWith({ language_preference: 'Spanish' });
+      expect(setLanguage).toHaveBeenCalledWith('Spanish');
       expect(showToast).toHaveBeenCalledWith('success', 'Changes Saved', expect.any(String));
-      expect(onProfileUpdated).toHaveBeenCalledWith(expect.objectContaining({ full_name: 'Jane Smith' }));
+      expect(onProfileUpdated).toHaveBeenCalledWith(expect.objectContaining({ language_preference: 'Spanish' }));
     });
   });
 
-  it('rolls back local field value and shows error toast when API fails', async () => {
+  it('shows error toast when Save Changes fails', async () => {
     const showToast = vi.fn();
     api.updateProfile.mockRejectedValueOnce(new Error('Network error'));
 
@@ -139,24 +159,19 @@ describe('SettingsModal Account fields & Deletion', () => {
         onClose={vi.fn()}
         darkMode={false}
         currentUser={mockUser}
+        language="English"
         showToast={showToast}
       />
     );
 
-    const nameInput = screen.getByDisplayValue('Original Name');
-    fireEvent.change(nameInput, { target: { value: 'Failing Name' } });
-    expect(nameInput.value).toBe('Failing Name');
+    const select = screen.getByDisplayValue('English (US)');
+    fireEvent.change(select, { target: { value: 'Spanish' } });
 
-    fireEvent.blur(nameInput);
-
-    await waitFor(() => {
-      expect(api.updateProfile).toHaveBeenCalledWith({ full_name: 'Failing Name' });
-    });
+    const saveBtn = screen.getByRole('button', { name: 'Save Changes' });
+    fireEvent.click(saveBtn);
 
     await waitFor(() => {
       expect(showToast).toHaveBeenCalledWith('error', 'Update Failed', 'Network error');
-      // Rollback to original value
-      expect(nameInput.value).toBe('Original Name');
     });
   });
 
@@ -174,7 +189,7 @@ describe('SettingsModal Account fields & Deletion', () => {
     );
 
     // Click "Delete account" in settings modal
-    const deleteBtn = screen.getByRole('button', { name: /delete account/i });
+    const deleteBtn = await screen.findByRole('button', { name: /delete account/i });
     fireEvent.click(deleteBtn);
 
     // Confirmation dialog should be visible
@@ -275,7 +290,7 @@ describe('SettingsModal Account fields & Deletion', () => {
     });
   });
 
-  it('disables change password button and displays informative message when signed in with Google', () => {
+  it('disables change password button and displays informative message when signed in with Google', async () => {
     mockAuth.currentUser = {
       email: 'patient@example.com',
       providerData: [{ providerId: 'google.com' }],
@@ -290,7 +305,7 @@ describe('SettingsModal Account fields & Deletion', () => {
       />
     );
 
-    const changePwdBtn = screen.getByRole('button', { name: /change password/i });
+    const changePwdBtn = await screen.findByRole('button', { name: /change password/i });
     expect(changePwdBtn).toBeDisabled();
     expect(
       screen.getByText("You signed in with Google. To set a password, use the 'Forgot Password' link on the login page.")
@@ -322,37 +337,88 @@ describe('SettingsModal Account fields & Deletion', () => {
 
     const select = screen.getByDisplayValue('English (US)');
     fireEvent.change(select, { target: { value: 'Spanish' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Save Changes' }));
 
-    expect(setLanguage).toHaveBeenCalledWith('Spanish');
     await waitFor(() => {
       expect(api.updateProfile).toHaveBeenCalledWith({ language_preference: 'Spanish' });
-    });
-    await waitFor(() => {
-      expect(showToast).toHaveBeenCalledWith('success', 'Language Updated', expect.any(String));
+      expect(setLanguage).toHaveBeenCalledWith('Spanish');
+      expect(showToast).toHaveBeenCalledWith('success', 'Changes Saved', expect.any(String));
       expect(onProfileUpdated).toHaveBeenCalledWith(expect.objectContaining({ language_preference: 'Spanish' }));
     });
   });
 
-  it('persists the System theme preference without collapsing it to dark/light', () => {
-    const setThemePreference = vi.fn();
-
+  it('does not render theme selector in Settings modal', async () => {
     render(
       <SettingsModal
         isOpen={true}
         onClose={vi.fn()}
         darkMode={false}
-        setDarkMode={vi.fn()}
-        themePreference="light"
-        setThemePreference={setThemePreference}
         currentUser={mockUser}
       />
     );
 
-    fireEvent.click(screen.getByRole('button', { name: /system/i }));
-    expect(setThemePreference).toHaveBeenCalledWith('system');
+    await screen.findByRole('button', { name: /save changes/i });
+    expect(screen.queryByRole('button', { name: /system/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /^dark$/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /^light$/i })).not.toBeInTheDocument();
   });
 
-  it('renders Change email and Privacy policy as disabled with tooltips', () => {
+  it('shows unsaved changes warning when attempting to close with dirty state and allows discarding', async () => {
+    const onClose = vi.fn();
+
+    render(
+      <SettingsModal
+        isOpen={true}
+        onClose={onClose}
+        darkMode={false}
+        currentUser={mockUser}
+        language="English"
+      />
+    );
+
+    // Initial state: clicking Close closes immediately
+    const closeBtn = await screen.findByRole('button', { name: 'Close settings' });
+    fireEvent.click(closeBtn);
+    expect(onClose).toHaveBeenCalledTimes(1);
+
+    onClose.mockClear();
+
+    // Modify a field to create dirty state
+    const select = screen.getByDisplayValue('English (US)');
+    fireEvent.change(select, { target: { value: 'French' } });
+
+    // Try to close via X button
+    fireEvent.click(closeBtn);
+
+    // onClose should NOT have been called yet
+    expect(onClose).not.toHaveBeenCalled();
+
+    // Confirm dialog should appear
+    expect(screen.getByText('Unsaved Changes')).toBeInTheDocument();
+    expect(
+      screen.getByText('You have unsaved changes. Are you sure you want to discard them?')
+    ).toBeInTheDocument();
+
+    // Click "Keep Editing"
+    const keepEditingBtn = screen.getByRole('button', { name: 'Keep Editing' });
+    fireEvent.click(keepEditingBtn);
+    expect(screen.queryByText('Unsaved Changes')).not.toBeInTheDocument();
+    expect(onClose).not.toHaveBeenCalled();
+
+    // Try to close again via Cancel button
+    const cancelBtn = screen.getByRole('button', { name: 'Cancel' });
+    fireEvent.click(cancelBtn);
+
+    expect(screen.getByText('Unsaved Changes')).toBeInTheDocument();
+
+    // Click "Discard Changes"
+    const discardBtn = screen.getByRole('button', { name: 'Discard Changes' });
+    fireEvent.click(discardBtn);
+
+    expect(onClose).toHaveBeenCalledTimes(1);
+  });
+
+  it('renders Privacy policy as disabled with tooltip in About section', async () => {
     render(
       <SettingsModal
         isOpen={true}
@@ -362,11 +428,7 @@ describe('SettingsModal Account fields & Deletion', () => {
       />
     );
 
-    const emailBtn = screen.getByRole('button', { name: /change email/i });
-    expect(emailBtn).toBeDisabled();
-    expect(emailBtn).toHaveAttribute('title', 'Coming soon — contact support to change your email');
-
-    const privacyBtn = screen.getByRole('button', { name: /privacy policy/i });
+    const privacyBtn = await screen.findByRole('button', { name: /privacy policy/i });
     expect(privacyBtn).toBeDisabled();
     expect(privacyBtn).toHaveAttribute('title', 'Policy coming soon');
   });

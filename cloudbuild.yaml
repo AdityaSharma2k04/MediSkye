@@ -27,8 +27,10 @@ steps:
       - '--port=8080'
       - '--memory=1Gi'
       - '--cpu=1'
-      - '--cpu-boost'
-      - '--set-env-vars=GOOGLE_GENAI_USE_ENTERPRISE=True,GOOGLE_CLOUD_PROJECT=$PROJECT_ID,GOOGLE_CLOUD_LOCATION=global,ALLOWED_ORIGINS=https://your-cloudflare-url.pages.dev'
+      - '--update-env-vars=GOOGLE_GENAI_USE_ENTERPRISE=True,GOOGLE_CLOUD_PROJECT=$PROJECT_ID,GOOGLE_CLOUD_LOCATION=global,ALLOWED_ORIGINS=${_ALLOWED_ORIGINS}'
+
+substitutions:
+  _ALLOWED_ORIGINS: 'http://localhost:3000,http://localhost:5173'
 
 images:
   - 'gcr.io/$PROJECT_ID/mediskye:$COMMIT_SHA'

@@ -4,6 +4,8 @@
     "search": "Search chats...",
     "history": "History",
     "no_chats": "No chats found",
+    "no_conversations_title": "No conversations yet",
+    "no_conversations_subtitle": "Upload a medical report or start a new conversation to see it here.",
     "rename": "Rename",
     "delete": "Delete",
     "profile": "Profile & Caregiver Hub",
@@ -20,6 +22,7 @@
     "input_placeholder": "Ask a medical question about your report...",
     "export_summary": "Export Summary",
     "preparing_summary": "Preparing Summary...",
+    "export_data": "Export Data",
     "lab_metrics": "Lab Metrics",
     "view_chat": "Chat",
     "add_report": "+ Add Report",
@@ -32,13 +35,17 @@
     "fetching_messages": "Fetching latest messages from Neon DB",
     "welcome_user": "Welcome back, {{name}}. Upload a report to get started, or ask a general health question.",
     "welcome_guest": "Upload a medical report to get started, or ask a general health question below.",
+    "ask_report_title": "Ask about this report",
+    "ask_report_subtitle": "No questions yet — start with one of these, or ask your own question below.",
     "encrypted_session": "End-to-end encrypted session • Discarded on close",
     "disclaimer": "MediSkye AI can make mistakes. Always verify critical results with a qualified healthcare professional.",
     "listening": "Listening...",
     "speak_question": "Speak your medical question",
     "stop_generation": "Stop generation",
     "send_message": "Send message",
-    "upload_report": "Upload medical report"
+    "upload_report": "Upload medical report",
+    "stop_listening": "Stop listening",
+    "voice_input": "Voice input"
   },
   "settings": {
     "title": "Settings",
@@ -70,7 +77,11 @@
     "memory_disabled": "Disabled",
     "memory_desc": "Allow MediSkye to remember clinical facts across sessions (conditions, medications, lab trends, lifestyle).",
     "remembered_facts": "Remembered Facts",
-    "clear_memory": "Clear memory"
+    "clear_memory": "Clear memory",
+    "auto_read": "Auto-read AI responses aloud",
+    "auto_read_desc": "Speaks each completed answer in the selected AI language. Any new question or Stop immediately silences the reading.",
+    "on": "On",
+    "off": "Off"
   },
   "auth": {
     "login_title": "Welcome back",
@@ -97,5 +108,22 @@
     "switch_to_register": "Create a new account",
     "switch_to_login": "Already have an account? Sign in",
     "tagline": "MediSkye AI — Making medical reports understandable for everyone."
+  },
+  "landing": {
+    "nav_features": "Features",
+    "nav_how_it_works": "How it works",
+    "nav_safety": "Safety",
+    "nav_sign_in": "Sign in",
+    "nav_get_started": "Get started",
+    "hero_badge": "Clinical AI Interpretation",
+    "hero_title": "Understand your medical reports in plain English",
+    "hero_subtitle": "Upload any blood test, scan, or pathology report. MediSkye explains clinical jargon, highlights abnormal values, and helps you formulate better questions for your doctor.",
+    "start_free": "Start for free",
+    "see_how_it_works": "See how it works",
+    "safety_can_title": "MediSkye can",
+    "safety_cannot_title": "MediSkye cannot",
+    "footer_tagline": "AI-powered medical report interpretation.",
+    "footer_disclaimer": "MediSkye is an AI assistant for informational purposes only. It does not provide medical diagnoses or replace professional medical advice. Always consult a qualified healthcare provider for clinical decisions.",
+    "footer_copyright": "© 2026 MediSkye. All rights reserved."
   }
 }
