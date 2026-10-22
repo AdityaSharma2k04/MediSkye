@@ -148,3 +148,7 @@ class DocumentResponse(BaseModel):
 class RenameDocumentRequest(BaseModel):
     title: str = Field(..., min_length=1, max_length=60, description="New document title (max 60 chars)")
 
+
+class CustomVerificationRequest(BaseModel):
+    email: EmailStr
+

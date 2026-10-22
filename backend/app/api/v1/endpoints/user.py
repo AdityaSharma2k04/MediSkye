@@ -314,6 +314,14 @@ async def delete_my_document(
     if doc.file_path:
         await adelete_index_artifacts(doc.file_path)
 
+    try:
+        from app.rag.retriever import evict_index_cache
+        evict_index_cache(str(doc.id))
+        if doc.file_path:
+            evict_index_cache(str(doc.file_path))
+    except Exception:
+        pass
+
     # Clean up vector cache session directory if present
     try:
         from app.core.config import settings

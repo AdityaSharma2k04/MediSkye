@@ -214,3 +214,94 @@ async def test_firebase_token_recovers_when_adc_credentials_fail():
             assert data["full_name"] == "Recovery User"
 
 
+@pytest.mark.asyncio
+async def test_firebase_token_unverified_email_raises_403():
+    random_id = uuid.uuid4().hex[:8]
+    fb_email = f"unverified_{random_id}@example.com"
+    mock_decoded_token = {
+        "uid": f"firebase_uid_{random_id}",
+        "email": fb_email,
+        "name": "Unverified User",
+        "email_verified": False,
+        "firebase": {
+            "sign_in_provider": "password",
+        },
+    }
+
+    mock_fb_auth = MagicMock()
+    mock_fb_auth.verify_id_token.return_value = mock_decoded_token
+
+    mock_fb_admin = MagicMock()
+    mock_fb_admin._apps = [True]
+    mock_fb_admin.auth = mock_fb_auth
+
+    with patch.dict("sys.modules", {"firebase_admin": mock_fb_admin, "firebase_admin.auth": mock_fb_auth}):
+        transport = ASGITransport(app=app)
+        async with AsyncClient(transport=transport, base_url="http://test") as ac:
+            headers = {"Authorization": "Bearer fake_unverified_token"}
+            res = await ac.get("/users/me", headers=headers)
+            assert res.status_code == 403
+            assert res.json()["detail"] == "Email not verified"
+
+
+@pytest.mark.asyncio
+async def test_firebase_token_google_provider_unverified_allowed():
+    random_id = uuid.uuid4().hex[:8]
+    fb_email = f"google_user_{random_id}@gmail.com"
+    mock_decoded_token = {
+        "uid": f"firebase_uid_{random_id}",
+        "email": fb_email,
+        "name": "Google User",
+        "email_verified": False,
+        "firebase": {
+            "sign_in_provider": "google.com",
+        },
+    }
+
+    mock_fb_auth = MagicMock()
+    mock_fb_auth.verify_id_token.return_value = mock_decoded_token
+
+    mock_fb_admin = MagicMock()
+    mock_fb_admin._apps = [True]
+    mock_fb_admin.auth = mock_fb_auth
+
+    with patch.dict("sys.modules", {"firebase_admin": mock_fb_admin, "firebase_admin.auth": mock_fb_auth}):
+        transport = ASGITransport(app=app)
+        async with AsyncClient(transport=transport, base_url="http://test") as ac:
+            headers = {"Authorization": "Bearer fake_google_token"}
+            res = await ac.get("/users/me", headers=headers)
+            assert res.status_code == 200
+            assert res.json()["email"] == fb_email
+
+
+@pytest.mark.asyncio
+async def test_firebase_token_verified_email_succeeds():
+    random_id = uuid.uuid4().hex[:8]
+    fb_email = f"verified_{random_id}@example.com"
+    mock_decoded_token = {
+        "uid": f"firebase_uid_{random_id}",
+        "email": fb_email,
+        "name": "Verified User",
+        "email_verified": True,
+        "firebase": {
+            "sign_in_provider": "password",
+        },
+    }
+
+    mock_fb_auth = MagicMock()
+    mock_fb_auth.verify_id_token.return_value = mock_decoded_token
+
+    mock_fb_admin = MagicMock()
+    mock_fb_admin._apps = [True]
+    mock_fb_admin.auth = mock_fb_auth
+
+    with patch.dict("sys.modules", {"firebase_admin": mock_fb_admin, "firebase_admin.auth": mock_fb_auth}):
+        transport = ASGITransport(app=app)
+        async with AsyncClient(transport=transport, base_url="http://test") as ac:
+            headers = {"Authorization": "Bearer fake_verified_token"}
+            res = await ac.get("/users/me", headers=headers)
+            assert res.status_code == 200
+            assert res.json()["email"] == fb_email
+
+
+

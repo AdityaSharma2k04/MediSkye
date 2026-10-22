@@ -18,6 +18,8 @@ import re
 from langchain_community.vectorstores.faiss import FAISS
 from langchain_core.documents import Document
 
+from collections import OrderedDict
+import threading
 from app.rag.chunking import MedicalTextSplitter, split_medical_documents
 from app.rag.embedder import get_embedder
 from app.rag.hybrid_search import BM25Index, save_bm25_index, load_bm25_index, reciprocal_rank_fusion
@@ -32,6 +34,68 @@ RETRIEVAL_K = 8
 RETRIEVAL_FETCH_K = 24
 MAX_RETRIEVAL_K = 12
 MAX_FETCH_K = 48
+
+_INDEX_CACHE_LOCK = threading.Lock()
+_HYBRID_INDEX_CACHE: OrderedDict[str, tuple] = OrderedDict()
+MAX_CACHE_ENTRIES = 32
+
+
+def _normalize_index_key(key) -> str:
+    try:
+        p = Path(key)
+        return str(p.resolve())
+    except Exception:
+        return str(key).strip().lower()
+
+
+def cache_hybrid_index(key, vectorstore, bm25_index) -> None:
+    """Store (vectorstore, bm25_index) in in-memory LRU cache (bounded to 32 entries)."""
+    if not key:
+        return
+    norm_key = _normalize_index_key(key)
+    with _INDEX_CACHE_LOCK:
+        if norm_key in _HYBRID_INDEX_CACHE:
+            _HYBRID_INDEX_CACHE.move_to_end(norm_key)
+            _HYBRID_INDEX_CACHE[norm_key] = (vectorstore, bm25_index)
+        else:
+            if len(_HYBRID_INDEX_CACHE) >= MAX_CACHE_ENTRIES:
+                _HYBRID_INDEX_CACHE.popitem(last=False)
+            _HYBRID_INDEX_CACHE[norm_key] = (vectorstore, bm25_index)
+
+
+def get_cached_hybrid_index(key) -> Optional[tuple]:
+    """Retrieve (vectorstore, bm25_index) from in-memory LRU cache."""
+    if not key:
+        return None
+    query_str = str(key).strip()
+    norm_key = _normalize_index_key(key)
+    with _INDEX_CACHE_LOCK:
+        if norm_key in _HYBRID_INDEX_CACHE:
+            _HYBRID_INDEX_CACHE.move_to_end(norm_key)
+            return _HYBRID_INDEX_CACHE[norm_key]
+        if query_str in _HYBRID_INDEX_CACHE:
+            _HYBRID_INDEX_CACHE.move_to_end(query_str)
+            return _HYBRID_INDEX_CACHE[query_str]
+        for k in list(_HYBRID_INDEX_CACHE.keys()):
+            if query_str in k:
+                _HYBRID_INDEX_CACHE.move_to_end(k)
+                return _HYBRID_INDEX_CACHE[k]
+    return None
+
+
+def evict_index_cache(key_or_doc_id) -> None:
+    """Evict index artifacts from in-memory cache by path, filename, or doc_id."""
+    if not key_or_doc_id:
+        return
+    query_str = str(key_or_doc_id).strip()
+    norm_key = _normalize_index_key(key_or_doc_id)
+    with _INDEX_CACHE_LOCK:
+        keys_to_remove = []
+        for k in list(_HYBRID_INDEX_CACHE.keys()):
+            if k == norm_key or query_str in k:
+                keys_to_remove.append(k)
+        for k in keys_to_remove:
+            _HYBRID_INDEX_CACHE.pop(k, None)
 
 
 def _build_splitter() -> MedicalTextSplitter:
@@ -107,6 +171,7 @@ def build_hybrid_index_from_embeddings(
     bm25_index = BM25Index(chunks)
     save_bm25_index(bm25_index, index_path)
 
+    cache_hybrid_index(index_path, vectorstore, bm25_index)
     return vectorstore, bm25_index, chunks
 
 
@@ -160,6 +225,7 @@ def create_hybrid_index(page_docs: list[Document], index_path: str):
     bm25_index = BM25Index(chunks)
     save_bm25_index(bm25_index, index_path)
     
+    cache_hybrid_index(index_path, vectorstore, bm25_index)
     return vectorstore, bm25_index, chunks
 
 
@@ -167,10 +233,20 @@ def load_hybrid_index(index_path: str):
     """
     Load both FAISS and BM25 indexes from disk, ensuring local availability via GCS if needed.
     Returns (vectorstore, bm25_index). BM25 may be None if not found.
+    Checks in-memory LRU cache first for 0ms retrieval.
     """
+    cached = get_cached_hybrid_index(index_path)
+    if cached is not None:
+        return cached
+
     resolved_path = str(ensure_index_local(index_path))
     vectorstore = FAISS.load_local(resolved_path, get_embedder(), allow_dangerous_deserialization=True)
     bm25_index = load_bm25_index(resolved_path)
+
+    cache_hybrid_index(index_path, vectorstore, bm25_index)
+    if resolved_path != index_path:
+        cache_hybrid_index(resolved_path, vectorstore, bm25_index)
+
     return vectorstore, bm25_index
 
 

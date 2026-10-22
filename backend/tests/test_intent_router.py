@@ -87,3 +87,49 @@ def test_append_disclaimer_conditional():
     # Default without intent parameter still appends disclaimer (backwards compatibility)
     res_default = append_disclaimer(text)
     assert DISCLAIMER_TEXT.strip() in res_default
+
+
+@pytest.mark.asyncio
+async def test_classify_intent_emergency_fast_path_no_llm_call():
+    emergency_phrases = [
+        "I have severe chest pain",
+        "I can't breathe",
+        "Patient cannot breathe properly",
+        "Think I might be having a heart attack",
+        "Symptoms of stroke",
+        "Thinking about suicide",
+        "Severe bleeding from leg",
+        "Found patient unconscious on floor",
+    ]
+    with patch("app.rag.intent_router.call_gemini_with_retry") as mock_gemini:
+        for phrase in emergency_phrases:
+            intent = await classify_intent(phrase)
+            assert intent == QueryIntent.EMERGENCY, f"Expected EMERGENCY for {phrase}"
+        mock_gemini.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_classify_intent_document_attached_fast_path_no_llm_call():
+    # When a document is attached and query is not emergency/casual, return DOCUMENT_QA in 0ms without LLM
+    doc_queries = [
+        "What are my abnormal values?",
+        "Is my hemoglobin level normal?",
+        "Explain the WBC count on page 2",
+        "What does high glucose mean for me?",
+    ]
+    with patch("app.rag.intent_router.call_gemini_with_retry") as mock_gemini:
+        for q in doc_queries:
+            intent = await classify_intent(q, has_document=True)
+            assert intent == QueryIntent.DOCUMENT_QA
+            intent_with_id = await classify_intent(q, document_id="doc-12345")
+            assert intent_with_id == QueryIntent.DOCUMENT_QA
+        mock_gemini.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_classify_intent_emergency_and_casual_precedence_with_document():
+    # Emergency and Casual must take precedence even if document is attached
+    with patch("app.rag.intent_router.call_gemini_with_retry") as mock_gemini:
+        assert await classify_intent("I have crushing chest pain", has_document=True) == QueryIntent.EMERGENCY
+        assert await classify_intent("hello mediskye", has_document=True) == QueryIntent.CASUAL
+        mock_gemini.assert_not_called()

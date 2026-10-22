@@ -54,6 +54,26 @@ async def setup_test_database():
 
     yield
 
+    # Clean up and drain any background tasks spawned during the test
+    # before pytest-asyncio destroys this test's event loop.
+    try:
+        import asyncio
+        from app.api.v1.endpoints.upload import _background_warm_tasks
+        from app.api.v1.endpoints.query import _background_tasks
+
+        pending = [t for t in (_background_warm_tasks | _background_tasks) if not t.done()]
+        if pending:
+            await asyncio.gather(*pending, return_exceptions=True)
+        _background_warm_tasks.clear()
+        _background_tasks.clear()
+    except Exception:
+        pass
+
+    try:
+        await engine.dispose()
+    except Exception:
+        pass
+
 
 @pytest.fixture(autouse=True)
 def reset_rate_limits_each_test():

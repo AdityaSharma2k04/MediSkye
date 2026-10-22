@@ -5,17 +5,23 @@ import {
   googleProvider,
   signInWithPopup,
   signInWithEmailAndPassword,
-  sendPasswordResetEmail,
+  signOut,
   getFirebaseErrorMessage,
 } from '../services/firebase';
+import api, { sendCustomPasswordReset } from '../services/api';
 import { useTranslation } from 'react-i18next';
+import { Eye, EyeOff } from 'lucide-react';
 
 export default function Login() {
   const { t } = useTranslation();
   const navigate = useNavigate();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState('');
+  const [unverifiedUser, setUnverifiedUser] = useState(null);
+  const [resendLoading, setResendLoading] = useState(false);
+  const [resendSuccess, setResendSuccess] = useState(false);
   const [loading, setLoading] = useState(false);
   const [googleLoading, setGoogleLoading] = useState(false);
   const [resetLoading, setResetLoading] = useState(false);
@@ -39,28 +45,56 @@ export default function Login() {
     setError('');
     setResetSuccessMessage('');
 
-    const trimmedEmail = email.trim();
+    const trimmedEmail = email.trim().toLowerCase();
     if (!trimmedEmail) {
       setError("Please enter your email address in the field above first, then click 'Forgot password?'.");
       return;
     }
 
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailRegex.test(trimmedEmail)) {
+      setError("Please enter a valid email address (e.g., name@example.com).");
+      return;
+    }
+
     setResetLoading(true);
     try {
-      await sendPasswordResetEmail(auth, trimmedEmail);
+      await sendCustomPasswordReset(trimmedEmail);
       setResetSuccessMessage(
-        `Password reset link sent to ${trimmedEmail}. Please check your inbox (and Spam folder).`
+        `If an account exists with ${trimmedEmail}, a password reset link has been sent. Please check your inbox (and Spam folder).`
       );
     } catch (err) {
-      setError(getFirebaseErrorMessage(err));
+      if (err?.message && (err.message.includes('unavailable') || err.message.includes('try again later'))) {
+        setError(err.message);
+      } else {
+        setResetSuccessMessage(
+          `If an account exists with ${trimmedEmail}, a password reset link has been sent. Please check your inbox (and Spam folder).`
+        );
+      }
     } finally {
       setResetLoading(false);
+    }
+  };
+
+  const handleResendVerification = async () => {
+    if (!unverifiedUser) return;
+    setResendLoading(true);
+    try {
+      const emailToSend = unverifiedUser.email || email.trim().toLowerCase();
+      await api.post('/auth/send-custom-verification', { email: emailToSend });
+      setResendSuccess(true);
+    } catch (err) {
+      setError(err?.message || getFirebaseErrorMessage(err));
+    } finally {
+      setResendLoading(false);
     }
   };
 
   const handleGoogleSignIn = async () => {
     setError('');
     setResetSuccessMessage('');
+    setUnverifiedUser(null);
+    setResendSuccess(false);
     setGoogleLoading(true);
     try {
       const result = await signInWithPopup(auth, googleProvider);
@@ -93,8 +127,15 @@ export default function Login() {
     e.preventDefault();
     const trimmed = email.trim().toLowerCase();
     if (!trimmed) return;
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailRegex.test(trimmed)) {
+      setError("Please enter a valid email address (e.g., name@example.com).");
+      return;
+    }
     setError('');
     setResetSuccessMessage('');
+    setUnverifiedUser(null);
+    setResendSuccess(false);
     setEmail(trimmed);
     setStep('password');
   };
@@ -103,15 +144,28 @@ export default function Login() {
     e.preventDefault();
     setError('');
     setResetSuccessMessage('');
+    setUnverifiedUser(null);
+    setResendSuccess(false);
+
     const trimmed = email.trim().toLowerCase();
-    if (!trimmed) {
-      setError('Please enter your email address.');
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!trimmed || !emailRegex.test(trimmed)) {
+      setError("Please enter a valid email address (e.g., name@example.com).");
       setStep('email');
       return;
     }
     setLoading(true);
     try {
       const userCredential = await signInWithEmailAndPassword(auth, trimmed, password);
+
+      // Check email verification for Email/Password sign-ins
+      if (!userCredential.user.emailVerified) {
+        setUnverifiedUser(userCredential.user);
+        await signOut(auth);
+        setError("Please verify your email address before logging in. Check your inbox for the link.");
+        return;
+      }
+
       const token = await userCredential.user.getIdToken();
       const userEmail = userCredential.user.email || trimmed;
       const lastEmail = localStorage.getItem('mediskye_user_email');
@@ -156,12 +210,33 @@ export default function Login() {
         {/* Error */}
         {error && (
           <div className="login-error">
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-              <circle cx="12" cy="12" r="10" />
-              <line x1="15" y1="9" x2="9" y2="15" />
-              <line x1="9" y1="9" x2="15" y2="15" />
-            </svg>
-            {error}
+            <div className="flex items-start gap-2">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="shrink-0 mt-0.5">
+                <circle cx="12" cy="12" r="10" />
+                <line x1="15" y1="9" x2="9" y2="15" />
+                <line x1="9" y1="9" x2="15" y2="15" />
+              </svg>
+              <div className="flex-1">
+                <div>{error}</div>
+                {unverifiedUser && (
+                  <div className="mt-2 pt-2 border-t border-red-500/20">
+                    <button
+                      type="button"
+                      id="resend-verification-btn"
+                      onClick={handleResendVerification}
+                      disabled={resendLoading || resendSuccess}
+                      className="text-xs font-semibold underline hover:no-underline text-red-200 hover:text-white transition-colors cursor-pointer disabled:opacity-60"
+                    >
+                      {resendLoading
+                        ? 'Sending verification email...'
+                        : resendSuccess
+                        ? 'Verification link sent! Check your inbox.'
+                        : 'Resend Verification Email'}
+                    </button>
+                  </div>
+                )}
+              </div>
+            </div>
           </div>
         )}
 
@@ -243,7 +318,7 @@ export default function Login() {
         {/* Step 2: Password */}
         {step === 'password' && (
           <form onSubmit={handleSubmit} className="login-form">
-            <div className="login-email-display" onClick={() => { setStep('email'); setError(''); setResetSuccessMessage(''); }}>
+            <div className="login-email-display" onClick={() => { setStep('email'); setError(''); setResetSuccessMessage(''); setUnverifiedUser(null); setResendSuccess(false); }}>
               <span>{email}</span>
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                 <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" />
@@ -254,7 +329,7 @@ export default function Login() {
             <div className="login-field">
               <input
                 id="login-password"
-                type="password"
+                type={showPassword ? 'text' : 'password'}
                 required
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
@@ -262,6 +337,14 @@ export default function Login() {
                 autoFocus
                 autoComplete="current-password"
               />
+              <button
+                type="button"
+                onClick={() => setShowPassword(!showPassword)}
+                className="login-field-toggle"
+                aria-label="Toggle password visibility"
+              >
+                {showPassword ? <EyeOff size={16} /> : <Eye size={16} />}
+              </button>
             </div>
 
             <div className="login-forgot-wrapper">

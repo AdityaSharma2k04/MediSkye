@@ -19,7 +19,7 @@ from app.schemas.upload import UploadResponse, UploadJobResponse, UploadStatusRe
 from app.services.pdf_service import validate_file_upload
 from app.rag.loader import PDFExtractionError, extract_text_from_file
 from app.core.audit import log_audit
-from app.rag.retriever import create_hybrid_index, acreate_hybrid_index
+from app.rag.retriever import create_hybrid_index, acreate_hybrid_index, cache_hybrid_index
 from app.services.upload_jobs import create_job, update_job, get_job, UploadStatus
 from app.core.security import clean_filename_to_title
 from app.rag.index_storage import asave_index_artifacts
@@ -28,6 +28,7 @@ from app.api.v1.endpoints.metrics import extract_and_cache_metrics
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
+_background_warm_tasks: set = set()
 
 
 async def process_upload_background(
@@ -105,7 +106,9 @@ async def process_upload_background(
             index_dir.mkdir(parents=True, exist_ok=True)
             index_path = str(index_dir / f"user_{user_uuid}_doc_{doc.id}.index")
 
-            _, _, chunks = await acreate_hybrid_index(page_docs, index_path)
+            vectorstore, bm25_index, chunks = await acreate_hybrid_index(page_docs, index_path)
+            cache_hybrid_index(str(doc.id), vectorstore, bm25_index)
+            cache_hybrid_index(index_path, vectorstore, bm25_index)
             logger.info(f"[UPLOAD {job_id}] Index build: {time.monotonic() - t0:.2f}s ({len(chunks)} chunks)")
 
             # Sync index artifacts to GCS if configured
@@ -115,38 +118,107 @@ async def process_upload_background(
             t0 = time.monotonic()
             doc.file_path = index_path
             await db.commit()
+            await db.refresh(doc)
+            doc_id_val = doc.id
             logger.info(f"[UPLOAD {job_id}] DB commit: {time.monotonic() - t0:.2f}s")
 
-            # 4. Pre-generate and cache lab metrics (non-fatal)
-            t0 = time.monotonic()
-            try:
-                metrics_result = await extract_and_cache_metrics(
-                    doc_id=doc.id,
-                    page_docs=page_docs,
-                    db=db,
-                    user_id=user_uuid,
-                )
-                if metrics_result is not None:
-                    doc.cached_metrics = metrics_result
-                    db.add(doc)
-                    await db.commit()
-                logger.info(
-                    f"[UPLOAD {job_id}] Pre-generated {len(metrics_result) if metrics_result else 0} lab metrics in {time.monotonic() - t0:.2f}s"
-                )
-            except Exception as me:
-                logger.error(f"[UPLOAD {job_id}] Lab metrics pre-generation error (non-fatal): {me}", exc_info=True)
-
-            await update_job(job_id, status=UploadStatus.COMPLETED, document_id=str(doc.id))
-            logger.info(f"[UPLOAD {job_id}] TOTAL: {time.monotonic() - t_start:.2f}s")
+            # Step A (Fast Path): Mark upload job completed IMMEDIATELY (unblocks user frontend in 3-6s)
+            await update_job(job_id, status=UploadStatus.COMPLETED, document_id=str(doc_id_val))
+            logger.info(f"[UPLOAD {job_id}] Step A Fast Path Completed: {time.monotonic() - t_start:.2f}s")
         except Exception as e:
             logger.error(f"[UPLOAD {job_id}] Failed after {time.monotonic() - t_start:.2f}s: {e}", exc_info=True)
             await update_job(job_id, status=UploadStatus.FAILED, error=str(e))
+            return
         finally:
             if tmp_path and os.path.exists(tmp_path):
                 try:
                     os.unlink(tmp_path)
                 except Exception:
                     pass
+
+    # Step B (Async Post-Completion Cache Warming):
+    # Run cached_metrics extraction and cached_summary generation concurrently
+    # each with their own independent AsyncSessionLocal() to ensure thread/coroutine safety.
+    async def _run_cache_warmers():
+        try:
+            t_warm = time.monotonic()
+            await asyncio.gather(
+                _warm_document_metrics_cache(doc_id=doc_id_val, user_uuid=user_uuid, page_docs=page_docs),
+                _warm_document_summary_cache(doc_id=doc_id_val, user_uuid=user_uuid, page_docs=page_docs),
+                return_exceptions=True,
+            )
+            logger.info(f"[UPLOAD {job_id}] Post-completion cache warming finished in {time.monotonic() - t_warm:.2f}s (Total: {time.monotonic() - t_start:.2f}s)")
+        except Exception as ce:
+            logger.warning(f"[UPLOAD {job_id}] Post-completion cache warming non-fatal error: {ce}")
+
+    warm_task = asyncio.create_task(_run_cache_warmers())
+    _background_warm_tasks.add(warm_task)
+    warm_task.add_done_callback(_background_warm_tasks.discard)
+
+
+async def _warm_document_metrics_cache(doc_id: uuid.UUID, user_uuid: uuid.UUID, page_docs: list) -> None:
+    from app.db.database import AsyncSessionLocal
+    from app.db.models import Document
+    async with AsyncSessionLocal() as db:
+        try:
+            metrics_result = await extract_and_cache_metrics(
+                doc_id=doc_id,
+                page_docs=page_docs,
+                db=db,
+                user_id=user_uuid,
+            )
+            if metrics_result is not None:
+                res = await db.execute(select(Document).filter(Document.id == doc_id))
+                doc_obj = res.scalars().first()
+                if doc_obj:
+                    doc_obj.cached_metrics = metrics_result
+                    db.add(doc_obj)
+                    await db.commit()
+            logger.info("[CACHE WARMER] Pre-generated %d lab metrics for doc %s", len(metrics_result) if metrics_result else 0, doc_id)
+        except Exception as me:
+            logger.error("[CACHE WARMER] Lab metrics pre-generation error (non-fatal): %s", me, exc_info=True)
+
+
+async def _warm_document_summary_cache(doc_id: uuid.UUID, user_uuid: uuid.UUID, page_docs: list) -> None:
+    from app.db.database import AsyncSessionLocal
+    from app.db.models import Document
+    from app.api.v1.endpoints.query import strip_emojis
+    from app.llm.gemini_client import call_gemini_with_retry
+    from google.genai.types import GenerateContentConfig, ThinkingConfig
+
+    async with AsyncSessionLocal() as db:
+        try:
+            res = await db.execute(select(Document).filter(Document.id == doc_id))
+            doc_obj = res.scalars().first()
+            if not doc_obj or (doc_obj.cached_summary and doc_obj.cached_summary.strip()):
+                return
+
+            all_pages = [getattr(d, "page_content", str(d)) for d in page_docs if getattr(d, "page_content", str(d))]
+            report_text = "\n\n".join(all_pages)
+
+            summary_prompt = (
+                "Generate a comprehensive, structured clinical summary of this entire report suitable for printing. "
+                "Use clean markdown. Do not use emojis. Include an overview, abnormal findings grouped by system, and next steps.\n\n"
+                f"Report content:\n{report_text[:15000]}"
+            )
+
+            response = await call_gemini_with_retry(
+                contents=summary_prompt,
+                user_id=user_uuid,
+                config=GenerateContentConfig(
+                    thinking_config=ThinkingConfig(thinking_budget=0),
+                    temperature=0.2,
+                ),
+            )
+            raw_text = getattr(response, "text", "") or ""
+            summary_text = strip_emojis(raw_text).strip()
+            if summary_text:
+                doc_obj.cached_summary = summary_text
+                db.add(doc_obj)
+                await db.commit()
+                logger.info("[CACHE WARMER] Pre-generated summary for doc %s", doc_id)
+        except Exception as se:
+            logger.error("[CACHE WARMER] Summary pre-generation error (non-fatal): %s", se, exc_info=True)
 
 
 @router.post("/upload", status_code=status.HTTP_202_ACCEPTED, response_model=UploadJobResponse, tags=["PDF Upload"])

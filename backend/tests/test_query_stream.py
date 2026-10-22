@@ -134,6 +134,10 @@ async def test_query_stream_after_pdf_upload_success():
             assert "[DONE]" in stream_text
             assert "error" not in stream_text.lower()
 
+            from app.api.v1.endpoints.upload import _background_warm_tasks
+            if _background_warm_tasks:
+                await asyncio.gather(*list(_background_warm_tasks), return_exceptions=True)
+
 
 @pytest.mark.asyncio
 async def test_query_stream_memory_extraction_task_completes():
@@ -219,9 +223,11 @@ async def test_query_stream_memory_extraction_task_completes():
             assert res.status_code == 200
             assert "[DONE]" in res.text
 
-            # Drain any tasks in _background_tasks
-            if _background_tasks:
-                await asyncio.gather(*list(_background_tasks), return_exceptions=True)
+            # Drain any tasks in _background_tasks and _background_warm_tasks
+            from app.api.v1.endpoints.upload import _background_warm_tasks
+            tasks_to_drain = list(_background_tasks) + list(_background_warm_tasks)
+            if tasks_to_drain:
+                await asyncio.gather(*tasks_to_drain, return_exceptions=True)
             else:
                 await asyncio.sleep(0.3)
 
@@ -346,6 +352,10 @@ async def test_query_stream_strips_abnormal_flags_json_block_and_emits_specialis
                     assert "abnormal_flags" not in c.message
                     assert "```json" not in c.message
                     assert "Total WBC: **11,200 /uL**" in c.message
+
+            from app.api.v1.endpoints.upload import _background_warm_tasks
+            if _background_warm_tasks:
+                await asyncio.gather(*list(_background_warm_tasks), return_exceptions=True)
 
 
 @pytest.mark.asyncio

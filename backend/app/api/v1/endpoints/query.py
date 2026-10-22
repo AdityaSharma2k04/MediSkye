@@ -26,7 +26,7 @@ from app.schemas.query import QueryRequest, QueryResponse
 from app.rag.prompt_builder import build_prompt, build_general_health_prompt, build_casual_prompt
 from app.rag.intent_router import classify_intent, QueryIntent
 from app.rag.safety import append_disclaimer, get_emergency_response, is_emergency_query
-from app.rag.retriever import load_hybrid_index, retrieve_relevant_docs, dynamic_retrieval_k
+from app.rag.retriever import load_hybrid_index, retrieve_relevant_docs, dynamic_retrieval_k, get_cached_hybrid_index
 from app.rag.output_filter import scan_output
 from app.services.patient_service import calculate_age
 from app.services.patient_memory import get_active_facts, get_relevant_past_chunks, get_chat_documents
@@ -209,7 +209,12 @@ async def query_bot(
         raise
 
     # ── Intent Classification ──
-    intent = await classify_intent(body.query, has_document=has_document)
+    doc_id_param = getattr(body, "document_id", None) or (str(primary_doc.id) if primary_doc else None)
+    intent = await classify_intent(
+        body.query,
+        has_document=has_document,
+        document_id=doc_id_param,
+    )
     if intent == QueryIntent.DOCUMENT_QA and not has_document:
         intent = QueryIntent.GENERAL_HEALTH
 
@@ -286,16 +291,21 @@ async def query_bot(
                     if not d.file_path:
                         continue
                     try:
-                        resolved_path = str(await aensure_index_local(d.file_path))
-                        if not os.path.exists(resolved_path):
-                            logger.warning("Index file missing after ensure_local: %s", resolved_path)
-                            continue
+                        cached_entry = get_cached_hybrid_index(str(d.id)) or get_cached_hybrid_index(d.file_path)
+                        if cached_entry is not None:
+                            v, b = cached_entry
+                            doc_chunks = await asyncio.to_thread(retrieve_relevant_docs, body.query, v, b, k=per_doc_k)
+                        else:
+                            resolved_path = str(await aensure_index_local(d.file_path))
+                            if not os.path.exists(resolved_path):
+                                logger.warning("Index file missing after ensure_local: %s", resolved_path)
+                                continue
 
-                        def _load_and_retrieve(path, q):
-                            v, b = load_hybrid_index(path)
-                            return retrieve_relevant_docs(q, v, b, k=per_doc_k)
+                            def _load_and_retrieve(path, q):
+                                v, b = load_hybrid_index(path)
+                                return retrieve_relevant_docs(q, v, b, k=per_doc_k)
 
-                        doc_chunks = await asyncio.to_thread(_load_and_retrieve, resolved_path, body.query)
+                            doc_chunks = await asyncio.to_thread(_load_and_retrieve, resolved_path, body.query)
                         for c in doc_chunks:
                             c.metadata["source"] = d.title or d.filename
                             c.metadata["filename"] = d.filename
@@ -412,7 +422,7 @@ async def query_bot(
             SENTINEL = object()
 
             def _stream_producer():
-                from google.genai.types import GenerateContentConfig
+                from google.genai.types import GenerateContentConfig, ThinkingConfig
                 from app.llm.gemini_client import _is_retryable_error, get_genai_client
 
                 client = get_genai_client()
@@ -425,7 +435,10 @@ async def query_bot(
                             response = client.models.generate_content_stream(
                                 model=current_model,
                                 contents=user_content,
-                                config=GenerateContentConfig(system_instruction=system_instruction),
+                                config=GenerateContentConfig(
+                                    system_instruction=system_instruction,
+                                    thinking_config=ThinkingConfig(thinking_budget=0),
+                                ),
                             )
                             for chunk in response:
                                 yielded_any = True
@@ -761,13 +774,18 @@ async def get_or_generate_document_summary(
     )
 
     try:
+        from google.genai.types import GenerateContentConfig, ThinkingConfig
+        summary_config = GenerateContentConfig(
+            thinking_config=ThinkingConfig(thinking_budget=0),
+            temperature=0.2,
+        )
         client = get_genai_client()
         response = None
         # Call Gemini using async client.aio.models.generate_content if available
         if hasattr(client, "aio") and hasattr(client.aio, "models"):
             try:
                 gen_fn = client.aio.models.generate_content
-                res = gen_fn(model=settings.GEMINI_MODEL, contents=summary_prompt)
+                res = gen_fn(model=settings.GEMINI_MODEL, contents=summary_prompt, config=summary_config)
                 if asyncio.iscoroutine(res):
                     response = await res
                 elif hasattr(res, "text") and isinstance(res.text, str) and res.text:
@@ -779,6 +797,7 @@ async def get_or_generate_document_summary(
             response = await call_gemini_with_retry(
                 contents=summary_prompt,
                 user_id=current_user.id,
+                config=summary_config,
             )
 
         raw_text = getattr(response, "text", "") or ""
@@ -816,7 +835,15 @@ async def prewarm_document_summary_and_metrics(doc_id: uuid.UUID, user_id: uuid.
                     f"Report content:\n{report_text[:15000]}"
                 )
                 try:
-                    res = await call_gemini_with_retry(contents=prompt, user_id=user_id)
+                    from google.genai.types import GenerateContentConfig, ThinkingConfig
+                    res = await call_gemini_with_retry(
+                        contents=prompt,
+                        user_id=user_id,
+                        config=GenerateContentConfig(
+                            thinking_config=ThinkingConfig(thinking_budget=0),
+                            temperature=0.2,
+                        ),
+                    )
                     text = strip_emojis(getattr(res, "text", "") or "").strip()
                     if text:
                         doc.cached_summary = text

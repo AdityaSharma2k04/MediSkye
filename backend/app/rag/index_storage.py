@@ -132,8 +132,14 @@ async def aensure_index_local(file_path: str | Path) -> Path:
 
 def delete_index_artifacts(file_path: str | Path) -> None:
     """
-    Delete index artifacts both from local storage and from GCS.
+    Delete index artifacts both from local storage, in-memory cache, and from GCS.
     """
+    try:
+        from app.rag.retriever import evict_index_cache
+        evict_index_cache(file_path)
+    except Exception as ee:
+        logger.debug("Failed to evict index from in-memory cache: %s", ee)
+
     target_path = Path(file_path)
 
     # 1. Local disk deletion

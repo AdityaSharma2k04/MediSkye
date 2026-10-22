@@ -9,6 +9,7 @@ import {
   updateProfile,
   onIdTokenChanged,
   signOut,
+  sendEmailVerification,
 } from "firebase/auth";
 
 // Uses Vite env vars if available, with project fallbacks
@@ -36,6 +37,7 @@ export {
   updateProfile,
   onIdTokenChanged,
   signOut,
+  sendEmailVerification,
 };
 
 /**
@@ -53,11 +55,11 @@ export function getFirebaseErrorMessage(error) {
     case 'auth/user-not-found':
       return "No account found with this email address.";
     case 'auth/email-already-in-use':
-      return "An account with this email already exists. Try signing in or using Google Login.";
+      return "An account with this email already exists. Please log in or reset your password.";
     case 'auth/weak-password':
       return "Password should be at least 6 characters.";
     case 'auth/invalid-email':
-      return "Please enter a valid email address.";
+      return "Please enter a valid email address (e.g., name@example.com).";
     case 'auth/too-many-requests':
       return "Too many reset attempts. Please wait a few minutes and try again.";
     case 'auth/user-disabled':

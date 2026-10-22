@@ -1,6 +1,7 @@
 import React, { useEffect, useRef } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
+import useIntersectionObserver from '../hooks/useIntersectionObserver';
 
 /* ─── Palette (mirrors tailwind.config: obsidian + medical) ─── */
 const C = {
@@ -524,8 +525,13 @@ function AskVisual() {
 
 /* ─── Sub-components ─── */
 function FeatureCard({ icon, title, description }) {
+  const [ref, isVisible] = useIntersectionObserver();
   return (
-    <div style={styles.featureCard} className="landing-feature-card">
+    <div
+      ref={ref}
+      style={styles.featureCard}
+      className={`landing-feature-card fade-in-section fade-in-up ${isVisible ? 'is-visible' : ''}`}
+    >
       <div style={styles.featureIconBox}>{icon}</div>
       <h3 style={styles.featureTitle}>{title}</h3>
       <p style={styles.featureDesc}>{description}</p>
@@ -534,8 +540,13 @@ function FeatureCard({ icon, title, description }) {
 }
 
 function StepCard({ number, visual, title, description }) {
+  const [ref, isVisible] = useIntersectionObserver();
   return (
-    <div style={styles.stepCard} className="landing-step-card">
+    <div
+      ref={ref}
+      style={styles.stepCard}
+      className={`landing-step-card fade-in-section fade-in-up ${isVisible ? 'is-visible' : ''}`}
+    >
       {visual}
       <div style={styles.stepNumber}>{number}</div>
       <h3 style={styles.stepTitle}>{title}</h3>
@@ -579,6 +590,22 @@ const css = `
   @keyframes landing-fade-up {
     from { opacity: 0; transform: translateY(20px); }
     to { opacity: 1; transform: translateY(0); }
+  }
+
+  /* Fade-in on scroll */
+  .fade-in-section {
+    opacity: 0;
+    transform: translateY(20px);
+    transition: opacity 0.6s cubic-bezier(0.16, 1, 0.3, 1), transform 0.6s cubic-bezier(0.16, 1, 0.3, 1);
+    will-change: opacity, transform;
+  }
+  .fade-in-section.is-visible {
+    opacity: 1;
+    transform: translateY(0);
+  }
+
+  img {
+    content-visibility: auto;
   }
 
   .landing-mockup { animation: landing-float 6s ease-in-out infinite; }

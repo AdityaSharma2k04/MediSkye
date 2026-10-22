@@ -69,9 +69,19 @@ async def test_delete_document_success():
         assert faiss_dir.exists()
         assert bm25_file.exists()
 
+        # Prime in-memory cache to verify eviction upon deletion
+        from app.rag.retriever import cache_hybrid_index, get_cached_hybrid_index
+        cache_hybrid_index(str(doc_id), "mock_v", "mock_b")
+        cache_hybrid_index(str(faiss_dir), "mock_v", "mock_b")
+        assert get_cached_hybrid_index(str(doc_id)) is not None
+
         # Delete document
         del_res = await ac.delete(f"/users/me/documents/{doc_id}", headers=headers)
         assert del_res.status_code == 204
+
+        # In-memory index cache must be evicted
+        assert get_cached_hybrid_index(str(doc_id)) is None
+        assert get_cached_hybrid_index(str(faiss_dir)) is None
 
         # Physical files must be deleted
         assert not faiss_dir.exists()

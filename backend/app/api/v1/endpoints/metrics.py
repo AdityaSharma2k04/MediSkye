@@ -18,6 +18,7 @@ from app.schemas.upload import MetricsResponse, LabMetricItem
 from app.rag.retriever import retrieve_relevant_docs
 from app.rag.embedder import get_embedder
 from app.llm.gemini_client import call_gemini_with_retry
+from google.genai.types import GenerateContentConfig, ThinkingConfig
 
 from typing import Optional, List, Dict, Any, Union
 
@@ -124,6 +125,10 @@ Report text:
             contents=extract_prompt,
             user_id=effective_user_id,
             backoff_delays=[1.5, 4.0, 16.0],
+            config=GenerateContentConfig(
+                thinking_config=ThinkingConfig(thinking_budget=0),
+                temperature=0.0,
+            ),
         )
         if not response or not response.text:
             doc.cached_metrics = []

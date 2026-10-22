@@ -1,3 +1,4 @@
+import asyncio
 import pytest
 import uuid
 from datetime import datetime, UTC
@@ -319,6 +320,7 @@ async def test_upload_background_pre_generates_and_caches_metrics():
         patch("app.api.v1.endpoints.upload.extract_text_from_file", new=AsyncMock(return_value=mock_docs)),
         patch("app.api.v1.endpoints.upload.acreate_hybrid_index", new=AsyncMock(return_value=(None, None, mock_docs))),
         patch("app.api.v1.endpoints.upload.extract_and_cache_metrics", new=AsyncMock(return_value=mock_metrics_result)) as mock_extract,
+        patch("app.api.v1.endpoints.upload._warm_document_summary_cache", new=AsyncMock(return_value=None)),
         patch("app.rag.retriever.get_embedder", return_value=FakeEmbedder()),
         patch("app.rag.embedder.get_embedder", return_value=FakeEmbedder()),
     ):
@@ -328,6 +330,10 @@ async def test_upload_background_pre_generates_and_caches_metrics():
             filename="sample.pdf",
             user_id=user_id,
         )
+
+        from app.api.v1.endpoints.upload import _background_warm_tasks
+        if _background_warm_tasks:
+            await asyncio.gather(*list(_background_warm_tasks), return_exceptions=True)
 
     job = await get_job(job_id)
     assert job["status"] == UploadStatus.COMPLETED

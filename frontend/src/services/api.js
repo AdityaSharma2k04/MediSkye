@@ -835,3 +835,47 @@ export async function exportDocumentData(documentId) {
   }
   return await res.json();
 }
+
+// ── Custom Verification & Generic API Client ──
+
+export const api = {
+  post: async (endpoint, data = {}, options = {}) => {
+    const url = endpoint.startsWith('http') ? endpoint : `${API_BASE}${endpoint.startsWith('/') ? '' : '/'}${endpoint}`;
+    const res = await apiFetch(url, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        ...(options.headers || {}),
+      },
+      body: JSON.stringify(data),
+      ...options,
+    });
+    if (!res.ok) {
+      const errData = await res.json().catch(() => null);
+      throw new Error(formatApiError(errData, 'Request failed'));
+    }
+    return await res.json();
+  },
+  get: async (endpoint, options = {}) => {
+    const url = endpoint.startsWith('http') ? endpoint : `${API_BASE}${endpoint.startsWith('/') ? '' : '/'}${endpoint}`;
+    const res = await apiFetch(url, {
+      method: 'GET',
+      ...options,
+    });
+    if (!res.ok) {
+      const errData = await res.json().catch(() => null);
+      throw new Error(formatApiError(errData, 'Request failed'));
+    }
+    return await res.json();
+  },
+};
+
+export async function sendCustomVerification(email) {
+  return await api.post('/auth/send-custom-verification', { email });
+}
+
+export async function sendCustomPasswordReset(email) {
+  return await api.post('/auth/send-custom-password-reset', { email });
+}
+
+export default api;

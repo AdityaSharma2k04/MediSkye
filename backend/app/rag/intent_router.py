@@ -116,20 +116,58 @@ Respond with ONLY the category name, nothing else.
 Category:"""
 
 
-async def classify_intent(query: str, has_document: bool = True, **kwargs) -> QueryIntent:
-    """
-    Classify user intent using a fast-path check followed by a low-latency Gemini LLM call.
-    Falls back to DOCUMENT_QA on any error (safest default).
+EMERGENCY_FAST_PATH_PHRASES = [
+    "chest pain",
+    "can't breathe",
+    "cannot breathe",
+    "cant breathe",
+    "heart attack",
+    "stroke",
+    "suicide",
+    "severe bleeding",
+    "unconscious",
+]
 
-    Args:
-        query: The user's query string.
-        has_document: Whether the current session has a linked document.
-                      If False, DOCUMENT_QA is always downgraded to GENERAL_HEALTH.
+
+def is_emergency_query_fast_path(query: str) -> bool:
     """
-    # 0ms deterministic fast-path check
+    Deterministic 0ms check for high-risk emergency symptoms.
+    """
+    if not query:
+        return False
+    lowered = query.lower()
+    return any(phrase in lowered for phrase in EMERGENCY_FAST_PATH_PHRASES)
+
+
+async def classify_intent(
+    query: str,
+    has_document: bool = False,
+    document_id: Optional[Any] = None,
+    **kwargs,
+) -> QueryIntent:
+    """
+    Classify user intent using deterministic fast-paths followed by low-latency Gemini LLM fallback.
+
+    Fast paths:
+      1. Emergency Fast-Path (0ms): Returns EMERGENCY for critical phrases.
+      2. Casual Fast-Path (0ms): Returns CASUAL for greetings/pleasantries.
+      3. Document Attached Fast-Path (0ms): If document context is present, returns DOCUMENT_QA in 0ms.
+      4. Fallback LLM Classification: Used when no document is attached and query is ambiguous.
+    """
+    # 1. Emergency Fast-Path (0ms)
+    if is_emergency_query_fast_path(query):
+        return QueryIntent.EMERGENCY
+
+    # 2. Casual Fast-Path (0ms)
     if is_casual_query_fast_path(query):
         return QueryIntent.CASUAL
 
+    # 3. Document Attached Fast-Path (0ms)
+    is_doc_attached = bool(has_document or document_id)
+    if is_doc_attached:
+        return QueryIntent.DOCUMENT_QA
+
+    # 4. LLM Classifier fallback when no document is attached
     try:
         escaped_query = escape_xml_content(query)
 
@@ -139,35 +177,29 @@ async def classify_intent(query: str, has_document: bool = True, **kwargs) -> Qu
             config={
                 "temperature": 0.0,
                 "max_output_tokens": 10,
+                "thinking_config": {"thinking_budget": 0},
             },
         )
         raw_text = getattr(response, "text", None)
         if not raw_text:
-            logger.warning("Intent classification returned empty response, defaulting to DOCUMENT_QA")
-            return QueryIntent.DOCUMENT_QA
+            logger.warning("Intent classification returned empty response, defaulting to GENERAL_HEALTH")
+            return QueryIntent.GENERAL_HEALTH
 
         result = raw_text.strip().upper()
 
-        # Parse the response — handle variations
         if "EMERGENCY" in result:
             return QueryIntent.EMERGENCY
         elif "CASUAL" in result:
             return QueryIntent.CASUAL
-        elif "GENERAL_HEALTH" in result:
-            return QueryIntent.GENERAL_HEALTH
         elif "DOCUMENT_QA" in result:
             # Downgrade to GENERAL_HEALTH if no document is present in session
-            if not has_document:
-                return QueryIntent.GENERAL_HEALTH
-            return QueryIntent.DOCUMENT_QA
+            return QueryIntent.DOCUMENT_QA if is_doc_attached else QueryIntent.GENERAL_HEALTH
+        elif "GENERAL_HEALTH" in result:
+            return QueryIntent.GENERAL_HEALTH
         else:
-            # Unknown classification — default based on document availability
-            if not has_document:
-                return QueryIntent.GENERAL_HEALTH
-            return QueryIntent.DOCUMENT_QA
+            return QueryIntent.GENERAL_HEALTH
 
     except Exception as e:
         logger.warning("Intent classification failed: %s", e)
-        # On error, fall back based on document availability
-        return QueryIntent.DOCUMENT_QA if has_document else QueryIntent.GENERAL_HEALTH
+        return QueryIntent.DOCUMENT_QA if is_doc_attached else QueryIntent.GENERAL_HEALTH
 

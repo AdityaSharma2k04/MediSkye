@@ -96,6 +96,7 @@
     "email_placeholder": "Email address",
     "password_placeholder": "Password",
     "create_password_placeholder": "Create a password",
+    "confirm_password_placeholder": "Confirm password",
     "fullname_placeholder": "Full name (optional)",
     "forgot_password": "Forgot password?",
     "sending_reset": "Sending reset link...",
@@ -103,10 +104,13 @@
     "sign_in": "Sign in",
     "create_account": "Create account",
     "redirecting": "Redirecting…",
-    "password_hint": "Must be 8 to 72 characters",
+    "password_hint": "Minimum 8 characters. Tip: A 12+ character phrase like 'blue coffee morning' is easiest to remember.",
     "phi_consent": "I acknowledge and consent that my Protected Health Information (PHI) will be processed by Google Gemini for AI-driven insights.",
     "switch_to_register": "Create a new account",
     "switch_to_login": "Already have an account? Sign in",
+    "verify_email_title": "Verify your email",
+    "go_to_login": "Go to Login",
+    "passwords_do_not_match": "Passwords do not match.",
     "tagline": "MediSkye AI — Making medical reports understandable for everyone."
   },
   "landing": {

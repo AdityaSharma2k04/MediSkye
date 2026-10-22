@@ -96,6 +96,7 @@
     "email_placeholder": "ईमेल पता",
     "password_placeholder": "पासवर्ड",
     "create_password_placeholder": "एक पासवर्ड बनाएं",
+    "confirm_password_placeholder": "पासवर्ड की पुष्टि करें",
     "fullname_placeholder": "पूरा नाम (वैकल्पिक)",
     "forgot_password": "पासवर्ड भूल गए?",
     "sending_reset": "रीसेट लिंक भेजा जा रहा है...",
@@ -103,10 +104,13 @@
     "sign_in": "साइन इन करें",
     "create_account": "खाता बनाएं",
     "redirecting": "रीडायरेक्ट हो रहा है…",
-    "password_hint": "8 से 72 वर्ण होने चाहिए",
+    "password_hint": "न्यूनतम 8 वर्ण। सुझाव: 'blue coffee morning' जैसा 12+ वर्णों का वाक्यांश याद रखना सबसे आसान है।",
     "phi_consent": "मैं स्वीकार करता/करती हूं कि मेरी स्वास्थ्य जानकारी Google Gemini द्वारा संसाधित की जाएगी।",
     "switch_to_register": "नया खाता बनाएं",
     "switch_to_login": "क्या आपके पास पहले से एक खाता है? साइन इन करें",
+    "verify_email_title": "अपना ईमेल सत्यापित करें",
+    "go_to_login": "लॉग इन पर जाएं",
+    "passwords_do_not_match": "पासवर्ड मेल नहीं खाते हैं।",
     "tagline": "MediSkye AI — सभी के लिए मेडिकल रिपोर्ट को समझना आसान बनाना।"
   },
   "landing": {

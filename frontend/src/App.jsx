@@ -6,9 +6,113 @@ const Register = lazy(() => import('./components/Register'));
 const ChatApp = lazy(() => import('./components/ChatApp'));
 const LandingPage = lazy(() => import('./components/LandingPage'));
 
-const PageLoader = () => (
-  <div className="min-h-screen bg-zinc-950 flex items-center justify-center">
-    <div className="w-8 h-8 border-2 border-cyan-500 border-t-transparent rounded-full animate-spin" />
+const LandingSkeleton = () => (
+  <div className="min-h-screen bg-zinc-950 text-zinc-50 font-sans flex flex-col justify-between overflow-hidden animate-pulse" aria-label="Loading MediSkye">
+    {/* Navbar Skeleton */}
+    <nav className="sticky top-0 z-50 bg-zinc-950/90 backdrop-blur-md border-b border-zinc-800/80 px-6 py-3.5 flex items-center justify-between">
+      <div className="flex items-center gap-2.5">
+        <div className="w-8 h-8 rounded-lg bg-zinc-100 flex items-center justify-center shadow-lg shadow-cyan-500/10">
+          <svg
+            className="w-4 h-4 text-zinc-900 animate-pulse"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2.5"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          >
+            <path d="M22 12h-4l-3 9L9 3l-3 9H2" />
+          </svg>
+        </div>
+        <span className="font-semibold text-base tracking-tight text-zinc-100">MediSkye</span>
+      </div>
+      <div className="hidden sm:flex items-center gap-6">
+        <div className="h-4 w-16 bg-zinc-800/60 rounded" />
+        <div className="h-4 w-24 bg-zinc-800/60 rounded" />
+        <div className="h-4 w-16 bg-zinc-800/60 rounded" />
+      </div>
+      <div className="flex items-center gap-3">
+        <div className="h-9 w-20 bg-zinc-800/60 rounded-xl" />
+        <div className="h-9 w-28 bg-cyan-500/20 rounded-xl border border-cyan-500/30" />
+      </div>
+    </nav>
+
+    {/* Hero Section Skeleton */}
+    <div className="flex-1 max-w-6xl w-full mx-auto px-6 py-16 grid grid-cols-1 lg:grid-cols-2 gap-12 items-center">
+      <div className="space-y-6">
+        {/* Pulsing MediSkye Badge */}
+        <div className="inline-flex items-center gap-2.5 px-3.5 py-1.5 rounded-full border border-cyan-500/30 bg-cyan-950/30 shadow-sm">
+          <div className="w-5 h-5 rounded-md bg-cyan-400/20 flex items-center justify-center">
+            <svg
+              className="w-3.5 h-3.5 text-cyan-400 animate-bounce"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2.5"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            >
+              <path d="M22 12h-4l-3 9L9 3l-3 9H2" />
+            </svg>
+          </div>
+          <span className="text-xs font-semibold text-cyan-300 tracking-wide uppercase">MediSkye AI</span>
+        </div>
+
+        {/* Hero Title */}
+        <div className="space-y-3">
+          <div className="h-10 sm:h-12 w-11/12 bg-zinc-800/90 rounded-xl" />
+          <div className="h-10 sm:h-12 w-4/5 bg-zinc-800/70 rounded-xl" />
+        </div>
+
+        {/* Subtitle */}
+        <div className="space-y-2 pt-2 max-w-lg">
+          <div className="h-4 w-full bg-zinc-800/50 rounded" />
+          <div className="h-4 w-5/6 bg-zinc-800/50 rounded" />
+          <div className="h-4 w-2/3 bg-zinc-800/40 rounded" />
+        </div>
+
+        {/* Action Buttons */}
+        <div className="flex flex-wrap gap-3 pt-4">
+          <div className="h-12 w-36 bg-cyan-500/30 rounded-xl border border-cyan-400/30" />
+          <div className="h-12 w-36 bg-zinc-800/60 rounded-xl border border-zinc-700/50" />
+        </div>
+      </div>
+
+      {/* Mockup Card Skeleton with Pulsing Glow */}
+      <div className="rounded-2xl border border-zinc-800/80 bg-zinc-900/40 p-6 space-y-4 shadow-2xl backdrop-blur-sm">
+        <div className="flex items-center justify-between pb-3 border-b border-zinc-800/60">
+          <div className="flex gap-2">
+            <div className="w-2.5 h-2.5 rounded-full bg-red-500/40" />
+            <div className="w-2.5 h-2.5 rounded-full bg-amber-500/40" />
+            <div className="w-2.5 h-2.5 rounded-full bg-green-500/40" />
+          </div>
+          <div className="h-3 w-28 bg-zinc-800/50 rounded" />
+          <div className="w-4" />
+        </div>
+        <div className="space-y-3 pt-2">
+          <div className="flex justify-end">
+            <div className="h-10 w-2/3 bg-cyan-950/40 border border-cyan-800/30 rounded-2xl rounded-br-sm" />
+          </div>
+          <div className="flex items-start gap-3">
+            <div className="w-7 h-7 rounded-lg bg-zinc-800/80 shrink-0 flex items-center justify-center text-cyan-400">
+              <svg className="w-3.5 h-3.5 animate-pulse" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <path d="M22 12h-4l-3 9L9 3l-3 9H2" />
+              </svg>
+            </div>
+            <div className="flex-1 space-y-2">
+              <div className="h-4 w-1/4 bg-zinc-800/70 rounded" />
+              <div className="h-14 w-full bg-zinc-800/40 rounded-xl" />
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    {/* Footer Skeleton */}
+    <div className="border-t border-zinc-800/60 px-6 py-4 flex items-center justify-between">
+      <div className="h-3 w-32 bg-zinc-800/40 rounded" />
+      <div className="h-3 w-40 bg-zinc-800/40 rounded" />
+    </div>
   </div>
 );
 
@@ -55,7 +159,7 @@ export default function App() {
   return (
     <BrowserRouter>
       <GlobalAuthListener />
-      <Suspense fallback={<PageLoader />}>
+      <Suspense fallback={<LandingSkeleton />}>
         <Routes>
           <Route path="/" element={<LandingPage />} />
           <Route path="/login" element={<Login />} />

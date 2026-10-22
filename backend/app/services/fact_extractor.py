@@ -137,6 +137,7 @@ async def extract_facts(
             response = await call_gemini_with_retry(
                 contents=prompt,
                 user_id=user_id,
+                config={"thinking_config": {"thinking_budget": 0}},
             )
             response_text = response.text or ""
         except GeminiUnavailableError as e:

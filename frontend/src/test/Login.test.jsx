@@ -16,6 +16,20 @@ vi.mock('react-router-dom', async () => {
 const mockSignInWithPopup = vi.fn();
 const mockSignInWithEmailAndPassword = vi.fn();
 const mockSendPasswordResetEmail = vi.fn();
+const mockSendEmailVerification = vi.fn();
+const mockSignOut = vi.fn();
+const mockApiPost = vi.fn();
+
+vi.mock('../services/api', () => ({
+  default: {
+    post: (...args) => mockApiPost(...args),
+  },
+  api: {
+    post: (...args) => mockApiPost(...args),
+  },
+  sendCustomPasswordReset: (...args) => mockApiPost('/auth/send-custom-password-reset', { email: args[0] }),
+  sendCustomVerification: (...args) => mockApiPost('/auth/send-custom-verification', { email: args[0] }),
+}));
 
 vi.mock('../services/firebase', async () => {
   const actual = await vi.importActual('../services/firebase');
@@ -26,6 +40,8 @@ vi.mock('../services/firebase', async () => {
     signInWithPopup: (...args) => mockSignInWithPopup(...args),
     signInWithEmailAndPassword: (...args) => mockSignInWithEmailAndPassword(...args),
     sendPasswordResetEmail: (...args) => mockSendPasswordResetEmail(...args),
+    sendEmailVerification: (...args) => mockSendEmailVerification(...args),
+    signOut: (...args) => mockSignOut(...args),
   };
 });
 
@@ -33,6 +49,7 @@ describe('Login Component with Firebase Auth & Password Reset', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     localStorage.clear();
+    mockApiPost.mockResolvedValue({ message: 'Verification email sent' });
   });
 
   it('renders Google sign-in button and email continue flow', () => {
@@ -94,9 +111,10 @@ describe('Login Component with Firebase Auth & Password Reset', () => {
     expect(screen.queryByText(/google sign-in failed/i)).not.toBeInTheDocument();
   });
 
-  it('signs in with email and password, stores token and redirects', async () => {
+  it('signs in with email and password, stores token and redirects when email is verified', async () => {
     const mockUser = {
       email: 'patient@example.com',
+      emailVerified: true,
       getIdToken: vi.fn().mockResolvedValue('mock_email_token_456'),
     };
     mockSignInWithEmailAndPassword.mockResolvedValueOnce({ user: mockUser });
@@ -121,6 +139,45 @@ describe('Login Component with Firebase Auth & Password Reset', () => {
       expect(localStorage.getItem('token')).toBe('mock_email_token_456');
       expect(localStorage.getItem('mediskye_user_email')).toBe('patient@example.com');
       expect(mockNavigate).toHaveBeenCalledWith('/chat');
+    });
+  });
+
+  it('blocks unverified email sign-in, signs out, and provides resend verification button', async () => {
+    const mockUnverifiedUser = {
+      email: 'unverified@example.com',
+      emailVerified: false,
+      getIdToken: vi.fn(),
+    };
+    mockSignInWithEmailAndPassword.mockResolvedValueOnce({ user: mockUnverifiedUser });
+    mockSignOut.mockResolvedValueOnce();
+
+    render(
+      <MemoryRouter>
+        <Login />
+      </MemoryRouter>
+    );
+
+    fireEvent.change(screen.getByPlaceholderText(/email address/i), { target: { value: 'unverified@example.com' } });
+    fireEvent.click(screen.getByRole('button', { name: /^continue$/i }));
+
+    fireEvent.change(screen.getByPlaceholderText(/password/i), { target: { value: 'Secret123!' } });
+    fireEvent.click(screen.getByRole('button', { name: /sign in/i }));
+
+    await waitFor(() => {
+      expect(mockSignInWithEmailAndPassword).toHaveBeenCalledWith(expect.anything(), 'unverified@example.com', 'Secret123!');
+      expect(mockSignOut).toHaveBeenCalled();
+      expect(screen.getByText(/please verify your email address before logging in\. check your inbox for the link\./i)).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: /resend verification email/i })).toBeInTheDocument();
+      expect(localStorage.getItem('token')).toBeNull();
+      expect(mockNavigate).not.toHaveBeenCalled();
+    });
+
+    // Click Resend Verification Email
+    const resendBtn = screen.getByRole('button', { name: /resend verification email/i });
+    fireEvent.click(resendBtn);
+
+    await waitFor(() => {
+      expect(mockApiPost).toHaveBeenCalledWith('/auth/send-custom-verification', { email: 'unverified@example.com' });
     });
   });
 
@@ -182,8 +239,8 @@ describe('Login Component with Firebase Auth & Password Reset', () => {
     expect(mockSendPasswordResetEmail).not.toHaveBeenCalled();
   });
 
-  it('calls sendPasswordResetEmail and displays confirmation banner when clicking Forgot password? with a valid email', async () => {
-    mockSendPasswordResetEmail.mockResolvedValueOnce();
+  it('calls sendCustomPasswordReset and displays confirmation banner when clicking Forgot password? with a valid email', async () => {
+    mockApiPost.mockResolvedValueOnce({ message: 'If an account exists with this email, a reset link has been sent.' });
 
     render(
       <MemoryRouter>
@@ -197,15 +254,14 @@ describe('Login Component with Firebase Auth & Password Reset', () => {
     fireEvent.click(forgotBtn);
 
     await waitFor(() => {
-      expect(mockSendPasswordResetEmail).toHaveBeenCalledWith(expect.anything(), 'user@example.com');
-      expect(screen.getByText(/password reset link sent to user@example\.com/i)).toBeInTheDocument();
+      expect(mockApiPost).toHaveBeenCalledWith('/auth/send-custom-password-reset', { email: 'user@example.com' });
+      expect(screen.getByText(/if an account exists with user@example\.com, a password reset link has been sent/i)).toBeInTheDocument();
     });
   });
 
-  it('maps auth/user-not-found error on password reset attempt', async () => {
+  it('does not reveal whether account exists on auth/user-not-found to prevent user enumeration attacks', async () => {
     const err = new Error('User not found');
-    err.code = 'auth/user-not-found';
-    mockSendPasswordResetEmail.mockRejectedValueOnce(err);
+    mockApiPost.mockRejectedValueOnce(err);
 
     render(
       <MemoryRouter>
@@ -218,7 +274,33 @@ describe('Login Component with Firebase Auth & Password Reset', () => {
     fireEvent.click(forgotBtn);
 
     await waitFor(() => {
-      expect(screen.getByText(/no account found with this email address/i)).toBeInTheDocument();
+      expect(mockApiPost).toHaveBeenCalledWith('/auth/send-custom-password-reset', { email: 'notfound@example.com' });
+      expect(screen.getByText(/if an account exists with notfound@example\.com, a password reset link has been sent/i)).toBeInTheDocument();
+      expect(screen.queryByText(/no account found with this email address/i)).not.toBeInTheDocument();
     });
+  });
+
+  it('validates email format before continuing or resetting password (rejecting notanemail and test@test)', async () => {
+    render(
+      <MemoryRouter>
+        <Login />
+      </MemoryRouter>
+    );
+
+    const emailInput = screen.getByPlaceholderText(/email address/i);
+    const continueBtn = screen.getByRole('button', { name: /^continue$/i });
+    const forgotBtn = screen.getByRole('button', { name: /forgot password\?/i });
+
+    // Invalid email on continue
+    fireEvent.change(emailInput, { target: { value: 'test@test' } });
+    fireEvent.click(continueBtn);
+    expect(screen.getByText(/please enter a valid email address \(e\.g\., name@example\.com\)\./i)).toBeInTheDocument();
+    expect(screen.queryByPlaceholderText(/password/i)).not.toBeInTheDocument();
+
+    // Invalid email on forgot password
+    fireEvent.change(emailInput, { target: { value: 'invalid-email' } });
+    fireEvent.click(forgotBtn);
+    expect(screen.getByText(/please enter a valid email address \(e\.g\., name@example\.com\)\./i)).toBeInTheDocument();
+    expect(mockSendPasswordResetEmail).not.toHaveBeenCalled();
   });
 });

@@ -165,6 +165,14 @@ async def get_current_user(token: str = Depends(oauth2_scheme), db: AsyncSession
             pass
 
     if decoded_token:
+        firebase_info = decoded_token.get("firebase", {})
+        sign_in_provider = firebase_info.get("sign_in_provider") if isinstance(firebase_info, dict) else None
+        if decoded_token.get("email_verified") is False and sign_in_provider != "google.com":
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Email not verified",
+            )
+
         user = await _resolve_firebase_user(decoded_token, db)
         if user:
             return user

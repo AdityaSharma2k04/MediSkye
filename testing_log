@@ -1,0 +1,23 @@
+==================================================
+MEDISKYE LATENCY LOG — [2026-10-22 00:38:51]
+==================================================
+
+User: test_e2e_1792609500@example.com (Browser E2E Flow)
+- Page Load:                  2218 ms
+- Login & Auth Redirect:      1924 ms
+- PDF Upload & Processing:    111920 ms
+- Lab Metrics (1st Run):      405 ms
+- Lab Metrics (Cached):       253 ms
+- Print Summary (1st Run):    20344 ms
+- Print Summary (Cached):     369 ms
+- AI Chat TTFT (1st Token):   26798 ms
+- AI Chat Total Stream:       35256 ms
+
+User: test_api_1792609701@example.com (Direct Cloud Run API)
+- GET /health (1st Hit):      401 ms
+- GET /health (Warm Avg):     254 ms
+- GET /users/me (1st Hit):    808 ms
+- GET /users/me (Warm Avg):   197 ms
+- POST /query (TTFT):         1973 ms
+- POST /query (Total Stream): 18657 ms
+==================================================

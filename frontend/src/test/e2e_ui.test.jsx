@@ -21,6 +21,7 @@ const mockSignInWithEmailAndPassword = vi.fn();
 const mockCreateUserWithEmailAndPassword = vi.fn();
 const mockUpdateProfile = vi.fn();
 const mockSendPasswordResetEmail = vi.fn();
+const mockSendEmailVerification = vi.fn();
 const mockSignOut = vi.fn();
 
 const {
@@ -56,6 +57,7 @@ vi.mock('../services/firebase', async () => {
     createUserWithEmailAndPassword: (...args) => mockCreateUserWithEmailAndPassword(...args),
     updateProfile: (...args) => mockUpdateProfile(...args),
     sendPasswordResetEmail: (...args) => mockSendPasswordResetEmail(...args),
+    sendEmailVerification: (...args) => mockSendEmailVerification(...args),
     signOut: (...args) => mockSignOut(...args),
   };
 });
@@ -72,6 +74,8 @@ vi.mock('firebase/auth', async (importOriginal) => {
     updatePassword: (...args) => mockUpdatePassword(...args),
   };
 });
+
+const mockApiPost = vi.fn().mockResolvedValue({ message: 'Verification email sent' });
 
 vi.mock('../services/api', () => ({
   login: vi.fn(),
@@ -97,6 +101,16 @@ vi.mock('../services/api', () => ({
   deleteFact: vi.fn(),
   updateMemoryConsent: vi.fn(),
   clearAllMemoryFacts: vi.fn(),
+  sendCustomVerification: vi.fn(),
+  sendCustomPasswordReset: (...args) => mockApiPost('/auth/send-custom-password-reset', { email: args[0] }),
+  api: {
+    post: (...args) => mockApiPost(...args),
+    get: vi.fn(),
+  },
+  default: {
+    post: (...args) => mockApiPost(...args),
+    get: vi.fn(),
+  },
 }));
 
 import * as api from '../services/api';
@@ -151,6 +165,7 @@ describe('TEST SUITE 2: Frontend E2E UI Journeys', () => {
     it('Email/Password Login: trims email, calls signInWithEmailAndPassword, stores token, and navigates', async () => {
       const mockUser = {
         email: 'patient@example.com',
+        emailVerified: true,
         getIdToken: vi.fn().mockResolvedValue('jwt_email_token_123'),
       };
       mockSignInWithEmailAndPassword.mockResolvedValueOnce({ user: mockUser });
@@ -222,7 +237,9 @@ describe('TEST SUITE 2: Frontend E2E UI Journeys', () => {
     });
 
     it('Forgot Password Flow: validates empty email without calling Firebase, dispatches reset email when provided, and shows confirmation banner', async () => {
-      mockSendPasswordResetEmail.mockResolvedValueOnce();
+      mockApiPost.mockResolvedValueOnce({
+        message: 'If an account exists with this email, a reset link has been sent.',
+      });
 
       render(
         <MemoryRouter>
@@ -237,7 +254,7 @@ describe('TEST SUITE 2: Frontend E2E UI Journeys', () => {
       expect(
         screen.getByText(/please enter your email address in the field above first/i)
       ).toBeInTheDocument();
-      expect(mockSendPasswordResetEmail).not.toHaveBeenCalled();
+      expect(mockApiPost).not.toHaveBeenCalled();
 
       // Enter valid email and click forgot password
       const emailInput = screen.getByPlaceholderText(/email address/i);
@@ -245,23 +262,23 @@ describe('TEST SUITE 2: Frontend E2E UI Journeys', () => {
       fireEvent.click(forgotBtn);
 
       await waitFor(() => {
-        expect(mockSendPasswordResetEmail).toHaveBeenCalledWith(
-          expect.anything(),
-          'patient@example.com'
-        );
+        expect(mockApiPost).toHaveBeenCalledWith('/auth/send-custom-password-reset', {
+          email: 'patient@example.com',
+        });
         expect(
-          screen.getByText(/password reset link sent to patient@example\.com/i)
+          screen.getByText(/if an account exists with patient@example\.com, a password reset link has been sent/i)
         ).toBeInTheDocument();
       });
     });
 
-    it('Registration with DisplayName Sync: calls createUserWithEmailAndPassword -> updateProfile -> getIdToken(true) in order', async () => {
+    it('Registration with DisplayName Sync: calls createUserWithEmailAndPassword -> updateProfile -> custom verification in order', async () => {
       const mockNewUser = {
         email: 'newuser@example.com',
         getIdToken: vi.fn().mockResolvedValue('jwt_newuser_token'),
       };
       mockCreateUserWithEmailAndPassword.mockResolvedValueOnce({ user: mockNewUser });
       mockUpdateProfile.mockResolvedValueOnce();
+      mockSignOut.mockResolvedValueOnce();
 
       render(
         <MemoryRouter>
@@ -275,11 +292,14 @@ describe('TEST SUITE 2: Frontend E2E UI Journeys', () => {
       });
       fireEvent.click(screen.getByRole('button', { name: /continue/i }));
 
-      // Step 2: full name, password, PHI consent
+      // Step 2: full name, password, confirm password, PHI consent
       fireEvent.change(screen.getByPlaceholderText(/full name/i), {
         target: { value: 'Jane Clinical Doe' },
       });
       fireEvent.change(screen.getByPlaceholderText(/create a password/i), {
+        target: { value: 'SecurePass987!' },
+      });
+      fireEvent.change(screen.getByPlaceholderText(/confirm password/i), {
         target: { value: 'SecurePass987!' },
       });
       const consentBox = document.getElementById('register-phi-consent');
@@ -297,9 +317,11 @@ describe('TEST SUITE 2: Frontend E2E UI Journeys', () => {
         expect(mockUpdateProfile).toHaveBeenCalledWith(mockNewUser, {
           displayName: 'Jane Clinical Doe',
         });
-        expect(mockNewUser.getIdToken).toHaveBeenCalledWith(true);
-        expect(localStorage.getItem('token')).toBe('jwt_newuser_token');
-        expect(screen.getByText(/account created! redirecting/i)).toBeInTheDocument();
+        expect(mockApiPost).toHaveBeenCalledWith('/auth/send-custom-verification', {
+          email: 'newuser@example.com',
+        });
+        expect(mockSignOut).toHaveBeenCalled();
+        expect(screen.getByText(/account created! we've sent a verification link to newuser@example\.com/i)).toBeInTheDocument();
       });
     });
   });

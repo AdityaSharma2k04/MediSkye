@@ -1,0 +1,171 @@
+import pytest
+from unittest.mock import patch, MagicMock
+from httpx import AsyncClient, ASGITransport
+
+from app.main import app
+from app.core.config import settings
+
+
+@pytest.mark.asyncio
+async def test_send_custom_verification_success():
+    test_email = "patient@example.com"
+    fake_link = "https://mediskye.firebaseapp.com/__/auth/action?mode=verifyEmail&apiKey=fakeApiKey"
+
+    with patch("firebase_admin.auth.generate_email_verification_link", return_value=fake_link) as mock_gen_link, \
+         patch("resend.Emails.send", return_value={"id": "msg_test_123"}) as mock_resend_send:
+
+        transport = ASGITransport(app=app)
+        async with AsyncClient(transport=transport, base_url="http://test") as ac:
+            response = await ac.post(
+                "/auth/send-custom-verification",
+                json={"email": test_email}
+            )
+
+        assert response.status_code == 200
+        assert response.json() == {"message": "Verification email sent"}
+
+        # Verify Firebase Admin SDK was called to generate the verification link
+        mock_gen_link.assert_called_once_with(test_email)
+
+        # Verify Resend API was called to send the email with proper subject and HTML containing the link
+        mock_resend_send.assert_called_once()
+        sent_payload = mock_resend_send.call_args[0][0]
+        assert sent_payload["to"] == test_email
+        assert f"<{settings.FROM_EMAIL}>" in sent_payload["from"]
+        assert sent_payload["subject"] == "Verify your email to start using MediSkye 🩺"
+        assert fake_link in sent_payload["html"]
+        assert "Verify my email" in sent_payload["html"]
+
+
+@pytest.mark.asyncio
+async def test_send_custom_verification_user_not_found():
+    test_email = "nonexistent@example.com"
+
+    with patch("firebase_admin.auth.generate_email_verification_link", side_effect=Exception("User not found")) as mock_gen_link, \
+         patch("resend.Emails.send") as mock_resend_send:
+
+        transport = ASGITransport(app=app)
+        async with AsyncClient(transport=transport, base_url="http://test") as ac:
+            response = await ac.post(
+                "/auth/send-custom-verification",
+                json={"email": test_email}
+            )
+
+        assert response.status_code == 400
+        assert response.json()["detail"] == "Could not generate link. User may not exist."
+        mock_gen_link.assert_called_once_with(test_email)
+        mock_resend_send.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_send_custom_verification_invalid_email():
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as ac:
+        response = await ac.post(
+            "/auth/send-custom-verification",
+            json={"email": "invalid-email-format"}
+        )
+
+    assert response.status_code == 422
+
+
+@pytest.mark.asyncio
+async def test_send_custom_verification_resend_error():
+    from resend.exceptions import ResendError
+    test_email = "patient@example.com"
+    fake_link = "https://mediskye.firebaseapp.com/__/auth/action?mode=verifyEmail&apiKey=fakeApiKey"
+    resend_err = ResendError(401, "invalid_api_key", "Invalid API Key", "Check API Key")
+
+    with patch("firebase_admin.auth.generate_email_verification_link", return_value=fake_link), \
+         patch("resend.Emails.send", side_effect=resend_err):
+
+        transport = ASGITransport(app=app)
+        async with AsyncClient(transport=transport, base_url="http://test") as ac:
+            response = await ac.post(
+                "/auth/send-custom-verification",
+                json={"email": test_email}
+            )
+
+        assert response.status_code == 502
+        assert response.json()["detail"] == "Email service is currently unavailable. Please try again later."
+
+
+@pytest.mark.asyncio
+async def test_send_custom_password_reset_success():
+    test_email = "patient@example.com"
+    fake_reset_link = "https://mediskye.firebaseapp.com/__/auth/action?mode=resetPassword&apiKey=fakeApiKey"
+
+    with patch("firebase_admin.auth.generate_password_reset_link", return_value=fake_reset_link) as mock_gen_link, \
+         patch("resend.Emails.send", return_value={"id": "msg_reset_123"}) as mock_resend_send:
+
+        transport = ASGITransport(app=app)
+        async with AsyncClient(transport=transport, base_url="http://test") as ac:
+            response = await ac.post(
+                "/auth/send-custom-password-reset",
+                json={"email": test_email}
+            )
+
+        assert response.status_code == 200
+        assert response.json() == {"message": "If an account exists with this email, a reset link has been sent."}
+
+        mock_gen_link.assert_called_once_with(test_email)
+        mock_resend_send.assert_called_once()
+        payload = mock_resend_send.call_args[0][0]
+        assert payload["to"] == test_email
+        assert payload["subject"] == "Reset your MediSkye password 🔒"
+        assert fake_reset_link in payload["html"]
+        assert "Reset my password" in payload["html"]
+
+
+@pytest.mark.asyncio
+async def test_send_custom_password_reset_user_not_found_prevents_enumeration():
+    test_email = "nonexistent@example.com"
+
+    with patch("firebase_admin.auth.generate_password_reset_link", side_effect=Exception("User not found")) as mock_gen_link, \
+         patch("resend.Emails.send") as mock_resend_send:
+
+        transport = ASGITransport(app=app)
+        async with AsyncClient(transport=transport, base_url="http://test") as ac:
+            response = await ac.post(
+                "/auth/send-custom-password-reset",
+                json={"email": test_email}
+            )
+
+        # Must return 200 with generic message and never call Resend
+        assert response.status_code == 200
+        assert response.json() == {"message": "If an account exists with this email, a reset link has been sent."}
+        mock_gen_link.assert_called_once_with(test_email)
+        mock_resend_send.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_send_custom_password_reset_resend_error():
+    from resend.exceptions import ResendError
+    test_email = "patient@example.com"
+    fake_reset_link = "https://mediskye.firebaseapp.com/__/auth/action?mode=resetPassword&apiKey=fakeApiKey"
+    resend_err = ResendError(401, "invalid_api_key", "API Key Invalid", "Check API Key")
+
+    with patch("firebase_admin.auth.generate_password_reset_link", return_value=fake_reset_link), \
+         patch("resend.Emails.send", side_effect=resend_err):
+
+        transport = ASGITransport(app=app)
+        async with AsyncClient(transport=transport, base_url="http://test") as ac:
+            response = await ac.post(
+                "/auth/send-custom-password-reset",
+                json={"email": test_email}
+            )
+
+        assert response.status_code == 502
+        assert response.json()["detail"] == "Email service is currently unavailable. Please try again later."
+
+
+@pytest.mark.asyncio
+async def test_send_custom_password_reset_invalid_email():
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as ac:
+        response = await ac.post(
+            "/auth/send-custom-password-reset",
+            json={"email": "not-an-email"}
+        )
+
+    assert response.status_code == 422

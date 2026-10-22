@@ -33,10 +33,16 @@ class ResilientGeminiEmbeddings(Embeddings):
         self.model = model or settings.resolved_embedding_model
 
     def embed_documents(self, texts: list[str]) -> list[list[float]]:
-        results = []
-        for text in texts:
-            results.append(self.embed_query(text))
-        return results
+        if not texts:
+            return []
+        try:
+            return _run_coroutine_sync(self.aembed_documents(texts))
+        except Exception as e:
+            logger.warning("aembed_documents sync runner failed; falling back to sequential embed_query: %s", e)
+            results = []
+            for text in texts:
+                results.append(self.embed_query(text))
+            return results
 
     def embed_query(self, text: str) -> list[float]:
         try:
@@ -53,11 +59,44 @@ class ResilientGeminiEmbeddings(Embeddings):
             raise
 
     async def aembed_documents(self, texts: list[str]) -> list[list[float]]:
-        results = []
-        for text in texts:
-            emb = await self.aembed_query(text)
-            results.append(emb)
-        return results
+        if not texts:
+            return []
+
+        batch_size = 100
+        all_embeddings: list[list[float]] = []
+
+        for i in range(0, len(texts), batch_size):
+            batch = texts[i : i + batch_size]
+            try:
+                res = await embed_content_with_retry(contents=batch, model=self.model)
+                embeddings = getattr(res, "embeddings", None)
+                if embeddings and len(embeddings) == len(batch):
+                    for emb in embeddings:
+                        vals = getattr(emb, "values", None)
+                        all_embeddings.append(list(vals) if vals is not None else [])
+                    continue
+                elif embeddings:
+                    for emb in embeddings:
+                        vals = getattr(emb, "values", None)
+                        all_embeddings.append(list(vals) if vals is not None else [])
+                    continue
+                values = getattr(res, "embedding", None)
+                if values and hasattr(values, "values") and len(batch) == 1:
+                    all_embeddings.append(list(values.values))
+                    continue
+            except Exception as batch_err:
+                logger.warning(
+                    "Batch embedding call failed for %d items (%s); falling back to concurrent items: %s",
+                    len(batch),
+                    type(batch_err).__name__,
+                    batch_err,
+                )
+
+            # Concurrent fallback if batch fails or returns unexpected format
+            batch_results = await asyncio.gather(*[self.aembed_query(t) for t in batch])
+            all_embeddings.extend(batch_results)
+
+        return all_embeddings
 
     async def aembed_query(self, text: str) -> list[float]:
         try:
