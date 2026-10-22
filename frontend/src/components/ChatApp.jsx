@@ -538,6 +538,10 @@ export default function ChatApp() {
   const handleAttachFile = async (file) => {
     if (!file) return;
 
+    if (typeof performance !== 'undefined' && performance.mark) {
+      performance.mark('upload_file_selected');
+    }
+
     const isValidType =
       file.type === 'application/pdf' ||
       file.name.match(/\.(pdf|jpg|jpeg|png)$/i);
@@ -556,7 +560,25 @@ export default function ChatApp() {
     setIsGenerating(true);
 
     try {
+      if (typeof performance !== 'undefined' && performance.mark) {
+        performance.mark('upload_request_sent');
+        try {
+          performance.measure('file_prep_to_request', 'upload_file_selected', 'upload_request_sent');
+          const m = performance.getEntriesByName('file_prep_to_request').pop();
+          console.info(`[UPLOAD_TIMING] file_prep_to_request: ${m?.duration?.toFixed(2)}ms`);
+        } catch {}
+      }
+
       const data = await uploadPdfReport(file, selectedPatientId, sessionId);
+
+      if (typeof performance !== 'undefined' && performance.mark) {
+        performance.mark('upload_job_id_received');
+        try {
+          performance.measure('request_to_job_id', 'upload_request_sent', 'upload_job_id_received');
+          const m = performance.getEntriesByName('request_to_job_id').pop();
+          console.info(`[UPLOAD_TIMING] request_to_job_id: ${m?.duration?.toFixed(2)}ms (job_id: ${data?.job_id || data?.document_id})`);
+        } catch {}
+      }
 
       let newDocId = null;
       if (data?.job_id) {
@@ -566,9 +588,21 @@ export default function ChatApp() {
         const MAX_WAIT = (typeof window !== 'undefined' && window.__UPLOAD_MAX_WAIT__) || 120000;
         let consecutiveFailures = 0;
         const MAX_CONSECUTIVE_FAILURES = 5;
+        let hasRecordedFirstPoll = false;
 
         while (isMountedRef.current && Date.now() - startTime < MAX_WAIT) {
           await new Promise((r) => setTimeout(r, POLL_INTERVAL));
+
+          if (!hasRecordedFirstPoll && typeof performance !== 'undefined' && performance.mark) {
+            hasRecordedFirstPoll = true;
+            performance.mark('first_status_poll');
+            try {
+              performance.measure('job_id_to_first_poll', 'upload_job_id_received', 'first_status_poll');
+              const m = performance.getEntriesByName('job_id_to_first_poll').pop();
+              console.info(`[UPLOAD_TIMING] job_id_to_first_poll: ${m?.duration?.toFixed(2)}ms`);
+            } catch {}
+          }
+
           let status;
           try {
             status = await getUploadStatus(jobId, 10000);
@@ -591,6 +625,16 @@ export default function ChatApp() {
 
           if (status.status === 'completed') {
             newDocId = status.document_id;
+            if (typeof performance !== 'undefined' && performance.mark) {
+              performance.mark('status_completed');
+              try {
+                performance.measure('first_poll_to_completed', 'first_status_poll', 'status_completed');
+                performance.measure('total_upload_e2e', 'upload_file_selected', 'status_completed');
+                const mPoll = performance.getEntriesByName('first_poll_to_completed').pop();
+                const mTotal = performance.getEntriesByName('total_upload_e2e').pop();
+                console.info(`[UPLOAD_TIMING] first_poll_to_completed: ${mPoll?.duration?.toFixed(2)}ms | total_upload_e2e: ${mTotal?.duration?.toFixed(2)}ms`);
+              } catch {}
+            }
             break;
           }
 

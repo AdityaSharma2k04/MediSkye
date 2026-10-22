@@ -7,13 +7,21 @@ from datetime import datetime, UTC
 from pathlib import Path
 import shutil
 import os
+import firebase_admin
+import firebase_admin.auth
 from fastapi import APIRouter, Depends, Request, status, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 
 from app.db.database import get_db
 from app.db.models import User, DependentProfile, Document, Chat, PatientFact
-from app.core.auth import get_current_user, verify_password, get_password_hash
+from app.core.auth import (
+    get_current_user,
+    get_current_user_full,
+    evict_token_cache_for_user,
+    verify_password,
+    get_password_hash,
+)
 from app.schemas.user import (
     UserResponse,
     UserUpdate,
@@ -37,7 +45,7 @@ logger = logging.getLogger(__name__)
 router = APIRouter(tags=["Users & Dependents"])
 
 @router.get("/users/me", response_model=UserResponse)
-async def read_user_me(current_user: User = Depends(get_current_user)):
+async def read_user_me(current_user: User = Depends(get_current_user_full)):
     user_res = UserResponse.model_validate(current_user)
     user_res.calculated_age = calculate_age(current_user.date_of_birth)
     return user_res
@@ -47,7 +55,7 @@ async def read_user_me(current_user: User = Depends(get_current_user)):
 async def update_user_me(
     request: Request,
     user_update: UserUpdate,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_user_full),
     db: AsyncSession = Depends(get_db)
 ):
     update_data = user_update.model_dump(exclude_unset=True)
@@ -57,6 +65,7 @@ async def update_user_me(
     db.add(current_user)
     await db.commit()
     await db.refresh(current_user)
+    evict_token_cache_for_user(current_user.id)
     
     await log_audit(db, "PROFILE_UPDATE", current_user.id, "profile", request.client.host if request.client else "unknown")
     user_res = UserResponse.model_validate(current_user)
@@ -71,7 +80,7 @@ async def update_user_me(
 async def change_password(
     body: PasswordChange,
     request: Request,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_user_full),
     db: AsyncSession = Depends(get_db),
 ):
     """
@@ -85,28 +94,42 @@ async def change_password(
         )
     current_user.hashed_password = get_password_hash(body.new_password)
     await db.commit()
+    evict_token_cache_for_user(current_user.id)
     await log_audit(db, "PASSWORD_CHANGED", current_user.id, "change_password", request.client.host if request.client else "unknown")
     return {"message": "Password changed successfully"}
 
 @router.delete("/users/me", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_user_me(
     request: Request,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_user_full),
     db: AsyncSession = Depends(get_db)
 ):
-    await log_audit(db, "USER_DELETION_REQUESTED", current_user.id, "account", request.client.host if request.client else "unknown")
+    user_id = current_user.id
+    user_email = current_user.email
+    await log_audit(db, "USER_DELETION_REQUESTED", user_id, "account", request.client.host if request.client else "unknown")
     
-    docs = await db.execute(select(Document).filter(Document.user_id == current_user.id))
+    docs = await db.execute(select(Document).filter(Document.user_id == user_id))
     for doc in docs.scalars().all():
         if doc.file_path:
             await adelete_index_artifacts(doc.file_path)
                 
-    await db.execute(Chat.__table__.delete().where(Chat.user_id == current_user.id))
-    await db.execute(Document.__table__.delete().where(Document.user_id == current_user.id))
-    await db.execute(DependentProfile.__table__.delete().where(DependentProfile.user_id == current_user.id))
+    await db.execute(Chat.__table__.delete().where(Chat.user_id == user_id))
+    await db.execute(Document.__table__.delete().where(Document.user_id == user_id))
+    await db.execute(DependentProfile.__table__.delete().where(DependentProfile.user_id == user_id))
     
     await db.delete(current_user)
     await db.commit()
+    evict_token_cache_for_user(user_id)
+
+    try:
+        fb_user = firebase_admin.auth.get_user_by_email(user_email)
+        firebase_admin.auth.delete_user(fb_user.uid)
+        logger.info("firebase_delete_ok user_id=%s", user_id)
+    except firebase_admin.auth.UserNotFoundError:
+        logger.warning("firebase_user_not_found user_id=%s", user_id)
+    except Exception as e:
+        logger.error("firebase_delete_failed user_id=%s error=%s", user_id, e)
+
     return None
 
 # ==========================================
@@ -458,7 +481,7 @@ async def delete_dependent(
 async def update_memory_consent(
     request: Request,
     body: MemoryConsentRequest,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_user_full),
     db: AsyncSession = Depends(get_db),
 ):
     """Enable or disable long-term memory extraction and cross-session personalization."""
@@ -466,6 +489,7 @@ async def update_memory_consent(
     db.add(current_user)
     await db.commit()
     await db.refresh(current_user)
+    evict_token_cache_for_user(current_user.id)
     try:
         await log_audit(
             db,

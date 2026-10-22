@@ -58,6 +58,22 @@ class User(Base):
     # Patient Memory System — user must explicitly opt in
     memory_consent_granted = Column(Boolean, default=False, nullable=False)
 
+    @property
+    def health_profile(self):
+        if getattr(self, "_phi_loaded", False):
+            return {
+                "blood_type": self.blood_type,
+                "pre_existing_conditions": self.pre_existing_conditions,
+                "known_allergies": self.known_allergies,
+                "current_medications": self.current_medications,
+                "height_cm": self.height_cm,
+                "diet_type": self.diet_type,
+                "activity_level": self.activity_level,
+                "occupation": self.occupation,
+            }
+        from sqlalchemy.exc import InvalidRequestError
+        raise InvalidRequestError("'User.health_profile' is set to lazy='raise', unable to load attribute for instance. Use get_current_user_full.")
+
     documents = orm_relationship("Document", back_populates="owner", cascade="all, delete-orphan")
     chats = orm_relationship("Chat", back_populates="user", cascade="all, delete-orphan")
     audit_logs = orm_relationship("AuditLog", back_populates="user")
@@ -108,6 +124,7 @@ class Document(Base):
     filename = Column(String, nullable=False)
     file_path = Column(String, nullable=True)  # Path to FAISS index or PDF
     title = Column(String(60), nullable=True)  # User-defined or auto-generated chat title
+    index_status = Column(String(20), default="local_ready", nullable=False)  # building | local_ready | synced
     cached_metrics = Column(JSON, nullable=True)
     cached_summary = Column(Text, nullable=True)
     created_at = Column(DateTime(timezone=True), default=utcnow)
