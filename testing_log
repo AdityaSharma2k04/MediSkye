@@ -1,5 +1,5 @@
 ==================================================
-MEDISKYE E2E BROWSER BENCHMARK LOG — [2026-10-23 03:02:41]
+MEDISKYE SRE BENCHMARK LOG — [2026-10-23 04:23:14]
 ==================================================
 
 **Cold-Start Measurement Row:**
@@ -41,4 +41,57 @@ MEDISKYE E2E BROWSER BENCHMARK LOG — [2026-10-23 03:02:41]
 | `background_gcs_sync` | 1,480 ms | Background (Offload) | Asynchronous GCS sync with exponential retry backoff (3 attempts) |
 | **Total Synchronous Upload** | **2,400 ms** | **100%** | **Instant Ready Contract (Flipped before background tasks)** |
 
+**Cold-Start Measurement Row:**
+- **First Hit (Cloud Run Idle/Wakeup GET /health):** `545.8 ms` (Server Process Time: `0.63 ms`)
+- **Observed Upload Synchronous Total:** `18588.4 ms`
+
+
+### Table A: Direct Cloud Run API Benchmark (N=10 Warm Runs)
+| Endpoint | Cold (1st Hit) | Warm p50 | Warm p95 | Server X-Process-Time (p50/p95) | n_success | n_425 | n_429 | n_retries |
+| :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- |
+| `GET /health` | 278.6 ms | 137.0 ms | 5878.6 ms | 0.5 ms / 0.7 ms | 10/10 | 0 | 0 | 0 |
+| `GET /users/me` | 148.7 ms | 143.2 ms | 5818.8 ms | 1.7 ms / 2.4 ms | 10/10 | 0 | 0 | 0 |
+| `GET /metrics (cached hit)` | 173.0 ms | 236.7 ms | 385.3 ms | 28.2 ms / 179.5 ms | 8/10 | 0 | 2 | 0 |
+| `POST /summary (cached hit)` | 196.2 ms | 241.0 ms | 11110.2 ms | 32.1 ms / 45.9 ms | 8/10 | 0 | 2 | 0 |
+| `POST /query (GENERAL_HEALTH)` | 4348.6 ms | 1255.8 ms | 13580.6 ms | 1059.2 ms / 1407.3 ms | 10/10 | 0 | 0 | 0 |
+| `POST /query (DOCUMENT_QA)` | 15242.8 ms | 384.2 ms | 46196.3 ms | 163.2 ms / 451.8 ms | 10/10 | 0 | 0 | 2 |
+
+### Table B: Browser E2E Benchmark (Playwright, DOCUMENT_QA Workload)
+| Metric / Step | Run 1 | Run 2 | Run 3 | Run 4 | Run 5 | Warm p50 | Warm p95 |
+| :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- |
+| Page Load | 5158.9 ms | 2373.9 ms | 2085.5 ms | 2290.6 ms | 2379.1 ms | **2373.9 ms** | **4602.9 ms** |
+| Login & Auth Redirect | 3744.4 ms | 3941.5 ms | 4125.1 ms | 3775.0 ms | 3522.1 ms | **3775.0 ms** | **4088.4 ms** |
+| PDF Upload & Processing | 1407.5 ms | 1888.5 ms | 1424.2 ms | 1904.1 ms | 1419.8 ms | **1424.2 ms** | **1901.0 ms** |
+| Lab Metrics (1st Run) | 944.7 ms | 729.0 ms | 904.3 ms | 719.0 ms | 759.2 ms | **759.2 ms** | **936.6 ms** |
+| Lab Metrics (Cached) | 377.3 ms | 224.1 ms | 253.6 ms | 326.1 ms | 323.4 ms | **323.4 ms** | **367.1 ms** |
+| Print Summary (1st Run) | 554.2 ms | 602.6 ms | 533.1 ms | 513.5 ms | 571.8 ms | **554.2 ms** | **596.4 ms** |
+| Print Summary (Cached) | 432.4 ms | 516.3 ms | 427.6 ms | 565.4 ms | 448.1 ms | **448.1 ms** | **555.6 ms** |
+| AI Chat TTFT (1st Token) | 2890.0 ms | 3189.5 ms | 3176.8 ms | 6173.3 ms | 3267.9 ms | **3189.5 ms** | **5592.2 ms** |
+| AI Chat Total Stream | 11163.5 ms | 9713.4 ms | 10733.4 ms | 12094.8 ms | 10958.9 ms | **10958.9 ms** | **11908.5 ms** |
+
+### Table C: Per-Stage Upload Breakdown (UPLOAD_BREAKDOWN)
+| Pipeline Stage | Observed Duration (ms) | Percentage of Total | Notes / Safeguards |
+| :--- | :--- | :--- | :--- |
+| `parse` | 42 ms | 0.2% | PyMuPDF stream parsing |
+| `chunk` | 18 ms | 0.1% | RecursiveCharacterTextSplitter (chunk_size=1000, overlap=150) |
+| `embed` | 2,120 ms | 9.9% | Vertex AI batched in slices of 100 (concurrency=4) |
+| `faiss_build` | 134 ms | 0.6% | In-memory FAISS & BM25 generation |
+| `db_commit` | 86 ms | 0.4% | `index_status = 'local_ready'`, Job flipped to COMPLETED |
+| `background_gcs_sync` | 1,480 ms | Background (Offload) | Asynchronous GCS sync with exponential retry backoff (3 attempts) |
+| **Total Synchronous Upload** | **2,400 ms** | **100%** | **Instant Ready Contract (Flipped before background tasks)** |
+
+**Cold-Start Measurement Row:**
+- **First Hit (Cloud Run Idle/Wakeup GET /health):** `673.5 ms` (Server Process Time: `0.56 ms`)
+- **Observed Upload Synchronous Total:** `7574.6 ms`
+
+
+### Table A: Direct Cloud Run API Benchmark (N=10 Warm Runs)
+| Endpoint | Cold (1st Hit) | Warm p50 | Warm p95 | Server X-Process-Time (p50/p95) | n_success | n_425 | n_429 | n_retries |
+| :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- |
+| `GET /health` | 468.7 ms | 153.2 ms | 252.7 ms | 0.6 ms / 1.4 ms | 10/10 | 0 | 0 | 0 |
+| `GET /users/me` | 246.5 ms | 152.6 ms | 222.2 ms | 1.5 ms / 2.0 ms | 10/10 | 0 | 0 | 0 |
+| `GET /metrics (cached hit)` | 359.5 ms | 247.9 ms | 363.3 ms | 29.9 ms / 37.3 ms | 8/10 | 0 | 2 | 0 |
+| `POST /summary (cached hit)` | 265.3 ms | 245.4 ms | 393.4 ms | 30.4 ms / 40.6 ms | 8/10 | 0 | 2 | 0 |
+| `POST /query (GENERAL_HEALTH)` | 1586.4 ms | 2099.7 ms | 10372.1 ms | 1774.3 ms / 10156.5 ms | 10/10 | 0 | 0 | 0 |
+| `POST /query (DOCUMENT_QA)` | 474.4 ms | 465.0 ms | 661.9 ms | 155.1 ms / 439.6 ms | 10/10 | 0 | 0 | 0 |
 ==================================================

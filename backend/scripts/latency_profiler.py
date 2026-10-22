@@ -312,9 +312,7 @@ async def run_single_e2e_pass(
             _mark("upload: set_input_files")
             await page.set_input_files("input[type='file']", pdf_fixture)
             metrics_btn_selector = 'button[aria-label="View extracted lab metrics table"]'
-            await page.wait_for_selector('text="Report Ready"', state="visible", timeout=120000)
-            _mark("upload: 'Report Ready' toast visible")
-            await page.wait_for_selector(metrics_btn_selector, state="visible", timeout=15000)
+            await page.wait_for_selector(metrics_btn_selector, state="visible", timeout=120000)
             pdf_upload_ms = round((time.perf_counter() - t_upload_start) * 1000.0, 1)
             _mark(f"upload: metrics button visible ({pdf_upload_ms}ms)")
 

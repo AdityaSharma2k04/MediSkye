@@ -151,22 +151,24 @@ def format_facts_for_prompt(
         date_val = getattr(f, "extracted_at", None) or (f.get("extracted_at") if isinstance(f, dict) else None)
 
         if cat == "weight":
-            weights.append((date_val, val))
+            weights.append((date_val, escape_xml_content(str(val))))
         else:
-            by_category.setdefault(cat, []).append(f"- {key}: {val}")
+            by_category.setdefault(cat, []).append(
+                f"- {escape_xml_content(str(key))}: {escape_xml_content(str(val))}"
+            )
 
     blocks: List[str] = []
 
     # Lifestyle & Profile Block
     lifestyle_lines: List[str] = []
     if diet_type:
-        lifestyle_lines.append(f"- Diet: {diet_type}")
+        lifestyle_lines.append(f"- Diet: {escape_xml_content(str(diet_type))}")
     if activity_level:
-        lifestyle_lines.append(f"- Activity: {activity_level}")
+        lifestyle_lines.append(f"- Activity: {escape_xml_content(str(activity_level))}")
     if height_cm:
         lifestyle_lines.append(f"- Height: {height_cm} cm")
     if occupation:
-        lifestyle_lines.append(f"- Occupation: {occupation}")
+        lifestyle_lines.append(f"- Occupation: {escape_xml_content(str(occupation))}")
 
     # Add sport_hobby facts under lifestyle
     if "sport_hobby" in by_category:

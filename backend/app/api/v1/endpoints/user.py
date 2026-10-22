@@ -16,6 +16,7 @@ from sqlalchemy.future import select
 from app.db.database import get_db
 from app.db.models import User, DependentProfile, Document, Chat, PatientFact
 from app.core.auth import (
+    UserDTO,
     get_current_user,
     get_current_user_full,
     evict_token_cache_for_user,
@@ -45,7 +46,7 @@ logger = logging.getLogger(__name__)
 router = APIRouter(tags=["Users & Dependents"])
 
 @router.get("/users/me", response_model=UserResponse)
-async def read_user_me(current_user: User = Depends(get_current_user)):
+async def read_user_me(current_user: UserDTO = Depends(get_current_user)):
     user_res = UserResponse.model_validate(current_user)
     user_res.calculated_age = calculate_age(current_user.date_of_birth)
     return user_res
@@ -138,7 +139,7 @@ async def delete_user_me(
 
 @router.get("/users/me/documents", response_model=List[DocumentResponse])
 async def get_my_documents(
-    current_user: User = Depends(get_current_user),
+    current_user: UserDTO = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
     result = await db.execute(
@@ -164,7 +165,7 @@ async def get_my_documents(
 async def rename_user_document_title(
     document_id: str,
     body: RenameDocumentRequest,
-    current_user: User = Depends(get_current_user),
+    current_user: UserDTO = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
     """Rename a document's title (auth-gated to document owner)."""
@@ -189,7 +190,7 @@ async def rename_user_document_title(
 
 @router.get("/users/me/chats")
 async def get_general_chats(
-    current_user: User = Depends(get_current_user),
+    current_user: UserDTO = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
     result = await db.execute(
@@ -211,7 +212,7 @@ async def get_general_chats(
 @router.get("/users/me/documents/{document_id}/chats")
 async def get_document_chats(
     document_id: str,
-    current_user: User = Depends(get_current_user),
+    current_user: UserDTO = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
     try:
@@ -267,7 +268,7 @@ def _normalize_cached_metrics(cached) -> List[dict]:
 @router.get("/users/me/documents/{document_id}/export")
 async def export_document_data(
     document_id: str,
-    current_user: User = Depends(get_current_user),
+    current_user: UserDTO = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
     """
@@ -319,7 +320,7 @@ async def export_document_data(
 @router.delete("/users/me/documents/{document_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_my_document(
     document_id: str,
-    current_user: User = Depends(get_current_user),
+    current_user: UserDTO = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
     try:
@@ -366,7 +367,7 @@ async def delete_my_document(
 @router.get("/users/me/dependents", response_model=List[DependentResponse])
 async def list_dependents(
     request: Request,
-    current_user: User = Depends(get_current_user),
+    current_user: UserDTO = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
     result = await db.execute(
@@ -389,7 +390,7 @@ async def list_dependents(
 async def create_dependent(
     request: Request,
     dependent_in: DependentCreate,
-    current_user: User = Depends(get_current_user),
+    current_user: UserDTO = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
     dep = DependentProfile(
@@ -422,7 +423,7 @@ async def update_dependent(
     dependent_id: UUID,
     request: Request,
     dependent_in: DependentUpdate,
-    current_user: User = Depends(get_current_user),
+    current_user: UserDTO = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
     result = await db.execute(
@@ -453,7 +454,7 @@ async def update_dependent(
 async def delete_dependent(
     dependent_id: UUID,
     request: Request,
-    current_user: User = Depends(get_current_user),
+    current_user: UserDTO = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
     result = await db.execute(
@@ -509,7 +510,7 @@ async def update_memory_consent(
 @router.get("/users/me/memory/status")
 @router.get("/memory/status")
 async def get_memory_status(
-    current_user: User = Depends(get_current_user),
+    current_user: UserDTO = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
     """Get the current memory consent status and total number of remembered facts."""
@@ -531,7 +532,7 @@ async def get_memory_status(
 @router.get("/memory/facts", response_model=List[PatientFactResponse])
 async def get_user_facts(
     dependent_id: Optional[str] = None,
-    current_user: User = Depends(get_current_user),
+    current_user: UserDTO = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
     """Retrieve all active structured health facts remembered for the user or dependent."""
@@ -565,7 +566,7 @@ async def get_user_facts(
 async def create_user_fact(
     body: PatientFactCreate,
     request: Request,
-    current_user: User = Depends(get_current_user),
+    current_user: UserDTO = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
     """Manually add a health fact for the current user or their dependent."""
@@ -611,7 +612,7 @@ async def update_user_fact(
     fact_id: UUID,
     body: PatientFactUpdate,
     request: Request,
-    current_user: User = Depends(get_current_user),
+    current_user: UserDTO = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
     """Update a specific remembered health fact (auth-gated, cross-user returns 404)."""
@@ -644,7 +645,7 @@ async def update_user_fact(
 async def delete_memory_fact(
     fact_id: UUID,
     request: Request,
-    current_user: User = Depends(get_current_user),
+    current_user: UserDTO = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
     """Soft delete a specific remembered health fact (auth-gated, cross-user returns 404)."""
@@ -670,7 +671,7 @@ async def delete_memory_fact(
 async def clear_all_memory_facts(
     request: Request,
     dependent_id: Optional[str] = None,
-    current_user: User = Depends(get_current_user),
+    current_user: UserDTO = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
     """Soft delete all remembered health facts for the user or dependent."""

@@ -12,12 +12,9 @@ and sent to Gemini Vision for structured Markdown extraction,
 which preserves exact lab values that text extractors often scramble.
 """
 
-import io
 import os
-import base64
 import asyncio
 import logging
-from typing import Optional
 
 from langchain_core.documents import Document
 from pypdf import PdfReader
@@ -26,7 +23,7 @@ logger = logging.getLogger(__name__)
 
 from app.core.config import settings
 from app.core.security import sanitize_text
-from app.llm.gemini_client import call_gemini_with_retry, get_genai_client
+from app.llm.gemini_client import call_gemini_with_retry
 
 MIN_EXTRACTED_CHARS = 100
 
@@ -57,14 +54,16 @@ async def classify_image_type(image_bytes: bytes) -> str:
         return buffer.tobytes()
 
     compressed_bytes = await asyncio.to_thread(_compress)
-    from google import genai
-    from google.genai.types import Part
-    client = get_genai_client()
-    
+    from google.genai.types import GenerateContentConfig, Part, ThinkingConfig
+
     try:
         image_part = Part.from_bytes(data=compressed_bytes, mime_type="image/jpeg")
         response = await call_gemini_with_retry(
             contents=["Respond with exactly one word: 'XRAY' if this is a radiological scan, or 'DOCUMENT' if this is a text-heavy clinical report.", image_part],
+            config=GenerateContentConfig(
+                thinking_config=ThinkingConfig(thinking_budget=0),
+                temperature=0.0,
+            ),
         )
         result = sanitize_text(response.text or "").strip().upper()
         if "XRAY" in result:
@@ -94,15 +93,17 @@ async def process_image_path(image_type: str, image_bytes: bytes, source_meta: s
             return buffer.tobytes()
         
         enhanced_bytes = await asyncio.to_thread(_apply_clahe)
-        from google import genai
-        from google.genai.types import Part
-        client = get_genai_client()
-        
+        from google.genai.types import GenerateContentConfig, Part, ThinkingConfig
+
         try:
             image_part = Part.from_bytes(data=enhanced_bytes, mime_type="image/png")
             prompt = "You are an expert radiologist. Analyze this radiological scan and provide a detailed clinical observation summary. Be precise and medical."
             response = await call_gemini_with_retry(
                 contents=[prompt, image_part],
+                config=GenerateContentConfig(
+                    thinking_config=ThinkingConfig(thinking_budget=0),
+                    temperature=0.2,
+                ),
             )
             text = sanitize_text(response.text or "").strip()
             return Document(page_content=text, metadata={"source": source_meta, "type": "xray"})
@@ -335,9 +336,14 @@ Output the structured Markdown extraction:"""
 
         try:
             # Send to Gemini Vision
+            from google.genai.types import GenerateContentConfig, ThinkingConfig
             image_part = Part.from_bytes(data=img_bytes, mime_type="image/png")
             response = await call_gemini_with_retry(
                 contents=[VISION_PROMPT, image_part],
+                config=GenerateContentConfig(
+                    thinking_config=ThinkingConfig(thinking_budget=0),
+                    temperature=0.0,
+                ),
             )
             
             extracted_text = sanitize_text(response.text or "")

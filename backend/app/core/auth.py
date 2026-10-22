@@ -11,7 +11,7 @@ from datetime import datetime, timedelta, UTC
 from typing import Optional, Any, Union
 import jwt
 from passlib.context import CryptContext
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 from fastapi import Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordBearer
 from sqlalchemy import func
@@ -37,10 +37,11 @@ class UserDTO(BaseModel):
     """
     Lightweight Pydantic DTO returned on the high-throughput auth hot path.
     Prevents unnecessary ORM queries and lazy loading in async SQLAlchemy.
+    PHI fields are marked exclude=True so generic model_dump() calls never leak PHI.
     """
     id: uuid.UUID
     email: str
-    created_at: datetime = datetime.now(UTC)
+    created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
     email_verified: bool = True
     language_preference: Optional[str] = "English"
     phi_consent_granted: bool = False
@@ -48,16 +49,16 @@ class UserDTO(BaseModel):
     full_name: Optional[str] = None
     date_of_birth: Optional[Any] = None
     biological_sex: Optional[str] = None
-    blood_type: Optional[str] = None
-    pre_existing_conditions: Optional[str] = None
-    known_allergies: Optional[str] = None
-    current_medications: Optional[str] = None
+    blood_type: Optional[str] = Field(default=None, exclude=True)
+    pre_existing_conditions: Optional[str] = Field(default=None, exclude=True)
+    known_allergies: Optional[str] = Field(default=None, exclude=True)
+    current_medications: Optional[str] = Field(default=None, exclude=True)
     emergency_contact_name: Optional[str] = None
     emergency_contact_phone: Optional[str] = None
     height_cm: Optional[float] = None
     diet_type: Optional[str] = None
     activity_level: Optional[str] = None
-    occupation: Optional[str] = None
+    occupation: Optional[str] = Field(default=None, exclude=True)
 
     model_config = ConfigDict(from_attributes=True, arbitrary_types_allowed=True)
 

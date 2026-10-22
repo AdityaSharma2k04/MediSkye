@@ -126,9 +126,11 @@ async def extract_facts(
     if not formatted_messages.strip():
         return {"facts": [], "retractions": []}
 
+    from app.core.security import escape_xml_content
+    safe_messages = f"<conversation>\n{escape_xml_content(formatted_messages)}\n</conversation>"
     prompt = (
         template.replace("{existing_facts_json}", json.dumps(normalized_existing, indent=2))
-        .replace("{messages}", formatted_messages)
+        .replace("{messages}", safe_messages)
     )
 
     try:

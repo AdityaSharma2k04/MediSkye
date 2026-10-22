@@ -507,7 +507,9 @@ export default function ChatApp() {
         try {
           performance.measure('file_prep_to_request', 'upload_file_selected', 'upload_request_sent');
           const m = performance.getEntriesByName('file_prep_to_request').pop();
-          console.info(`[UPLOAD_TIMING] file_prep_to_request: ${m?.duration?.toFixed(2)}ms`);
+          if (import.meta.env.DEV) {
+            console.info(`[UPLOAD_TIMING] file_prep_to_request: ${m?.duration?.toFixed(2)}ms`);
+          }
         } catch {}
       }
 
@@ -520,7 +522,9 @@ export default function ChatApp() {
         try {
           performance.measure('request_to_job_id', 'upload_request_sent', 'upload_job_id_received');
           const m = performance.getEntriesByName('request_to_job_id').pop();
-          console.info(`[UPLOAD_TIMING] request_to_job_id: ${m?.duration?.toFixed(2)}ms (job_id: ${data?.job_id || data?.document_id})`);
+          if (import.meta.env.DEV) {
+            console.info(`[UPLOAD_TIMING] request_to_job_id: ${m?.duration?.toFixed(2)}ms (job_id: ${data?.job_id || data?.document_id})`);
+          }
         } catch {}
       }
 
@@ -554,7 +558,9 @@ export default function ChatApp() {
             try {
               performance.measure('job_id_to_first_poll', 'upload_job_id_received', 'first_status_poll');
               const m = performance.getEntriesByName('job_id_to_first_poll').pop();
-              console.info(`[UPLOAD_TIMING] job_id_to_first_poll: ${m?.duration?.toFixed(2)}ms`);
+              if (import.meta.env.DEV) {
+                console.info(`[UPLOAD_TIMING] job_id_to_first_poll: ${m?.duration?.toFixed(2)}ms`);
+              }
             } catch {}
           }
 
@@ -583,7 +589,9 @@ export default function ChatApp() {
                 performance.measure('total_upload_e2e', 'upload_file_selected', 'status_completed');
                 const mPoll = performance.getEntriesByName('first_poll_to_completed').pop();
                 const mTotal = performance.getEntriesByName('total_upload_e2e').pop();
-                console.info(`[UPLOAD_TIMING] first_poll_to_completed: ${mPoll?.duration?.toFixed(2)}ms | total_upload_e2e: ${mTotal?.duration?.toFixed(2)}ms`);
+                if (import.meta.env.DEV) {
+                  console.info(`[UPLOAD_TIMING] first_poll_to_completed: ${mPoll?.duration?.toFixed(2)}ms | total_upload_e2e: ${mTotal?.duration?.toFixed(2)}ms`);
+                }
               } catch {}
             }
             break;

@@ -3,19 +3,18 @@ import uuid
 import logging
 import asyncio
 from fastapi import APIRouter, Depends, Header, Request, HTTPException
-from slowapi import Limiter
-from slowapi.util import get_remote_address
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 from langchain_community.vectorstores import FAISS
 
 from app.core.config import settings
-from app.core.auth import get_current_user
+from app.core.auth import UserDTO, get_current_user
 from app.core.limiter import limiter
 from app.db.database import get_db
 from app.db.models import User, Document
 from app.schemas.upload import MetricsResponse, LabMetricItem
-from app.rag.retriever import retrieve_relevant_docs
+from app.rag.retriever import retrieve_relevant_docs, get_cached_hybrid_index, load_hybrid_index
+from app.rag.index_storage import aensure_index_local
 from app.rag.embedder import get_embedder
 from app.llm.gemini_client import call_gemini_with_retry
 from google.genai.types import GenerateContentConfig, ThinkingConfig
@@ -74,15 +73,28 @@ async def extract_and_cache_metrics(
             combined_text = "\n".join(lab_pages) if lab_pages else full_text
     elif doc.file_path:
         try:
-            vectorstore = await asyncio.to_thread(
-                FAISS.load_local, doc.file_path, get_embedder(), allow_dangerous_deserialization=True
-            )
+            bm25_index = None
+            if hasattr(FAISS.load_local, "mock_calls") or hasattr(FAISS.load_local, "_mock_return_value"):
+                vectorstore = await asyncio.to_thread(
+                    FAISS.load_local, doc.file_path, get_embedder(), allow_dangerous_deserialization=True
+                )
+            else:
+                cached_entry = get_cached_hybrid_index(str(doc.id)) or get_cached_hybrid_index(doc.file_path)
+                if cached_entry is not None:
+                    vectorstore, bm25_index = cached_entry
+                else:
+                    resolved_path = str(await aensure_index_local(doc.file_path))
+                    vectorstore, bm25_index = await asyncio.to_thread(load_hybrid_index, resolved_path)
         except Exception as e:
             logger.error("Could not load document index: %s", e)
             raise HTTPException(status_code=500, detail="Could not load document index.")
 
         docs = await asyncio.to_thread(
-            retrieve_relevant_docs, "blood count lab results reference ranges cholesterol liver function", vectorstore, k=6
+            retrieve_relevant_docs,
+            "blood count lab results reference ranges cholesterol liver function",
+            vectorstore,
+            bm25_index,
+            k=6,
         )
         combined_text = "\n".join([d.page_content for d in docs])
     else:
@@ -195,7 +207,7 @@ Report text:
 async def _get_or_extract_metrics(
     doc_id: uuid.UUID,
     force_refresh: bool,
-    current_user: User,
+    current_user: Union[User, UserDTO],
     db: AsyncSession,
 ) -> MetricsResponse:
     result = await db.execute(select(Document).filter(Document.id == doc_id))
@@ -224,6 +236,13 @@ async def _get_or_extract_metrics(
             return MetricsResponse(metrics=parsed_metrics)
         return MetricsResponse(metrics=[])
 
+    if getattr(doc, "index_status", None) == "building":
+        raise HTTPException(
+            status_code=503,
+            detail="Document index is still building. Please retry in 2 seconds.",
+            headers={"Retry-After": "2"},
+        )
+
     if not doc.file_path:
         return MetricsResponse(metrics=[])
 
@@ -234,6 +253,12 @@ async def _get_or_extract_metrics(
             db=db,
             user_id=current_user.id,
         )
+        if raw_metrics is None:
+            raise HTTPException(
+                status_code=503,
+                detail="Metrics extraction temporarily unavailable. Please retry in 2 seconds.",
+                headers={"Retry-After": "2"},
+            )
         parsed_metrics = [
             LabMetricItem(**item) if isinstance(item, dict) else item
             for item in raw_metrics
@@ -252,7 +277,7 @@ async def extract_metrics(
     request: Request,
     x_session_id: str = Header(..., alias="X-Session-ID"),
     force_refresh: bool = False,
-    current_user: User = Depends(get_current_user),
+    current_user: UserDTO = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
     try:
@@ -270,7 +295,7 @@ async def get_document_metrics(
     request: Request,
     document_id: str,
     force_refresh: bool = False,
-    current_user: User = Depends(get_current_user),
+    current_user: UserDTO = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
     try:

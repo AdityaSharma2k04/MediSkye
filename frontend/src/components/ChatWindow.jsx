@@ -108,9 +108,11 @@ export default function ChatWindow({
     if (!timing || loadingMetrics || viewMode !== 'metrics') return;
     metricsTimingRef.current = null;
     const commitMs = performance.now() - timing.resolvedAt;
-    console.info(
-      `[METRICS_TIMING] fetch: ${timing.fetchMs.toFixed(1)}ms | render+commit: ${commitMs.toFixed(1)}ms | rows: ${labMetrics.length}`
-    );
+    if (import.meta.env.DEV) {
+      console.info(
+        `[METRICS_TIMING] fetch: ${timing.fetchMs.toFixed(1)}ms | render+commit: ${commitMs.toFixed(1)}ms | rows: ${labMetrics.length}`
+      );
+    }
   }, [loadingMetrics, labMetrics, viewMode]);
 
   const handlePrintDoctorSummary = async () => {
