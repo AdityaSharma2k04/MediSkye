@@ -105,18 +105,11 @@ export default function ChatMessage({ message, onRegenerate, showToast, darkMode
 
   if (isUser) {
     return (
-      <div className="flex justify-end mb-5 animate-bubble-in group">
-        <div className="flex items-start gap-3 max-w-[85%] sm:max-w-[75%] flex-row-reverse">
-          <div className={`w-7 h-7 rounded-full flex items-center justify-center font-semibold text-xs shrink-0 shadow-sm ${
-            darkMode ? 'bg-zinc-100 text-zinc-900' : 'bg-zinc-900 text-white'
-          }`}>
-            <User className="w-3.5 h-3.5" />
-          </div>
-          <div className={`rounded-2xl rounded-tr-sm px-4 py-3 text-sm leading-relaxed shadow-sm ${
-            darkMode ? 'bg-zinc-100 text-zinc-900' : 'bg-zinc-900 text-white'
-          }`}>
-            {message.text}
-          </div>
+      <div className="flex justify-end mb-4 animate-bubble-in group">
+        <div className={`rounded-2xl rounded-tr-sm px-4 py-2.5 max-w-[85%] ml-auto text-sm leading-relaxed shadow-sm ${
+          darkMode ? 'bg-[#282a2e] text-zinc-100' : 'bg-zinc-900 text-white'
+        }`}>
+          {message.text}
         </div>
       </div>
     );
@@ -134,149 +127,137 @@ export default function ChatMessage({ message, onRegenerate, showToast, darkMode
   const statusText = message.status || 'Analyzing your question...';
 
   return (
-    <div className="flex justify-start mb-5 animate-bubble-in group">
-      <div className="flex items-start gap-3 max-w-[92%] sm:max-w-[85%]">
-        <div className={`w-7 h-7 rounded-full flex items-center justify-center font-bold text-xs shrink-0 shadow-sm mt-0.5 ${
-          darkMode ? 'bg-zinc-100 text-zinc-900' : 'bg-zinc-900 text-white'
+    <div className="flex justify-start mb-6 animate-bubble-in group w-full">
+      <div className="w-full">
+        <div className={`flex items-center justify-between pb-1.5 mb-2 text-xs ${
+          darkMode ? 'text-zinc-400' : 'text-zinc-500'
         }`}>
-          <Stethoscope className="w-3.5 h-3.5" />
-        </div>
-
-        <div className={`flex-1 rounded-2xl rounded-tl-sm p-4 sm:p-5 shadow-sm text-sm border ${
-          darkMode
-            ? 'bg-zinc-900 border-zinc-800'
-            : 'bg-white border-zinc-200'
-        }`}>
-          <div className={`flex items-center justify-between pb-2 mb-2 border-b text-xs ${
-            darkMode ? 'border-zinc-800 text-zinc-400' : 'border-zinc-100 text-zinc-400'
-          }`}>
-            {/* Task A5: Hide model name from UI — just MediSkye AI with Sparkles */}
-            <div className={`flex items-center gap-1.5 font-medium ${darkMode ? 'text-zinc-300' : 'text-zinc-700'}`}>
-              <span>MediSkye AI</span>
-              <Sparkles className="w-3.5 h-3.5 text-emerald-500 shrink-0" />
-            </div>
-            <span>{message.timestamp || 'Just now'}</span>
+          {/* MediSkye AI with Sparkles */}
+          <div className={`flex items-center gap-1.5 font-medium ${darkMode ? 'text-zinc-300' : 'text-zinc-700'}`}>
+            <span>MediSkye AI</span>
+            <Sparkles className="w-3.5 h-3.5 text-emerald-500 shrink-0" />
           </div>
-
-          {/* Progressive rotating status line while generating before text arrives */}
-          {isStreaming && !content && !message.error && (
-            <div className="py-1.5">
-              <div className="flex items-center gap-2.5 text-xs font-medium text-zinc-400">
-                <div className="flex items-center gap-1">
-                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
-                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse [animation-delay:200ms]" />
-                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse [animation-delay:400ms]" />
-                </div>
-                <span className="text-zinc-400 transition-opacity duration-300">{statusText}</span>
-              </div>
-
-              {/* Thinking skeleton — appears only if the first token takes >3s */}
-              {showThinkingSkeleton && (
-                <div className="mt-3.5 space-y-2.5" role="status" aria-label="Thinking">
-                  <div className="skeleton-shimmer h-3.5 rounded-lg w-3/4" />
-                  <div className="skeleton-shimmer h-3.5 rounded-lg w-full" />
-                  <div className="skeleton-shimmer h-3.5 rounded-lg w-5/6" />
-                  <div className="skeleton-shimmer h-3.5 rounded-lg w-2/5" />
-                </div>
-              )}
-            </div>
-          )}
-
-          {/* Error display with retry */}
-          {message.error && (
-            <div className={`p-3 my-2 rounded-xl text-xs flex items-center justify-between gap-3 border ${
-              darkMode ? 'bg-rose-950/40 border-rose-900/60 text-rose-300' : 'bg-rose-50 border-rose-200 text-rose-700'
-            }`}>
-              <div className="flex items-center gap-2">
-                <AlertTriangle className="w-4 h-4 shrink-0 text-rose-500" />
-                <span>{message.error === true ? "Something went wrong. Tap to retry." : (message.error || "Something went wrong. Tap to retry.")}</span>
-              </div>
-              {onRegenerate && (
-                <button
-                  onClick={onRegenerate}
-                  className="px-2.5 py-1 text-xs font-semibold rounded-lg bg-rose-600 text-white hover:bg-rose-700 transition-colors shrink-0"
-                >
-                  Retry
-                </button>
-              )}
-            </div>
-          )}
-
-          {content && (
-            <div className={`prose max-w-none ${darkMode ? 'prose-invert text-zinc-200' : 'text-zinc-800'}`}>
-              <ReactMarkdown remarkPlugins={[remarkGfm]}>
-                {content}
-              </ReactMarkdown>
-            </div>
-          )}
-
-          {!isStreaming && content && !message.error && (
-            <div className={`mt-4 pt-3 border-t flex items-center justify-between text-xs ${
-              darkMode ? 'border-zinc-800/80 text-zinc-400' : 'border-zinc-100 text-zinc-400'
-            }`}>
-              <div className="flex items-center gap-1">
-                <button
-                  onClick={handleCopy}
-                  title="Copy response"
-                  aria-label="Copy response"
-                  className={`${actionBtn} flex items-center gap-1`}
-                >
-                  {copied ? <Check className={`w-3.5 h-3.5 ${darkMode ? 'text-zinc-100' : 'text-zinc-900'}`} /> : <Copy className="w-3.5 h-3.5" />}
-                  <span className="hidden sm:inline">{copied ? 'Copied' : 'Copy'}</span>
-                </button>
-
-                <button
-                  onClick={handleSpeak}
-                  title={speaking ? 'Stop speech' : 'Read response aloud'}
-                  aria-label="Read response aloud"
-                  className={`${speaking ? actionBtnActive : actionBtn} flex items-center gap-1`}
-                >
-                  {speaking ? <VolumeX className="w-3.5 h-3.5" /> : <Volume2 className="w-3.5 h-3.5" />}
-                  <span className="hidden sm:inline">{speaking ? 'Stop' : 'Listen'}</span>
-                </button>
-
-                <button
-                  onClick={() => setLiked(liked === true ? null : true)}
-                  title="Helpful response"
-                  aria-label="Mark as helpful"
-                  className={liked === true ? actionBtnActive : actionBtn}
-                >
-                  <ThumbsUp className="w-3.5 h-3.5" />
-                </button>
-
-                <button
-                  onClick={() => setLiked(liked === false ? null : false)}
-                  title="Not helpful"
-                  aria-label="Mark as not helpful"
-                  className={liked === false ? actionBtnActive : actionBtn}
-                >
-                  <ThumbsDown className="w-3.5 h-3.5" />
-                </button>
-
-                <button
-                  onClick={handleShare}
-                  title="Share explanation"
-                  aria-label="Share response"
-                  className={actionBtn}
-                >
-                  <Share2 className="w-3.5 h-3.5" />
-                </button>
-              </div>
-
-              {onRegenerate && (
-                <button
-                  onClick={onRegenerate}
-                  title="Regenerate AI response"
-                  aria-label="Regenerate response"
-                  className={`${actionBtn} flex items-center gap-1 font-medium`}
-                >
-                  <RotateCcw className="w-3.5 h-3.5" />
-                  <span className="hidden sm:inline">Regenerate</span>
-                </button>
-              )}
-            </div>
-          )}
+          <span className="text-[11px] text-zinc-500">{message.timestamp || 'Just now'}</span>
         </div>
+
+        {/* Progressive rotating status line while generating before text arrives */}
+        {isStreaming && !content && !message.error && (
+          <div className="py-1.5">
+            <div className="flex items-center gap-2.5 text-xs font-medium text-zinc-400">
+              <div className="flex items-center gap-1">
+                <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
+                <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse [animation-delay:200ms]" />
+                <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse [animation-delay:400ms]" />
+              </div>
+              <span className="text-zinc-400 transition-opacity duration-300">{statusText}</span>
+            </div>
+
+            {/* Thinking skeleton — appears only if the first token takes >3s */}
+            {showThinkingSkeleton && (
+              <div className="mt-3.5 space-y-2.5" role="status" aria-label="Thinking">
+                <div className="skeleton-shimmer h-3.5 rounded-lg w-3/4" />
+                <div className="skeleton-shimmer h-3.5 rounded-lg w-full" />
+                <div className="skeleton-shimmer h-3.5 rounded-lg w-5/6" />
+                <div className="skeleton-shimmer h-3.5 rounded-lg w-2/5" />
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* Error display with retry */}
+        {message.error && (
+          <div className={`p-3 my-2 rounded-xl text-xs flex items-center justify-between gap-3 border ${
+            darkMode ? 'bg-rose-950/40 border-rose-900/60 text-rose-300' : 'bg-rose-50 border-rose-200 text-rose-700'
+          }`}>
+            <div className="flex items-center gap-2">
+              <AlertTriangle className="w-4 h-4 shrink-0 text-rose-500" />
+              <span>{message.error === true ? "Something went wrong. Tap to retry." : (message.error || "Something went wrong. Tap to retry.")}</span>
+            </div>
+            {onRegenerate && (
+              <button
+                onClick={onRegenerate}
+                className="px-2.5 py-1 text-xs font-semibold rounded-lg bg-rose-600 text-white hover:bg-rose-700 transition-colors shrink-0"
+              >
+                Retry
+              </button>
+            )}
+          </div>
+        )}
+
+        {content && (
+          <div className={`prose max-w-none w-full text-sm leading-relaxed ${darkMode ? 'prose-invert text-zinc-100' : 'text-zinc-800'}`}>
+            <ReactMarkdown remarkPlugins={[remarkGfm]}>
+              {content}
+            </ReactMarkdown>
+          </div>
+        )}
+
+        {!isStreaming && content && !message.error && (
+          <div className={`mt-3 pt-2.5 border-t flex items-center justify-between text-xs ${
+            darkMode ? 'border-white/5 text-zinc-400' : 'border-zinc-200 text-zinc-500'
+          }`}>
+            <div className="flex items-center gap-1">
+              <button
+                onClick={handleCopy}
+                title="Copy response"
+                aria-label="Copy response"
+                className={`${actionBtn} flex items-center gap-1`}
+              >
+                {copied ? <Check className={`w-3.5 h-3.5 ${darkMode ? 'text-zinc-100' : 'text-zinc-900'}`} /> : <Copy className="w-3.5 h-3.5" />}
+                <span className="hidden sm:inline">{copied ? 'Copied' : 'Copy'}</span>
+              </button>
+
+              <button
+                onClick={handleSpeak}
+                title={speaking ? 'Stop speech' : 'Read response aloud'}
+                aria-label="Read response aloud"
+                className={`${speaking ? actionBtnActive : actionBtn} flex items-center gap-1`}
+              >
+                {speaking ? <VolumeX className="w-3.5 h-3.5" /> : <Volume2 className="w-3.5 h-3.5" />}
+                <span className="hidden sm:inline">{speaking ? 'Stop' : 'Listen'}</span>
+              </button>
+
+              <button
+                onClick={() => setLiked(liked === true ? null : true)}
+                title="Helpful response"
+                aria-label="Mark as helpful"
+                className={liked === true ? actionBtnActive : actionBtn}
+              >
+                <ThumbsUp className="w-3.5 h-3.5" />
+              </button>
+
+              <button
+                onClick={() => setLiked(liked === false ? null : false)}
+                title="Not helpful"
+                aria-label="Mark as not helpful"
+                className={liked === false ? actionBtnActive : actionBtn}
+              >
+                <ThumbsDown className="w-3.5 h-3.5" />
+              </button>
+
+              <button
+                onClick={handleShare}
+                title="Share explanation"
+                aria-label="Share response"
+                className={actionBtn}
+              >
+                <Share2 className="w-3.5 h-3.5" />
+              </button>
+            </div>
+
+            {onRegenerate && (
+              <button
+                onClick={onRegenerate}
+                title="Regenerate AI response"
+                aria-label="Regenerate response"
+                className={`${actionBtn} flex items-center gap-1 font-medium`}
+              >
+                <RotateCcw className="w-3.5 h-3.5" />
+                <span className="hidden sm:inline">Regenerate</span>
+              </button>
+            )}
+          </div>
+        )}
       </div>
     </div>
   );

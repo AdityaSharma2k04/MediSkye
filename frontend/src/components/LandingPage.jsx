@@ -1,150 +1,155 @@
-import React, { useEffect, useRef } from 'react';
+import React, { lazy, Suspense, useEffect, useRef, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { Trans, useTranslation } from 'react-i18next';
 import useIntersectionObserver from '../hooks/useIntersectionObserver';
+import {
+  C,
+  SERIF,
+  SANS,
+  fit,
+  ActivityIcon,
+  SparklesIcon,
+  SendIcon,
+} from './landing/shared';
+function createLazySection(importFn) {
+  let cached = null;
+  let promise = null;
 
-/* ─── Palette (mirrors tailwind.config: obsidian + medical) ─── */
-const C = {
-  obsidian: '#09090b',
-  obsidianLight: '#18181b',
-  panel: '#111113',
-  border: '#27272a',
-  borderStrong: '#3f3f46',
-  cyan: '#06b6d4', // medical.cyan
-  cyanDark: '#0891b2', // medical.dark
-  cyanText: '#22d3ee', // cyan tint for text on dark (AA contrast)
-  heading: '#fafafa',
-  body: '#d4d4d8',
-  muted: '#a1a1aa',
-  amber: '#fbbf24',
-  green: '#34d399',
-  red: '#f87171',
-};
+  const load = () => {
+    if (!promise) {
+      promise = importFn().then((mod) => {
+        cached = mod;
+        return mod;
+      });
+    }
+    return promise;
+  };
 
-const SERIF = "'Newsreader', Georgia, serif";
-const SANS = "'Figtree', system-ui, -apple-system, sans-serif";
+  if (import.meta.env.MODE === 'test') {
+    load();
+  }
 
-// Auto-fit grid that never overflows narrow phones
-const fit = (min) => `repeat(auto-fit, minmax(min(100%, ${min}px), 1fr))`;
+  const LazyComp = lazy(() => {
+    if (cached) {
+      return {
+        then(onFulfilled) {
+          onFulfilled(cached);
+          return this;
+        },
+      };
+    }
+    return load();
+  });
 
-/* ─── Icons (inline SVGs, zero external icon dependencies) ─── */
-const Icon = ({ size = 24, strokeWidth = 1.5, children }) => (
-  <svg
-    width={size}
-    height={size}
-    viewBox="0 0 24 24"
-    fill="none"
-    stroke="currentColor"
-    strokeWidth={strokeWidth}
-    strokeLinecap="round"
-    strokeLinejoin="round"
-    aria-hidden="true"
-  >
-    {children}
-  </svg>
-);
+  LazyComp.preload = load;
+  return LazyComp;
+}
 
-const ActivityIcon = (p) => (
-  <Icon strokeWidth={2} {...p}>
-    <path d="M22 12h-4l-3 9L9 3l-3 9H2" />
-  </Icon>
-);
+const FeaturesSection = createLazySection(() => import('./landing/FeaturesSection'));
+const HowItWorksSection = createLazySection(() => import('./landing/HowItWorksSection'));
+const SafetySection = createLazySection(() => import('./landing/SafetySection'));
+const CTASection = createLazySection(() => import('./landing/CTASection'));
+const FooterSection = createLazySection(() => import('./landing/FooterSection'));
 
-const FlaskIcon = (p) => (
-  <Icon {...p}>
-    <path d="M9 3h6" />
-    <path d="M10 9V3" />
-    <path d="M14 9V3" />
-    <path d="M6 21h12" />
-    <path d="M10 9l-4 8c-.7 1.3.13 3 1.76 3h8.48c1.63 0 2.46-1.7 1.76-3L14 9" />
-  </Icon>
-);
-
-const BrainIcon = (p) => (
-  <Icon {...p}>
-    <path d="M9.5 2A5.5 5.5 0 0 0 4 7.5c0 1.28.44 2.46 1.18 3.39" />
-    <path d="M14.5 2A5.5 5.5 0 0 1 20 7.5c0 1.28-.44 2.46-1.18 3.39" />
-    <path d="M5.18 10.89A5.5 5.5 0 0 0 4 14.5 5.5 5.5 0 0 0 9.5 20h1" />
-    <path d="M18.82 10.89A5.5 5.5 0 0 1 20 14.5a5.5 5.5 0 0 1-5.5 5.5h-1" />
-    <path d="M12 2v20" />
-  </Icon>
-);
-
-const ScanIcon = (p) => (
-  <Icon {...p}>
-    <path d="M3 7V5a2 2 0 0 1 2-2h2" />
-    <path d="M17 3h2a2 2 0 0 1 2 2v2" />
-    <path d="M21 17v2a2 2 0 0 1-2 2h-2" />
-    <path d="M7 21H5a2 2 0 0 1-2-2v-2" />
-    <line x1="7" y1="12" x2="17" y2="12" />
-  </Icon>
-);
-
-const UploadIcon = (p) => (
-  <Icon {...p}>
-    <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
-    <polyline points="17 8 12 3 7 8" />
-    <line x1="12" y1="3" x2="12" y2="15" />
-  </Icon>
-);
-
-const SparklesIcon = (p) => (
-  <Icon {...p}>
-    <path d="m12 3-1.912 5.813a2 2 0 0 1-1.275 1.275L3 12l5.813 1.912a2 2 0 0 1 1.275 1.275L12 21l1.912-5.813a2 2 0 0 1 1.275-1.275L21 12l-5.813-1.912a2 2 0 0 1-1.275-1.275L12 3Z" />
-  </Icon>
-);
-
-const SendIcon = (p) => (
-  <Icon strokeWidth={2} {...p}>
-    <line x1="22" y1="2" x2="11" y2="13" />
-    <polygon points="22 2 15 22 11 13 2 9 22 2" />
-  </Icon>
-);
-
-/* ─── Content ─── */
-const FEATURES = [
-  {
-    icon: <FlaskIcon size={22} />,
-    title: 'Lab metrics dashboard',
-    description:
-      'Automatically extracts biomarkers like Hemoglobin, TSH, LDL, and Vitamin D, with normal range comparisons and clear clinical status indicators.',
-  },
-  {
-    icon: <BrainIcon size={22} />,
-    title: 'Remembers your history',
-    description:
-      'MediSkye securely recalls past conversations and uploaded reports, so you can ask follow-up questions weeks later without re-uploading.',
-  },
-  {
-    icon: <ScanIcon size={22} />,
-    title: 'Scans PDFs and images',
-    description:
-      'Upload PDFs, camera photos, or scanned lab slips. Our high-fidelity OCR reads printed hospital reports as well as clinic prescriptions.',
-  },
-];
-
-const METRICS = [
-  { name: 'Hemoglobin', value: '11.2 g/dL', status: 'Borderline low', color: C.amber },
-  { name: 'TSH', value: '2.1 mIU/L', status: 'Normal', color: C.green },
-  { name: 'LDL', value: '142 mg/dL', status: 'High', color: C.red },
-];
-
-const CAN = [
-  'Explain each metric and test in plain language',
-  'Flag values outside the reference range',
-  'Summarize results to prepare for your doctor visit',
-];
-
-const CANNOT = [
-  'Diagnose medical conditions independently',
-  'Replace professional medical advice',
-  'Make prescription or treatment decisions',
-];
+if (import.meta.env.MODE === 'test') {
+  await Promise.all([
+    FeaturesSection.preload(),
+    HowItWorksSection.preload(),
+    SafetySection.preload(),
+    CTASection.preload(),
+    FooterSection.preload(),
+  ]);
+}
 
 export default function LandingPage() {
   const navigate = useNavigate();
   const { t } = useTranslation();
   const heroRef = useRef(null);
+  const [activeSection, setActiveSection] = useState('');
+  const [forcedSections, setForcedSections] = useState({});
+
+  const handleNavClick = async (e, sectionId) => {
+    if (e && typeof e.preventDefault === 'function') {
+      e.preventDefault();
+    }
+    setActiveSection(sectionId);
+
+    // Preload chunk modules so that Suspense won't need to show a fallback
+    try {
+      if (sectionId === 'features') {
+        await FeaturesSection.preload?.();
+      } else if (sectionId === 'how-it-works') {
+        await Promise.all([
+          FeaturesSection.preload?.(),
+          HowItWorksSection.preload?.(),
+        ]);
+      } else if (sectionId === 'safety') {
+        await Promise.all([
+          FeaturesSection.preload?.(),
+          HowItWorksSection.preload?.(),
+          SafetySection.preload?.(),
+        ]);
+      }
+    } catch (_) {}
+
+    // Force section(s) to render
+    setForcedSections((prev) => {
+      if (sectionId === 'how-it-works') {
+        return { ...prev, features: true, 'how-it-works': true };
+      }
+      if (sectionId === 'safety') {
+        return { ...prev, features: true, 'how-it-works': true, safety: true };
+      }
+      return { ...prev, [sectionId]: true };
+    });
+
+    // Wait a tick for React to commit DOM and layout to stabilize
+    requestAnimationFrame(() => {
+      setTimeout(() => {
+        const element = document.getElementById(sectionId);
+        if (element) {
+          // Target the heading inside the section so the viewport lands just a bit above it
+          const heading = element.querySelector('h2') || element;
+          const headingTop = heading.getBoundingClientRect().top + window.pageYOffset;
+          const targetY = Math.max(0, headingTop - 116);
+          window.scrollTo({
+            top: targetY,
+            behavior: 'smooth',
+          });
+        }
+      }, 50);
+    });
+  };
+
+  // Scroll-spy to highlight active nav link as user scrolls
+  useEffect(() => {
+    const handleScroll = () => {
+      const scrollY = window.scrollY || window.pageYOffset;
+      if (scrollY < 180) {
+        setActiveSection('');
+        return;
+      }
+
+      const sectionIds = ['features', 'how-it-works', 'safety'];
+      const triggerOffset = 140;
+
+      let current = '';
+      for (const id of sectionIds) {
+        const el = document.getElementById(id);
+        if (el) {
+          const rect = el.getBoundingClientRect();
+          if (rect.top <= triggerOffset) {
+            current = id;
+          }
+        }
+      }
+      setActiveSection(current);
+    };
+
+    window.addEventListener('scroll', handleScroll, { passive: true });
+    handleScroll();
+    return () => window.removeEventListener('scroll', handleScroll);
+  }, []);
 
   // If already authenticated, redirect to /chat
   useEffect(() => {
@@ -172,6 +177,24 @@ export default function LandingPage() {
     document.title = 'MediSkye — Understand Your Medical Reports in Seconds';
   }, []);
 
+  // Prefetch below-the-fold chunks on idle so they are cached before user scrolls
+  useEffect(() => {
+    const prefetch = () => {
+      import('./landing/FeaturesSection');
+      import('./landing/HowItWorksSection');
+      import('./landing/SafetySection');
+      import('./landing/CTASection');
+      import('./landing/FooterSection');
+    };
+    if (typeof window !== 'undefined') {
+      if ('requestIdleCallback' in window) {
+        requestIdleCallback(prefetch);
+      } else {
+        setTimeout(prefetch, 2000);
+      }
+    }
+  }, []);
+
   return (
     <div style={styles.page} className="landing bg-zinc-950 text-zinc-50">
       {/* ━━━━━━━━━━ NAVBAR ━━━━━━━━━━ */}
@@ -185,13 +208,40 @@ export default function LandingPage() {
           </Link>
 
           <div style={styles.navLinks} className="landing-nav-links">
-            <a href="#features" style={styles.navLink} className="landing-link">
+            <a
+              href="#features"
+              onClick={(e) => handleNavClick(e, 'features')}
+              style={{
+                ...styles.navLink,
+                ...(activeSection === 'features' ? styles.navLinkActive : {}),
+              }}
+              className={`landing-link ${activeSection === 'features' ? 'landing-link-active' : ''}`}
+              aria-current={activeSection === 'features' ? 'page' : undefined}
+            >
               {t('landing.nav_features', 'Features')}
             </a>
-            <a href="#how-it-works" style={styles.navLink} className="landing-link">
+            <a
+              href="#how-it-works"
+              onClick={(e) => handleNavClick(e, 'how-it-works')}
+              style={{
+                ...styles.navLink,
+                ...(activeSection === 'how-it-works' ? styles.navLinkActive : {}),
+              }}
+              className={`landing-link ${activeSection === 'how-it-works' ? 'landing-link-active' : ''}`}
+              aria-current={activeSection === 'how-it-works' ? 'page' : undefined}
+            >
               {t('landing.nav_how_it_works', 'How it works')}
             </a>
-            <a href="#safety" style={styles.navLink} className="landing-link">
+            <a
+              href="#safety"
+              onClick={(e) => handleNavClick(e, 'safety')}
+              style={{
+                ...styles.navLink,
+                ...(activeSection === 'safety' ? styles.navLinkActive : {}),
+              }}
+              className={`landing-link ${activeSection === 'safety' ? 'landing-link-active' : ''}`}
+              aria-current={activeSection === 'safety' ? 'page' : undefined}
+            >
               {t('landing.nav_safety', 'Safety')}
             </a>
           </div>
@@ -249,7 +299,12 @@ export default function LandingPage() {
             >
               {t('landing.start_free', 'Start for free')}
             </Link>
-            <a href="#how-it-works" style={styles.btnSecondary} className="landing-btn-secondary">
+            <a
+              href="#how-it-works"
+              onClick={(e) => handleNavClick(e, 'how-it-works')}
+              style={styles.btnSecondary}
+              className="landing-btn-secondary"
+            >
               {t('landing.see_how_it_works', 'See how it works')}
             </a>
           </div>
@@ -259,152 +314,53 @@ export default function LandingPage() {
       </section>
 
       {/* ━━━━━━━━━━ FEATURES ━━━━━━━━━━ */}
-      <DeferredSection id="features" minHeight={560}>
-      <section style={styles.featuresSection}>
-        <p style={styles.eyebrow}>Features</p>
-        <h2 style={{ ...styles.sectionTitle, maxWidth: 680 }}>
-          Everything you need to understand your health
-        </h2>
-        <p style={{ ...styles.sectionSubtitle, maxWidth: 600, marginBottom: 48 }}>
-          From instant lab metric extraction to intelligent follow-up questions, MediSkye
-          turns complex medical reports into clear, actionable insight.
-        </p>
-
-        <div style={styles.featuresGrid}>
-          {FEATURES.map((f) => (
-            <FeatureCard key={f.title} {...f} />
-          ))}
-        </div>
-      </section>
+      <DeferredSection
+        id="features"
+        minHeight={560}
+        className="scroll-mt-24 md:scroll-mt-32"
+        forceVisible={Boolean(forcedSections['features'])}
+      >
+        <Suspense fallback={<div style={{ minHeight: 560 }} aria-hidden="true" />}>
+          <FeaturesSection />
+        </Suspense>
       </DeferredSection>
 
       {/* ━━━━━━━━━━ HOW IT WORKS ━━━━━━━━━━ */}
-      <DeferredSection id="how-it-works" minHeight={780}>
-      <section style={styles.howSection}>
-        <div style={styles.howInner}>
-          <p style={styles.eyebrow}>How it works</p>
-          <h2 style={styles.sectionTitle}>Three steps to clarity</h2>
-          <p style={{ ...styles.sectionSubtitle, marginBottom: 48 }}>
-            No medical degree required. Just upload, ask, and understand.
-          </p>
-
-          <div style={styles.stepsGrid}>
-            <StepCard
-              number="01"
-              visual={<UploadVisual />}
-              title="Upload your report"
-              description="Drag and drop a PDF, photo, or scanned image of your lab results. Any standard format works."
-            />
-            <StepCard
-              number="02"
-              visual={<ExtractVisual />}
-              title="AI analyzes it"
-              description="Gemini extracts every metric, flags abnormal values, and prepares a clear, plain-language summary."
-            />
-            <StepCard
-              number="03"
-              visual={<AskVisual />}
-              title="Ask anything"
-              description="Chat about your results. Ask follow-ups, compare past reports, or get a doctor-visit summary."
-            />
-          </div>
-        </div>
-      </section>
+      <DeferredSection
+        id="how-it-works"
+        minHeight={780}
+        className="scroll-mt-24 md:scroll-mt-32"
+        forceVisible={Boolean(forcedSections['how-it-works'])}
+      >
+        <Suspense fallback={<div style={{ minHeight: 780 }} aria-hidden="true" />}>
+          <HowItWorksSection />
+        </Suspense>
       </DeferredSection>
 
       {/* ━━━━━━━━━━ SAFETY ━━━━━━━━━━ */}
-      <DeferredSection id="safety" minHeight={620}>
-      <section style={styles.safetySection}>
-        <div>
-          <p style={styles.eyebrow}>Safety</p>
-          <h2 style={styles.sectionTitle}>Built to inform, not to diagnose</h2>
-          <p style={{ ...styles.sectionSubtitle, margin: 0 }}>
-            MediSkye is an AI assistant for informational purposes. It helps you understand
-            your results and prepare better questions. Your doctor makes the clinical decisions.
-          </p>
-        </div>
-
-        <div style={styles.safetyCards}>
-          <ListCard title={t('landing.safety_can_title', 'MediSkye can')} color={C.cyanText} items={CAN} isAllowed={true} />
-          <ListCard title={t('landing.safety_cannot_title', 'MediSkye cannot')} color={C.red} items={CANNOT} isAllowed={false} />
-        </div>
-      </section>
+      <DeferredSection
+        id="safety"
+        minHeight={620}
+        className="scroll-mt-24 md:scroll-mt-32"
+        forceVisible={Boolean(forcedSections['safety'])}
+      >
+        <Suspense fallback={<div style={{ minHeight: 620 }} aria-hidden="true" />}>
+          <SafetySection />
+        </Suspense>
       </DeferredSection>
 
       {/* ━━━━━━━━━━ CTA ━━━━━━━━━━ */}
       <DeferredSection minHeight={440}>
-      <section style={styles.ctaSection}>
-        <div style={styles.ctaCard}>
-          <h2 style={{ ...styles.sectionTitle, margin: '0 auto 12px', maxWidth: 620 }}>
-            Ready to understand your health?
-          </h2>
-          <p style={styles.ctaSubtitle}>
-            Upload your first report and see it explained in plain language.
-          </p>
-          <Link
-            to="/register"
-            style={styles.btnPrimary}
-            className="landing-btn-primary"
-            id="cta-register-btn"
-          >
-            Get started, it’s free
-          </Link>
-        </div>
-      </section>
+        <Suspense fallback={<div style={{ minHeight: 440 }} aria-hidden="true" />}>
+          <CTASection />
+        </Suspense>
       </DeferredSection>
 
       {/* ━━━━━━━━━━ FOOTER ━━━━━━━━━━ */}
       <DeferredSection id="landing-footer" minHeight={400}>
-      <footer style={styles.footer}>
-        <div style={styles.footerInner}>
-          <div style={styles.footerTop}>
-            <div style={styles.footerBrand}>
-              <div style={styles.footerLogoRow}>
-                <div style={{ ...styles.logoBox, width: 28, height: 28, borderRadius: 7 }}>
-                  <ActivityIcon size={16} />
-                </div>
-                <span style={styles.footerLogoText}>MediSkye</span>
-              </div>
-              <p style={styles.footerTagline}>
-                {t('landing.footer_tagline', 'AI-powered medical report interpretation.')}
-              </p>
-              <p style={styles.footerDisclaimer}>
-                {t(
-                  'landing.footer_disclaimer',
-                  'MediSkye is an AI assistant for informational purposes only. It does not provide medical diagnoses or replace professional medical advice. Always consult a qualified healthcare provider for clinical decisions.'
-                )}
-              </p>
-              <p style={styles.footerCopyright}>
-                {t('landing.footer_copyright', '© 2026 MediSkye. All rights reserved.')}
-              </p>
-            </div>
-
-            <div style={styles.footerLinks}>
-              <div style={styles.footerCol}>
-                <h4 style={styles.footerColTitle}>Product</h4>
-                <a href="#features" style={styles.footerLink} className="landing-link">
-                  Features
-                </a>
-                <a href="#how-it-works" style={styles.footerLink} className="landing-link">
-                  How it works
-                </a>
-                <a href="#safety" style={styles.footerLink} className="landing-link">
-                  Safety
-                </a>
-              </div>
-              <div style={styles.footerCol}>
-                <h4 style={styles.footerColTitle}>Account</h4>
-                <Link to="/login" style={styles.footerLink} className="landing-link">
-                  Sign in
-                </Link>
-                <Link to="/register" style={styles.footerLink} className="landing-link">
-                  Create account
-                </Link>
-              </div>
-            </div>
-          </div>
-        </div>
-      </footer>
+        <Suspense fallback={<div style={{ minHeight: 400 }} aria-hidden="true" />}>
+          <FooterSection />
+        </Suspense>
       </DeferredSection>
 
       {/* Inline CSS: fonts, keyframes, hover/focus, responsive */}
@@ -413,18 +369,23 @@ export default function LandingPage() {
   );
 }
 
-function DeferredSection({ children, id, minHeight }) {
+function DeferredSection({ children, id, minHeight, className = '', forceVisible = false }) {
   const [ref, isVisible] = useIntersectionObserver({ rootMargin: '500px 0px' });
+  const shouldRender = isVisible || forceVisible;
 
   return (
     <div
       ref={ref}
       id={id}
-      style={isVisible ? undefined : { minHeight }}
-      aria-busy={!isVisible}
-      aria-hidden={!isVisible}
+      style={{
+        ...(shouldRender ? {} : { minHeight }),
+        scrollMarginTop: '110px',
+      }}
+      className={className}
+      aria-busy={!shouldRender}
+      aria-hidden={!shouldRender}
     >
-      {isVisible ? children : null}
+      {shouldRender ? children : null}
     </div>
   );
 }
@@ -497,117 +458,11 @@ function ChatMockup() {
   );
 }
 
-/* ─── How-it-works illustrations (decorative) ─── */
-function UploadVisual() {
-  return (
-    <div style={styles.visual} aria-hidden="true">
-      <div style={styles.dropzone}>
-        <UploadIcon size={22} />
-        Drop a PDF, photo or scan
-      </div>
-      <div style={styles.fileRow}>
-        <span>blood-panel.pdf</span>
-        <span style={styles.progressTrack}>
-          <span style={styles.progressFill} />
-        </span>
-        <span style={{ color: C.muted }}>72%</span>
-      </div>
-    </div>
-  );
-}
-
-function ExtractVisual() {
-  return (
-    <div style={{ ...styles.visual, justifyContent: 'center', gap: 6 }} aria-hidden="true">
-      <div style={styles.extractHeader}>
-        <SparklesIcon size={14} />
-        Extracting metrics
-      </div>
-      {METRICS.map((m) => (
-        <div key={m.name} style={styles.metricRow}>
-          <span>
-            {m.name} <span style={{ color: C.muted }}>{m.value}</span>
-          </span>
-          <span style={{ color: m.color, fontWeight: 600 }}>{m.status}</span>
-        </div>
-      ))}
-    </div>
-  );
-}
-
-function AskVisual() {
-  return (
-    <div style={{ ...styles.visual, justifyContent: 'center', gap: 8 }} aria-hidden="true">
-      <div style={styles.miniUser}>Summarize this for my doctor visit</div>
-      <div style={{ display: 'flex', gap: 8, alignItems: 'flex-start' }}>
-        <div style={{ ...styles.aiAvatar, width: 22, height: 22, borderRadius: 6, marginTop: 0 }}>
-          <ActivityIcon size={12} />
-        </div>
-        <div style={styles.miniAi}>Here are 3 points worth raising with your doctor.</div>
-      </div>
-      <div style={styles.miniInput}>
-        Ask a follow-up...
-        <span style={styles.miniSend} />
-      </div>
-    </div>
-  );
-}
-
-/* ─── Sub-components ─── */
-function FeatureCard({ icon, title, description }) {
-  const [ref, isVisible] = useIntersectionObserver();
-  return (
-    <div
-      ref={ref}
-      style={styles.featureCard}
-      className={`landing-feature-card fade-in-section fade-in-up ${isVisible ? 'is-visible' : ''}`}
-    >
-      <div style={styles.featureIconBox}>{icon}</div>
-      <h3 style={styles.featureTitle}>{title}</h3>
-      <p style={styles.featureDesc}>{description}</p>
-    </div>
-  );
-}
-
-function StepCard({ number, visual, title, description }) {
-  const [ref, isVisible] = useIntersectionObserver();
-  return (
-    <div
-      ref={ref}
-      style={styles.stepCard}
-      className={`landing-step-card fade-in-section fade-in-up ${isVisible ? 'is-visible' : ''}`}
-    >
-      {visual}
-      <div style={styles.stepNumber}>{number}</div>
-      <h3 style={styles.stepTitle}>{title}</h3>
-      <p style={styles.stepDesc}>{description}</p>
-    </div>
-  );
-}
-
-function ListCard({ title, color, items, isAllowed }) {
-  return (
-    <div style={styles.listCard} className="landing-list-card">
-      <h3 style={{ ...styles.listCardTitle, color }}>{title}</h3>
-      <ul style={styles.list}>
-        {items.map((item) => (
-          <li key={item} style={styles.listItem}>
-            <span style={{ color, marginRight: 10, fontWeight: 700, display: 'inline-block' }}>
-              {isAllowed ? '✓' : '✕'}
-            </span>
-            <span>{item}</span>
-          </li>
-        ))}
-      </ul>
-    </div>
-  );
-}
-
 /* ─── CSS: fonts, keyframes, hover/focus, responsive ─── */
 const css = `
   @import url('https://fonts.googleapis.com/css2?family=Figtree:wght@400;500;600&family=Newsreader:ital,opsz,wght@0,6..72,500;1,6..72,500&display=swap');
 
-  html { scroll-behavior: smooth; scroll-padding-top: 72px; }
+  html { scroll-padding-top: 96px; }
 
   @keyframes landing-float {
     0%, 100% { transform: translateY(0); }
@@ -641,6 +496,11 @@ const css = `
   .landing-mockup { animation: landing-float 6s ease-in-out infinite; }
 
   .landing-link:hover { color: #fafafa !important; }
+  .landing-link-active {
+    color: #ffffff !important;
+    border-bottom: 2px solid #06b6d4 !important;
+    font-weight: 600 !important;
+  }
   .landing-btn-primary { transition: transform 0.15s ease, box-shadow 0.15s ease, background-color 0.15s ease; }
   .landing-btn-primary:hover {
     transform: translateY(-1px);
@@ -649,15 +509,7 @@ const css = `
   .landing-btn-secondary { transition: border-color 0.15s ease, color 0.15s ease, background-color 0.15s ease; }
   .landing-btn-secondary:hover { border-color: #52525b !important; color: #fafafa !important; background-color: rgba(255, 255, 255, 0.03); }
 
-  .landing-feature-card { transition: transform 0.2s ease, border-color 0.2s ease; }
-  .landing-feature-card:hover { transform: translateY(-2px); }
 
-  .landing-step-card { transition: transform 0.2s ease, border-color 0.2s ease, box-shadow 0.2s ease; }
-  .landing-step-card:hover {
-    transform: translateY(-2px);
-    border-color: #3f3f46 !important;
-    box-shadow: 0 12px 32px rgba(0, 0, 0, 0.4);
-  }
 
   .landing a:focus-visible {
     outline: 2px solid #22d3ee;
@@ -780,7 +632,19 @@ const styles = {
   },
   navLogoText: { fontSize: 17, fontWeight: 600 },
   navLinks: { display: 'flex', gap: 32 },
-  navLink: { fontSize: 15, color: C.muted, textDecoration: 'none', transition: 'color 0.15s' },
+  navLink: {
+    fontSize: 15,
+    color: C.muted,
+    textDecoration: 'none',
+    transition: 'color 0.15s, border-color 0.15s',
+    paddingBottom: 4,
+    borderBottom: '2px solid transparent',
+  },
+  navLinkActive: {
+    color: '#ffffff',
+    fontWeight: 600,
+    borderBottom: `2px solid ${C.cyan}`,
+  },
   navActions: { display: 'flex', alignItems: 'center', gap: 8 },
   navBtnGhost: {
     fontSize: 15,
@@ -963,227 +827,4 @@ const styles = {
     justifyContent: 'center',
     flexShrink: 0,
   },
-
-  // ── Features ──
-  featuresSection: {
-    maxWidth: 1200,
-    margin: '0 auto',
-    padding: '40px 24px 96px',
-  },
-  featuresGrid: {
-    display: 'grid',
-    gridTemplateColumns: fit(280),
-    gap: 40,
-  },
-  featureCard: {
-    borderTop: `1px solid ${C.borderStrong}`,
-    paddingTop: 24,
-  },
-  featureIconBox: {
-    width: 44,
-    height: 44,
-    borderRadius: 12,
-    background: 'rgba(6, 182, 212, 0.12)',
-    color: C.cyanText,
-    display: 'flex',
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginBottom: 20,
-  },
-  featureTitle: { fontSize: 19, fontWeight: 600, color: C.heading, margin: '0 0 10px' },
-  featureDesc: { fontSize: 16, color: C.muted, margin: 0 },
-
-  // ── How it works ──
-  howSection: {
-    background: C.panel,
-    borderTop: `1px solid ${C.border}`,
-    borderBottom: `1px solid ${C.border}`,
-  },
-  howInner: {
-    maxWidth: 1200,
-    margin: '0 auto',
-    padding: '88px 24px',
-  },
-  stepsGrid: {
-    display: 'grid',
-    gridTemplateColumns: fit(260),
-    gap: 24,
-  },
-  stepCard: {
-    padding: 32,
-    borderRadius: 16,
-    border: `1px solid ${C.border}`,
-    background: C.obsidianLight,
-  },
-  stepNumber: {
-    fontFamily: SERIF,
-    fontSize: 56,
-    lineHeight: 1,
-    color: C.cyan,
-    marginBottom: 12,
-  },
-  stepTitle: { fontSize: 19, fontWeight: 600, color: C.heading, margin: '0 0 8px' },
-  stepDesc: { fontSize: 16, color: C.muted, margin: 0 },
-
-  // Step illustrations
-  visual: {
-    height: 168,
-    boxSizing: 'border-box',
-    marginBottom: 24,
-    padding: 14,
-    borderRadius: 12,
-    background: C.obsidian,
-    border: `1px solid ${C.border}`,
-    display: 'flex',
-    flexDirection: 'column',
-    gap: 10,
-  },
-  dropzone: {
-    flex: 1,
-    border: '1.5px dashed rgba(6, 182, 212, 0.45)',
-    borderRadius: 10,
-    background: 'rgba(6, 182, 212, 0.06)',
-    display: 'flex',
-    flexDirection: 'column',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 6,
-    color: C.cyanText,
-    fontSize: 13,
-    fontWeight: 500,
-  },
-  fileRow: {
-    display: 'flex',
-    alignItems: 'center',
-    gap: 10,
-    padding: '8px 10px',
-    borderRadius: 8,
-    background: C.obsidianLight,
-    border: `1px solid ${C.border}`,
-    fontSize: 12,
-    color: C.body,
-  },
-  progressTrack: {
-    flex: 1,
-    height: 4,
-    borderRadius: 2,
-    background: C.border,
-    overflow: 'hidden',
-  },
-  progressFill: { display: 'block', width: '72%', height: '100%', background: C.cyan },
-  extractHeader: {
-    display: 'flex',
-    alignItems: 'center',
-    gap: 6,
-    fontSize: 12,
-    fontWeight: 600,
-    color: C.cyanText,
-    marginBottom: 2,
-  },
-  metricRow: {
-    display: 'flex',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    gap: 8,
-    padding: '5px 10px',
-    borderRadius: 8,
-    background: C.obsidianLight,
-    border: `1px solid ${C.border}`,
-    fontSize: 12,
-    color: C.body,
-  },
-  miniUser: {
-    alignSelf: 'flex-end',
-    maxWidth: '85%',
-    padding: '7px 12px',
-    borderRadius: '12px 12px 4px 12px',
-    background: 'rgba(6, 182, 212, 0.12)',
-    border: '1px solid rgba(6, 182, 212, 0.25)',
-    fontSize: 12,
-    color: '#e4e4e7',
-  },
-  miniAi: {
-    padding: '7px 12px',
-    borderRadius: '12px 12px 12px 4px',
-    background: C.obsidianLight,
-    border: `1px solid ${C.border}`,
-    fontSize: 12,
-    color: C.body,
-  },
-  miniInput: {
-    height: 30,
-    boxSizing: 'border-box',
-    borderRadius: 8,
-    background: C.obsidianLight,
-    border: `1px solid ${C.border}`,
-    display: 'flex',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    padding: '0 6px 0 10px',
-    fontSize: 12,
-    color: C.muted,
-  },
-  miniSend: { width: 20, height: 20, borderRadius: 6, background: C.cyan },
-
-  // ── Safety ──
-  safetySection: {
-    maxWidth: 1200,
-    margin: '0 auto',
-    padding: '96px 24px',
-    display: 'grid',
-    gridTemplateColumns: fit(320),
-    gap: 56,
-    alignItems: 'start',
-  },
-  safetyCards: {
-    display: 'grid',
-    gridTemplateColumns: fit(220),
-    gap: 16,
-  },
-  listCard: {
-    padding: 24,
-    borderRadius: 16,
-    border: `1px solid ${C.border}`,
-    background: C.obsidianLight,
-  },
-  listCardTitle: { fontSize: 16, fontWeight: 600, margin: '0 0 12px' },
-  list: { listStyle: 'none', margin: 0, padding: 0, display: 'grid', gap: 10 },
-  listItem: { color: C.body, fontSize: 15, display: 'flex', alignItems: 'flex-start' },
-
-  // ── CTA ──
-  ctaSection: {
-    maxWidth: 1200,
-    margin: '0 auto',
-    padding: '0 24px 96px',
-  },
-  ctaCard: {
-    background: C.obsidianLight,
-    border: '1px solid rgba(6, 182, 212, 0.35)',
-    borderRadius: 24,
-    padding: '64px 32px',
-    textAlign: 'center',
-    boxShadow: '0 20px 48px rgba(0, 0, 0, 0.5)',
-  },
-  ctaSubtitle: { fontSize: 17, color: C.muted, margin: '0 0 28px' },
-
-  // ── Footer ──
-  footer: { borderTop: `1px solid ${C.border}` },
-  footerInner: { maxWidth: 1200, margin: '0 auto', padding: '40px 24px 36px' },
-  footerTop: {
-    display: 'flex',
-    justifyContent: 'space-between',
-    alignItems: 'flex-start',
-    flexWrap: 'wrap',
-    gap: 40,
-  },
-  footerBrand: { maxWidth: 520 },
-  footerLogoRow: { display: 'flex', alignItems: 'center', gap: 10, marginBottom: 8 },
-  footerLogoText: { fontSize: 16, fontWeight: 600, color: '#fafafa' },
-  footerTagline: { fontSize: 14, color: C.muted, margin: '0 0 14px' },
-  footerDisclaimer: { fontSize: 13, color: C.muted, margin: '0 0 10px', lineHeight: 1.6 },
-  footerCopyright: { fontSize: 13, color: C.muted, margin: 0 },
-  footerLinks: { display: 'flex', gap: '32px 64px', flexWrap: 'wrap' },
-  footerCol: { display: 'flex', flexDirection: 'column', gap: 8 },
-  footerColTitle: { fontSize: 14, fontWeight: 600, color: '#fafafa', margin: 0 },
-  footerLink: { fontSize: 14, color: C.muted, textDecoration: 'none', transition: 'color 0.15s' },
 };

@@ -65,4 +65,23 @@ describe('LabMetrics Clinical Table', () => {
     render(<LabMetrics metrics={sampleMetrics} />);
     expect(screen.queryByRole('button', { name: /Export CSV/i })).not.toBeInTheDocument();
   });
+
+  it('renders table inside a horizontal scroll container with min-width and nowrap columns for mobile responsiveness', () => {
+    const { container } = render(<LabMetrics metrics={sampleMetrics} />);
+    const scrollContainer = container.querySelector('.overflow-x-auto');
+    expect(scrollContainer).toBeInTheDocument();
+    expect(scrollContainer.className).toContain('w-full');
+    expect(scrollContainer.className).toContain('overflow-x-auto');
+    expect(scrollContainer.className).toContain('pb-4');
+
+    const table = scrollContainer.querySelector('table');
+    expect(table).toBeInTheDocument();
+    expect(table.className).toContain('min-w-full');
+    expect(table.className).toContain('min-w-[600px]');
+
+    const statusCells = container.querySelectorAll('tbody tr td:last-child');
+    statusCells.forEach((td) => {
+      expect(td.className).toContain('whitespace-nowrap');
+    });
+  });
 });

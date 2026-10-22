@@ -8,6 +8,7 @@ export default function PatientContextSelector({
   onSelectPatient,
   onOpenDependents,
   darkMode,
+  hideLabel = false,
 }) {
   const [isOpen, setIsOpen] = useState(false);
   const dropdownRef = useRef(null);
@@ -34,17 +35,20 @@ export default function PatientContextSelector({
 
   return (
     <div className="relative inline-block text-left" ref={dropdownRef}>
-      <div className="flex items-center gap-2">
-        <span className={`text-[11px] font-medium tracking-wide uppercase ${darkMode ? 'text-zinc-500' : 'text-zinc-400'}`}>
-          Patient Context:
-        </span>
+      <div className="flex items-center gap-1.5">
+        {!hideLabel && (
+          <span className={`text-[11px] font-medium tracking-wide uppercase ${darkMode ? 'text-zinc-500' : 'text-zinc-400'}`}>
+            Patient Context:
+          </span>
+        )}
         <button
           type="button"
           onClick={() => setIsOpen(!isOpen)}
-          className={`flex items-center gap-2 px-3 py-1 rounded-full text-xs font-medium border transition-all duration-150 ${
+          aria-label="Select patient context"
+          className={`flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium border transition-all duration-150 ${
             darkMode
-              ? 'bg-[#09090B] border-zinc-800 text-zinc-200 hover:border-zinc-700 hover:text-white shadow-sm'
-              : 'bg-white border-zinc-200 text-zinc-800 hover:border-zinc-300 hover:text-black shadow-sm'
+              ? 'bg-[#18181b] border-white/10 text-zinc-200 hover:border-zinc-700 hover:text-white shadow-xs'
+              : 'bg-white border-zinc-200 text-zinc-800 hover:border-zinc-300 hover:text-black shadow-xs'
           }`}
         >
           {isSelf ? (

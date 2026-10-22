@@ -1176,7 +1176,7 @@ export default function ChatApp() {
       {/* Sidebar container with DeepSeek-style GPU-accelerated slide */}
       <div
         data-testid="sidebar-wrapper"
-        className={`fixed inset-y-0 left-0 z-40 w-72 flex-shrink-0 transition-transform duration-250 ease-in-out ${
+        className={`fixed inset-y-0 left-0 z-40 w-72 md:w-64 flex-shrink-0 transition-transform duration-250 ease-in-out ${
           sidebarOpen ? 'translate-x-0' : '-translate-x-full'
         }`}
         style={{ transitionDuration: '250ms' }}
@@ -1204,7 +1204,7 @@ export default function ChatApp() {
 
       <main
         className={`flex-1 flex flex-col h-full overflow-hidden relative transition-all duration-250 ease-in-out ${
-          sidebarOpen ? 'md:ml-72' : 'md:ml-0'
+          sidebarOpen ? 'md:ml-64' : 'md:ml-0'
         } ${darkMode ? 'bg-zinc-950' : 'bg-zinc-50'}`}
         style={{ transitionDuration: '250ms' }}
       >
@@ -1259,6 +1259,10 @@ export default function ChatApp() {
           onSendMessage={handleSendMessage}
           onAttachFile={handleAttachFile}
           activeFile={activePdf}
+          attachedDocuments={Array.isArray(currentChat.documents) && currentChat.documents.length > 0
+            ? currentChat.documents
+            : (activePdf ? [{ id: currentChat.document_id || activePdf.id || 'doc-1', name: activePdf.name, filename: activePdf.name }] : [])}
+          onDetachDocument={handleDetachDocument}
           onRemoveFile={handleRemoveFile}
           isGenerating={isGenerating}
           onStopGeneration={handleStopGeneration}

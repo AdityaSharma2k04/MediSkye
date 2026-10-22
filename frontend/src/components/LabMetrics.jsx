@@ -52,24 +52,12 @@ export default function LabMetrics({ metrics = [], darkMode, onBack }) {
   return (
     <div className="animate-fade-in py-4">
       {/* Header row */}
-      <div className="flex items-center justify-between mb-4 flex-wrap gap-3">
-        <div>
-          <h2 className={`text-xl font-bold tracking-tight ${textPrimary}`}>Clinical Lab Metrics</h2>
-          {hasMetrics && (
-            <p className={`text-xs mt-0.5 ${textSecondary}`}>
-              {metrics.length} test{metrics.length !== 1 ? 's' : ''} extracted • abnormal values shown first
-            </p>
-          )}
-        </div>
-        {onBack && (
-          <div className="flex items-center gap-2">
-            <button
-              onClick={onBack}
-              className={`text-xs underline ${darkMode ? 'text-zinc-400 hover:text-white' : 'text-zinc-500 hover:text-zinc-900'}`}
-            >
-              Back to Chat →
-            </button>
-          </div>
+      <div className="mb-4">
+        <h2 className={`text-xl font-bold tracking-tight ${textPrimary}`}>Clinical Lab Metrics</h2>
+        {hasMetrics && (
+          <p className={`text-xs mt-0.5 ${textSecondary}`}>
+            {metrics.length} test{metrics.length !== 1 ? 's' : ''} extracted • abnormal values shown first
+          </p>
         )}
       </div>
 
@@ -132,67 +120,69 @@ export default function LabMetrics({ metrics = [], darkMode, onBack }) {
         </div>
       ) : (
         <div className={`rounded-xl border overflow-hidden ${cardBg} ${borderCol}`}>
-          <table
-            className="w-full text-left text-xs"
-            style={{ width: '100%', borderCollapse: 'collapse' }}
-          >
-            <thead className={theadBg}>
-              <tr className={`border-b ${borderCol}`}>
-                <th style={{ padding: '10px 12px' }} className={`font-semibold ${textSecondary}`}>Test Name</th>
-                <th style={{ padding: '10px 12px', fontVariantNumeric: 'tabular-nums' }} className={`font-semibold ${textSecondary}`}>Value</th>
-                <th style={{ padding: '10px 12px' }} className={`font-semibold ${textSecondary}`}>Unit</th>
-                <th style={{ padding: '10px 12px', fontVariantNumeric: 'tabular-nums' }} className={`font-semibold ${textSecondary}`}>Reference Range</th>
-                <th style={{ padding: '10px 12px' }} className={`font-semibold ${textSecondary}`}>Status</th>
-              </tr>
-            </thead>
-            <tbody className={`divide-y ${borderCol}`}>
-              {filteredMetrics.map((row, idx) => {
-                const testName = row.test || row.name || '—';
-                const status = row.status || 'Normal';
-                const statusColor = getStatusColor(status, darkMode);
+          <div className="w-full overflow-x-auto pb-4">
+            <table
+              className="min-w-full min-w-[600px] text-left text-xs"
+              style={{ width: '100%', borderCollapse: 'collapse' }}
+            >
+              <thead className={theadBg}>
+                <tr className={`border-b ${borderCol}`}>
+                  <th style={{ padding: '10px 12px' }} className={`font-semibold ${textSecondary} whitespace-nowrap`}>Test Name</th>
+                  <th style={{ padding: '10px 12px', fontVariantNumeric: 'tabular-nums' }} className={`font-semibold ${textSecondary} whitespace-nowrap`}>Value</th>
+                  <th style={{ padding: '10px 12px' }} className={`font-semibold ${textSecondary} whitespace-nowrap`}>Unit</th>
+                  <th style={{ padding: '10px 12px', fontVariantNumeric: 'tabular-nums' }} className={`font-semibold ${textSecondary} whitespace-nowrap`}>Reference Range</th>
+                  <th style={{ padding: '10px 12px' }} className={`font-semibold ${textSecondary} whitespace-nowrap`}>Status</th>
+                </tr>
+              </thead>
+              <tbody className={`divide-y ${borderCol}`}>
+                {filteredMetrics.map((row, idx) => {
+                  const testName = row.test || row.name || '—';
+                  const status = row.status || 'Normal';
+                  const statusColor = getStatusColor(status, darkMode);
 
-                return (
-                  <tr
-                    key={idx}
-                    className={`transition-colors ${hoverRowBg}`}
-                    style={{ borderBottom: `1px solid ${darkMode ? '#27272a' : '#f4f4f5'}` }}
-                  >
-                    <td style={{ padding: '10px 12px' }} className={`font-medium ${textPrimary}`}>
-                      {testName}
-                    </td>
-                    <td
-                      style={{ padding: '10px 12px', fontVariantNumeric: 'tabular-nums' }}
-                      className={`font-semibold ${textPrimary}`}
+                  return (
+                    <tr
+                      key={idx}
+                      className={`transition-colors ${hoverRowBg}`}
+                      style={{ borderBottom: `1px solid ${darkMode ? '#27272a' : '#f4f4f5'}` }}
                     >
-                      {row.value ?? '—'}
-                    </td>
-                    <td style={{ padding: '10px 12px' }} className={textSecondary}>
-                      {row.unit || '—'}
-                    </td>
-                    <td
-                      style={{ padding: '10px 12px', fontVariantNumeric: 'tabular-nums' }}
-                      className={textSecondary}
-                    >
-                      {row.range || row.reference_range || '—'}
-                    </td>
-                    <td style={{ padding: '10px 12px' }}>
-                      <span
-                        style={{
-                          fontWeight: 600,
-                          color: statusColor,
-                          background: 'none',
-                          border: 'none',
-                          padding: 0,
-                        }}
+                      <td style={{ padding: '10px 12px' }} className={`font-medium ${textPrimary}`}>
+                        {testName}
+                      </td>
+                      <td
+                        style={{ padding: '10px 12px', fontVariantNumeric: 'tabular-nums' }}
+                        className={`font-semibold ${textPrimary} whitespace-nowrap`}
                       >
-                        {status}
-                      </span>
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
+                        {row.value ?? '—'}
+                      </td>
+                      <td style={{ padding: '10px 12px' }} className={`${textSecondary} whitespace-nowrap`}>
+                        {row.unit || '—'}
+                      </td>
+                      <td
+                        style={{ padding: '10px 12px', fontVariantNumeric: 'tabular-nums' }}
+                        className={`${textSecondary} whitespace-nowrap`}
+                      >
+                        {row.range || row.reference_range || '—'}
+                      </td>
+                      <td style={{ padding: '10px 12px' }} className="whitespace-nowrap">
+                        <span
+                          style={{
+                            fontWeight: 600,
+                            color: statusColor,
+                            background: 'none',
+                            border: 'none',
+                            padding: 0,
+                          }}
+                        >
+                          {status}
+                        </span>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
         </div>
       )}
     </div>

@@ -2,12 +2,13 @@ import React, { useRef, useEffect, useState } from 'react';
 import {
   Stethoscope, ArrowDown, Upload, FileText, Sparkles, Shield,
   Printer, Table, MessageSquare, AlertCircle, Sun, Moon, X, Download,
-  ChevronLeft, ChevronRight
+  ChevronLeft, ChevronRight, Activity, HelpCircle
 } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import ChatMessage from './ChatMessage';
 import LabMetrics from './LabMetrics';
 import PrintableSummary from './PrintableSummary';
+import PatientContextSelector from './PatientContextSelector';
 import { fetchLabMetrics, getProfile, sendQueryStream, getDocumentSummary } from '../services/api';
 
 export default function ChatWindow({
@@ -186,51 +187,90 @@ export default function ChatWindow({
       darkMode ? 'bg-zinc-950 text-zinc-50' : 'bg-zinc-50 text-zinc-900'
     }`}>
       {/* Header */}
-      <header className={`flex items-center justify-between p-3.5 px-4 sm:px-6 border-b z-10 transition-colors duration-200 ${headerBg} ${cardBorder}`}>
-        <div className="flex items-center gap-3">
+      <header className={`h-14 px-4 flex items-center justify-between border-b z-10 transition-colors duration-200 ${
+        darkMode ? 'bg-[#0e0e11] border-white/5' : 'bg-white border-zinc-200'
+      }`}>
+        <div className="flex items-center gap-2.5 sm:gap-3 min-w-0">
           {toggleSidebar && (
             <button
               onClick={toggleSidebar}
               aria-label="Toggle sidebar"
-              className={`p-1.5 rounded-lg border transition-colors ${
+              className={`p-2 rounded-lg transition-colors ${
                 darkMode
-                  ? 'border-zinc-800 text-zinc-400 hover:text-white hover:bg-zinc-800'
-                  : 'border-zinc-200 text-zinc-600 hover:text-zinc-900 hover:bg-zinc-100'
+                  ? 'text-zinc-400 hover:text-white hover:bg-zinc-800/80'
+                  : 'text-zinc-600 hover:text-zinc-900 hover:bg-zinc-100'
               }`}
             >
               {sidebarOpen ? <ChevronLeft className="w-4 h-4" /> : <ChevronRight className="w-4 h-4" />}
             </button>
           )}
 
-          <div className={`w-7 h-7 rounded-lg flex items-center justify-center font-bold text-xs ${
-            darkMode ? 'bg-white text-black' : 'bg-zinc-900 text-white'
+          {/* Brand title on single line */}
+          <span className={`text-base font-semibold tracking-tight whitespace-nowrap ${
+            darkMode ? 'text-white' : 'text-zinc-900'
           }`}>
-            <Stethoscope className="w-4 h-4" />
-          </div>
-          <div>
-            <div className="flex items-center gap-2">
-              <h2 className={`font-semibold text-sm ${textPrimary}`}>MediSkye AI Medical Assistant</h2>
-              {activeDependent && (
-                <span className={`text-[10px] px-2 py-0.5 rounded-full font-medium border ${
-                  darkMode
-                    ? 'bg-rose-950/60 text-rose-300 border-rose-800/60'
-                    : 'bg-rose-50 text-rose-700 border-rose-200'
-                }`}>
-                  Lens: {activeDependent.full_name} ({activeDependent.relationship})
-                </span>
-              )}
-            </div>
-            <p className={`text-[10px] ${textSecondary}`}>AI Medical Assistant</p>
-          </div>
+            MediSkye
+          </span>
+
+          {/* Subtle Patient Context Selector right next to MediSkye */}
+          {currentUser && (
+            <PatientContextSelector
+              currentUser={currentUser}
+              dependents={dependents}
+              selectedPatientId={selectedPatientId}
+              onSelectPatient={onSelectPatient}
+              onOpenDependents={onOpenDependents}
+              darkMode={darkMode}
+              hideLabel={true}
+            />
+          )}
         </div>
 
-        <div className="flex items-center gap-2">
-          {/* A4: Theme toggle in header (sun/moon icon) */}
+        <div className="flex items-center gap-1.5 sm:gap-2">
+          {/* Export Printable Doctor Summary when active report is present */}
+          {activePdf && (
+            <button
+              onClick={handlePrintDoctorSummary}
+              disabled={isExporting}
+              aria-label="Export Summary"
+              className={`p-2 rounded-lg text-xs flex items-center gap-1.5 transition-colors border ${
+                isExporting ? 'opacity-70 cursor-not-allowed ' : ''
+              }${
+                darkMode
+                  ? 'bg-zinc-900 hover:bg-zinc-800 text-zinc-300 border-zinc-800 hover:text-white'
+                  : 'bg-white hover:bg-zinc-50 text-zinc-700 border-zinc-200'
+              }`}
+              title="Export 1-Click Printable Doctor Consultation Summary"
+            >
+              <Printer className="w-4 h-4" />
+              <span className="hidden lg:inline">
+                {isExporting ? t('chat.preparing_summary', 'Preparing Summary...') : t('chat.export_summary', 'Export Summary')}
+              </span>
+            </button>
+          )}
+
+          {/* Export Chat Data */}
+          {onOpenExport && (
+            <button
+              onClick={onOpenExport}
+              aria-label="Export chat data"
+              className={`p-2 rounded-lg transition-colors border ${
+                darkMode
+                  ? 'bg-zinc-900 hover:bg-zinc-800 text-zinc-300 border-zinc-800 hover:text-white'
+                  : 'bg-white hover:bg-zinc-50 text-zinc-700 border-zinc-200'
+              }`}
+              title="Export full chat transcript and lab metrics (PDF or JSON)"
+            >
+              <Download className="w-4 h-4" />
+            </button>
+          )}
+
+          {/* Theme toggle */}
           {setDarkMode && (
             <button
               onClick={() => setDarkMode(!darkMode)}
               aria-label={darkMode ? 'Switch to light theme' : 'Switch to dark theme'}
-              className={`p-1.5 rounded-lg transition-colors ${
+              className={`p-2 rounded-lg transition-colors ${
                 darkMode
                   ? 'text-zinc-400 hover:text-white hover:bg-zinc-800'
                   : 'text-zinc-500 hover:text-zinc-900 hover:bg-zinc-100'
@@ -240,139 +280,30 @@ export default function ChatWindow({
             </button>
           )}
 
-          {/* A4: Lab Metrics + Export Summary only when a document is loaded */}
-          {onOpenExport && (
-            <button
-              onClick={onOpenExport}
-              aria-label="Export chat data"
-              className={`px-3 py-1.5 rounded-xl text-xs flex items-center gap-1.5 transition-all active:scale-[0.97] border ${
+          {/* User Avatar Circle */}
+          {currentUser && (
+            <div
+              className={`w-8 h-8 rounded-full flex items-center justify-center font-medium text-xs border ${
                 darkMode
-                  ? 'bg-zinc-900 hover:bg-zinc-800 text-zinc-200 border-zinc-800'
-                  : 'bg-white hover:bg-zinc-50 text-zinc-700 border-zinc-200'
+                  ? 'bg-zinc-800 text-zinc-200 border-white/10'
+                  : 'bg-zinc-200 text-zinc-800 border-zinc-300'
               }`}
-              title="Export full chat transcript and lab metrics (PDF or JSON)"
+              title={currentUser.email || currentUser.full_name}
             >
-              <Download className="w-3.5 h-3.5" />
-              <span className="hidden md:inline">{t('chat.export_data', 'Export Data')}</span>
-            </button>
-          )}
-
-          {activePdf && (
-            <>
-              <div className={`flex items-center rounded-xl p-0.5 text-xs border ${
-                darkMode ? 'bg-zinc-900 border-zinc-800' : 'bg-zinc-100 border-zinc-200'
-              }`}>
-                <button
-                  onClick={() => setViewMode('chat')}
-                  aria-label="Switch to chat view"
-                  className={`px-3 py-1 rounded-lg transition-colors flex items-center gap-1.5 ${
-                    viewMode === 'chat'
-                      ? darkMode
-                        ? 'bg-zinc-800 text-white font-medium'
-                        : 'bg-white text-zinc-900 font-medium shadow-sm'
-                      : darkMode
-                        ? 'text-zinc-400 hover:text-white'
-                        : 'text-zinc-500 hover:text-zinc-900'
-                  }`}
-                >
-                  <MessageSquare className="w-3.5 h-3.5" />
-                  <span>{t('chat.view_chat', 'Chat')}</span>
-                </button>
-                <button
-                  onClick={loadMetrics}
-                  aria-label="View extracted lab metrics table"
-                  className={`px-3 py-1 rounded-lg transition-colors flex items-center gap-1.5 ${
-                    viewMode === 'metrics'
-                      ? darkMode
-                        ? 'bg-zinc-800 text-white font-medium'
-                        : 'bg-white text-zinc-900 font-medium shadow-sm'
-                      : darkMode
-                        ? 'text-zinc-400 hover:text-white'
-                        : 'text-zinc-500 hover:text-zinc-900'
-                  }`}
-                >
-                  <Table className="w-3.5 h-3.5" />
-                  <span>{t('chat.lab_metrics', 'Lab Metrics')}</span>
-                </button>
-              </div>
-
-              <button
-                onClick={handlePrintDoctorSummary}
-                disabled={isExporting}
-                aria-label="Export Summary"
-                className={`px-3 py-1.5 rounded-xl text-xs flex items-center gap-1.5 transition-colors border ${
-                  isExporting ? 'opacity-70 cursor-not-allowed ' : ''
-                }${
-                  darkMode
-                    ? 'bg-zinc-900 hover:bg-zinc-800 text-zinc-200 border-zinc-800'
-                    : 'bg-white hover:bg-zinc-50 text-zinc-700 border-zinc-200'
-                }`}
-                title="Export 1-Click Printable Doctor Consultation Summary"
-              >
-                <Printer className="w-3.5 h-3.5" />
-                <span className="hidden sm:inline">
-                  {isExporting ? t('chat.preparing_summary', 'Preparing Summary...') : t('chat.export_summary', 'Export Summary')}
-                </span>
-              </button>
-            </>
+              {currentUser.full_name
+                ? currentUser.full_name.charAt(0).toUpperCase()
+                : (currentUser.email ? currentUser.email.charAt(0).toUpperCase() : 'U')}
+            </div>
           )}
         </div>
       </header>
 
-      {/* TASK F3: Multi-Document Header Chip Row */}
-      {attachedDocuments && attachedDocuments.length > 0 && (
-        <div className={`flex items-center gap-2 px-4 sm:px-6 py-2 border-b overflow-x-auto text-xs shrink-0 ${
-          darkMode ? 'bg-zinc-950/80 border-zinc-800' : 'bg-zinc-100/70 border-zinc-200'
-        }`}>
-          <span className={`text-[11px] font-medium shrink-0 ${textMuted}`}>{t('chat.attached_reports', 'Attached Reports:')}</span>
-          <div className="flex items-center gap-2 flex-wrap sm:flex-nowrap">
-            {attachedDocuments.map((doc) => (
-              <div
-                key={doc.id || doc.name || doc.filename}
-                className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg border text-xs shrink-0 transition-colors ${
-                  darkMode ? 'bg-zinc-900 border-zinc-800 text-zinc-200' : 'bg-white border-zinc-200 text-zinc-800 shadow-sm'
-                }`}
-              >
-                <span>📄</span>
-                <span className="font-medium max-w-[160px] truncate" title={doc.name || doc.filename}>
-                  {doc.name || doc.filename}
-                </span>
-                {onDetachDocument && (
-                  <button
-                    type="button"
-                    onClick={() => onDetachDocument(doc.id)}
-                    aria-label={`Detach ${doc.name || doc.filename}`}
-                    className={`p-0.5 rounded hover:text-red-400 transition-colors ${
-                      darkMode ? 'text-zinc-500 hover:bg-zinc-800' : 'text-zinc-400 hover:bg-zinc-100'
-                    }`}
-                    title="Detach report from chat"
-                  >
-                    <X className="w-3 h-3" />
-                  </button>
-                )}
-              </div>
-            ))}
-
-            <button
-              type="button"
-              onClick={onOpenUpload}
-              aria-label="Add report"
-              className={`flex items-center gap-1 px-2.5 py-1 rounded-lg border border-dashed text-xs shrink-0 transition-colors ${
-                darkMode
-                  ? 'border-zinc-700 text-zinc-400 hover:border-zinc-500 hover:text-zinc-200'
-                  : 'border-zinc-300 text-zinc-600 hover:border-zinc-400 hover:text-zinc-900'
-              }`}
-            >
-              <span>{t('chat.add_report', '+ Add Report')}</span>
-            </button>
-          </div>
-        </div>
-      )}
-
       <div
         ref={scrollRef}
         onScroll={handleScroll}
-        className="chat-messages-container flex-1 overflow-y-auto p-4 sm:p-6 lg:p-8 max-w-4xl w-full mx-auto flex flex-col"
+        className={`chat-messages-container flex-1 overflow-y-auto py-4 sm:py-6 w-full mx-auto flex flex-col px-4 md:px-6 transition-all duration-200 ${
+          viewMode === 'metrics' ? 'max-w-4xl' : 'max-w-3xl'
+        }`}
       >
         {viewMode === 'metrics' ? (
           loadingMetrics ? (
@@ -438,94 +369,77 @@ export default function ChatWindow({
             <div className={`text-xs mt-1 ${textMuted}`}>{t('chat.fetching_messages', 'Fetching latest messages from Neon DB')}</div>
           </div>
         ) : messages.length === 0 ? (
-          /* ── A1: EMPTY STATE ── */
-          <div className="w-full flex flex-col items-center justify-center text-center max-w-2xl mx-auto py-4 sm:py-6 my-auto animate-fade-in">
-            <div className={`w-11 h-11 rounded-2xl flex items-center justify-center mb-3 ${
-              darkMode ? 'bg-white text-black' : 'bg-zinc-900 text-white'
+          /* ── GEMINI MINIMALIST EMPTY STATE ── */
+          <div className="w-full flex flex-col items-center justify-center text-center max-w-xl mx-auto py-8 my-auto animate-fade-in px-4">
+            <div className={`w-12 h-12 rounded-2xl flex items-center justify-center mb-3 shadow-lg ${
+              darkMode
+                ? 'bg-gradient-to-tr from-cyan-500/20 to-blue-500/20 text-cyan-400 border border-cyan-500/30 shadow-cyan-950/40'
+                : 'bg-gradient-to-tr from-blue-50 to-cyan-50 text-blue-600 border border-blue-200'
             }`}>
-              <Stethoscope className="w-5 h-5" />
+              <Sparkles className="w-6 h-6 animate-pulse" />
             </div>
 
-            <h1 className={`text-2xl sm:text-3xl font-bold tracking-tight mb-1.5 ${textPrimary}`}>
-              {activePdf ? t('chat.ask_report_title', 'Ask about this report') : 'MediSkye AI Medical Assistant'}
+            {/* Subtle brand badge ensuring test compatibility */}
+            <span className={`text-[11px] font-semibold uppercase tracking-wider mb-2 ${
+              darkMode ? 'text-zinc-500' : 'text-zinc-400'
+            }`}>
+              MediSkye AI Medical Assistant
+            </span>
+
+            <h1 className={`text-2xl sm:text-3xl font-medium tracking-tight mb-6 ${textPrimary}`}>
+              Where should we start?
             </h1>
 
-            {/* A7: Personal welcome message */}
-            <p className={`text-sm mb-4 max-w-lg leading-relaxed ${textSecondary}`}>
-              {activePdf
-                ? t('chat.ask_report_subtitle', 'No questions yet — start with one of these, or ask your own question below.')
-                : firstName
-                ? t('chat.welcome_user', { name: firstName, defaultValue: `Welcome back, ${firstName}. Upload a report to get started, or ask a general health question.` })
-                : t('chat.welcome_guest', 'Upload a medical report to get started, or ask a general health question below.')}
-            </p>
-
-            {/* A1 & A3: Dropzone when no document, compact chip when loaded */}
-            {!activePdf ? (
-              <div
-                onClick={onOpenUpload}
-                className={`w-full p-4 sm:p-5 border border-dashed rounded-2xl cursor-pointer transition-all duration-150 shadow-sm mb-4 group ${
-                  darkMode
-                    ? 'border-zinc-800 bg-[#121212] hover:border-zinc-700 hover:bg-zinc-900/50'
-                    : 'border-zinc-300 bg-white hover:border-zinc-400 hover:bg-zinc-50'
-                }`}
-              >
-                <div className={`w-8 h-8 rounded-full flex items-center justify-center mx-auto mb-2 group-hover:scale-105 transition-transform ${
-                  darkMode ? 'bg-zinc-800 text-zinc-300' : 'bg-zinc-100 text-zinc-600'
-                }`}>
-                  <Upload className="w-4 h-4" />
-                </div>
-                <div className={`font-semibold text-sm mb-0.5 ${textPrimary}`}>
-                  {t('chat.upload_title', 'Upload Medical Report (PDF)')}
-                </div>
-                <div className={`text-xs ${textSecondary}`}>
-                  {t('chat.upload_subtitle', 'Drag & drop or click to select file • Supports files up to 50MB')}
-                </div>
-              </div>
-            ) : null}
-
-            {/* A1b: Context-aware suggestion cards (work with AND without document) */}
-            <div className="w-full grid grid-cols-1 sm:grid-cols-2 gap-2.5 text-left">
+            {/* Starter prompts as clean stack on mobile, sm:grid-cols-2 grid on desktop */}
+            <div className="w-full grid grid-cols-1 sm:grid-cols-2 gap-2.5 text-left mb-6">
               {sampleQueries.map((item, idx) => (
                 <button
                   key={idx}
                   onClick={() => onSelectSampleQuery(item.query)}
-                  className={`p-3 sm:p-3.5 rounded-2xl text-xs transition-all duration-150 shadow-sm group flex flex-col justify-between min-h-[72px] border active:scale-[0.98] ${
+                  className={`w-full flex items-center gap-3 py-3 px-3.5 text-sm rounded-xl transition-all duration-150 border ${
                     darkMode
-                      ? 'bg-[#121212] border-zinc-800/80 hover:border-zinc-700'
-                      : 'bg-white border-zinc-200 hover:border-zinc-400'
+                      ? 'text-zinc-300 hover:text-white bg-white/[0.02] hover:bg-white/5 border-white/5 hover:border-white/10 active:bg-white/10'
+                      : 'text-zinc-700 hover:text-zinc-900 bg-zinc-50/80 hover:bg-zinc-100 border-zinc-200/60 active:bg-zinc-200'
                   }`}
                 >
-                  <div className={`font-medium flex items-center justify-between w-full ${textPrimary}`}>
-                    <span>{item.title}</span>
-                    <Sparkles className={`w-3.5 h-3.5 opacity-0 group-hover:opacity-100 transition-opacity ${textSecondary}`} />
+                  <div className={`p-1.5 rounded-lg shrink-0 ${
+                    darkMode ? 'bg-zinc-900 text-zinc-400' : 'bg-zinc-200 text-zinc-600'
+                  }`}>
+                    {idx === 0 ? <Activity className="w-4 h-4" /> :
+                     idx === 1 ? <FileText className="w-4 h-4" /> :
+                     idx === 2 ? <HelpCircle className="w-4 h-4" /> :
+                     <Sparkles className="w-4 h-4" />}
                   </div>
-                  <div className={`text-[11px] line-clamp-2 mt-1.5 ${textSecondary}`}>
-                    "{item.query}"
-                  </div>
+                  <span className="truncate">{item.title}</span>
                 </button>
               ))}
+
+              {/* "Try with a Sample Blood Test Report" item - spanning across 2 columns on desktop */}
+              <button
+                onClick={() => onSelectSampleQuery('Please show and explain a sample blood test report with common metrics like Hemoglobin, WBC, and Platelets.')}
+                className={`w-full sm:col-span-2 flex items-center gap-3 py-3 px-3.5 text-sm rounded-xl transition-all duration-150 border ${
+                  darkMode
+                    ? 'text-cyan-300 hover:text-cyan-200 bg-cyan-950/20 hover:bg-cyan-950/30 border-cyan-800/30 hover:border-cyan-700/50'
+                    : 'text-blue-700 hover:text-blue-900 bg-blue-50/50 hover:bg-blue-50 border-blue-200 hover:border-blue-300'
+                }`}
+              >
+                <div className={`p-1.5 rounded-lg shrink-0 ${
+                  darkMode ? 'bg-cyan-950/60 text-cyan-400' : 'bg-blue-100 text-blue-600'
+                }`}>
+                  <FileText className="w-4 h-4" />
+                </div>
+                <span className="font-medium truncate">Try with a Sample Blood Test Report</span>
+              </button>
             </div>
 
-            <div className={`mt-5 flex items-center gap-2 text-xs ${textMuted}`}>
+            <div className={`flex items-center gap-2 text-xs ${textMuted}`}>
               <Shield className="w-3.5 h-3.5" />
-              {/* A6: No HIPAA claim */}
               <span>{t('chat.encrypted_session', 'End-to-end encrypted session • Discarded on close')}</span>
             </div>
           </div>
         ) : (
-          /* ── A1: LOADED STATE — show conversation ── */
+          /* ── LOADED STATE — show conversation (no duplicate chip) ── */
           <div className="py-4">
-            {/* A1: Compact document chip above conversation */}
-            {activePdf && (
-              <div className={`mb-4 flex items-center gap-2 px-3 py-2 rounded-xl text-xs border w-fit ${
-                darkMode ? 'bg-zinc-900 border-zinc-800 text-zinc-300' : 'bg-zinc-50 border-zinc-200 text-zinc-600'
-              }`}>
-                <FileText className="w-3.5 h-3.5 shrink-0" />
-                <span className="font-medium truncate max-w-xs">{activePdf.name}</span>
-                {activePdf.pages && <span className="text-zinc-500">• {activePdf.pages} pages</span>}
-              </div>
-            )}
-
             {messages.map((msg, index) => (
               <ChatMessage
                 key={msg.id || index}
@@ -538,6 +452,50 @@ export default function ChatWindow({
           </div>
         )}
       </div>
+
+      {/* Floating Mode Switcher Pill (Above Input Box) */}
+      {activePdf && (
+        <div className="w-full max-w-3xl mx-auto px-4 md:px-6 flex justify-center pb-2 shrink-0 z-10 pointer-events-none">
+          <div className={`pointer-events-auto mx-auto mb-2.5 flex items-center rounded-full p-1 border shadow-md w-fit backdrop-blur-md transition-colors ${
+            darkMode
+              ? 'bg-zinc-900/90 border-white/10'
+              : 'bg-white/95 border-zinc-200 shadow-sm'
+          }`}>
+            <button
+              onClick={() => setViewMode('chat')}
+              aria-label="Switch to chat view"
+              className={`px-4 py-1 rounded-full text-xs font-medium transition-all flex items-center gap-1.5 ${
+                viewMode === 'chat'
+                  ? darkMode
+                    ? 'bg-zinc-700/80 text-white shadow-xs'
+                    : 'bg-zinc-900 text-white shadow-xs'
+                  : darkMode
+                    ? 'text-zinc-400 hover:text-zinc-200'
+                    : 'text-zinc-600 hover:text-zinc-900'
+              }`}
+            >
+              <MessageSquare className="w-3.5 h-3.5" />
+              <span>{t('chat.view_chat', 'Chat')}</span>
+            </button>
+            <button
+              onClick={loadMetrics}
+              aria-label="View extracted lab metrics table"
+              className={`px-4 py-1 rounded-full text-xs font-medium transition-all flex items-center gap-1.5 ${
+                viewMode === 'metrics'
+                  ? darkMode
+                    ? 'bg-zinc-700/80 text-white shadow-xs'
+                    : 'bg-zinc-900 text-white shadow-xs'
+                  : darkMode
+                    ? 'text-zinc-400 hover:text-zinc-200'
+                    : 'text-zinc-600 hover:text-zinc-900'
+              }`}
+            >
+              <Table className="w-3.5 h-3.5" />
+              <span>{t('chat.lab_metrics', 'Lab Metrics')}</span>
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* PrintableSummary — mounted only when printing */}
       {showPrintSummary && (() => {

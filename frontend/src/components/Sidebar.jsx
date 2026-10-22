@@ -124,7 +124,7 @@ export default function Sidebar({
   return (
     <>
       <aside
-        className={`w-72 h-full flex flex-col border-r ${
+        className={`w-72 md:w-64 h-full flex flex-col border-r ${
           darkMode
             ? 'bg-zinc-950 border-zinc-800/80'
             : 'bg-white border-zinc-200'
