@@ -25,8 +25,10 @@ steps:
       - '--platform=managed'
       - '--allow-unauthenticated'
       - '--port=8080'
-      - '--memory=1Gi'
+      - '--memory=2Gi'
       - '--cpu=1'
+      - '--session-affinity'
+      - '--no-cpu-throttling'
       - '--update-env-vars=GOOGLE_GENAI_USE_ENTERPRISE=True,GOOGLE_CLOUD_PROJECT=$PROJECT_ID,GOOGLE_CLOUD_LOCATION=global,ALLOWED_ORIGINS=${_ALLOWED_ORIGINS}'
 
 substitutions:

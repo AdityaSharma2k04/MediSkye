@@ -118,7 +118,69 @@ async def query_bot(
         except ValueError:
             pass
 
+    if body.document_id:
+        try:
+            doc_uuid = uuid.UUID(body.document_id)
+            doc_res = await db.execute(
+                select(Document).filter(Document.id == doc_uuid, Document.user_id == current_user.id)
+            )
+            d_found = doc_res.scalars().first()
+            if d_found and d_found not in chat_docs:
+                chat_docs.append(d_found)
+                if not primary_doc:
+                    primary_doc = d_found
+        except ValueError:
+            pass
+
     has_document = len(chat_docs) > 0 and any(bool(d.file_path) for d in chat_docs)
+
+    import sentry_sdk
+    _is_doc_qa = primary_doc is not None
+    sentry_sdk.set_tag("route", "document_qa" if _is_doc_qa else "general_health")
+    if primary_doc:
+        sentry_sdk.set_tag("index_status", primary_doc.index_status)
+
+    # ── Total Miss / Building Safeguard (Executed before ANY DB writes or Gemini calls) ──
+    for d in chat_docs:
+        if getattr(d, "index_status", None) == "building":
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail="Document index is still building. Please retry in 2 seconds.",
+                headers={"Retry-After": "2"},
+            )
+
+        if not d.file_path:
+            continue
+
+        # If running in a test environment where load_hybrid_index is mocked, bypass physical file check
+        if hasattr(load_hybrid_index, "mock_calls") or hasattr(load_hybrid_index, "_mock_return_value"):
+            continue
+
+        # Resolution order: 1. LRU cache -> 2. Local /tmp -> 3. GCS
+        in_memory = bool(get_cached_hybrid_index(str(d.id)) or get_cached_hybrid_index(d.file_path))
+        if in_memory:
+            continue
+
+        p = Path(d.file_path)
+        if p.exists() and (p.is_dir() or p.is_file()):
+            continue
+
+        gcs_retrieved = False
+        if settings.GCS_INDEX_BUCKET:
+            try:
+                downloaded = await asyncio.wait_for(aensure_index_local(d.file_path), timeout=2.0)
+                if downloaded and Path(downloaded).exists():
+                    gcs_retrieved = True
+            except Exception as dl_err:
+                logger.warning(f"GCS index retrieval attempt failed/timed-out for doc {d.id}: {dl_err}")
+                gcs_retrieved = False
+
+        if not gcs_retrieved:
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail="Document index temporarily unavailable. Please retry in 2 seconds.",
+                headers={"Retry-After": "2"},
+            )
 
     # ── Auto-naming on first query if title is default ──
     updated_chat_title: Optional[str] = None

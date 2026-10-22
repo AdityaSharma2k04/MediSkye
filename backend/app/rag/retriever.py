@@ -37,7 +37,7 @@ MAX_FETCH_K = 48
 
 _INDEX_CACHE_LOCK = threading.Lock()
 _HYBRID_INDEX_CACHE: OrderedDict[str, tuple] = OrderedDict()
-MAX_CACHE_ENTRIES = 32
+MAX_CACHE_ENTRIES = 10
 
 
 def _normalize_index_key(key) -> str:
@@ -49,7 +49,7 @@ def _normalize_index_key(key) -> str:
 
 
 def cache_hybrid_index(key, vectorstore, bm25_index) -> None:
-    """Store (vectorstore, bm25_index) in in-memory LRU cache (bounded to 32 entries)."""
+    """Store (vectorstore, bm25_index) in in-memory LRU cache (bounded to 10 entries)."""
     if not key:
         return
     norm_key = _normalize_index_key(key)
@@ -59,7 +59,8 @@ def cache_hybrid_index(key, vectorstore, bm25_index) -> None:
             _HYBRID_INDEX_CACHE[norm_key] = (vectorstore, bm25_index)
         else:
             if len(_HYBRID_INDEX_CACHE) >= MAX_CACHE_ENTRIES:
-                _HYBRID_INDEX_CACHE.popitem(last=False)
+                evicted_key, _ = _HYBRID_INDEX_CACHE.popitem(last=False)
+                logger.info("Evicted index from LRU cache: %s (maxsize=%d)", evicted_key, MAX_CACHE_ENTRIES)
             _HYBRID_INDEX_CACHE[norm_key] = (vectorstore, bm25_index)
 
 
@@ -96,6 +97,7 @@ def evict_index_cache(key_or_doc_id) -> None:
                 keys_to_remove.append(k)
         for k in keys_to_remove:
             _HYBRID_INDEX_CACHE.pop(k, None)
+            logger.info("Evicted index from LRU cache explicitly: %s", k)
 
 
 def _build_splitter() -> MedicalTextSplitter:

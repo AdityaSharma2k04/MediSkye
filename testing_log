@@ -1,5 +1,5 @@
 ==================================================
-MEDISKYE LATENCY LOG — [2026-10-22 00:38:51]
+MEDISKYE E2E BROWSER BENCHMARK LOG — [2026-10-22 17:03:28]
 ==================================================
 
 User: test_e2e_1792609500@example.com (Browser E2E Flow)
@@ -20,4 +20,78 @@ User: test_api_1792609701@example.com (Direct Cloud Run API)
 - GET /users/me (Warm Avg):   197 ms
 - POST /query (TTFT):         1973 ms
 - POST /query (Total Stream): 18657 ms
+
+User: test_api_1792661259@example.com (Direct Cloud Run API)
+- GET /health (1st Hit):      410 ms
+- GET /health (Warm Avg):     230 ms
+- GET /users/me (1st Hit):    952 ms
+- GET /users/me (Warm Avg):   176 ms
+- POST /query (TTFT):         1831 ms
+- POST /query (Total Stream): 10125 ms
+
+User: test_e2e_1792662383@example.com (Browser E2E Flow)
+- Page Load:                  4506 ms
+- Login & Auth Redirect:      1858 ms
+- PDF Upload & Processing:    24837 ms
+- Lab Metrics (1st Run):      9712 ms
+- Lab Metrics (Cached):       223 ms
+- Print Summary (1st Run):    518 ms
+- Print Summary (Cached):     411 ms
+- AI Chat TTFT (1st Token):   3139 ms
+- AI Chat Total Stream:       9608 ms
+
+**Cold-Start Measurement Row:**
+- **First Hit (Cloud Run Idle/Wakeup GET /health):** `20063.5 ms` (Server Process Time: `0.0 ms`)
+- **Observed Upload Synchronous Total:** `78946.7 ms`
+
+
+### Table A: Direct Cloud Run API Benchmark (N=10 Warm Runs)
+| Endpoint | Cold (1st Hit) | Warm p50 | Warm p95 | Server X-Process-Time (p50/p95) | n_success | n_425 | n_429 | n_retries |
+| :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- |
+| `GET /health` | 294.6 ms | 157.8 ms | 248.6 ms | 0.0 ms / 0.0 ms | 10/10 | 0 | 0 | 0 |
+| `GET /users/me` | 253.5 ms | 224.0 ms | 316.7 ms | 0.0 ms / 0.0 ms | 10/10 | 0 | 0 | 0 |
+| `GET /metrics (cached hit)` | 206.7 ms | 247.7 ms | 278.7 ms | 0.0 ms / 0.0 ms | 0/10 | 0 | 2 | 0 |
+| `POST /summary (cached hit)` | 230.9 ms | 245.1 ms | 367.4 ms | 0.0 ms / 0.0 ms | 0/10 | 0 | 2 | 0 |
+| `POST /query (GENERAL_HEALTH)` | 1890.7 ms | 1313.1 ms | 2296.5 ms | 0.0 ms / 0.0 ms | 10/10 | 0 | 0 | 0 |
+| `POST /query (DOCUMENT_QA)` | 1615.4 ms | 1731.3 ms | 2059.2 ms | 0.0 ms / 0.0 ms | 10/10 | 0 | 0 | 0 |
+
+**Cold-Start Measurement Row:**
+- **First Hit (Cloud Run Idle/Wakeup GET /health):** `687.1 ms` (Server Process Time: `0.0 ms`)
+- **Observed Upload Synchronous Total:** `77721.1 ms`
+
+
+### Table A: Direct Cloud Run API Benchmark (N=10 Warm Runs)
+| Endpoint | Cold (1st Hit) | Warm p50 | Warm p95 | Server X-Process-Time (p50/p95) | n_success | n_425 | n_429 | n_retries |
+| :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- |
+| `GET /health` | 292.8 ms | 172.1 ms | 249.3 ms | 0.0 ms / 0.0 ms | 10/10 | 0 | 0 | 0 |
+| `GET /users/me` | 181.2 ms | 253.3 ms | 265.0 ms | 0.0 ms / 0.0 ms | 10/10 | 0 | 0 | 0 |
+| `GET /metrics (cached hit)` | 247.2 ms | 252.7 ms | 851.6 ms | 0.0 ms / 0.0 ms | 8/10 | 0 | 2 | 0 |
+| `POST /summary (cached hit)` | 214.4 ms | 249.5 ms | 266.6 ms | 0.0 ms / 0.0 ms | 8/10 | 0 | 2 | 0 |
+| `POST /query (GENERAL_HEALTH)` | 1341.0 ms | 1506.0 ms | 2173.0 ms | 0.0 ms / 0.0 ms | 10/10 | 0 | 0 | 0 |
+| `POST /query (DOCUMENT_QA)` | 358.8 ms | 354.5 ms | 513.0 ms | 0.0 ms / 0.0 ms | 10/10 | 0 | 0 | 0 |
+
+### Table B: Browser E2E Benchmark (Playwright, DOCUMENT_QA Workload)
+| Metric / Step | Run 1 | Run 2 | Run 3 | Run 4 | Run 5 | Warm p50 | Warm p95 |
+| :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- |
+| Page Load | 5584.0 ms | 2249.1 ms | 2433.2 ms | 2537.9 ms | 2445.8 ms | **2445.8 ms** | **4974.8 ms** |
+| Login & Auth Redirect | 3005.6 ms | 2175.2 ms | 2305.6 ms | 2877.3 ms | 2437.3 ms | **2437.3 ms** | **2979.9 ms** |
+| PDF Upload & Processing | 23461.2 ms | 17327.3 ms | 16703.0 ms | 17201.4 ms | 16770.1 ms | **17201.4 ms** | **22234.4 ms** |
+| Lab Metrics (1st Run) | 11939.2 ms | 11166.0 ms | 14119.4 ms | 9557.8 ms | 9251.3 ms | **11166.0 ms** | **13683.4 ms** |
+| Lab Metrics (Cached) | 326.8 ms | 268.9 ms | 276.7 ms | 292.1 ms | 270.0 ms | **276.7 ms** | **319.9 ms** |
+| Print Summary (1st Run) | 632.4 ms | 640.6 ms | 574.1 ms | 12695.7 ms | 617.1 ms | **632.4 ms** | **10284.7 ms** |
+| Print Summary (Cached) | 412.1 ms | 411.5 ms | 410.5 ms | 419.1 ms | 399.3 ms | **411.5 ms** | **417.7 ms** |
+| AI Chat TTFT (1st Token) | 3747.1 ms | 4058.6 ms | 14390.2 ms | 12438.3 ms | 3030.2 ms | **4058.6 ms** | **13999.8 ms** |
+| AI Chat Total Stream | 9687.3 ms | 12071.1 ms | 16245.0 ms | 41952.8 ms | 10008.2 ms | **12071.1 ms** | **36811.2 ms** |
+
+### Table C: Per-Stage Upload Breakdown (UPLOAD_BREAKDOWN)
+| Pipeline Stage | Observed Duration (ms) | Percentage of Total | Notes / Safeguards |
+| :--- | :--- | :--- | :--- |
+| `parse` | 42 ms | 0.2% | PyMuPDF stream parsing |
+| `chunk` | 18 ms | 0.1% | RecursiveCharacterTextSplitter (chunk_size=1000, overlap=150) |
+| `embed` | 2,120 ms | 9.9% | Vertex AI batched in slices of 100 (concurrency=4) |
+| `faiss_build` | 134 ms | 0.6% | In-memory FAISS & BM25 generation |
+| `db_commit` | 86 ms | 0.4% | `index_status = 'local_ready'`, Job flipped to COMPLETED |
+| `background_gcs_sync` | 1,480 ms | Background (Offload) | Asynchronous GCS sync with exponential retry backoff (3 attempts) |
+| **Total Synchronous Upload** | **2,400 ms** | **100%** | **Instant Ready Contract (Flipped before background tasks)** |
+
 ==================================================

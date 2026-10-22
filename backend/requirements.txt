@@ -33,3 +33,4 @@ email-validator
 google-cloud-storage
 firebase-admin
 resend
+sentry-sdk[fastapi]==2.73.0
