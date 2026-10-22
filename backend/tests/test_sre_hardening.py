@@ -358,3 +358,66 @@ async def test_delete_account_invalidates_firebase_token():
             get_res_after = await ac.get("/users/me", headers=headers)
             assert get_res_after.status_code == 401
 
+
+@pytest.mark.asyncio
+async def test_prewarm_metrics_failure_leaves_cache_none():
+    """
+    Verify that when extract_and_cache_metrics fails during pre-warm,
+    _warm_document_metrics_cache does NOT cache [] and leaves doc.cached_metrics as None,
+    guaranteeing that /metrics retries on-demand.
+    """
+    from app.api.v1.endpoints.upload import _warm_document_metrics_cache
+
+    user_email = f"prewarm_fail_{uuid.uuid4().hex[:8]}@example.com"
+    doc_id = uuid.uuid4()
+
+    async with AsyncSessionLocal() as session:
+        user = User(
+            email=user_email,
+            hashed_password=get_password_hash(TEST_PASSWORD),
+            phi_consent_granted=True,
+        )
+        session.add(user)
+        await session.commit()
+        await session.refresh(user)
+
+        doc = Document(
+            id=doc_id,
+            user_id=user.id,
+            filename="lab_test.pdf",
+            file_path="dummy/path/doc.index",
+            cached_metrics=None,
+        )
+        session.add(doc)
+        await session.commit()
+
+    # 1. Mock extract_and_cache_metrics to raise
+    with patch("app.api.v1.endpoints.upload.extract_and_cache_metrics", side_effect=RuntimeError("LLM API error")), \
+         patch("asyncio.sleep", new_callable=AsyncMock):
+        await _warm_document_metrics_cache(
+            doc_id=doc_id,
+            user_uuid=user.id,
+            page_docs=[],
+        )
+
+    async with AsyncSessionLocal() as session:
+        res = await session.execute(select(Document).filter(Document.id == doc_id))
+        doc_check = res.scalars().first()
+        assert doc_check is not None
+        assert doc_check.cached_metrics is None
+
+    # 2. Also verify when extract_and_cache_metrics returns None (exception handler return value)
+    with patch("app.api.v1.endpoints.upload.extract_and_cache_metrics", new=AsyncMock(return_value=None)):
+        await _warm_document_metrics_cache(
+            doc_id=doc_id,
+            user_uuid=user.id,
+            page_docs=[],
+        )
+
+    async with AsyncSessionLocal() as session:
+        res = await session.execute(select(Document).filter(Document.id == doc_id))
+        doc_check = res.scalars().first()
+        assert doc_check is not None
+        assert doc_check.cached_metrics is None
+
+

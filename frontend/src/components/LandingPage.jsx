@@ -1,6 +1,6 @@
 import React, { useEffect, useRef } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { useTranslation } from 'react-i18next';
+import { Trans, useTranslation } from 'react-i18next';
 import useIntersectionObserver from '../hooks/useIntersectionObserver';
 
 /* ─── Palette (mirrors tailwind.config: obsidian + medical) ─── */
@@ -226,7 +226,11 @@ export default function LandingPage() {
           </div>
 
           <h1 style={styles.heroTitle}>
-            {t('landing.hero_title', 'Understand your medical reports in plain English')}
+            <Trans
+              i18nKey="landing.hero_title_accent"
+              defaults="Understand your medical reports <accent>in seconds.</accent>"
+              components={{ accent: <em style={styles.heroTitleAccent} /> }}
+            />
           </h1>
 
           <p style={styles.heroSubtitle}>
@@ -255,7 +259,8 @@ export default function LandingPage() {
       </section>
 
       {/* ━━━━━━━━━━ FEATURES ━━━━━━━━━━ */}
-      <section style={styles.featuresSection} id="features">
+      <DeferredSection id="features" minHeight={560}>
+      <section style={styles.featuresSection}>
         <p style={styles.eyebrow}>Features</p>
         <h2 style={{ ...styles.sectionTitle, maxWidth: 680 }}>
           Everything you need to understand your health
@@ -271,9 +276,11 @@ export default function LandingPage() {
           ))}
         </div>
       </section>
+      </DeferredSection>
 
       {/* ━━━━━━━━━━ HOW IT WORKS ━━━━━━━━━━ */}
-      <section style={styles.howSection} id="how-it-works">
+      <DeferredSection id="how-it-works" minHeight={780}>
+      <section style={styles.howSection}>
         <div style={styles.howInner}>
           <p style={styles.eyebrow}>How it works</p>
           <h2 style={styles.sectionTitle}>Three steps to clarity</h2>
@@ -303,9 +310,11 @@ export default function LandingPage() {
           </div>
         </div>
       </section>
+      </DeferredSection>
 
       {/* ━━━━━━━━━━ SAFETY ━━━━━━━━━━ */}
-      <section style={styles.safetySection} id="safety">
+      <DeferredSection id="safety" minHeight={620}>
+      <section style={styles.safetySection}>
         <div>
           <p style={styles.eyebrow}>Safety</p>
           <h2 style={styles.sectionTitle}>Built to inform, not to diagnose</h2>
@@ -320,8 +329,10 @@ export default function LandingPage() {
           <ListCard title={t('landing.safety_cannot_title', 'MediSkye cannot')} color={C.red} items={CANNOT} isAllowed={false} />
         </div>
       </section>
+      </DeferredSection>
 
       {/* ━━━━━━━━━━ CTA ━━━━━━━━━━ */}
+      <DeferredSection minHeight={440}>
       <section style={styles.ctaSection}>
         <div style={styles.ctaCard}>
           <h2 style={{ ...styles.sectionTitle, margin: '0 auto 12px', maxWidth: 620 }}>
@@ -340,9 +351,11 @@ export default function LandingPage() {
           </Link>
         </div>
       </section>
+      </DeferredSection>
 
       {/* ━━━━━━━━━━ FOOTER ━━━━━━━━━━ */}
-      <footer style={styles.footer} id="landing-footer">
+      <DeferredSection id="landing-footer" minHeight={400}>
+      <footer style={styles.footer}>
         <div style={styles.footerInner}>
           <div style={styles.footerTop}>
             <div style={styles.footerBrand}>
@@ -392,9 +405,26 @@ export default function LandingPage() {
           </div>
         </div>
       </footer>
+      </DeferredSection>
 
       {/* Inline CSS: fonts, keyframes, hover/focus, responsive */}
       <style>{css}</style>
+    </div>
+  );
+}
+
+function DeferredSection({ children, id, minHeight }) {
+  const [ref, isVisible] = useIntersectionObserver({ rootMargin: '500px 0px' });
+
+  return (
+    <div
+      ref={ref}
+      id={id}
+      style={isVisible ? undefined : { minHeight }}
+      aria-busy={!isVisible}
+      aria-hidden={!isVisible}
+    >
+      {isVisible ? children : null}
     </div>
   );
 }
@@ -790,7 +820,7 @@ const styles = {
     fontFamily: SERIF,
     fontSize: 'clamp(40px, 5.2vw, 68px)',
     fontWeight: 500,
-    lineHeight: 1.05,
+    lineHeight: 1.04,
     letterSpacing: '-0.02em',
     color: C.heading,
     margin: '0 0 24px',

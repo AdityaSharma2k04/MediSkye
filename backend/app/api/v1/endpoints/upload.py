@@ -250,9 +250,12 @@ async def _warm_document_metrics_cache(doc_id: uuid.UUID, user_uuid: uuid.UUID, 
                         doc_obj.cached_metrics = metrics_result
                         db.add(doc_obj)
                         await db.commit()
-            elapsed_ms = int((time.perf_counter() - t_start) * 1000)
-            logger.info("prewarm_ok doc_id=%s kind=%s elapsed_ms=%d", doc_id, "metrics", elapsed_ms)
-            return
+                    elapsed_ms = int((time.perf_counter() - t_start) * 1000)
+                    logger.info("prewarm_ok doc_id=%s kind=%s elapsed_ms=%d", doc_id, "metrics", elapsed_ms)
+                    return
+                else:
+                    logger.warning("prewarm_skip doc_id=%s kind=%s (extraction returned None)", doc_id, "metrics")
+                    return
         except Exception:
             if attempt == 0:
                 await asyncio.sleep(2.0)

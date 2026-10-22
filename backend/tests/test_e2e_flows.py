@@ -306,6 +306,12 @@ async def test_document_lifecycle_db_caching_and_rag_streaming():
             user_docs = docs_res.json()
             assert any(d["id"] == str(doc_id) for d in user_docs)
 
+            # Let background prewarm complete before resetting DB cache for on-demand test
+            await asyncio.sleep(0.5)
+            from app.api.v1.endpoints.upload import _background_warm_tasks
+            if _background_warm_tasks:
+                await asyncio.gather(*list(_background_warm_tasks), return_exceptions=True)
+
             # Ensure we reset cached_metrics to None to test the on-demand extraction flow cleanly
             async with AsyncSessionLocal() as session:
                 d_obj = await session.get(Document, uuid.UUID(doc_id))

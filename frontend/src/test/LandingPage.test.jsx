@@ -1,6 +1,6 @@
 import React from 'react';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import { act, render, screen } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import LandingPage from '../components/LandingPage';
 
@@ -22,6 +22,7 @@ describe('LandingPage Component', () => {
 
   afterEach(() => {
     localStorage.clear();
+    vi.unstubAllGlobals();
   });
 
   it('renders primary hero headline and call-to-action buttons', () => {
@@ -46,6 +47,41 @@ describe('LandingPage Component', () => {
 
     expect(screen.getByRole('heading', { name: /^MediSkye can$/i })).toBeInTheDocument();
     expect(screen.getByRole('heading', { name: /^MediSkye cannot$/i })).toBeInTheDocument();
+  });
+
+  it('defers below-the-fold sections until they approach the viewport', () => {
+    const observers = [];
+    class MockIntersectionObserver {
+      constructor(callback) {
+        this.callback = callback;
+        this.targets = [];
+        observers.push(this);
+      }
+
+      observe(target) {
+        this.targets.push(target);
+      }
+
+      unobserve() {}
+
+      disconnect() {}
+    }
+    vi.stubGlobal('IntersectionObserver', MockIntersectionObserver);
+
+    render(
+      <MemoryRouter>
+        <LandingPage />
+      </MemoryRouter>
+    );
+
+    expect(screen.getByRole('heading', { level: 1 })).toBeInTheDocument();
+    expect(screen.queryByRole('heading', { name: /everything you need to understand your health/i })).not.toBeInTheDocument();
+
+    act(() => {
+      observers[0].callback([{ target: observers[0].targets[0], isIntersecting: true }]);
+    });
+
+    expect(screen.getByRole('heading', { name: /everything you need to understand your health/i })).toBeInTheDocument();
   });
 
   it('redirects to /chat if valid token is found in localStorage', () => {

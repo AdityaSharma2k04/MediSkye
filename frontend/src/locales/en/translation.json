@@ -121,6 +121,7 @@
     "nav_get_started": "Get started",
     "hero_badge": "Clinical AI Interpretation",
     "hero_title": "Understand your medical reports in plain English",
+    "hero_title_accent": "Understand your medical reports <accent>in seconds.</accent>",
     "hero_subtitle": "Upload any blood test, scan, or pathology report. MediSkye explains clinical jargon, highlights abnormal values, and helps you formulate better questions for your doctor.",
     "start_free": "Start for free",
     "see_how_it_works": "See how it works",

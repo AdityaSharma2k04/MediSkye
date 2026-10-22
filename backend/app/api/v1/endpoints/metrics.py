@@ -32,7 +32,7 @@ async def extract_and_cache_metrics(
     page_docs: Optional[List[Any]] = None,
     db: Optional[AsyncSession] = None,
     user_id: Optional[Union[uuid.UUID, str]] = None,
-) -> List[Dict[str, Any]]:
+) -> Optional[List[Dict[str, Any]]]:
     """
     Modularized biomarker extraction and caching logic.
     Can be invoked during document upload (passing page_docs) or on-demand from the metrics API.
@@ -188,8 +188,8 @@ Report text:
     except HTTPException:
         raise
     except Exception as err:
-        logger.error("Metrics extraction error: %s", err)
-        return []
+        logger.error("Metrics extraction error (will retry on-demand): %s", err)
+        return None
 
 
 async def _get_or_extract_metrics(
