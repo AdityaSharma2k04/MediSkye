@@ -75,11 +75,6 @@ class ResilientGeminiEmbeddings(Embeddings):
                         vals = getattr(emb, "values", None)
                         all_embeddings.append(list(vals) if vals is not None else [])
                     continue
-                elif embeddings:
-                    for emb in embeddings:
-                        vals = getattr(emb, "values", None)
-                        all_embeddings.append(list(vals) if vals is not None else [])
-                    continue
                 values = getattr(res, "embedding", None)
                 if values and hasattr(values, "values") and len(batch) == 1:
                     all_embeddings.append(list(values.values))
@@ -92,8 +87,14 @@ class ResilientGeminiEmbeddings(Embeddings):
                     batch_err,
                 )
 
-            # Concurrent fallback if batch fails or returns unexpected format
-            batch_results = await asyncio.gather(*[self.aembed_query(t) for t in batch])
+            # Concurrent fallback with rate limiting if batch fails or returns unexpected format
+            sem = asyncio.Semaphore(3)
+
+            async def _embed_safe(t: str) -> list[float]:
+                async with sem:
+                    return await self.aembed_query(t)
+
+            batch_results = await asyncio.gather(*[_embed_safe(t) for t in batch])
             all_embeddings.extend(batch_results)
 
         return all_embeddings
