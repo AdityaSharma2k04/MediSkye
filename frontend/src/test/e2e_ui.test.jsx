@@ -49,7 +49,9 @@ const {
 });
 
 vi.mock('../services/firebase', async () => {
+  const actual = await vi.importActual('../services/firebase');
   return {
+    ...actual,
     auth: mockAuth,
     googleProvider: {},
     signInWithPopup: (...args) => mockSignInWithPopup(...args),
@@ -233,6 +235,27 @@ describe('TEST SUITE 2: Frontend E2E UI Journeys', () => {
         expect(localStorage.getItem('token')).toBe('jwt_google_token_789');
         expect(localStorage.getItem('mediskye_user_email')).toBe('google_patient@example.com');
         expect(mockNavigate).toHaveBeenCalledWith('/chat');
+      });
+    });
+
+    it('Google OAuth Failure: displays visible error alert banner and re-enables button when signInWithPopup fails', async () => {
+      const err = new Error('OAuth failure');
+      err.code = 'auth/unauthorized-domain';
+      mockSignInWithPopup.mockRejectedValueOnce(err);
+
+      render(
+        <MemoryRouter>
+          <Login />
+        </MemoryRouter>
+      );
+
+      const googleBtn = screen.getByRole('button', { name: /continue with google/i });
+      fireEvent.click(googleBtn);
+
+      await waitFor(() => {
+        expect(mockSignInWithPopup).toHaveBeenCalled();
+        expect(screen.getByRole('alert')).toHaveTextContent(/authentication failed/i);
+        expect(googleBtn).not.toBeDisabled();
       });
     });
 

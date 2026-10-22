@@ -91,7 +91,7 @@ describe('Login Component with Firebase Auth & Password Reset', () => {
     });
   });
 
-  it('handles popup-closed-by-user gracefully without error banner', async () => {
+  it('displays clear error alert banner when Google signInWithPopup fails (popup-closed-by-user or generic error)', async () => {
     const error = new Error('Popup closed');
     error.code = 'auth/popup-closed-by-user';
     mockSignInWithPopup.mockRejectedValueOnce(error);
@@ -107,8 +107,22 @@ describe('Login Component with Firebase Auth & Password Reset', () => {
 
     await waitFor(() => {
       expect(mockSignInWithPopup).toHaveBeenCalled();
+      expect(screen.getByRole('alert')).toHaveTextContent(
+        /google sign-in was cancelled before completing\. please try again\./i
+      );
+      expect(googleBtn).not.toBeDisabled();
     });
-    expect(screen.queryByText(/google sign-in failed/i)).not.toBeInTheDocument();
+
+    // Generic / fallback failure shows "Authentication failed. Please try again."
+    const genericErr = new Error('Unknown OAuth error');
+    genericErr.code = 'auth/internal-error';
+    mockSignInWithPopup.mockRejectedValueOnce(genericErr);
+    fireEvent.click(googleBtn);
+
+    await waitFor(() => {
+      expect(screen.getByRole('alert')).toHaveTextContent(/authentication failed\. please try again\./i);
+      expect(googleBtn).not.toBeDisabled();
+    });
   });
 
   it('signs in with email and password, stores token and redirects when email is verified', async () => {

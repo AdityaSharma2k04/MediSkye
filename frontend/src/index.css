@@ -12,9 +12,11 @@
 @layer base {
   /* Permanent Obsidian dark theme — no light-mode body overrides */
   html,
-  body {
+  body,
+  #root {
     background-color: #07090e;
     color: #f1f5f9;
+    color-scheme: dark;
   }
 
   body {

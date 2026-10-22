@@ -6,6 +6,8 @@ import {
   signInWithPopup,
   createUserWithEmailAndPassword,
   updateProfile,
+  sendEmailVerification,
+  reloadAndGetVerifiedToken,
   signOut,
   getFirebaseErrorMessage,
 } from '../services/firebase';
@@ -79,6 +81,10 @@ export default function Register() {
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
   const [isRegistered, setIsRegistered] = useState(false);
+  const [pendingUser, setPendingUser] = useState(null);
+  const [checkingVerification, setCheckingVerification] = useState(false);
+  const [resendLoading, setResendLoading] = useState(false);
+  const [resendCooldown, setResendCooldown] = useState(0);
   const [loading, setLoading] = useState(false);
   const [googleLoading, setGoogleLoading] = useState(false);
   const [phiConsent, setPhiConsent] = useState(false);
@@ -87,16 +93,20 @@ export default function Register() {
   const passwordStrength = getPasswordStrength(password);
   const isPasswordMismatch = confirmPassword.length > 0 && password !== confirmPassword;
 
-  // Apply theme class for auth pages (they render outside ChatApp)
   useEffect(() => {
-    const stored = localStorage.getItem('mediskye_theme');
-    const systemDark = typeof window !== 'undefined' && window.matchMedia ? window.matchMedia('(prefers-color-scheme: dark)').matches : false;
-    const isDark = stored ? stored === 'dark' : systemDark;
-    if (isDark) {
-      document.documentElement.classList.add('dark');
-    } else {
-      document.documentElement.classList.remove('dark');
-    }
+    if (resendCooldown <= 0) return;
+    const timer = setInterval(() => {
+      setResendCooldown((prev) => (prev > 1 ? prev - 1 : 0));
+    }, 1000);
+    return () => clearInterval(timer);
+  }, [resendCooldown]);
+
+  // Enforce permanent Obsidian dark theme
+  useEffect(() => {
+    document.documentElement.classList.add('dark');
+    try {
+      localStorage.setItem('theme', 'dark');
+    } catch (_) {}
   }, []);
 
   const handleGoogleSignIn = async () => {
@@ -104,26 +114,28 @@ export default function Register() {
     setGoogleLoading(true);
     try {
       const result = await signInWithPopup(auth, googleProvider);
-      if (result && result.user) {
-        const token = await result.user.getIdToken();
-        const userEmail = result.user.email || '';
-        const lastEmail = localStorage.getItem('mediskye_user_email');
-        if (lastEmail && userEmail && lastEmail.toLowerCase() !== userEmail.toLowerCase()) {
-          localStorage.removeItem('mediskye_conversations');
-          localStorage.removeItem('mediskye_session_id');
-          localStorage.removeItem('mediskye_patient_id');
-        }
-        if (userEmail) {
-          localStorage.setItem('mediskye_user_email', userEmail);
-        }
-        localStorage.setItem('token', token);
-        navigate('/chat');
+      if (!result || !result.user) {
+        throw new Error('Authentication failed. Please try again.');
       }
+      const token = await result.user.getIdToken();
+      if (!token) {
+        throw new Error('Authentication failed. Please try again.');
+      }
+      const userEmail = result.user.email || '';
+      const lastEmail = localStorage.getItem('mediskye_user_email');
+      if (lastEmail && userEmail && lastEmail.toLowerCase() !== userEmail.toLowerCase()) {
+        localStorage.removeItem('mediskye_conversations');
+        localStorage.removeItem('mediskye_session_id');
+        localStorage.removeItem('mediskye_patient_id');
+      }
+      if (userEmail) {
+        localStorage.setItem('mediskye_user_email', userEmail);
+      }
+      localStorage.setItem('token', token);
+      navigate('/chat');
     } catch (err) {
-      if (err.code === 'auth/popup-closed-by-user' || err.code === 'auth/cancelled-popup-request') {
-        return;
-      }
-      setError(getFirebaseErrorMessage(err));
+      const mapped = typeof getFirebaseErrorMessage === 'function' ? getFirebaseErrorMessage(err) : '';
+      setError(mapped || "Google authentication failed. Please try again.");
     } finally {
       setGoogleLoading(false);
     }
@@ -184,16 +196,40 @@ export default function Register() {
         }
       }
 
-      await api.post('/auth/send-custom-verification', { email: trimmedEmail });
-      await signOut(auth);
+      if (typeof sendEmailVerification === 'function') {
+        const origin = typeof window !== 'undefined' && window.location?.origin ? window.location.origin : '';
+        try {
+          await sendEmailVerification(
+            userCredential.user,
+            origin ? { url: `${origin}/login` } : undefined
+          );
+        } catch (verifyErr) {
+          // Fallback if continueUrl domain is not whitelisted yet
+          try {
+            await sendEmailVerification(userCredential.user);
+          } catch (_) {}
+        }
+      }
+
+      try {
+        await api.post('/auth/send-custom-verification', { email: trimmedEmail });
+      } catch (_) {}
+
+      if (userCredential.user && userCredential.user.emailVerified === true) {
+        const token = await userCredential.user.getIdToken(true);
+        localStorage.setItem('token', token);
+        localStorage.setItem('mediskye_user_email', trimmedEmail);
+        navigate('/chat');
+        return;
+      }
+
+      // Block unverified redirect to /chat; never persist an unverified token
+      localStorage.removeItem('token');
+      setPendingUser(userCredential.user);
 
       const successMsg = `Account created! We've sent a verification link to ${trimmedEmail}. Please check your inbox.`;
       setSuccess(successMsg);
       setIsRegistered(true);
-
-      setTimeout(() => {
-        navigate('/login');
-      }, 4000);
     } catch (err) {
       if (err.code === 'auth/email-already-in-use') {
         setError("An account with this email already exists. Please log in or reset your password.");
@@ -202,6 +238,58 @@ export default function Register() {
       }
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleCheckVerified = async () => {
+    setError('');
+    setCheckingVerification(true);
+    try {
+      const target = pendingUser || auth?.currentUser;
+      const result = typeof reloadAndGetVerifiedToken === 'function'
+        ? await reloadAndGetVerifiedToken(target)
+        : { verified: false, token: null };
+      if (result.verified) {
+        if (email) {
+          localStorage.setItem('mediskye_user_email', email.trim().toLowerCase());
+        }
+        navigate('/chat');
+      } else {
+        setError('Email not verified yet. Please click the link in your inbox first, then try again.');
+      }
+    } catch (err) {
+      setError(getFirebaseErrorMessage(err));
+    } finally {
+      setCheckingVerification(false);
+    }
+  };
+
+  const handleResendVerification = async () => {
+    if (resendCooldown > 0 || resendLoading) return;
+    setError('');
+    setResendLoading(true);
+    try {
+      const target = pendingUser || auth?.currentUser;
+      if (target && typeof sendEmailVerification === 'function') {
+        const origin = typeof window !== 'undefined' && window.location?.origin ? window.location.origin : '';
+        try {
+          await sendEmailVerification(target, origin ? { url: `${origin}/login` } : undefined);
+        } catch (_) {
+          await sendEmailVerification(target);
+        }
+      }
+      const emailToSend = target?.email || email.trim().toLowerCase();
+      if (emailToSend) {
+        try {
+          await api.post('/auth/send-custom-verification', { email: emailToSend });
+        } catch (_) {}
+      }
+      setSuccess(`Verification email resent to ${emailToSend}. Please check your inbox (and Spam/Junk folder).`);
+      setResendCooldown(60);
+    } catch (err) {
+      setError(getFirebaseErrorMessage(err));
+    } finally {
+      setResendLoading(false);
     }
   };
 
@@ -228,13 +316,16 @@ export default function Register() {
 
         {/* Error */}
         {error && (
-          <div className="login-error">
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+          <div
+            role="alert"
+            className="login-error bg-red-500/10 border border-red-500/30 text-red-300 rounded-xl px-4 py-3 text-sm flex items-start gap-2.5 animate-fadeIn mb-4"
+          >
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="shrink-0 mt-0.5">
               <circle cx="12" cy="12" r="10" />
               <line x1="15" y1="9" x2="9" y2="15" />
               <line x1="9" y1="9" x2="15" y2="15" />
             </svg>
-            {error}
+            <span>{error}</span>
           </div>
         )}
 
@@ -249,7 +340,7 @@ export default function Register() {
           </div>
         )}
 
-        {/* Success Screen / Modal after Email Registration */}
+        {/* Verification Pending Screen after Email Registration */}
         {isRegistered ? (
           <div className="text-center py-4 space-y-4">
             <div className="w-14 h-14 rounded-full bg-emerald-500/10 text-emerald-400 mx-auto flex items-center justify-center">
@@ -259,17 +350,41 @@ export default function Register() {
               </svg>
             </div>
             <h2 className="login-title text-xl font-semibold">{t('auth.verify_email_title', 'Verify your email')}</h2>
-            <p className="login-subtitle text-sm" style={{ marginBottom: 24 }}>
-              Account created! We've sent a verification link to <strong className="text-zinc-900 dark:text-zinc-100">{email}</strong>. Please verify your email before logging in.
+            <p className="login-subtitle text-sm" style={{ marginBottom: 16 }}>
+              Verification email sent to <strong className="text-zinc-900 dark:text-zinc-100">{email}</strong>. Please check your inbox (and Spam/Junk folder), click the verification link, and then click below.
             </p>
-            <button
-              type="button"
-              id="register-go-to-login-btn"
-              onClick={() => navigate('/login')}
-              className="login-btn-primary bg-cyan-500 hover:bg-cyan-400 text-slate-950 font-semibold transition"
-            >
-              {t('auth.go_to_login', 'Go to Login')}
-            </button>
+            <div className="space-y-2.5">
+              <button
+                type="button"
+                id="register-verified-continue-btn"
+                onClick={handleCheckVerified}
+                disabled={checkingVerification}
+                className="login-btn-primary bg-cyan-500 hover:bg-cyan-400 text-slate-950 font-semibold transition w-full"
+              >
+                {checkingVerification ? 'Checking verification...' : "I've Verified My Email — Continue"}
+              </button>
+              <button
+                type="button"
+                id="register-resend-verification-btn"
+                onClick={handleResendVerification}
+                disabled={resendLoading || resendCooldown > 0}
+                className="login-btn-secondary w-full disabled:opacity-50"
+              >
+                {resendLoading
+                  ? 'Sending verification email...'
+                  : resendCooldown > 0
+                  ? `Resend Verification Email (${resendCooldown}s)`
+                  : 'Resend Verification Email'}
+              </button>
+              <button
+                type="button"
+                id="register-go-to-login-btn"
+                onClick={() => navigate('/login')}
+                className="text-xs text-slate-400 hover:text-slate-200 underline pt-1"
+              >
+                {t('auth.go_to_login', 'Go to Login')}
+              </button>
+            </div>
           </div>
         ) : (
           <>

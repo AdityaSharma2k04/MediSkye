@@ -277,39 +277,35 @@ MediSkye/
 
 ## 📊 Production Latency Benchmarks
 
-Latest available production benchmark snapshot: **2026-10-23 00:56:09**. Direct API percentiles are from **N=10 warm runs**. The latest Playwright browser run contains one observation per action, so those values are not statistical percentiles. Values are transcribed from `testing_log`.
+Latest production benchmark snapshot: **2026-10-23 03:02:41**. Direct API values are warm p50s from **N=10 runs**; browser E2E values are warm p50s from **N=5 runs**. Values are transcribed from `testing_log`.
 
-### Direct Cloud Run API (N=10 warm runs)
+### Direct Cloud Run API (warm p50, N=10)
 
-| Endpoint | Cold first hit | Warm p50 | Warm p95 | Server p50 / p95 | Successes | 425s | 429s | Retries |
-| :--- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
-| `GET /health` | 292.6 ms | 125.2 ms | 135.5 ms | 0.4 / 0.9 ms | 10/10 | 0 | 0 | 0 |
-| `GET /users/me` | 432.9 ms | 436.9 ms | 654.3 ms | 303.3 / 310.4 ms | 10/10 | 0 | 0 | 0 |
-| `GET /metrics (cached hit)` | 210.2 ms | 216.0 ms | 329.3 ms | 30.0 / 36.9 ms | 8/10 | 0 | 2 | 0 |
-| `POST /summary (cached hit)` | 199.8 ms | 182.0 ms | 243.2 ms | 28.8 / 51.8 ms | 8/10 | 0 | 2 | 0 |
-| `POST /query (GENERAL_HEALTH)` | 1,303.7 ms | 1,374.4 ms | 1,880.7 ms | 1,180.9 / 1,617.2 ms | 10/10 | 0 | 0 | 0 |
-| `POST /query (DOCUMENT_QA)` | 318.5 ms | 348.6 ms | 697.7 ms | 156.0 / 440.9 ms | 10/10 | 0 | 0 | 0 |
+| Endpoint | Client warm p50 | Server warm p50 |
+| :--- | ---: | ---: |
+| `GET /health` | 136 ms | 0.4 ms |
+| `GET /users/me` | 149 ms | 1.3 ms |
+| `GET /metrics (cached hit)` | 277 ms | 30.6 ms |
+| `POST /summary (cached hit)` | 166 ms | 29.2 ms |
+| `POST /query (GENERAL_HEALTH)` | 1,422 ms | 1,241 ms |
+| `POST /query (DOCUMENT_QA)` | 314 ms | 153 ms |
 
-Cold-start and synchronous upload measurements recorded alongside this run:
+Cold-start and upload measurements recorded alongside this run:
 
 | Measurement | Observed |
 | :--- | ---: |
-| Cloud Run idle/wakeup `GET /health` | 671.6 ms (server: 2.35 ms) |
-| Observed synchronous upload total | 75,695.2 ms |
+| Cloud Run idle/wakeup `GET /health` | 7,280 ms (server: 0.55 ms) |
+| Upload total | 12,896 ms (includes 10s wait for prewarm) |
 
-### Browser E2E (Playwright, DOCUMENT_QA; one run)
+### Browser E2E (Playwright, DOCUMENT_QA; warm p50, N=5)
 
-| Action | Run 1 |
+| Action | Warm p50 |
 | :--- | ---: |
-| Page load | 1,972.8 ms |
-| Login and auth redirect | 2,426.5 ms |
-| PDF upload and processing | 32,520.8 ms |
-| Lab metrics (first run) | 28,790.0 ms |
-| Lab metrics (cached) | 2,723.2 ms |
-| Print summary (first run) | 3,978.3 ms |
-| Print summary (cached) | 2,980.1 ms |
-| AI chat time to first token | 24,672.2 ms |
-| AI chat total stream | 32,100.1 ms |
+| Page load | 1,735 ms |
+| Upload | 5,015 ms |
+| AI chat time to first token (TTFT) | 2,984 ms |
+| Lab metrics (cached) | 246 ms |
+| Print summary (cached) | 395 ms |
 
 ### Per-stage upload breakdown (`UPLOAD_BREAKDOWN`)
 
@@ -323,7 +319,7 @@ Cold-start and synchronous upload measurements recorded alongside this run:
 | `background_gcs_sync` | 1,480 ms | Background (offloaded) | GCS sync with exponential retry backoff |
 | **Total synchronous upload (stage breakdown)** | **2,400 ms** | **100%** | **Ready state set before background tasks** |
 
-The benchmark logs label cached workloads `/metrics` and `/summary`; the implemented routes are document-scoped. See [Verified API Paths](#-verified-api-paths) for the actual FastAPI routes. In this N=10 run, each cached workload succeeded 8/10 times and returned two `429` responses (zero `425` responses and retries). The observed upload total (75,695.2 ms) differs from the instrumented stage-breakdown total (2,400 ms); both are recorded in `testing_log` and are kept distinct here.
+The benchmark logs label cached workloads `/metrics` and `/summary`; the implemented routes are document-scoped. See [Verified API Paths](#-verified-api-paths) for the actual FastAPI routes. In this N=10 run, cached metrics and summary each succeeded 9/10 times and returned one `429` (zero `425` responses and retries). The measured upload total includes the profiler's intentional 10-second prewarm wait; the instrumented upload stage breakdown measures processing separately.
 
 ---
 

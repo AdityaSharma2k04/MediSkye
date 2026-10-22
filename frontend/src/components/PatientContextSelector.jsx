@@ -34,8 +34,8 @@ export default function PatientContextSelector({
       : 'Select Patient';
 
   return (
-    <div className="relative inline-block text-left" ref={dropdownRef}>
-      <div className="flex items-center gap-1.5">
+    <div className="relative inline-block text-left min-w-0 max-w-full" ref={dropdownRef}>
+      <div className="flex items-center gap-1.5 min-w-0">
         {!hideLabel && (
           <span className={`text-[11px] font-medium tracking-wide uppercase ${darkMode ? 'text-zinc-500' : 'text-zinc-400'}`}>
             Patient Context:
@@ -45,19 +45,10 @@ export default function PatientContextSelector({
           type="button"
           onClick={() => setIsOpen(!isOpen)}
           aria-label="Select patient context"
-          className={`flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium border transition-all duration-150 ${
-            darkMode
-              ? 'bg-[#18181b] border-white/10 text-zinc-200 hover:border-zinc-700 hover:text-white shadow-xs'
-              : 'bg-white border-zinc-200 text-zinc-800 hover:border-zinc-300 hover:text-black shadow-xs'
-          }`}
+          className="min-w-0 max-w-[115px] xs:max-w-[140px] sm:max-w-[200px] flex items-center gap-1 rounded-full bg-white/[0.05] hover:bg-white/[0.09] border border-white/10 px-2.5 py-1 text-xs font-medium text-slate-300 hover:text-white transition"
         >
-          {isSelf ? (
-            <User className="w-3.5 h-3.5 text-indigo-400" />
-          ) : (
-            <HeartPulse className="w-3.5 h-3.5 text-rose-400" />
-          )}
-          <span className="truncate max-w-[170px] sm:max-w-[220px]">{activeLabel}</span>
-          <ChevronDown className={`w-3.5 h-3.5 text-zinc-400 transition-transform ${isOpen ? 'rotate-180' : ''}`} />
+          <span className="truncate">{activeLabel}</span>
+          <ChevronDown className={`w-3.5 h-3.5 text-slate-400 shrink-0 transition-transform ${isOpen ? 'rotate-180' : ''}`} />
         </button>
       </div>
 

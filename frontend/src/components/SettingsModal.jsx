@@ -578,7 +578,7 @@ export default function SettingsModal({
           <div className="flex-1 overflow-y-auto px-5 py-5 space-y-7 text-sm">
 
             {/* Quick link to Profile & Caregiver Hub (Bug 11) */}
-            <div className={`p-4 rounded-xl border flex flex-col sm:flex-row sm:items-center justify-between gap-3 ${
+            <div className={`p-4 rounded-xl border flex flex-col sm:flex-row sm:items-center justify-between gap-4 ${
               darkMode ? 'bg-[#111621] border-white/[0.08]' : 'bg-zinc-50 border-zinc-200'
             }`}>
               <div className="space-y-0.5">

@@ -112,33 +112,23 @@ const ChatInput = forwardRef(({
       {/* Unified Gemini-Style Rounded Composer Card */}
       <form
         onSubmit={handleSubmit}
-        className={`rounded-3xl border px-4 pt-3 pb-2.5 shadow-lg transition-all duration-150 ${
-          darkMode
-            ? 'bg-[#0e131b] border-white/10 focus-within:border-cyan-500/40'
-            : 'bg-white border-zinc-200 focus-within:border-zinc-300'
-        }`}
+        className="rounded-[28px] bg-[#151a23] border border-white/[0.08] focus-within:border-cyan-500/35 px-4 pt-3.5 pb-2.5 shadow-xl transition-all duration-150"
       >
         {/* Top Row: Active Document Chip inside Composer */}
         {effectiveDocs.length > 0 && (
-          <div className="flex flex-wrap items-center gap-1.5 pb-2">
+          <div className="flex flex-wrap items-center gap-1.5">
             {effectiveDocs.map((doc, idx) => {
               const docName = doc.name || doc.filename || 'report.pdf';
               const displayName = docName.replace(/\.pdf$/i, '');
               return (
                 <div
                   key={doc.id || idx}
-                  className={`rounded-xl px-3 py-1.5 text-xs font-medium flex items-center gap-2 w-fit border transition-colors ${
-                    darkMode
-                      ? 'bg-zinc-800/90 border-white/10 text-zinc-200'
-                      : 'bg-zinc-100 border-zinc-200 text-zinc-800'
-                  }`}
+                  className="inline-flex items-center gap-2.5 rounded-2xl bg-[#252b36] px-3.5 py-2 text-xs text-slate-100 mb-2 max-w-full"
                 >
-                  <span className={`px-1.5 py-0.5 rounded text-[10px] font-bold tracking-wider uppercase ${
-                    darkMode ? 'bg-red-500/20 text-red-400' : 'bg-red-100 text-red-600'
-                  }`}>
+                  <span className="font-semibold text-slate-300 shrink-0">
                     PDF
                   </span>
-                  <span className="max-w-[140px] sm:max-w-[220px] truncate">{displayName}</span>
+                  <span className="truncate max-w-[180px] sm:max-w-[260px] text-slate-100">{displayName}</span>
                   <button
                     type="button"
                     onClick={() => {
@@ -150,11 +140,9 @@ const ChatInput = forwardRef(({
                     }}
                     aria-label={`Detach ${docName}`}
                     title={`Detach ${docName}`}
-                    className={`p-0.5 rounded-full transition-colors ${
-                      darkMode ? 'hover:bg-white/10 text-zinc-400 hover:text-white' : 'hover:bg-zinc-200 text-zinc-500 hover:text-zinc-900'
-                    }`}
+                    className="w-4 h-4 rounded-full bg-slate-200 hover:bg-white text-slate-900 flex items-center justify-center shrink-0 transition"
                   >
-                    <X className="w-3.5 h-3.5" />
+                    <X className="w-3 h-3 stroke-[2.5]" />
                   </button>
                 </div>
               );
@@ -170,11 +158,7 @@ const ChatInput = forwardRef(({
           onKeyDown={handleKeyDown}
           placeholder={t('chat.input_placeholder', 'Ask MediSkye...')}
           rows={1}
-          className={`w-full bg-transparent text-base md:text-sm placeholder-zinc-500 focus:outline-none resize-none leading-relaxed py-1 ${
-            darkMode
-              ? 'text-white placeholder-zinc-500'
-              : 'text-zinc-900 placeholder-zinc-400'
-          }`}
+          className="text-base md:text-sm text-slate-100 placeholder-slate-500 bg-transparent border-0 focus:ring-0 focus:outline-none w-full resize-none leading-relaxed py-1"
         />
 
         {/* Bottom Action Row */}
@@ -192,11 +176,7 @@ const ChatInput = forwardRef(({
             onClick={() => fileInputRef.current?.click()}
             title={t('chat.upload_title', 'Upload medical report (PDF, JPG, PNG · up to 50MB)')}
             aria-label="Upload report"
-            className={`p-2 rounded-full transition-colors active:scale-95 ${
-              darkMode
-                ? 'text-zinc-400 hover:text-white hover:bg-white/5'
-                : 'text-zinc-500 hover:text-zinc-900 hover:bg-zinc-100'
-            }`}
+            className="w-9 h-9 -ml-1 rounded-full text-slate-300 hover:text-white hover:bg-white/[0.06] flex items-center justify-center transition active:scale-95"
           >
             <Plus className="w-5 h-5" />
           </button>

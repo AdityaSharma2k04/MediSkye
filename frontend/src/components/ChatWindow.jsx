@@ -204,37 +204,37 @@ export default function ChatWindow({
     <div className={`flex-1 flex flex-col h-full overflow-hidden relative transition-colors duration-200 ${
       darkMode ? 'bg-[#07090e] text-slate-100' : 'bg-zinc-50 text-zinc-900'
     }`}>
-      {/* Header — non-overlapping flex bar (left group shrinks, right group never does) */}
-      <header className="h-14 px-3 md:px-5 flex items-center justify-between gap-2 bg-[#07090e]/95 border-b border-white/[0.07] z-10">
+      {/* Header — Gemini-style minimal top navbar, non-overlapping flex bar */}
+      <header className="h-14 px-3 sm:px-5 flex items-center justify-between gap-2 bg-[#07090e] border-b border-white/[0.06] shrink-0 z-20">
         <div className="flex items-center gap-2 min-w-0 flex-1">
           {toggleSidebar && (
             <button
               onClick={toggleSidebar}
               aria-label="Toggle sidebar"
-              className="p-2 rounded-lg shrink-0 text-slate-400 hover:text-white hover:bg-white/[0.06] transition-colors"
+              className="w-9 h-9 rounded-full flex items-center justify-center text-slate-300 hover:bg-white/5 shrink-0 transition"
             >
-              {sidebarOpen ? <ChevronLeft className="w-4 h-4" /> : <ChevronRight className="w-4 h-4" />}
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+                <line x1="4" y1="8" x2="20" y2="8" />
+                <line x1="4" y1="16" x2="15" y2="16" />
+              </svg>
             </button>
           )}
 
-          {/* Brand title — desktop only so mobile has room for the patient pill + actions */}
-          <span className="hidden sm:block text-base font-semibold tracking-tight whitespace-nowrap text-white shrink-0">
+          {/* Brand title + Inline Patient Selector (Gemini Style) */}
+          <span className="font-semibold text-white text-sm sm:text-base tracking-tight whitespace-nowrap shrink-0">
             MediSkye
           </span>
 
-          {/* Patient Context Selector — truncates instead of pushing into the actions */}
           {currentUser && (
-            <div className="min-w-0 max-w-[130px] sm:max-w-[200px] overflow-hidden [&_span]:truncate [&_button]:max-w-full [&_button]:min-w-0">
-              <PatientContextSelector
-                currentUser={currentUser}
-                dependents={dependents}
-                selectedPatientId={selectedPatientId}
-                onSelectPatient={onSelectPatient}
-                onOpenDependents={onOpenDependents}
-                darkMode={darkMode}
-                hideLabel={true}
-              />
-            </div>
+            <PatientContextSelector
+              currentUser={currentUser}
+              dependents={dependents}
+              selectedPatientId={selectedPatientId}
+              onSelectPatient={onSelectPatient}
+              onOpenDependents={onOpenDependents}
+              darkMode={darkMode}
+              hideLabel={true}
+            />
           )}
         </div>
 
@@ -245,7 +245,7 @@ export default function ChatWindow({
               onClick={handlePrintDoctorSummary}
               disabled={isExporting}
               aria-label="Export Summary"
-              className={`w-9 h-9 rounded-xl bg-[#111621] border border-white/10 text-slate-200 hover:text-cyan-400 hover:border-cyan-500/40 flex items-center justify-center shrink-0 transition-colors ${
+              className={`w-9 h-9 rounded-xl bg-white/[0.04] hover:bg-cyan-500/15 border border-white/[0.08] hover:border-cyan-500/30 text-slate-300 hover:text-cyan-300 flex items-center justify-center transition shrink-0 ${
                 isExporting ? 'opacity-70 cursor-not-allowed' : ''
               }`}
               title={isExporting ? t('chat.preparing_summary', 'Preparing Summary...') : 'Export 1-Click Printable Doctor Consultation Summary'}
@@ -259,7 +259,7 @@ export default function ChatWindow({
             <button
               onClick={onOpenExport}
               aria-label="Export chat data"
-              className="w-9 h-9 rounded-xl bg-[#111621] border border-white/10 text-slate-200 hover:text-cyan-400 hover:border-cyan-500/40 flex items-center justify-center shrink-0 transition-colors"
+              className="w-9 h-9 rounded-xl bg-white/[0.04] hover:bg-cyan-500/15 border border-white/[0.08] hover:border-cyan-500/30 text-slate-300 hover:text-cyan-300 flex items-center justify-center transition shrink-0"
               title="Export full chat transcript and lab metrics (PDF or JSON)"
             >
               <Download className="w-4 h-4" />
@@ -269,7 +269,7 @@ export default function ChatWindow({
           {/* User Avatar Circle */}
           {currentUser && (
             <div
-              className="w-8 h-8 rounded-full shrink-0 flex items-center justify-center font-semibold text-xs border bg-cyan-500/15 text-cyan-300 border-cyan-500/30"
+              className="w-8 h-8 rounded-full bg-cyan-500/15 ring-2 ring-cyan-500/40 text-cyan-300 font-semibold text-xs flex items-center justify-center shrink-0"
               title={currentUser.email || currentUser.full_name}
             >
               {currentUser.full_name
@@ -352,65 +352,40 @@ export default function ChatWindow({
           </div>
         ) : messages.length === 0 ? (
           /* ── GEMINI MINIMALIST EMPTY STATE ── */
-          <div className="w-full flex flex-col items-center justify-center text-center max-w-xl mx-auto py-8 my-auto animate-fade-in px-4">
-            <div className={`w-12 h-12 rounded-2xl flex items-center justify-center mb-3 shadow-lg ${
-              darkMode
-                ? 'bg-gradient-to-tr from-cyan-500/20 to-blue-500/20 text-cyan-400 border border-cyan-500/30 shadow-cyan-950/40'
-                : 'bg-gradient-to-tr from-blue-50 to-cyan-50 text-blue-600 border border-blue-200'
-            }`}>
+          <div className="w-full flex-1 flex flex-col items-center justify-center text-center max-w-xl mx-auto pt-12 pb-6 my-auto animate-fade-in px-2 sm:px-4">
+            <div className="w-12 h-12 rounded-2xl flex items-center justify-center mb-4 bg-gradient-to-tr from-cyan-500/20 to-blue-500/20 text-cyan-400 border border-cyan-500/30 shadow-lg shadow-cyan-950/40">
               <Sparkles className="w-6 h-6 animate-pulse" />
             </div>
 
-            {/* Subtle brand badge ensuring test compatibility */}
-            <span className={`text-[11px] font-semibold uppercase tracking-wider mb-2 ${
-              darkMode ? 'text-zinc-500' : 'text-zinc-400'
-            }`}>
-              MediSkye AI Medical Assistant
-            </span>
+            <span className="sr-only">MediSkye AI Medical Assistant</span>
 
-            <h1 className={`text-2xl sm:text-3xl font-medium tracking-tight mb-6 ${textPrimary}`}>
+            <h1 className="text-2xl sm:text-3xl font-medium text-white tracking-tight text-center mb-7">
               Where should we start?
             </h1>
 
-            {/* Starter prompts as clean stack on mobile, sm:grid-cols-2 grid on desktop */}
-            <div className="w-full grid grid-cols-1 sm:grid-cols-2 gap-2.5 text-left mb-6">
+            {/* Borderless Gemini-style starter prompt rows */}
+            <div className="w-full flex flex-col gap-1 text-left mb-6">
               {sampleQueries.map((item, idx) => (
                 <button
                   key={idx}
                   onClick={() => onSelectSampleQuery(item.query)}
-                  className={`w-full flex items-center gap-3 py-3 px-3.5 text-sm rounded-xl transition-all duration-150 border ${
-                    darkMode
-                      ? 'text-zinc-300 hover:text-white bg-white/[0.02] hover:bg-white/5 border-white/5 hover:border-white/10 active:bg-white/10'
-                      : 'text-zinc-700 hover:text-zinc-900 bg-zinc-50/80 hover:bg-zinc-100 border-zinc-200/60 active:bg-zinc-200'
-                  }`}
+                  className="w-full flex items-center gap-3.5 py-3 px-3.5 rounded-2xl text-left text-[15px] text-slate-300 hover:text-white hover:bg-white/[0.05] active:bg-white/[0.08] transition"
                 >
-                  <div className={`p-1.5 rounded-lg shrink-0 ${
-                    darkMode ? 'bg-zinc-900 text-zinc-400' : 'bg-zinc-200 text-zinc-600'
-                  }`}>
-                    {idx === 0 ? <Activity className="w-4 h-4" /> :
-                     idx === 1 ? <FileText className="w-4 h-4" /> :
-                     idx === 2 ? <HelpCircle className="w-4 h-4" /> :
-                     <Sparkles className="w-4 h-4" />}
-                  </div>
+                  {idx === 0 ? <Activity className="w-4 h-4 text-slate-500 shrink-0" /> :
+                   idx === 1 ? <FileText className="w-4 h-4 text-slate-500 shrink-0" /> :
+                   idx === 2 ? <HelpCircle className="w-4 h-4 text-slate-500 shrink-0" /> :
+                   <Sparkles className="w-4 h-4 text-slate-500 shrink-0" />}
                   <span className="truncate">{item.title}</span>
                 </button>
               ))}
 
-              {/* "Try with a Sample Blood Test Report" item - spanning across 2 columns on desktop */}
+              {/* 5th item: subtle cyan-accented borderless row */}
               <button
                 onClick={() => onSelectSampleQuery('Please show and explain a sample blood test report with common metrics like Hemoglobin, WBC, and Platelets.')}
-                className={`w-full sm:col-span-2 flex items-center gap-3 py-3 px-3.5 text-sm rounded-xl transition-all duration-150 border ${
-                  darkMode
-                    ? 'text-cyan-300 hover:text-cyan-200 bg-cyan-950/20 hover:bg-cyan-950/30 border-cyan-800/30 hover:border-cyan-700/50'
-                    : 'text-blue-700 hover:text-blue-900 bg-blue-50/50 hover:bg-blue-50 border-blue-200 hover:border-blue-300'
-                }`}
+                className="w-full flex items-center gap-3.5 py-3 px-3.5 rounded-2xl text-left text-[15px] text-cyan-400 hover:bg-cyan-500/10 font-medium transition"
               >
-                <div className={`p-1.5 rounded-lg shrink-0 ${
-                  darkMode ? 'bg-cyan-950/60 text-cyan-400' : 'bg-blue-100 text-blue-600'
-                }`}>
-                  <FileText className="w-4 h-4" />
-                </div>
-                <span className="font-medium truncate">Try with a Sample Blood Test Report</span>
+                <FileText className="w-4 h-4 text-cyan-400 shrink-0" />
+                <span className="truncate">Try with a Sample Blood Test Report</span>
               </button>
             </div>
 
@@ -435,25 +410,17 @@ export default function ChatWindow({
         )}
       </div>
 
-      {/* Floating Mode Switcher Pill (Above Input Box) */}
+      {/* Non-scrolling bottom Mode Switcher Pill (Directly above composer so chat text is never covered) */}
       {activePdf && (
-        <div className="w-full max-w-3xl mx-auto px-4 md:px-6 flex justify-center pb-2 shrink-0 z-10 pointer-events-none">
-          <div className={`pointer-events-auto mx-auto mb-2.5 flex items-center rounded-full p-1 border shadow-md w-fit backdrop-blur-md transition-colors ${
-            darkMode
-              ? 'bg-[#0e131b]/90 border-white/[0.08]'
-              : 'bg-white/95 border-zinc-200 shadow-sm'
-          }`}>
+        <div className="w-full max-w-3xl mx-auto px-4 md:px-6 flex justify-center pt-1.5 pb-2.5 shrink-0 bg-[#07090e] z-10">
+          <div className="mx-auto flex items-center rounded-full p-1 border border-white/[0.08] bg-[#151a23] w-fit">
             <button
               onClick={() => setViewMode('chat')}
               aria-label="Switch to chat view"
-              className={`px-4 py-1 rounded-full text-xs font-medium transition-all flex items-center gap-1.5 ${
+              className={`flex items-center gap-1.5 transition ${
                 viewMode === 'chat'
-                  ? darkMode
-                    ? 'bg-cyan-500/15 text-cyan-300 border border-cyan-500/30'
-                    : 'bg-zinc-900 text-white shadow-xs'
-                  : darkMode
-                    ? 'text-slate-400 hover:text-slate-200 border border-transparent'
-                    : 'text-zinc-600 hover:text-zinc-900'
+                  ? 'rounded-full bg-[#282d37] text-white font-medium px-4 py-1.5 text-xs shadow-xs'
+                  : 'rounded-full text-slate-400 hover:text-slate-200 px-4 py-1.5 text-xs font-medium'
               }`}
             >
               <MessageSquare className="w-3.5 h-3.5" />
@@ -462,14 +429,10 @@ export default function ChatWindow({
             <button
               onClick={loadMetrics}
               aria-label="View extracted lab metrics table"
-              className={`px-4 py-1 rounded-full text-xs font-medium transition-all flex items-center gap-1.5 ${
+              className={`flex items-center gap-1.5 transition ${
                 viewMode === 'metrics'
-                  ? darkMode
-                    ? 'bg-cyan-500/15 text-cyan-300 border border-cyan-500/30'
-                    : 'bg-zinc-900 text-white shadow-xs'
-                  : darkMode
-                    ? 'text-slate-400 hover:text-slate-200 border border-transparent'
-                    : 'text-zinc-600 hover:text-zinc-900'
+                  ? 'rounded-full bg-[#282d37] text-white font-medium px-4 py-1.5 text-xs shadow-xs'
+                  : 'rounded-full text-slate-400 hover:text-slate-200 px-4 py-1.5 text-xs font-medium'
               }`}
             >
               <Table className="w-3.5 h-3.5" />
@@ -506,11 +469,7 @@ export default function ChatWindow({
           onClick={scrollToBottom}
           aria-label="Scroll to latest message"
           title="Scroll to latest message"
-          className={`absolute bottom-20 right-6 z-20 p-2.5 rounded-full shadow-lg transition-all duration-150 ${
-            darkMode
-              ? 'bg-zinc-100 text-black hover:bg-zinc-200'
-              : 'bg-zinc-900 text-white hover:bg-zinc-800'
-          }`}
+          className="absolute bottom-14 right-6 z-20 w-8 h-8 rounded-full bg-[#1a1f29] border border-white/15 text-slate-300 hover:text-white shadow-lg flex items-center justify-center transition-all duration-150"
         >
           <ArrowDown className="w-4 h-4" />
         </button>

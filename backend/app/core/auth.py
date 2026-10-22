@@ -84,14 +84,18 @@ def get_cached_user_dto(token: str) -> Optional[UserDTO]:
         entry = _TOKEN_CACHE.get(key)
         if not entry:
             return None
-        if entry["expires_at"] <= now:
+        dto = entry.get("dto")
+        if entry["expires_at"] <= now or not getattr(dto, "email_verified", True):
             _TOKEN_CACHE.pop(key, None)
             return None
         _TOKEN_CACHE.move_to_end(key)
-        return entry["dto"]
+        return dto
 
 
 def cache_user_dto(token: str, dto: UserDTO) -> None:
+    # Never cache unverified tokens so a 403 rejection can never poison the 60s cache.
+    if not getattr(dto, "email_verified", True):
+        return
     key = _hash_token(token)
     expires_at = time.time() + TOKEN_CACHE_TTL_SECONDS
     with _TOKEN_CACHE_LOCK:
@@ -319,6 +323,7 @@ async def _resolve_user_full(token: str, db: AsyncSession) -> Optional[User]:
         firebase_info = decoded_token.get("firebase", {})
         sign_in_provider = firebase_info.get("sign_in_provider") if isinstance(firebase_info, dict) else None
         if decoded_token.get("email_verified") is False and sign_in_provider != "google.com":
+            evict_token_cache_by_token(token)
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail="Email not verified",

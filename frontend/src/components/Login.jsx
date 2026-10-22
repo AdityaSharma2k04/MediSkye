@@ -5,6 +5,8 @@ import {
   googleProvider,
   signInWithPopup,
   signInWithEmailAndPassword,
+  sendEmailVerification,
+  reloadAndGetVerifiedToken,
   signOut,
   getFirebaseErrorMessage,
 } from '../services/firebase';
@@ -20,24 +22,30 @@ export default function Login() {
   const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState('');
   const [unverifiedUser, setUnverifiedUser] = useState(null);
+  const [checkingVerification, setCheckingVerification] = useState(false);
   const [resendLoading, setResendLoading] = useState(false);
   const [resendSuccess, setResendSuccess] = useState(false);
+  const [resendCooldown, setResendCooldown] = useState(0);
   const [loading, setLoading] = useState(false);
+
+  useEffect(() => {
+    if (resendCooldown <= 0) return;
+    const timer = setInterval(() => {
+      setResendCooldown((prev) => (prev > 1 ? prev - 1 : 0));
+    }, 1000);
+    return () => clearInterval(timer);
+  }, [resendCooldown]);
   const [googleLoading, setGoogleLoading] = useState(false);
   const [resetLoading, setResetLoading] = useState(false);
   const [resetSuccessMessage, setResetSuccessMessage] = useState('');
   const [step, setStep] = useState('email'); // 'email' or 'password'
 
-  // Apply theme class for auth pages (they render outside ChatApp)
+  // Enforce permanent Obsidian dark theme
   useEffect(() => {
-    const stored = localStorage.getItem('mediskye_theme');
-    const systemDark = typeof window !== 'undefined' && window.matchMedia ? window.matchMedia('(prefers-color-scheme: dark)').matches : false;
-    const isDark = stored ? stored === 'dark' : systemDark;
-    if (isDark) {
-      document.documentElement.classList.add('dark');
-    } else {
-      document.documentElement.classList.remove('dark');
-    }
+    document.documentElement.classList.add('dark');
+    try {
+      localStorage.setItem('theme', 'dark');
+    } catch (_) {}
   }, []);
 
   const handleForgotPassword = async (e) => {
@@ -77,16 +85,50 @@ export default function Login() {
   };
 
   const handleResendVerification = async () => {
-    if (!unverifiedUser) return;
+    if (!unverifiedUser || resendCooldown > 0) return;
     setResendLoading(true);
     try {
+      if (typeof sendEmailVerification === 'function') {
+        const origin = typeof window !== 'undefined' && window.location?.origin ? window.location.origin : '';
+        try {
+          await sendEmailVerification(unverifiedUser, origin ? { url: `${origin}/login` } : undefined);
+        } catch (_) {
+          try {
+            await sendEmailVerification(unverifiedUser);
+          } catch (__) {}
+        }
+      }
       const emailToSend = unverifiedUser.email || email.trim().toLowerCase();
       await api.post('/auth/send-custom-verification', { email: emailToSend });
       setResendSuccess(true);
+      setResendCooldown(60);
     } catch (err) {
       setError(err?.message || getFirebaseErrorMessage(err));
     } finally {
       setResendLoading(false);
+    }
+  };
+
+  const handleCheckVerified = async () => {
+    if (!unverifiedUser) return;
+    setCheckingVerification(true);
+    try {
+      const result = typeof reloadAndGetVerifiedToken === 'function'
+        ? await reloadAndGetVerifiedToken(unverifiedUser)
+        : { verified: false, token: null };
+      if (result.verified) {
+        const userEmail = unverifiedUser.email || email.trim().toLowerCase();
+        if (userEmail) {
+          localStorage.setItem('mediskye_user_email', userEmail);
+        }
+        navigate('/chat');
+      } else {
+        setError('Email not verified yet. Please click the link in your inbox first, then try again.');
+      }
+    } catch (err) {
+      setError(getFirebaseErrorMessage(err));
+    } finally {
+      setCheckingVerification(false);
     }
   };
 
@@ -98,26 +140,28 @@ export default function Login() {
     setGoogleLoading(true);
     try {
       const result = await signInWithPopup(auth, googleProvider);
-      if (result && result.user) {
-        const token = await result.user.getIdToken();
-        const userEmail = result.user.email || '';
-        const lastEmail = localStorage.getItem('mediskye_user_email');
-        if (lastEmail && userEmail && lastEmail.toLowerCase() !== userEmail.toLowerCase()) {
-          localStorage.removeItem('mediskye_conversations');
-          localStorage.removeItem('mediskye_session_id');
-          localStorage.removeItem('mediskye_patient_id');
-        }
-        if (userEmail) {
-          localStorage.setItem('mediskye_user_email', userEmail);
-        }
-        localStorage.setItem('token', token);
-        navigate('/chat');
+      if (!result || !result.user) {
+        throw new Error('Authentication failed. Please try again.');
       }
+      const token = await result.user.getIdToken();
+      if (!token) {
+        throw new Error('Authentication failed. Please try again.');
+      }
+      const userEmail = result.user.email || '';
+      const lastEmail = localStorage.getItem('mediskye_user_email');
+      if (lastEmail && userEmail && lastEmail.toLowerCase() !== userEmail.toLowerCase()) {
+        localStorage.removeItem('mediskye_conversations');
+        localStorage.removeItem('mediskye_session_id');
+        localStorage.removeItem('mediskye_patient_id');
+      }
+      if (userEmail) {
+        localStorage.setItem('mediskye_user_email', userEmail);
+      }
+      localStorage.setItem('token', token);
+      navigate('/chat');
     } catch (err) {
-      if (err.code === 'auth/popup-closed-by-user' || err.code === 'auth/cancelled-popup-request') {
-        return;
-      }
-      setError(getFirebaseErrorMessage(err));
+      const mapped = typeof getFirebaseErrorMessage === 'function' ? getFirebaseErrorMessage(err) : '';
+      setError(mapped || "Google authentication failed. Please try again.");
     } finally {
       setGoogleLoading(false);
     }
@@ -160,13 +204,21 @@ export default function Login() {
 
       // Check email verification for Email/Password sign-ins
       if (!userCredential.user.emailVerified) {
+        if (typeof userCredential.user.reload === 'function') {
+          try {
+            await userCredential.user.reload();
+          } catch (_) {}
+        }
+      }
+      if (!userCredential.user.emailVerified) {
+        localStorage.removeItem('token');
         setUnverifiedUser(userCredential.user);
         await signOut(auth);
         setError("Please verify your email address before logging in. Check your inbox for the link.");
         return;
       }
 
-      const token = await userCredential.user.getIdToken();
+      const token = await userCredential.user.getIdToken(true);
       const userEmail = userCredential.user.email || trimmed;
       const lastEmail = localStorage.getItem('mediskye_user_email');
       if (lastEmail && userEmail && lastEmail.toLowerCase() !== userEmail.toLowerCase()) {
@@ -209,33 +261,45 @@ export default function Login() {
 
         {/* Error */}
         {error && (
-          <div className="login-error">
-            <div className="flex items-start gap-2">
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="shrink-0 mt-0.5">
-                <circle cx="12" cy="12" r="10" />
-                <line x1="15" y1="9" x2="9" y2="15" />
-                <line x1="9" y1="9" x2="15" y2="15" />
-              </svg>
-              <div className="flex-1">
-                <div>{error}</div>
-                {unverifiedUser && (
-                  <div className="mt-2 pt-2 border-t border-red-500/20">
-                    <button
-                      type="button"
-                      id="resend-verification-btn"
-                      onClick={handleResendVerification}
-                      disabled={resendLoading || resendSuccess}
-                      className="text-xs font-semibold underline hover:no-underline text-red-200 hover:text-white transition-colors cursor-pointer disabled:opacity-60"
-                    >
-                      {resendLoading
-                        ? 'Sending verification email...'
-                        : resendSuccess
-                        ? 'Verification link sent! Check your inbox.'
-                        : 'Resend Verification Email'}
-                    </button>
-                  </div>
-                )}
-              </div>
+          <div
+            role="alert"
+            className="login-error bg-red-500/10 border border-red-500/30 text-red-300 rounded-xl px-4 py-3 text-sm flex items-start gap-2.5 animate-fadeIn mb-4"
+          >
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="shrink-0 mt-0.5">
+              <circle cx="12" cy="12" r="10" />
+              <line x1="15" y1="9" x2="9" y2="15" />
+              <line x1="9" y1="9" x2="15" y2="15" />
+            </svg>
+            <div className="flex-1">
+              <div>{error}</div>
+              {unverifiedUser && (
+                <div className="mt-2 pt-2 border-t border-red-500/20 flex flex-wrap items-center gap-3">
+                  <button
+                    type="button"
+                    id="login-verified-continue-btn"
+                    onClick={handleCheckVerified}
+                    disabled={checkingVerification}
+                    className="text-xs font-semibold px-2.5 py-1 rounded-lg bg-cyan-500 hover:bg-cyan-400 text-slate-950 transition cursor-pointer disabled:opacity-60"
+                  >
+                    {checkingVerification ? 'Checking...' : "I've Verified My Email — Continue"}
+                  </button>
+                  <button
+                    type="button"
+                    id="resend-verification-btn"
+                    onClick={handleResendVerification}
+                    disabled={resendLoading || resendSuccess || resendCooldown > 0}
+                    className="text-xs font-semibold underline hover:no-underline text-red-200 hover:text-white transition-colors cursor-pointer disabled:opacity-60"
+                  >
+                    {resendLoading
+                      ? 'Sending verification email...'
+                      : resendSuccess
+                      ? 'Verification link sent! Check your inbox.'
+                      : resendCooldown > 0
+                      ? `Resend Verification Email (${resendCooldown}s)`
+                      : 'Resend Verification Email'}
+                  </button>
+                </div>
+              )}
             </div>
           </div>
         )}
