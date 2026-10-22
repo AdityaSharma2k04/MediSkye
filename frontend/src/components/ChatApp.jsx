@@ -5,7 +5,6 @@ import ChatInput from './ChatInput';
 import DocumentModal from './DocumentModal';
 import SettingsModal from './SettingsModal';
 import Profile from './Profile';
-import Toast from './Toast';
 import MemoryConsentModal from './MemoryConsentModal';
 import ExportModal from './ExportModal';
 import {
@@ -26,6 +25,15 @@ import {
 import { useNavigate } from 'react-router-dom';
 import { logger } from '../services/logger';
 import { speakText, stopSpeaking } from '../services/speech';
+
+// ── Sample Lab Reports Pool ─────────────────────────────────
+export const SAMPLE_REPORTS = [
+  { path: '/samples/report-1.pdf', panel: 'Lipid Panel' },
+  { path: '/samples/report-2.pdf', panel: 'Comprehensive Metabolic Panel' },
+  { path: '/samples/report-3.pdf', panel: 'Thyroid Function' },
+  { path: '/samples/report-4.pdf', panel: 'CBC' },
+  { path: '/samples/report-5.pdf', panel: 'Diabetes Panel' },
+];
 
 // ── Theme: permanent Obsidian dark ─────────────────────────
 function applyThemeToDOM() {
@@ -158,7 +166,6 @@ export default function ChatApp() {
   const isSubmittingRef = useRef(false);
   const isMountedRef = useRef(true);
   const chatInputRef = useRef(null);
-  const [toasts, setToasts] = useState([]);
 
   useEffect(() => {
     isMountedRef.current = true;
@@ -172,25 +179,13 @@ export default function ChatApp() {
     };
   }, []);
 
-  const showToast = useCallback((type, title, message) => {
-    const id = Date.now();
-    setToasts((prev) => [...prev, { id, type, title, message }]);
-    setTimeout(() => {
-      setToasts((prev) => prev.filter((t) => t.id !== id));
-    }, 4500);
-  }, []);
-
-  const dismissToast = useCallback((id) => {
-    setToasts((prev) => prev.filter((t) => t.id !== id));
-  }, []);
-
-  // ── Connection status watcher: never fail silently ──
+  // ── Connection status watcher ──
   useEffect(() => {
     const handleOffline = () => {
-      showToast('error', 'Connection Lost', 'You are offline. MediSkye will reconnect automatically when your connection returns.');
+      logger.warn('Connection lost: client is offline.');
     };
     const handleOnline = () => {
-      showToast('success', 'Back Online', 'Connection restored.');
+      logger.info('Connection restored: client is online.');
     };
     window.addEventListener('offline', handleOffline);
     window.addEventListener('online', handleOnline);
@@ -198,7 +193,7 @@ export default function ChatApp() {
       window.removeEventListener('offline', handleOffline);
       window.removeEventListener('online', handleOnline);
     };
-  }, [showToast]);
+  }, []);
 
   // Clean up legacy localStorage chat caches on mount
   useEffect(() => {
@@ -248,17 +243,12 @@ export default function ChatApp() {
       );
     } catch (e) {
       logger.error('Failed to load chat history from backend:', e);
-      showToast(
-        'error',
-        'Could Not Load Chats',
-        'Connection to MediSkye failed. Your chats are safe — check your connection and try again.'
-      );
     } finally {
       if (activeChatFetchRef.current === fetchKey) {
         setLoadingHistory(false);
       }
     }
-  }, [showToast]);
+  }, []);
 
   // Load User, Dependents, and Documents simultaneously on Mount (Bug 10 & Bug 1)
   const refreshPatientContext = useCallback(async () => {
@@ -287,7 +277,7 @@ export default function ChatApp() {
   }, [refreshPatientContext]);
 
   // Reusable document refresher: synchronizes server document truth with local state
-  const refreshDocuments = useCallback(async (activeDocId = null) => {
+  const refreshDocuments = useCallback(async (activeDocId = null, overrideTitle = null) => {
     try {
       const docs = await getUserDocuments();
       if (!Array.isArray(docs)) return [];
@@ -301,7 +291,7 @@ export default function ChatApp() {
             effectiveDocs.push({
               id: activeDocId,
               filename: match.pdf.name || match.pdf.filename || 'report.pdf',
-              title: match.title,
+              title: overrideTitle || match.title,
               created_at: match.created_at || new Date().toISOString(),
             });
           }
@@ -327,7 +317,9 @@ export default function ChatApp() {
             filename: doc.filename,
             size: 8192,
           };
-          const autoTitle = doc.title || (doc.filename ? cleanFilename(doc.filename) : 'New Chat');
+          const resolvedDocTitle = (activeDocId && doc.id === activeDocId && overrideTitle)
+            ? overrideTitle
+            : doc.title;
 
           let messages = existing?.messages || [];
 
@@ -337,7 +329,7 @@ export default function ChatApp() {
               id: doc.id,
               document_id: doc.id,
               patient_id: doc.dependent_id || existing.patient_id || 'self',
-              title: doc.title || (existing.title && existing.title !== 'New Conversation' && existing.title !== 'New chat'
+              title: resolvedDocTitle || (existing.title && existing.title !== 'New Conversation' && existing.title !== 'New chat'
                 ? existing.title
                 : 'New Chat'),
               messages,
@@ -353,7 +345,7 @@ export default function ChatApp() {
             id: doc.id,
             document_id: doc.id,
             patient_id: doc.dependent_id || 'self',
-            title: doc.title || 'New Chat',
+            title: resolvedDocTitle || 'New Chat',
             messages,
             pdf: pdfMeta,
             documents: [pdfMeta],
@@ -390,14 +382,9 @@ export default function ChatApp() {
       return docs;
     } catch (err) {
       logger.error('Failed to refresh documents:', err);
-      showToast(
-        'error',
-        'Could Not Refresh Reports',
-        'MediSkye could not reach the server to sync your reports. They are safe — please try again in a moment.'
-      );
       return [];
     }
-  }, [loadChatHistory, showToast]);
+  }, [loadChatHistory]);
 
   // Synchronize with server truth on account load / refresh (Neon DB single source of truth)
   useEffect(() => {
@@ -444,9 +431,8 @@ export default function ChatApp() {
       const updated = await updateProfile({ memory_consent_granted: true });
       setCurrentUser(updated);
       setShowMemoryConsentModal(false);
-      showToast('success', 'Memory Enabled', 'MediSkye will remember key health context across sessions.');
     } catch (err) {
-      showToast('error', 'Update Failed', err.message);
+      logger.error('Failed to update memory consent:', err);
     }
   };
 
@@ -479,12 +465,6 @@ export default function ChatApp() {
   const handlePatientSelect = (patientId) => {
     setSelectedPatientId(patientId);
     localStorage.setItem('mediskye_patient_id', patientId);
-    const dep = dependents.find(d => d.id === patientId);
-    if (dep) {
-      showToast('info', 'Patient Context Switched', `Clinical lens updated to ${dep.full_name} (${dep.relationship}).`);
-    } else {
-      showToast('info', 'Patient Context Switched', `Clinical lens updated to ${currentUser?.full_name || 'Your profile'}.`);
-    }
   };
 
   const handleOpenDependents = () => {
@@ -497,8 +477,9 @@ export default function ChatApp() {
     setIsProfileOpen(true);
   };
 
-  const handleAttachFile = async (file) => {
-    if (!file) return;
+  const handleAttachFile = async (file, options = {}) => {
+    if (!file) return null;
+    const { customTitle = null } = options;
 
     if (typeof performance !== 'undefined' && performance.mark) {
       performance.mark('upload_file_selected');
@@ -508,17 +489,16 @@ export default function ChatApp() {
       file.type === 'application/pdf' ||
       file.name.match(/\.(pdf|jpg|jpeg|png)$/i);
     if (!isValidType) {
-      showToast('error', 'Invalid File Format', 'Please upload a PDF, JPG, or PNG file.');
-      return;
+      console.error('Invalid File Format: Please upload a PDF, JPG, or PNG file.');
+      return null;
     }
 
     const maxMb = 50;
     if (file.size > maxMb * 1024 * 1024) {
-      showToast('error', 'File Too Large', `Maximum allowed file size is ${maxMb}MB.`);
-      return;
+      console.error(`File Too Large: Maximum allowed file size is ${maxMb}MB.`);
+      return null;
     }
 
-    showToast('info', 'Uploading Report', 'Extracting text and creating vector embeddings...');
     setIsGenerating(true);
 
     try {
@@ -531,7 +511,9 @@ export default function ChatApp() {
         } catch {}
       }
 
-      const data = await uploadPdfReport(file, selectedPatientId, sessionId);
+      const data = customTitle
+        ? await uploadPdfReport(file, selectedPatientId, sessionId, customTitle)
+        : await uploadPdfReport(file, selectedPatientId, sessionId);
 
       if (typeof performance !== 'undefined' && performance.mark) {
         performance.mark('upload_job_id_received');
@@ -586,12 +568,8 @@ export default function ChatApp() {
 
             if (consecutiveFailures >= MAX_CONSECUTIVE_FAILURES) {
               await refreshDocuments();
-              showToast(
-                'error',
-                'Upload Status Lost',
-                'Could not confirm upload status. The document may still be processing — refresh in 30 seconds.'
-              );
-              return;
+              console.error('Upload Status Lost: Could not confirm upload status.');
+              return null;
             }
             continue;
           }
@@ -620,12 +598,8 @@ export default function ChatApp() {
 
         if (!newDocId) {
           await refreshDocuments();
-          showToast(
-            'info',
-            'Upload Taking Longer Than Expected',
-            'The document may still be processing. The document list was refreshed; check again in 30 seconds if it is not there yet.'
-          );
-          return;
+          console.warn('Upload Taking Longer Than Expected: polling deadline expired.');
+          return null;
         }
       } else if (data?.document_id) {
         newDocId = data.document_id;
@@ -639,14 +613,17 @@ export default function ChatApp() {
       setUploadProgress(null);
       setIsGenerating(false);
       setActivePdf(pdfMeta);
-      showToast('success', 'Report Ready', 'Your report has been processed.');
 
-      const autoTitle = cleanFilename(file.name);
+      const autoTitle = customTitle || cleanFilename(file.name);
+      if (customTitle && newDocId) {
+        renameDocument(newDocId, customTitle).catch(() => {});
+      }
 
       // Promote the conversation's id to the server's document_id so the
       // sidebar entry is stable across sessions (re-login fetches by doc.id).
       const prevSessionId = sessionId;
       setSessionId(newDocId);
+      sessionIdRef.current = newDocId;
 
       // 1. Optimistically update local conversation state immediately
       setConversations((prev) => {
@@ -662,7 +639,9 @@ export default function ChatApp() {
             id: newDocId,
             document_id: newDocId,
             patient_id: selectedPatientId,
-            title: (current.title === 'New Conversation' || current.title === 'New chat') ? autoTitle : current.title,
+            title: customTitle
+              ? customTitle
+              : ((current.title === 'New Conversation' || current.title === 'New chat') ? autoTitle : current.title),
             pdf: pdfMeta,
             documents: updatedDocs,
           };
@@ -686,7 +665,7 @@ export default function ChatApp() {
       });
 
       // 2. Refetch document list from server to synchronize state with server truth
-      await refreshDocuments(newDocId);
+      await refreshDocuments(newDocId, customTitle);
 
       // Bug 8: Ensure the newly uploaded document replaces any empty "New Conversation"
       setConversations((prev) => {
@@ -697,8 +676,11 @@ export default function ChatApp() {
           return hasMessages || hasDoc;
         });
       });
+
+      return newDocId;
     } catch (err) {
-      showToast('error', 'Upload Failed', err.message);
+      logger.error('Upload Failed:', err);
+      return null;
     } finally {
       setUploadProgress(null);
       setIsGenerating(false);
@@ -725,9 +707,8 @@ export default function ChatApp() {
             : c
         )
       );
-      showToast('info', 'Report Detached', 'Document detached from this consultation.');
     } catch (err) {
-      showToast('error', 'Detach Failed', err.message);
+      logger.error('Detach Failed:', err);
     }
   };
 
@@ -746,7 +727,7 @@ export default function ChatApp() {
   const handleSendMessage = async (userQuery, options = {}) => {
     if (!userQuery || isSubmittingRef.current || isGenerating) return;
     isSubmittingRef.current = true;
-    const { appendUserMessage = true } = options;
+    const { appendUserMessage = true, docIdOverride = null, preserveTitle = null } = options;
 
     // Any new question immediately silences previously spoken answers.
     stopSpeaking();
@@ -772,9 +753,12 @@ export default function ChatApp() {
     };
 
     // Bug 9 Fix: Atomically create user bubble AND assistant placeholder in one update
-    const activeTargetId = sessionId;
+    const activeTargetId = docIdOverride || sessionId;
+    if (docIdOverride) {
+      sessionIdRef.current = docIdOverride;
+    }
     const prevChat = conversations.find((c) => c.id === activeTargetId);
-    const prevTitle = prevChat?.title || 'New Conversation';
+    const prevTitle = preserveTitle || prevChat?.title || 'New Conversation';
     const newMessages = appendUserMessage ? [userMsgObj, assistantMsgObj] : [assistantMsgObj];
     setConversations((prev) => {
       const matchExists = prev.some((c) => c.id === activeTargetId);
@@ -782,7 +766,8 @@ export default function ChatApp() {
         return [
           {
             id: activeTargetId,
-            title: (appendUserMessage && userQuery) ? autoNameFromQuery(userQuery) : 'New Conversation',
+            document_id: docIdOverride || null,
+            title: preserveTitle || ((appendUserMessage && userQuery) ? autoNameFromQuery(userQuery) : 'New Conversation'),
             messages: newMessages,
             pdf: null,
             documents: [],
@@ -795,9 +780,11 @@ export default function ChatApp() {
         c.id === activeTargetId
           ? {
               ...c,
-              title: (appendUserMessage && (c.title === 'New Conversation' || c.title === 'New chat'))
-                ? autoNameFromQuery(userQuery)
-                : c.title,
+              title: preserveTitle
+                ? preserveTitle
+                : ((appendUserMessage && (c.title === 'New Conversation' || c.title === 'New chat'))
+                  ? autoNameFromQuery(userQuery)
+                  : c.title),
               messages: [...c.messages, ...newMessages],
             }
           : c
@@ -811,16 +798,16 @@ export default function ChatApp() {
     let isConflict = false;
     try {
       // Read document ID from current conversation
-      let chatDocId = null;
+      let chatDocId = docIdOverride || null;
       let chatPatientId = selectedPatientId;
-      const chatObj = conversations.find((c) => c.id === sessionId);
-      chatDocId = chatObj?.document_id || null;
+      const chatObj = conversations.find((c) => c.id === activeTargetId);
+      if (!chatDocId) chatDocId = chatObj?.document_id || null;
       if (chatObj?.patient_id) chatPatientId = chatObj.patient_id;
 
       // Bug 9 Fix: Stream query chunks directly to assistantMsgId ONLY
       let assistantAccum = '';
       let hadStreamError = false;
-      await sendQueryStream(userQuery, chatDocId || sessionId, language, (chunk) => {
+      await sendQueryStream(userQuery, chatDocId || activeTargetId, language, (chunk) => {
         // Guard against race conditions if user switched active document mid-stream
         if (sessionIdRef.current !== activeTargetId) {
           return;
@@ -836,7 +823,9 @@ export default function ChatApp() {
           return prev.map((c) => {
             if (c.id !== activeTargetId && c.document_id !== activeTargetId) return c;
             const updatedChat = { ...c };
-            if (chunk.title) {
+            if (preserveTitle) {
+              updatedChat.title = preserveTitle;
+            } else if (chunk.title && !c.title?.startsWith('Sample Report:')) {
               updatedChat.title = chunk.title;
             }
             const targetIdx = c.messages.findIndex((m) => m.id === assistantMsgId);
@@ -874,7 +863,7 @@ export default function ChatApp() {
         // User stopped generation — keep any partial text, skip the error toast.
       } else if (err?.status === 409 || err?.message?.includes('already active')) {
         isConflict = true;
-        showToast('info', 'Please Wait', 'A response is already generating. Please wait for it to finish.');
+        console.warn('A response is already generating. Please wait for it to finish.');
         // Do NOT render a second user bubble or an error state in the chat; remove the newly added messages
         setConversations((prev) => {
           return prev.map((c) => {
@@ -887,7 +876,7 @@ export default function ChatApp() {
           });
         });
       } else {
-        showToast('error', 'Query Error', err.message);
+        logger.error('Query Error:', err);
         setConversations((prev) => {
           return prev.map((c) => {
             if (c.id !== activeTargetId) return c;
@@ -1006,7 +995,32 @@ export default function ChatApp() {
       { id: newId, title: 'New Conversation', messages: [], pdf: null, patient_id: selectedPatientId },
       ...prev,
     ]);
-    showToast('info', 'New Conversation Started');
+  };
+
+  const handleSampleReportClick = async () => {
+    if (isGenerating || isSubmittingRef.current) return;
+    const chosen = SAMPLE_REPORTS[Math.floor(Math.random() * SAMPLE_REPORTS.length)];
+    const customTitle = `Sample Report: ${chosen.panel}`;
+    try {
+      let blob;
+      try {
+        const res = await fetch(chosen.path);
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        blob = await res.blob();
+      } catch (_) {
+        blob = new Blob([`%PDF-1.4 Sample ${chosen.panel} Report`], { type: 'application/pdf' });
+      }
+      const sampleFile = new File([blob], 'Sample_Report.pdf', { type: 'application/pdf' });
+      const newDocId = await handleAttachFile(sampleFile, { customTitle });
+      if (newDocId) {
+        await handleSendMessage('Can you summarize the abnormal findings in this report?', {
+          docIdOverride: newDocId,
+          preserveTitle: customTitle,
+        });
+      }
+    } catch (err) {
+      logger.error('Sample Report Failed:', err);
+    }
   };
 
   const handleSelectChat = async (id) => {
@@ -1046,7 +1060,6 @@ export default function ChatApp() {
     setSessionId(newId);
     setActivePdf(null);
     setConversations([{ id: newId, title: 'New Conversation', messages: [], pdf: null, patient_id: selectedPatientId }]);
-    showToast('info', 'Chat History Cleared');
   };
 
   const handleDeleteChat = async (id, skipConfirm = false) => {
@@ -1075,11 +1088,9 @@ export default function ChatApp() {
         return newConversations;
       });
 
-      showToast('success', 'Deleted', 'Conversation deleted.');
       await refreshDocuments();
     } catch (err) {
       logger.error('Delete failed:', err);
-      showToast('error', 'Delete Failed', 'Could not delete conversation.');
     }
   };
 
@@ -1099,17 +1110,14 @@ export default function ChatApp() {
         setConversations((prev) =>
           prev.map((c) => (c.id === id ? { ...c, title: savedTitle } : c))
         );
-        showToast('success', 'Chat Renamed', 'Chat renamed');
         await refreshDocuments();
       } catch (err) {
         logger.error('Failed to rename document:', err);
-        showToast('error', 'Rename Failed', err.message || 'Could not rename chat.');
       }
     } else {
       setConversations((prev) =>
         prev.map((c) => (c.id === id ? { ...c, title: trimmed } : c))
       );
-      showToast('info', 'Chat Renamed', 'Renamed locally (this chat has no server-side document)');
     }
   };
 
@@ -1129,7 +1137,7 @@ export default function ChatApp() {
       setIsSettingsOpen(false);
       navigate('/login');
     } catch (err) {
-      showToast('error', 'Deletion Failed', err.message || 'Could not delete your account.');
+      logger.error('Deletion Failed:', err);
     }
   };
 
@@ -1189,6 +1197,7 @@ export default function ChatApp() {
           loadingHistory={loadingHistory}
           onRegenerate={handleRegenerate}
           onSelectSampleQuery={handleSendMessage}
+          onTrySampleReport={handleSampleReportClick}
           onAttachFile={handleAttachFile}
           activePdf={activePdf}
           attachedDocuments={Array.isArray(currentChat.documents) && currentChat.documents.length > 0
@@ -1199,7 +1208,6 @@ export default function ChatApp() {
             if (chatInputRef.current) chatInputRef.current.openFileUpload();
           }}
           documentId={currentChat.document_id}
-          showToast={showToast}
           darkMode={darkMode}
           setDarkMode={handleSetDarkMode}
           currentUser={currentUser}
@@ -1239,7 +1247,6 @@ export default function ChatApp() {
           onRemoveFile={handleRemoveFile}
           isGenerating={isGenerating}
           onStopGeneration={handleStopGeneration}
-          showToast={showToast}
           darkMode={darkMode}
           currentUser={currentUser}
           dependents={dependents}
@@ -1259,7 +1266,6 @@ export default function ChatApp() {
         documentTitle={currentChat.title || (activePdf ? activePdf.name : null)}
         messages={messages}
         user={currentUser}
-        showToast={showToast}
       />
 
       <SettingsModal
@@ -1274,7 +1280,6 @@ export default function ChatApp() {
         onProfileUpdated={(updated) => setCurrentUser(updated)}
         language={language}
         setLanguage={setLanguage}
-        showToast={showToast}
         currentUser={currentUser}
         autoRead={autoRead}
         setAutoRead={setAutoReadPersist}
@@ -1284,7 +1289,6 @@ export default function ChatApp() {
       {isProfileOpen && (
         <Profile
           onClose={() => setIsProfileOpen(false)}
-          showToast={showToast}
           darkMode={darkMode}
           initialTab={profileInitialTab}
           onProfileUpdated={refreshPatientContext}
@@ -1299,8 +1303,6 @@ export default function ChatApp() {
         onSkip={handleSkipMemory}
         darkMode={darkMode}
       />
-
-      <Toast toasts={toasts} onDismiss={dismissToast} />
     </div>
   );
 }

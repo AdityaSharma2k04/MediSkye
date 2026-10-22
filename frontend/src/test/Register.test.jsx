@@ -316,8 +316,9 @@ describe('Register Component with Firebase Auth', () => {
 
     await waitFor(() => {
       expect(mockCreateUserWithEmailAndPassword).toHaveBeenCalledWith(expect.anything(), 'user@example.com', 'validPassword123');
+      expect(mockSendEmailVerification).toHaveBeenCalled();
       expect(mockApiPost).toHaveBeenCalledWith('/auth/send-custom-verification', { email: 'user@example.com' });
-      expect(mockSignOut).toHaveBeenCalled();
+      expect(mockSignOut).not.toHaveBeenCalled();
       expect(localStorage.getItem('token')).toBeNull();
     });
 
@@ -352,8 +353,9 @@ describe('Register Component with Firebase Auth', () => {
 
     await waitFor(() => {
       expect(mockUpdateProfile).toHaveBeenCalledWith(mockUser, { displayName: 'Jane Doe' });
+      expect(mockSendEmailVerification).toHaveBeenCalled();
       expect(mockApiPost).toHaveBeenCalledWith('/auth/send-custom-verification', { email: 'user@example.com' });
-      expect(mockSignOut).toHaveBeenCalled();
+      expect(mockSignOut).not.toHaveBeenCalled();
     });
   });
 

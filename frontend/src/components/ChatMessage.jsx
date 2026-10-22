@@ -25,7 +25,7 @@ export const stripAbnormalFlags = (text) => {
     .trim();
 };
 
-export default function ChatMessage({ message, onRegenerate, showToast, darkMode }) {
+export default function ChatMessage({ message, onRegenerate, darkMode }) {
   const [copied, setCopied] = useState(false);
   const [speaking, setSpeaking] = useState(false);
   const [liked, setLiked] = useState(null);
@@ -72,7 +72,6 @@ export default function ChatMessage({ message, onRegenerate, showToast, darkMode
   const handleCopy = () => {
     navigator.clipboard.writeText(content);
     setCopied(true);
-    if (showToast) showToast('success', 'Copied to clipboard');
     setTimeout(() => setCopied(false), 2000);
   };
 
@@ -99,7 +98,6 @@ export default function ChatMessage({ message, onRegenerate, showToast, darkMode
         });
     } else {
       navigator.clipboard.writeText(content);
-      if (showToast) showToast('info', 'Share link copied');
     }
   };
 

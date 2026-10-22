@@ -116,13 +116,14 @@ const selectClass = (darkMode) =>
       : 'bg-zinc-50 border-zinc-200 text-zinc-900 focus:border-zinc-400'
   }`;
 
-function ChangePasswordModal({ isOpen, onClose, darkMode, showToast, isGoogleUser = false }) {
+function ChangePasswordModal({ isOpen, onClose, darkMode, isGoogleUser = false }) {
   const [currentPassword, setCurrentPassword] = useState('');
   const [newPassword, setNewPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [showCurrent, setShowCurrent] = useState(false);
   const [showNext, setShowNext] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [pwdError, setPwdError] = useState(null);
 
   useEffect(() => {
     if (!isOpen) {
@@ -130,6 +131,7 @@ function ChangePasswordModal({ isOpen, onClose, darkMode, showToast, isGoogleUse
       setNewPassword('');
       setConfirmPassword('');
       setLoading(false);
+      setPwdError(null);
     }
   }, [isOpen]);
 
@@ -149,19 +151,21 @@ function ChangePasswordModal({ isOpen, onClose, darkMode, showToast, isGoogleUse
   const handleChangePassword = async () => {
     if (!canSave || loading) return;
     if (!auth?.currentUser) {
-      if (showToast) showToast('error', 'Password Change Failed', 'No authenticated user found');
+      console.error('Password Change Failed: No authenticated user found');
+      setPwdError('No authenticated user found');
       return;
     }
     setLoading(true);
+    setPwdError(null);
     try {
       const credential = EmailAuthProvider.credential(auth.currentUser.email, currentPassword);
       await reauthenticateWithCredential(auth.currentUser, credential);
       await updatePassword(auth.currentUser, newPassword);
-      if (showToast) showToast('success', 'Password Changed', 'Password changed successfully');
       onClose();
     } catch (err) {
       const errorMsg = getFirebaseErrorMessage(err);
-      if (showToast) showToast('error', 'Password Change Failed', errorMsg || err.message);
+      console.error('Password Change Failed:', err);
+      setPwdError(errorMsg || err.message || 'Password change failed');
     } finally {
       setLoading(false);
     }
@@ -190,6 +194,11 @@ function ChangePasswordModal({ isOpen, onClose, darkMode, showToast, isGoogleUse
           </button>
         </div>
         <div className="px-5 py-4 space-y-3">
+          {pwdError && (
+            <div role="alert" className="text-xs text-red-300 bg-red-500/10 border border-red-500/30 rounded-xl px-3 py-2">
+              {pwdError}
+            </div>
+          )}
           {isGoogleUser ? (
             <p className={`text-xs leading-relaxed p-3 rounded-xl border ${darkMode ? 'bg-zinc-800/60 border-zinc-700 text-zinc-300' : 'bg-zinc-100 border-zinc-200 text-zinc-600'}`}>
               You signed in with Google. To set a password, use the 'Forgot Password' link on the login page.
@@ -306,7 +315,6 @@ export default function SettingsModal({
   onDeleteAccount,
   language,
   setLanguage,
-  showToast,
   currentUser,
   onProfileUpdated,
   autoRead = false,
@@ -320,6 +328,7 @@ export default function SettingsModal({
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [showClearMemoryConfirm, setShowClearMemoryConfirm] = useState(false);
   const [showUnsavedConfirm, setShowUnsavedConfirm] = useState(false);
+  const [saveError, setSaveError] = useState(null);
 
   // Check if current user signed in with Google
   const isGoogleUser = Boolean(
@@ -436,21 +445,13 @@ export default function SettingsModal({
       } catch (consentErr) {
         await updateProfile({ memory_consent_granted: nextVal });
       }
-      if (showToast) {
-        showToast(
-          'success',
-          nextVal ? 'Memory Enabled' : 'Memory Disabled',
-          nextVal
-            ? 'MediSkye will remember key clinical facts across sessions.'
-            : 'MediSkye will no longer store or recall facts across sessions.'
-        );
-      }
       if (onProfileUpdated) {
         onProfileUpdated({ ...currentUser, memory_consent_granted: nextVal });
       }
     } catch (err) {
       setMemoryConsent(!nextVal);
-      if (showToast) showToast('error', 'Update Failed', err.message);
+      console.error('Memory consent update failed:', err);
+      setSaveError(err.message || 'Update Failed');
     }
   };
 
@@ -459,9 +460,9 @@ export default function SettingsModal({
     try {
       await deleteMemoryFact(factId);
       setMemoryFacts((prev) => prev.filter((f) => f.id !== factId));
-      if (showToast) showToast('success', 'Fact Removed', 'Health fact removed from memory.');
     } catch (err) {
-      if (showToast) showToast('error', 'Delete Failed', err.message);
+      console.error('Delete Failed:', err);
+      setSaveError(err.message || 'Delete Failed');
     } finally {
       setDeletingFactId(null);
     }
@@ -472,9 +473,9 @@ export default function SettingsModal({
       await clearAllMemoryFacts();
       setMemoryFacts([]);
       setShowClearMemoryConfirm(false);
-      if (showToast) showToast('info', 'Memory Cleared', 'All remembered health facts have been wiped.');
     } catch (err) {
-      if (showToast) showToast('error', 'Clear Failed', err.message);
+      console.error('Clear Failed:', err);
+      setSaveError(err.message || 'Clear Failed');
     }
   };
 
@@ -506,6 +507,7 @@ export default function SettingsModal({
   // Manual save handler for preferences (Task 1 & Bug 5)
   const handleSaveChanges = async () => {
     setSaving(true);
+    setSaveError(null);
     try {
       const initialAiLang = language || 'English';
       let updatedUser = null;
@@ -524,15 +526,11 @@ export default function SettingsModal({
         if (setAutoRead) setAutoRead(draftState.autoRead);
       }
 
-      if (showToast) {
-        showToast('success', 'Changes Saved', 'Settings updated successfully.');
-      }
       setInitialState(draftState);
       onClose();
     } catch (err) {
-      if (showToast) {
-        showToast('error', 'Update Failed', err.message || 'Could not save settings.');
-      }
+      console.error('Update Failed:', err);
+      setSaveError(err.message || 'Could not save settings.');
     } finally {
       setSaving(false);
     }
@@ -576,6 +574,11 @@ export default function SettingsModal({
 
           {/* Scrollable body */}
           <div className="flex-1 overflow-y-auto px-5 py-5 space-y-7 text-sm">
+            {saveError && (
+              <div role="alert" className="text-xs text-red-300 bg-red-500/10 border border-red-500/30 rounded-xl px-3.5 py-2.5">
+                {saveError}
+              </div>
+            )}
 
             {/* Quick link to Profile & Caregiver Hub (Bug 11) */}
             <div className={`p-4 rounded-xl border flex flex-col sm:flex-row sm:items-center justify-between gap-4 ${
@@ -911,7 +914,6 @@ export default function SettingsModal({
         isOpen={showPassword}
         onClose={() => setShowPassword(false)}
         darkMode={darkMode}
-        showToast={showToast}
         isGoogleUser={isGoogleUser}
       />
 
@@ -924,7 +926,7 @@ export default function SettingsModal({
       <ConfirmModal
         isOpen={showClearConfirm}
         onClose={() => setShowClearConfirm(false)}
-        onConfirm={() => { onClearAllChats && onClearAllChats(); showToast && showToast('info', 'All conversations cleared'); }}
+        onConfirm={() => { onClearAllChats && onClearAllChats(); }}
         title="Clear all conversations?"
         body="All chat history, uploaded report references, and patient context will be permanently deleted. This cannot be undone. Your account and profile will remain intact."
         confirmLabel="Delete everything"

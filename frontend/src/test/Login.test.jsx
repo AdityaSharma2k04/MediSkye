@@ -108,7 +108,7 @@ describe('Login Component with Firebase Auth & Password Reset', () => {
     await waitFor(() => {
       expect(mockSignInWithPopup).toHaveBeenCalled();
       expect(screen.getByRole('alert')).toHaveTextContent(
-        /google sign-in was cancelled before completing\. please try again\./i
+        "Google sign-in popup was closed before finishing. Please try again."
       );
       expect(googleBtn).not.toBeDisabled();
     });
@@ -235,7 +235,7 @@ describe('Login Component with Firebase Auth & Password Reset', () => {
     fireEvent.click(screen.getByRole('button', { name: /sign in/i }));
 
     await waitFor(() => {
-      expect(screen.getByText(/too many reset attempts|too many failed attempts/i)).toBeInTheDocument();
+      expect(screen.getByText("Too many attempts. Please wait a minute before requesting another email.")).toBeInTheDocument();
     });
   });
 

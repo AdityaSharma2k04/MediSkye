@@ -221,7 +221,7 @@ export async function logout() {
   }
 }
 
-export async function uploadPdfReport(file, patientId = null, chatId = null) {
+export async function uploadPdfReport(file, patientId = null, chatId = null, customTitle = null) {
   const formData = new FormData();
   formData.append('file', file);
   if (patientId && patientId !== 'self') {
@@ -229,6 +229,9 @@ export async function uploadPdfReport(file, patientId = null, chatId = null) {
   }
   if (chatId) {
     formData.append('chat_id', chatId);
+  }
+  if (customTitle) {
+    formData.append('title', customTitle);
   }
 
   const res = await apiFetch(`${API_BASE}/upload`, {

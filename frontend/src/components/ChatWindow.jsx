@@ -17,10 +17,10 @@ export default function ChatWindow({
   loadingHistory = false,
   onRegenerate,
   onSelectSampleQuery,
+  onTrySampleReport,
   onAttachFile,
   activePdf,
   documentId,
-  showToast,
   darkMode,
   setDarkMode,
   currentUser,
@@ -81,13 +81,13 @@ export default function ChatWindow({
 
   const loadMetrics = async () => {
     if (!activePdf) {
-      if (showToast) showToast('info', 'No PDF Report', 'Please upload a PDF report to extract lab metrics.');
+      console.warn('No PDF report attached to extract lab metrics.');
       return;
     }
     setViewMode('metrics');
     setLoadingMetrics(true);
     if (!documentId) {
-      showToast('error', 'Metrics Error', 'No document found for this session.');
+      console.error('Metrics Error: No document found for this session.');
       setLoadingMetrics(false);
       return;
     }
@@ -381,7 +381,13 @@ export default function ChatWindow({
 
               {/* 5th item: subtle cyan-accented borderless row */}
               <button
-                onClick={() => onSelectSampleQuery('Please show and explain a sample blood test report with common metrics like Hemoglobin, WBC, and Platelets.')}
+                onClick={() => {
+                  if (onTrySampleReport) {
+                    onTrySampleReport();
+                  } else if (onSelectSampleQuery) {
+                    onSelectSampleQuery('Can you summarize the abnormal findings in this report?');
+                  }
+                }}
                 className="w-full flex items-center gap-3.5 py-3 px-3.5 rounded-2xl text-left text-[15px] text-cyan-400 hover:bg-cyan-500/10 font-medium transition"
               >
                 <FileText className="w-4 h-4 text-cyan-400 shrink-0" />
@@ -402,7 +408,6 @@ export default function ChatWindow({
                 key={msg.id || index}
                 message={msg}
                 onRegenerate={index === messages.length - 1 && msg.sender === 'assistant' ? onRegenerate : null}
-                showToast={showToast}
                 darkMode={darkMode}
               />
             ))}

@@ -12,7 +12,6 @@ const ChatInput = forwardRef(({
   onRemoveFile,
   isGenerating,
   onStopGeneration,
-  showToast,
   darkMode,
   disabled = false,
 }, ref) => {
@@ -77,13 +76,12 @@ const ChatInput = forwardRef(({
       setIsListening(false);
     } else {
       setIsListening(true);
-      if (showToast) showToast('info', t('chat.listening', 'Listening...'), t('chat.speak_question', 'Speak your medical question'));
       recognitionRef.current = startSpeechRecognition(
         (transcript) => {
           setText(transcript);
         },
         (error) => {
-          if (showToast) showToast('error', error);
+          console.error('Speech recognition error:', error);
           setIsListening(false);
         },
         () => {

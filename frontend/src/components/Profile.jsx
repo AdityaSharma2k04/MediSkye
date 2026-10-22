@@ -102,7 +102,6 @@ const ACTIVITY_OPTIONS = [
 
 export default function Profile({
   onClose,
-  showToast,
   darkMode,
   initialTab = 'profile',
   onProfileUpdated,
@@ -230,7 +229,7 @@ export default function Profile({
           setDependents(depsData);
         }
       } catch (error) {
-        showToast('error', 'Profile Error', 'Could not load profile or dependent information.');
+        console.error('Could not load profile or dependent information:', error);
       } finally {
         setLoading(false);
       }
@@ -272,11 +271,10 @@ export default function Profile({
         }
       }
 
-      showToast('success', 'Profile Saved', 'Your personal, lifestyle, and medical information has been updated.');
       if (onProfileUpdated) onProfileUpdated(updatedUser);
       onClose();
     } catch (error) {
-      showToast('error', 'Save Failed', 'Could not save profile data.');
+      console.error('Could not save profile data:', error);
     } finally {
       setSaving(false);
     }
@@ -288,7 +286,7 @@ export default function Profile({
       await deleteAccount();
       navigate('/login');
     } catch (error) {
-      showToast('error', 'Deletion Failed', 'Could not delete your account.');
+      console.error('Could not delete your account:', error);
     }
   };
 
@@ -363,7 +361,7 @@ export default function Profile({
   const handleSaveDependent = async (e) => {
     e.preventDefault();
     if (!dependentForm.full_name.trim()) {
-      showToast('error', 'Validation Error', 'Full Name is required for dependents.');
+      console.error('Validation Error: Full Name is required for dependents.');
       return;
     }
     setSaving(true);
@@ -383,11 +381,9 @@ export default function Profile({
       if (editingDependentId) {
         savedDep = await updateDependent(editingDependentId, payload);
         setDependents(prev => prev.map(d => d.id === editingDependentId ? savedDep : d));
-        showToast('success', 'Dependent Updated', `Updated profile for ${savedDep.full_name}.`);
       } else {
         savedDep = await createDependent(payload);
         setDependents(prev => [...prev, savedDep]);
-        showToast('success', 'Dependent Added', `Added ${savedDep.full_name} (${savedDep.relationship}).`);
       }
 
       // Record weight fact if supplied
@@ -409,7 +405,7 @@ export default function Profile({
       setEditingDependentId(null);
       if (onProfileUpdated) onProfileUpdated();
     } catch (err) {
-      showToast('error', 'Dependent Save Failed', err.message || 'Could not save dependent.');
+      console.error('Dependent Save Failed:', err);
     } finally {
       setSaving(false);
     }
@@ -417,14 +413,13 @@ export default function Profile({
 
   const handleConfirmDeleteDependent = async () => {
     if (!pendingDeleteDependent) return;
-    const { id: depId, name: depName } = pendingDeleteDependent;
+    const { id: depId } = pendingDeleteDependent;
     try {
       await deleteDependent(depId);
       setDependents(prev => prev.filter(d => d.id !== depId));
-      showToast('info', 'Dependent Deleted', `Removed profile for ${depName}.`);
       if (onProfileUpdated) onProfileUpdated();
     } catch (err) {
-      showToast('error', 'Delete Failed', err.message || 'Could not delete dependent.');
+      console.error('Delete Failed:', err);
     } finally {
       setPendingDeleteDependent(null);
     }

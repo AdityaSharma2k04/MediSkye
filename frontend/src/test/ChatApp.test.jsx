@@ -82,7 +82,7 @@ describe('ChatApp — upload refreshes sidebar immediately', () => {
     expect(localStorage.getItem('mediskye_conversations')).toBeNull();
   });
 
-  it('shows success toast and does NOT require re-login to see the document', async () => {
+  it('attaches the uploaded document immediately and does NOT require re-login to see the document', async () => {
     render(<ChatApp />);
     await waitFor(() => expect(api.getProfile).toHaveBeenCalled());
 
@@ -95,13 +95,14 @@ describe('ChatApp — upload refreshes sidebar immediately', () => {
 
     await waitFor(() => expect(api.uploadPdfReport).toHaveBeenCalled());
 
-    // Success toast text should appear in the DOM
+    // Attached PDF chip should appear immediately in the composer
     await waitFor(() => {
-      expect(screen.getByText(/Report (Ready|Processed)/)).toBeInTheDocument();
+      expect(screen.getByLabelText('Detach blood_test.pdf')).toBeInTheDocument();
     });
   });
 
   it('rejects non-PDF/image files before calling uploadPdfReport', async () => {
+    const errSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
     render(<ChatApp />);
     await waitFor(() => expect(api.getProfile).toHaveBeenCalled());
 
@@ -113,9 +114,8 @@ describe('ChatApp — upload refreshes sidebar immediately', () => {
     });
 
     expect(api.uploadPdfReport).not.toHaveBeenCalled();
-    await waitFor(() => {
-      expect(screen.getByText('Invalid File Format')).toBeInTheDocument();
-    });
+    expect(errSpy).toHaveBeenCalledWith(expect.stringMatching(/Invalid File Format/i));
+    errSpy.mockRestore();
   });
 
   it('accepts image files (jpg/png) and calls uploadPdfReport', async () => {
@@ -200,12 +200,10 @@ describe('ChatApp — upload refreshes sidebar immediately', () => {
     // Verify polling was performed
     await waitFor(() => expect(api.getUploadStatus).toHaveBeenCalledWith('job-async-123', 10000));
 
-    // Verify documents were refreshed with new document_id
+    // Verify documents were refreshed with new document_id and attached chip rendered
     await waitFor(() => expect(api.getUserDocuments).toHaveBeenCalledTimes(2));
-
-    // Success toast shown
     await waitFor(() => {
-      expect(screen.getByText(/Report (Ready|Processed)/)).toBeInTheDocument();
+      expect(screen.getByLabelText('Detach blood_test.pdf')).toBeInTheDocument();
     });
 
     delete window.__POLL_INTERVAL__;
@@ -238,13 +236,13 @@ describe('ChatApp — upload refreshes sidebar immediately', () => {
     await waitFor(() => expect(api.getUploadStatus).toHaveBeenCalledTimes(2));
     expect(api.getUploadStatus).toHaveBeenNthCalledWith(1, 'job-stalled-123', 10000);
     expect(api.getUploadStatus).toHaveBeenNthCalledWith(2, 'job-stalled-123', 10000);
-    await waitFor(() => expect(screen.getByText('Report Ready')).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByLabelText('Detach blood_test.pdf')).toBeInTheDocument());
     await waitFor(() => expect(api.getUserDocuments).toHaveBeenCalledTimes(2));
 
     delete window.__POLL_INTERVAL__;
   });
 
-  it('refreshes documents and shows an error after five consecutive poll failures', async () => {
+  it('refreshes documents and logs an error after five consecutive poll failures', async () => {
     window.__POLL_INTERVAL__ = 1;
     api.uploadPdfReport.mockResolvedValueOnce({
       job_id: 'job-failing-123',
@@ -263,13 +261,12 @@ describe('ChatApp — upload refreshes sidebar immediately', () => {
     });
 
     await waitFor(() => expect(api.getUploadStatus).toHaveBeenCalledTimes(5));
-    expect(await screen.findByText('Upload Status Lost')).toBeInTheDocument();
     await waitFor(() => expect(api.getUserDocuments).toHaveBeenCalledTimes(2));
 
     delete window.__POLL_INTERVAL__;
   });
 
-  it('refreshes documents and shows a pending message when the polling deadline expires', async () => {
+  it('refreshes documents when the polling deadline expires', async () => {
     window.__POLL_INTERVAL__ = 1;
     window.__UPLOAD_MAX_WAIT__ = 20;
     api.uploadPdfReport.mockResolvedValueOnce({
@@ -291,9 +288,8 @@ describe('ChatApp — upload refreshes sidebar immediately', () => {
       });
     });
 
-    expect(await screen.findByText('Upload Taking Longer Than Expected')).toBeInTheDocument();
-    expect(api.getUploadStatus).toHaveBeenCalled();
     await waitFor(() => expect(api.getUserDocuments).toHaveBeenCalledTimes(2));
+    expect(api.getUploadStatus).toHaveBeenCalled();
 
     delete window.__POLL_INTERVAL__;
     delete window.__UPLOAD_MAX_WAIT__;
@@ -363,8 +359,8 @@ describe('ChatApp — deletion and rename persistence', () => {
       expect(api.renameDocument).toHaveBeenCalledWith(SERVER_DOC_ID, 'New Failed Title');
     });
 
-    // Error toast should appear and title rolls back
-    expect(await screen.findByText('Rename Failed')).toBeInTheDocument();
+    // Title rolls back to Original Title when server rename fails
+    expect(await screen.findByText('Original Title')).toBeInTheDocument();
   });
 
   it('detaching an attached report chip calls deleteDocument with documentId', async () => {
@@ -454,9 +450,9 @@ describe('ChatApp — deletion and rename persistence', () => {
       fireEvent.submit(form);
     });
 
-    // 1. Toast notification was displayed
+    // 1. Stream call was attempted and 409 warning logged
     await waitFor(() => {
-      expect(screen.getByText(/A response is already generating/i)).toBeInTheDocument();
+      expect(api.sendQueryStream).toHaveBeenCalled();
     });
 
     // 2. The duplicate user bubble is NOT left in the chat

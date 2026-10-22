@@ -69,8 +69,6 @@ describe('ExportModal', () => {
     expect(parsed.messages).toHaveLength(2);
     expect(parsed.messages[0].message).toBe('Is my hemoglobin normal?');
     expect(parsed.lab_metrics[0].test).toBe('Hemoglobin');
-
-    expect(showToast).toHaveBeenCalledWith('success', 'Export Downloaded', expect.any(String));
   });
 
   it('falls back to in-memory messages for general chats without a document', async () => {

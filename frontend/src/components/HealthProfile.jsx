@@ -56,7 +56,6 @@ export default function HealthProfile({
   currentUser,
   onProfileUpdated,
   darkMode = false,
-  showToast,
   activeDependentId = null,
 }) {
   const [facts, setFacts] = useState([]);
@@ -107,7 +106,7 @@ export default function HealthProfile({
       }
     } catch (err) {
       logger.error('Failed to load health facts:', err);
-      if (showToast) showToast('error', 'Failed to load facts', err.message);
+      console.error('Failed to load facts:', err);
     } finally {
       setLoading(false);
     }
@@ -129,9 +128,8 @@ export default function HealthProfile({
       });
       setFacts((prev) => [created, ...prev]);
       setNewText('');
-      if (showToast) showToast('success', 'Fact Added', 'New health fact added to your profile.');
     } catch (err) {
-      if (showToast) showToast('error', 'Add Fact Failed', err.message);
+      console.error('Add Fact Failed:', err);
     } finally {
       setAddingFact(false);
     }
@@ -152,9 +150,8 @@ export default function HealthProfile({
         prev.map((f) => (f.id === factId ? { ...f, fact_text: updated.fact_text || trimmed } : f))
       );
       setEditingFactId(null);
-      if (showToast) showToast('success', 'Fact Updated', 'Health fact updated successfully.');
     } catch (err) {
-      if (showToast) showToast('error', 'Update Failed', err.message);
+      console.error('Update Failed:', err);
     }
   };
 
@@ -162,9 +159,8 @@ export default function HealthProfile({
     try {
       await deleteFact(factId);
       setFacts((prev) => prev.filter((f) => f.id !== factId));
-      if (showToast) showToast('info', 'Fact Removed', 'Health fact has been forgotten.');
     } catch (err) {
-      if (showToast) showToast('error', 'Delete Failed', err.message);
+      console.error('Delete Failed:', err);
     }
   };
 
@@ -175,9 +171,8 @@ export default function HealthProfile({
       };
       const updatedUser = await updateProfile(payload);
       if (onProfileUpdated) onProfileUpdated(updatedUser);
-      if (showToast) showToast('success', 'Profile Updated', 'Lifestyle information saved.');
     } catch (err) {
-      if (showToast) showToast('error', 'Save Failed', err.message);
+      console.error('Save Failed:', err);
     }
   };
 
@@ -197,9 +192,8 @@ export default function HealthProfile({
       const savedText = created.fact_text ?? trimmed;
       setLastSavedWeight(savedText);
       setUserWeight(savedText);
-      if (showToast) showToast('success', 'Weight Recorded', 'Recent weight updated in memory.');
     } catch (err) {
-      if (showToast) showToast('error', 'Weight Save Failed', err.message);
+      console.error('Weight Save Failed:', err);
     }
   };
 

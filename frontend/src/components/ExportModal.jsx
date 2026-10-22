@@ -30,11 +30,11 @@ export default function ExportModal({
   documentTitle,
   messages = [],
   user,
-  showToast,
 }) {
   const modalRef = useRef(null);
   const [busy, setBusy] = useState(null); // null | 'json' | 'pdf'
   const [printData, setPrintData] = useState(null);
+  const [exportError, setExportError] = useState(null);
 
   useFocusTrap(modalRef, isOpen, onClose);
 
@@ -79,9 +79,10 @@ export default function ExportModal({
       anchor.click();
       document.body.removeChild(anchor);
       URL.revokeObjectURL(url);
-      if (showToast) showToast('success', 'Export Downloaded', 'Your chat history JSON has been saved.');
+      setExportError(null);
     } catch (err) {
-      if (showToast) showToast('error', 'Export Failed', err.message || 'Could not prepare the JSON export.');
+      console.error('JSON Export Failed:', err);
+      setExportError(err.message || 'Could not prepare the JSON export.');
     } finally {
       setBusy(null);
     }
@@ -122,7 +123,8 @@ export default function ExportModal({
         }, 150);
       })
       .catch((err) => {
-        if (showToast) showToast('error', 'Export Failed', err.message || 'Could not prepare the PDF export.');
+        console.error('PDF Export Failed:', err);
+        setExportError(err.message || 'Could not prepare the PDF export.');
         setBusy(null);
       });
   };
@@ -163,6 +165,11 @@ export default function ExportModal({
           </div>
 
           <div className="p-5 space-y-3">
+            {exportError && (
+              <div role="alert" className="text-xs text-red-300 bg-red-500/10 border border-red-500/30 rounded-xl px-3 py-2">
+                {exportError}
+              </div>
+            )}
             <p className={`text-xs leading-relaxed ${darkMode ? 'text-zinc-400' : 'text-zinc-500'}`}>
               Export this conversation{documentTitle ? ` for “${documentTitle}”` : ''} — including every message and the extracted lab metrics.
             </p>

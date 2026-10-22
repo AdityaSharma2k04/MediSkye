@@ -158,7 +158,7 @@ describe('Sidebar inline chat rename', () => {
     expect(props.onRenameChat).not.toHaveBeenCalled();
   });
 
-  it('displays accurate toast when renaming a chat without a document', async () => {
+  it('updates sidebar title locally when renaming a chat without a document', async () => {
     localStorage.clear();
     const noDocChat = { id: 'chat-nodoc', title: 'Consultation without report', messages: [] };
     localStorage.setItem('mediskye_session_id', 'chat-nodoc');
@@ -184,9 +184,9 @@ describe('Sidebar inline chat rename', () => {
     fireEvent.change(input, { target: { value: 'Renamed general consultation' } });
     fireEvent.keyDown(input, { key: 'Enter' });
 
-    // Assert the accurate toast appears
+    // Assert the updated title renders in the sidebar
     expect(
-      await screen.findByText('Renamed locally (this chat has no server-side document)')
+      await screen.findByText('Renamed general consultation')
     ).toBeInTheDocument();
   });
 });

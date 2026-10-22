@@ -144,13 +144,12 @@ describe('SettingsModal Account fields & Deletion', () => {
     await waitFor(() => {
       expect(api.updateProfile).toHaveBeenCalledWith({ language_preference: 'Spanish' });
       expect(setLanguage).toHaveBeenCalledWith('Spanish');
-      expect(showToast).toHaveBeenCalledWith('success', 'Changes Saved', expect.any(String));
+      expect(showToast).not.toHaveBeenCalled();
       expect(onProfileUpdated).toHaveBeenCalledWith(expect.objectContaining({ language_preference: 'Spanish' }));
     });
   });
 
-  it('shows error toast when Save Changes fails', async () => {
-    const showToast = vi.fn();
+  it('shows inline error alert when Save Changes fails', async () => {
     api.updateProfile.mockRejectedValueOnce(new Error('Network error'));
 
     render(
@@ -160,7 +159,6 @@ describe('SettingsModal Account fields & Deletion', () => {
         darkMode={false}
         currentUser={mockUser}
         language="English"
-        showToast={showToast}
       />
     );
 
@@ -171,7 +169,7 @@ describe('SettingsModal Account fields & Deletion', () => {
     fireEvent.click(saveBtn);
 
     await waitFor(() => {
-      expect(showToast).toHaveBeenCalledWith('error', 'Update Failed', 'Network error');
+      expect(screen.getByRole('alert')).toHaveTextContent('Network error');
     });
   });
 
@@ -286,7 +284,6 @@ describe('SettingsModal Account fields & Deletion', () => {
       expect(mockCredentialFn).toHaveBeenCalledWith('patient@example.com', 'OldPassword123!');
       expect(mockReauthenticateWithCredential).toHaveBeenCalledWith(mockAuth.currentUser, mockCredential);
       expect(mockUpdatePassword).toHaveBeenCalledWith(mockAuth.currentUser, 'NewPassword123!');
-      expect(showToast).toHaveBeenCalledWith('success', 'Password Changed', expect.any(String));
     });
   });
 
@@ -342,7 +339,7 @@ describe('SettingsModal Account fields & Deletion', () => {
     await waitFor(() => {
       expect(api.updateProfile).toHaveBeenCalledWith({ language_preference: 'Spanish' });
       expect(setLanguage).toHaveBeenCalledWith('Spanish');
-      expect(showToast).toHaveBeenCalledWith('success', 'Changes Saved', expect.any(String));
+      expect(showToast).not.toHaveBeenCalled();
       expect(onProfileUpdated).toHaveBeenCalledWith(expect.objectContaining({ language_preference: 'Spanish' }));
     });
   });

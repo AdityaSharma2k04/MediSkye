@@ -41,6 +41,7 @@ async def process_upload_background(
     dependent_id: Optional[str] = None,
     chat_id: Optional[str] = None,
     client_host: str = "unknown",
+    custom_title: Optional[str] = None,
 ):
     """
     Background worker for PDF extraction, embedding, FAISS indexing, and DB commitment.
@@ -68,11 +69,17 @@ async def process_upload_background(
             dep_uuid = uuid.UUID(dependent_id) if dependent_id else None
 
             # Create Document record in DB with cleaned title and building status
+            from app.core.security import sanitize_text
+            resolved_title = (
+                sanitize_text(custom_title).strip()[:60]
+                if custom_title and custom_title.strip()
+                else clean_filename_to_title(filename)
+            )
             doc = Document(
                 user_id=user_uuid,
                 dependent_id=dep_uuid,
                 filename=filename,
-                title=clean_filename_to_title(filename),
+                title=resolved_title,
                 index_status="building",
             )
             db.add(doc)
@@ -322,6 +329,7 @@ async def upload_file(
     file: UploadFile = File(...),
     patient_id: Optional[str] = Form(None),
     chat_id: Optional[str] = Form(None),
+    title: Optional[str] = Form(None),
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
@@ -368,6 +376,7 @@ async def upload_file(
         dependent_id=dep_id,
         chat_id=chat_id,
         client_host=client_host,
+        custom_title=title,
     )
 
     return UploadJobResponse(

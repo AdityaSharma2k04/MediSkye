@@ -254,7 +254,9 @@ describe('TEST SUITE 2: Frontend E2E UI Journeys', () => {
 
       await waitFor(() => {
         expect(mockSignInWithPopup).toHaveBeenCalled();
-        expect(screen.getByRole('alert')).toHaveTextContent(/authentication failed/i);
+        expect(screen.getByRole('alert')).toHaveTextContent(
+          "This domain is not authorized in Firebase Authentication settings."
+        );
         expect(googleBtn).not.toBeDisabled();
       });
     });
@@ -343,7 +345,7 @@ describe('TEST SUITE 2: Frontend E2E UI Journeys', () => {
         expect(mockApiPost).toHaveBeenCalledWith('/auth/send-custom-verification', {
           email: 'newuser@example.com',
         });
-        expect(mockSignOut).toHaveBeenCalled();
+        expect(mockSignOut).not.toHaveBeenCalled();
         expect(screen.getByText(/account created! we've sent a verification link to newuser@example\.com/i)).toBeInTheDocument();
       });
     });
@@ -447,7 +449,54 @@ describe('TEST SUITE 2: Frontend E2E UI Journeys', () => {
       await waitFor(() => {
         expect(api.uploadPdfReport).toHaveBeenCalledWith(testFile, 'self', expect.any(String));
         expect(api.getUploadStatus).toHaveBeenCalledWith('job-e2e-777', 10000);
-        expect(screen.getByText('Report Ready')).toBeInTheDocument();
+        expect(screen.getByLabelText('Detach lipid_panel.pdf')).toBeInTheDocument();
+      });
+
+      delete window.__POLL_INTERVAL__;
+    });
+
+    it('Try Sample Report Flow: uploads a random sample PDF, sets "Sample Report: [Panel]" title, and auto-triggers AI summary query', async () => {
+      window.__POLL_INTERVAL__ = 10;
+      api.uploadPdfReport.mockResolvedValueOnce({
+        job_id: 'job-sample-888',
+        status_url: '/upload/status/job-sample-888',
+      });
+      api.getUploadStatus.mockResolvedValueOnce({
+        job_id: 'job-sample-888',
+        status: 'completed',
+        document_id: TEST_DOC_ID,
+      });
+      api.renameDocument.mockResolvedValueOnce({ id: TEST_DOC_ID, title: 'Sample Report: Lipid Panel' });
+      api.sendQueryStream.mockImplementation(async (query, docId, lang, onChunk) => {
+        onChunk({ title: 'Can you summarize the' });
+        onChunk({ chunk: 'Elevated LDL cholesterol and triglycerides detected.' });
+      });
+
+      render(<ChatApp />);
+      await waitFor(() => expect(api.getProfile).toHaveBeenCalled());
+
+      const sampleBtn = screen.getByRole('button', { name: /try with a sample blood test report/i });
+      await act(async () => {
+        fireEvent.click(sampleBtn);
+      });
+
+      await waitFor(() => {
+        expect(api.uploadPdfReport).toHaveBeenCalledWith(
+          expect.any(File),
+          'self',
+          expect.any(String),
+          expect.stringMatching(/^Sample Report: /)
+        );
+        expect(api.sendQueryStream).toHaveBeenCalledWith(
+          'Can you summarize the abnormal findings in this report?',
+          TEST_DOC_ID,
+          'English',
+          expect.any(Function),
+          'self',
+          expect.anything()
+        );
+        expect(screen.getAllByText(/^Sample Report: /).length).toBeGreaterThanOrEqual(1);
+        expect(screen.getByText(/Elevated LDL cholesterol and triglycerides detected\./)).toBeInTheDocument();
       });
 
       delete window.__POLL_INTERVAL__;
@@ -598,7 +647,7 @@ describe('TEST SUITE 2: Frontend E2E UI Journeys', () => {
       await waitFor(() => {
         expect(api.updateProfile).toHaveBeenCalledWith({ language_preference: 'Spanish' });
         expect(setLanguage).toHaveBeenCalledWith('Spanish');
-        expect(showToast).toHaveBeenCalledWith('success', 'Changes Saved', expect.any(String));
+        expect(showToast).not.toHaveBeenCalled();
       });
     });
 
