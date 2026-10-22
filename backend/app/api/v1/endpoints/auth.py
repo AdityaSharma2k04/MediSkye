@@ -89,8 +89,11 @@ async def logout(token: str = Depends(oauth2_scheme)):
     Logout the user by adding their JWT to the Redis blocklist.
     """
     import jwt
-    from app.core.auth import SECRET_KEY, ALGORITHM
+    from app.core.auth import SECRET_KEY, ALGORITHM, evict_token_cache_by_token
     from app.core.redis_client import redis_client
+    # Drop the 60s auth-cache entry first so the revoked token cannot be served
+    # from memory (cache hits skip the Redis blocklist check by design).
+    evict_token_cache_by_token(token)
     try:
         payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
         jti = payload.get("jti")
