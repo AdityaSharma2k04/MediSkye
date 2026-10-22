@@ -90,4 +90,13 @@ def reset_gemini_cooldown_each_test():
     import app.llm.gemini_client as gc
     gc._llm_dead_until = 0.0
     yield
-    gc._llm_dead_until = 0.0
+    gc._llm_dead_until = 0.0
+
+
+@pytest.fixture(autouse=True)
+def reset_token_cache_each_test():
+    """Ensure in-memory auth token cache does not leak across test cases."""
+    from app.core.auth import clear_token_cache
+    clear_token_cache()
+    yield
+    clear_token_cache()

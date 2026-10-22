@@ -22,7 +22,7 @@ def get_bm25_path(index_path: str | Path) -> Path:
     return p.parent / f"{p.stem}_bm25.pkl"
 
 
-def save_index_artifacts(file_path: str | Path) -> None:
+def save_index_artifacts(file_path: str | Path, raise_on_error: bool = False) -> bool:
     """
     Sync local FAISS and BM25 index artifacts to Google Cloud Storage (GCS).
     If GCS_INDEX_BUCKET is not configured, no remote sync is performed.
@@ -30,12 +30,14 @@ def save_index_artifacts(file_path: str | Path) -> None:
     bucket_name = settings.GCS_INDEX_BUCKET
     if not bucket_name:
         logger.debug("GCS_INDEX_BUCKET not set; skipping GCS upload for %s", file_path)
-        return
+        return True
 
     local_path = Path(file_path)
     if not local_path.exists():
         logger.warning("Local index directory %s does not exist; cannot upload to GCS", file_path)
-        return
+        if raise_on_error:
+            raise FileNotFoundError(f"Local index directory {file_path} does not exist")
+        return False
 
     try:
         client = _get_storage_client()
@@ -64,13 +66,52 @@ def save_index_artifacts(file_path: str | Path) -> None:
             logger.debug("Uploaded BM25 file %s to gs://%s/%s", bm25_file.name, bucket_name, bm25_blob_name)
 
         logger.info("Successfully persisted index artifacts to gs://%s for %s", bucket_name, local_path.name)
+        return True
     except Exception as exc:
         logger.error("Failed to upload index artifacts to GCS: %s", exc, exc_info=True)
+        if raise_on_error:
+            raise
+        return False
 
 
-async def asave_index_artifacts(file_path: str | Path) -> None:
+async def asave_index_artifacts(file_path: str | Path, raise_on_error: bool = False) -> bool:
     """Asynchronously sync local index artifacts to GCS."""
-    await asyncio.to_thread(save_index_artifacts, file_path)
+    return await asyncio.to_thread(save_index_artifacts, file_path, raise_on_error)
+
+
+async def asave_index_artifacts_with_retry(
+    file_path: str | Path,
+    max_attempts: int = 3,
+    initial_delay: float = 0.5,
+    max_retries: Optional[int] = None,
+) -> bool:
+    """
+    Asynchronously upload index artifacts to GCS with exponential backoff retry.
+    Returns True on success (or if GCS is not enabled), False if all attempts fail.
+    """
+    if max_retries is not None:
+        max_attempts = max_retries
+    bucket_name = settings.GCS_INDEX_BUCKET
+    if not bucket_name:
+        return True
+
+    delay = initial_delay
+    for attempt in range(1, max_attempts + 1):
+        try:
+            await asave_index_artifacts(file_path, raise_on_error=True)
+            return True
+        except Exception as exc:
+            logger.warning(
+                "GCS index sync attempt %d/%d failed for %s: %s",
+                attempt,
+                max_attempts,
+                file_path,
+                exc,
+            )
+            if attempt < max_attempts:
+                await asyncio.sleep(delay)
+                delay *= 2
+    return False
 
 
 def ensure_index_local(file_path: str | Path) -> Path:

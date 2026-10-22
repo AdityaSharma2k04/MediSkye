@@ -88,11 +88,18 @@ class ResilientGeminiEmbeddings(Embeddings):
                 )
 
             # Concurrent fallback with rate limiting if batch fails or returns unexpected format
-            sem = asyncio.Semaphore(3)
+            embed_concurrency = min(max(int(os.getenv("EMBED_CONCURRENCY", "4")), 1), 6)
+            sem = asyncio.Semaphore(embed_concurrency)
 
             async def _embed_safe(t: str) -> list[float]:
                 async with sem:
-                    return await self.aembed_query(t)
+                    try:
+                        return await self.aembed_query(t)
+                    except Exception as query_err:
+                        err_str = str(query_err)
+                        if "429" in err_str or "ResourceExhausted" in err_str or "quota" in err_str.lower():
+                            logger.warning("Embedding API throttle/429 event encountered: %s", query_err)
+                        raise
 
             batch_results = await asyncio.gather(*[_embed_safe(t) for t in batch])
             all_embeddings.extend(batch_results)

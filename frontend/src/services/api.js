@@ -263,7 +263,7 @@ export async function sendQueryStream(queryText, documentId, language = 'English
     payload.patient_id = patientId;
   }
 
-  const res = await apiFetch(`${API_BASE}/query`, {
+  let res = await apiFetch(`${API_BASE}/query`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
@@ -271,6 +271,24 @@ export async function sendQueryStream(queryText, documentId, language = 'English
     body: JSON.stringify(payload),
     signal,
   }, 180000);
+
+  // Transparent retry for 503 Service Unavailable / 425 Too Early / 429 Too Many Requests
+  if ((res.status === 503 || res.status === 425 || res.status === 429) && !signal?.aborted) {
+    const retryAfter = parseInt(res.headers?.get?.('Retry-After') || '2', 10);
+    const waitMs = Math.max(isNaN(retryAfter) ? 2 : retryAfter, 2) * 1000;
+    logger.info(`Received ${res.status} from /query. Transparent retry after ${waitMs}ms...`);
+    await new Promise((resolve) => setTimeout(resolve, waitMs));
+    if (!signal?.aborted) {
+      res = await apiFetch(`${API_BASE}/query`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(payload),
+        signal,
+      }, 180000);
+    }
+  }
 
   if (!res.ok) {
     let errorDetail = 'Server error while querying MediSkye.';
@@ -369,12 +387,27 @@ export async function fetchLabMetrics(documentId, forceRefresh = false) {
 
 export async function getDocumentSummary(documentId, forceRefresh = false) {
   const query = forceRefresh ? '?force_refresh=true' : '';
-  const res = await apiFetch(`${API_BASE}/users/me/documents/${documentId}/summary${query}`, {
+  let res = await apiFetch(`${API_BASE}/users/me/documents/${documentId}/summary${query}`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
     },
   }, 60000);
+
+  // Transparent retry for 503 / 425 / 429 with Retry-After honoring
+  if (res.status === 503 || res.status === 425 || res.status === 429) {
+    const retryAfter = parseInt(res.headers?.get?.('Retry-After') || '2', 10);
+    const waitMs = Math.max(isNaN(retryAfter) ? 2 : retryAfter, 2) * 1000;
+    logger.info(`Received ${res.status} from summary. Transparent retry after ${waitMs}ms...`);
+    await new Promise((resolve) => setTimeout(resolve, waitMs));
+    res = await apiFetch(`${API_BASE}/users/me/documents/${documentId}/summary${query}`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+    }, 60000);
+  }
+
   const data = await res.json().catch(() => ({}));
   if (!res.ok) {
     throw new Error(data.detail || 'Failed to fetch document summary');
@@ -471,6 +504,9 @@ export async function deleteAccount() {
     throw new Error('Failed to delete account');
   }
   localStorage.removeItem('token');
+  if (auth && typeof signOut === 'function') {
+    await signOut(auth);
+  }
 }
 
 export async function getDependents() {

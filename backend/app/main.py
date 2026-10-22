@@ -1,6 +1,7 @@
+import time
 from contextlib import asynccontextmanager
 from pathlib import Path
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from slowapi import _rate_limit_exceeded_handler
@@ -17,6 +18,8 @@ from app.middleware.security_headers import SecurityHeadersMiddleware
 from app.middleware.body_limit import BodySizeLimitMiddleware
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
+from app.core.observability import init_sentry
+init_sentry()
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -86,6 +89,11 @@ async def lifespan(app: FastAPI):
                         sync_conn.execute(text("ALTER TABLE documents ADD COLUMN IF NOT EXISTS cached_summary TEXT"))
                     else:
                         sync_conn.execute(text("ALTER TABLE documents ADD COLUMN cached_summary TEXT"))
+                if "index_status" not in existing_cols:
+                    if dialect == "postgresql":
+                        sync_conn.execute(text("ALTER TABLE documents ADD COLUMN IF NOT EXISTS index_status VARCHAR(20) DEFAULT 'building' NOT NULL"))
+                    else:
+                        sync_conn.execute(text("ALTER TABLE documents ADD COLUMN index_status VARCHAR(20) DEFAULT 'building' NOT NULL"))
 
         await conn.run_sync(_ensure_document_cache_columns)
 
@@ -104,6 +112,15 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
+# Process Time Middleware (X-Process-Time-Ms)
+@app.middleware("http")
+async def add_process_time_header(request: Request, call_next):
+    start_time = time.perf_counter()
+    response = await call_next(request)
+    process_time_ms = (time.perf_counter() - start_time) * 1000.0
+    response.headers["X-Process-Time-Ms"] = f"{process_time_ms:.2f}"
+    return response
+
 # Rate Limiter Configuration
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
@@ -118,7 +135,7 @@ app.add_middleware(RequestIDMiddleware)
 app.add_middleware(SecurityHeadersMiddleware)
 app.add_middleware(SlowAPIMiddleware)
 
-# CORS Configuration
+# CORS Configuration with Amortized Preflight Max-Age
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.ALLOWED_ORIGINS,
@@ -126,6 +143,8 @@ app.add_middleware(
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
+    max_age=3600,
+    expose_headers=["*", "X-Process-Time-Ms"],
 )
 
 # API Router

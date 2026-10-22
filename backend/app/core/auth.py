@@ -1,14 +1,19 @@
 import uuid
 import secrets
 import logging
+import hashlib
+import time
+from collections import OrderedDict
+import threading
 from datetime import datetime, timedelta, UTC
-from typing import Optional
+from typing import Optional, Any, Union
 import jwt
 from passlib.context import CryptContext
+from pydantic import BaseModel, ConfigDict
 from fastapi import Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordBearer
 from sqlalchemy import func
-from sqlalchemy.exc import IntegrityError
+from sqlalchemy.exc import IntegrityError, InvalidRequestError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 
@@ -24,6 +29,91 @@ ACCESS_TOKEN_EXPIRE_MINUTES = 15  # TODO: implement refresh tokens (Phase 3) for
 
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/login")
+
+
+class UserDTO(BaseModel):
+    """
+    Lightweight Pydantic DTO returned on the high-throughput auth hot path.
+    Prevents unnecessary ORM queries and lazy loading in async SQLAlchemy.
+    """
+    id: uuid.UUID
+    email: str
+    email_verified: bool = True
+    language_preference: Optional[str] = "English"
+    phi_consent_granted: bool = False
+    memory_consent_granted: bool = False
+    full_name: Optional[str] = None
+    date_of_birth: Optional[Any] = None
+    biological_sex: Optional[str] = None
+    pre_existing_conditions: Optional[str] = None
+    current_medications: Optional[str] = None
+
+    model_config = ConfigDict(from_attributes=True, arbitrary_types_allowed=True)
+
+    @property
+    def health_profile(self):
+        raise InvalidRequestError("'User.health_profile' is set to lazy='raise', unable to load attribute for instance. Use get_current_user_full.")
+
+
+# In-Memory Token Hash TTL Cache (60s TTL, maxsize=1024)
+_TOKEN_CACHE_LOCK = threading.Lock()
+_TOKEN_CACHE: OrderedDict[str, dict] = OrderedDict()
+TOKEN_CACHE_TTL_SECONDS = 60.0
+TOKEN_CACHE_MAX_SIZE = 1024
+
+
+def _hash_token(token: str) -> str:
+    return hashlib.sha256(token.encode("utf-8")).hexdigest()
+
+
+def get_cached_user_dto(token: str) -> Optional[UserDTO]:
+    key = _hash_token(token)
+    now = time.time()
+    with _TOKEN_CACHE_LOCK:
+        entry = _TOKEN_CACHE.get(key)
+        if not entry:
+            return None
+        if entry["expires_at"] <= now:
+            _TOKEN_CACHE.pop(key, None)
+            return None
+        _TOKEN_CACHE.move_to_end(key)
+        return entry["dto"]
+
+
+def cache_user_dto(token: str, dto: UserDTO) -> None:
+    key = _hash_token(token)
+    expires_at = time.time() + TOKEN_CACHE_TTL_SECONDS
+    with _TOKEN_CACHE_LOCK:
+        if len(_TOKEN_CACHE) >= TOKEN_CACHE_MAX_SIZE:
+            _TOKEN_CACHE.popitem(last=False)
+        _TOKEN_CACHE[key] = {
+            "dto": dto,
+            "user_id": str(dto.id),
+            "expires_at": expires_at,
+        }
+
+
+def evict_token_cache_for_user(user_id: Any) -> int:
+    """Explicitly evict cached tokens for a user_id."""
+    uid_str = str(user_id)
+    with _TOKEN_CACHE_LOCK:
+        keys_to_evict = [k for k, v in _TOKEN_CACHE.items() if v.get("user_id") == uid_str]
+        for k in keys_to_evict:
+            _TOKEN_CACHE.pop(k, None)
+    return len(keys_to_evict)
+
+
+def evict_token_cache_by_token(token: str) -> None:
+    key = _hash_token(token)
+    with _TOKEN_CACHE_LOCK:
+        _TOKEN_CACHE.pop(key, None)
+
+
+def clear_token_cache() -> None:
+    """Clear all entries in token cache (useful for test resets)."""
+    with _TOKEN_CACHE_LOCK:
+        _TOKEN_CACHE.clear()
+
 
 def verify_password(plain_password: str, hashed_password: str) -> bool:
     plain_bytes = plain_password.encode("utf-8")[:72]
@@ -47,8 +137,6 @@ def get_password_hash(password: str) -> str:
 def create_access_token(data: dict, expires_delta: Optional[timedelta] = None):
     to_encode = data.copy()
     now = datetime.now(UTC)
-    # Default to the configured lifetime (7 days) instead of an unconfigured
-    # 15-minute value that was logging users out mid-session.
     lifetime = expires_delta if expires_delta is not None else timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
     expire = now + lifetime
     to_encode.update({
@@ -103,13 +191,8 @@ async def _resolve_firebase_user(decoded_token: dict, db: AsyncSession) -> Optio
         return user
     return None
 
-async def get_current_user(token: str = Depends(oauth2_scheme), db: AsyncSession = Depends(get_db)):
-    credentials_exception = HTTPException(
-        status_code=status.HTTP_401_UNAUTHORIZED,
-        detail="Could not validate credentials",
-        headers={"WWW-Authenticate": "Bearer"},
-    )
 
+async def _resolve_user_full(token: str, db: AsyncSession) -> Optional[User]:
     decoded_token = None
 
     # 1. Attempt Firebase ID token verification first via firebase_admin
@@ -127,13 +210,15 @@ async def get_current_user(token: str = Depends(oauth2_scheme), db: AsyncSession
                     pass
 
         if firebase_admin._apps:
-            decoded_token = fb_auth.verify_id_token(token)
+            try:
+                decoded_token = fb_auth.verify_id_token(token, check_revoked=True)
+            except TypeError:
+                decoded_token = fb_auth.verify_id_token(token)
     except Exception as e:
         logger.debug("Firebase Admin SDK verification deferred: %s", e)
         decoded_token = None
 
     # 1b. Fallback: Verify Firebase RS256 token using Google's public JWKS certificates directly
-    # This prevents 'cannot fetch credentials' or metadata server failures from blocking users when ADC is absent.
     if not decoded_token:
         try:
             unverified_header = jwt.get_unverified_header(token)
@@ -174,9 +259,7 @@ async def get_current_user(token: str = Depends(oauth2_scheme), db: AsyncSession
             )
 
         user = await _resolve_firebase_user(decoded_token, db)
-        if user:
-            return user
-        raise credentials_exception
+        return user
 
     # 2. Local JWT decode fallback logic
     try:
@@ -184,14 +267,14 @@ async def get_current_user(token: str = Depends(oauth2_scheme), db: AsyncSession
         email: str = payload.get("sub")
         jti: str = payload.get("jti")
         if email is None or jti is None:
-            raise credentials_exception
+            return None
     except jwt.InvalidTokenError:
-        raise credentials_exception
-    
+        return None
+
     # Check if token is in Redis blocklist
     is_blocked = await redis_client.get(f"blocked_token:{jti}")
     if is_blocked:
-        raise credentials_exception
+        return None
 
     # Check if user signed out of all devices
     revoked_at = await redis_client.get(f"user_revoked_at:{email}")
@@ -199,15 +282,98 @@ async def get_current_user(token: str = Depends(oauth2_scheme), db: AsyncSession
         iat = payload.get("iat")
         try:
             if iat is None or float(iat) <= float(revoked_at):
-                raise credentials_exception
+                return None
         except (ValueError, TypeError):
-            raise credentials_exception
-    
+            return None
+
     result = await db.execute(select(User).filter(User.email == email))
     user = result.scalars().first()
-    if user is None:
+    return user
+
+
+async def get_current_user_full(
+    token: str = Depends(oauth2_scheme),
+    db: AsyncSession = Depends(get_db)
+) -> User:
+    """
+    Dedicated dependency for PHI-reading/mutating endpoints.
+    Explicitly loads the full ORM User row with perf instrumentation and sets _phi_loaded=True.
+    """
+    credentials_exception = HTTPException(
+        status_code=status.HTTP_401_UNAUTHORIZED,
+        detail="Could not validate credentials",
+        headers={"WWW-Authenticate": "Bearer"},
+    )
+    t0 = time.perf_counter()
+    user = await _resolve_user_full(token, db)
+    fetch_ms = (time.perf_counter() - t0) * 1000.0
+    if not user:
         raise credentials_exception
+
+    logger.info("AUTH_PERF: get_current_user_full ORM fetch took %.2fms for user=%s", fetch_ms, user.id)
+    user._phi_loaded = True
+
+    # Warm token cache with lightweight DTO
+    dto = UserDTO(
+        id=user.id,
+        email=user.email,
+        email_verified=True,
+        language_preference=user.language_preference,
+        phi_consent_granted=bool(user.phi_consent_granted),
+        memory_consent_granted=bool(user.memory_consent_granted),
+        full_name=user.full_name,
+        date_of_birth=user.date_of_birth,
+        biological_sex=user.biological_sex,
+        pre_existing_conditions=user.pre_existing_conditions,
+        current_medications=user.current_medications,
+    )
+    cache_user_dto(token, dto)
+
     from app.core.logging import user_id_var
     user_id_var.set(str(user.id))
     return user
+
+
+async def get_current_user(
+    token: str = Depends(oauth2_scheme),
+    db: AsyncSession = Depends(get_db)
+) -> UserDTO:
+    """
+    High-performance dependency returning a lightweight Pydantic UserDTO.
+    Uses in-memory 60s TTL cache to eliminate DB queries on the hot path.
+    """
+    cached_dto = get_cached_user_dto(token)
+    if cached_dto is not None:
+        from app.core.logging import user_id_var
+        user_id_var.set(str(cached_dto.id))
+        return cached_dto
+
+    credentials_exception = HTTPException(
+        status_code=status.HTTP_401_UNAUTHORIZED,
+        detail="Could not validate credentials",
+        headers={"WWW-Authenticate": "Bearer"},
+    )
+    user = await _resolve_user_full(token, db)
+    if not user:
+        raise credentials_exception
+
+    dto = UserDTO(
+        id=user.id,
+        email=user.email,
+        email_verified=True,
+        language_preference=user.language_preference,
+        phi_consent_granted=bool(user.phi_consent_granted),
+        memory_consent_granted=bool(user.memory_consent_granted),
+        full_name=user.full_name,
+        date_of_birth=user.date_of_birth,
+        biological_sex=user.biological_sex,
+        pre_existing_conditions=user.pre_existing_conditions,
+        current_medications=user.current_medications,
+    )
+    cache_user_dto(token, dto)
+
+    from app.core.logging import user_id_var
+    user_id_var.set(str(dto.id))
+    return dto
+
 

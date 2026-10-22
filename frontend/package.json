@@ -11,6 +11,7 @@
     "test:watch": "vitest"
   },
   "dependencies": {
+    "@sentry/react": "^11.8.0",
     "firebase": "^11.4.0",
     "i18next": "^26.5.3",
     "i18next-browser-languagedetector": "^8.2.1",
@@ -23,6 +24,7 @@
     "remark-gfm": "^4.0.1"
   },
   "devDependencies": {
+    "@sentry/vite-plugin": "^11.8.0",
     "@tailwindcss/typography": "^0.5.20",
     "@testing-library/jest-dom": "^7.0.1",
     "@testing-library/react": "^16.3.3",
