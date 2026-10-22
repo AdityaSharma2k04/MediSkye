@@ -191,7 +191,7 @@ export default function Login() {
       {/* Subtle background glow */}
       <div className="login-bg-glow" />
 
-      <div className="login-card">
+      <div className="login-card bg-[#0e131b] border border-white/[0.08]">
         {/* Logo */}
         <div className="login-logo">
           <div className="login-logo-icon">
@@ -309,7 +309,7 @@ export default function Login() {
               </div>
             )}
 
-            <button type="submit" className="login-btn-primary">
+            <button type="submit" className="login-btn-primary bg-cyan-500 hover:bg-cyan-400 text-slate-950 font-semibold transition">
               {t('auth.continue', 'Continue')}
             </button>
           </form>
@@ -368,7 +368,7 @@ export default function Login() {
               </div>
             )}
 
-            <button type="submit" className="login-btn-primary" disabled={loading}>
+            <button type="submit" className="login-btn-primary bg-cyan-500 hover:bg-cyan-400 text-slate-950 font-semibold transition" disabled={loading}>
               {loading ? (
                 <span className="login-spinner" />
               ) : (

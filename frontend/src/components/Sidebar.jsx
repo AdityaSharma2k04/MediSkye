@@ -126,14 +126,14 @@ export default function Sidebar({
       <aside
         className={`w-72 md:w-64 h-full flex flex-col border-r ${
           darkMode
-            ? 'bg-zinc-950 border-zinc-800/80'
+            ? 'bg-[#07090e] border-white/[0.07]'
             : 'bg-white border-zinc-200'
         }`}
       >
-        <div className={`p-4 flex items-center justify-between border-b ${darkMode ? 'border-zinc-800/80' : 'border-zinc-200'}`}>
+        <div className={`p-4 flex items-center justify-between border-b ${darkMode ? 'border-white/[0.07]' : 'border-zinc-200'}`}>
           {isOpen ? (
             <div className="flex items-center gap-2.5">
-              <div className={`w-7 h-7 rounded-xl flex items-center justify-center font-bold text-xs ${darkMode ? 'bg-zinc-100 text-black' : 'bg-zinc-900 text-white'}`}>
+              <div className={`w-7 h-7 rounded-xl flex items-center justify-center font-bold text-xs ${darkMode ? 'bg-cyan-500 text-slate-950' : 'bg-zinc-900 text-white'}`}>
                 <Activity className="w-3.5 h-3.5" />
               </div>
               <div>
@@ -157,7 +157,7 @@ export default function Sidebar({
               onClick={onNewChat}
               className={`w-full flex items-center justify-center gap-2 py-2 px-3.5 rounded-xl font-medium text-xs transition-all duration-150 active:scale-[0.98] ${
                 darkMode
-                  ? 'bg-zinc-100 hover:bg-zinc-200 text-black'
+                  ? 'bg-cyan-500 hover:bg-cyan-400 text-slate-950 font-semibold'
                   : 'bg-zinc-900 hover:bg-zinc-800 text-white'
               }`}
             >

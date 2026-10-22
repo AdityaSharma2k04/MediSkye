@@ -116,6 +116,11 @@ async def test_cached_token_for_deleted_user_is_rejected():
             await session.delete(user)
             await session.commit()
 
-        res = await ac.get("/users/me", headers=headers)
+        # Mutating PHI endpoint (get_current_user_full) checks DB row existence and evicts stale cache
+        res = await ac.put("/users/me", json={"full_name": "Ghost"}, headers=headers)
         assert res.status_code == 401
         assert get_cached_user_dto(token) is None
+
+        # Subsequent GET /users/me also returns 401 now that the token is evicted
+        res_get = await ac.get("/users/me", headers=headers)
+        assert res_get.status_code == 401

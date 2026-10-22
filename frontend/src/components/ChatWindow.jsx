@@ -1,7 +1,7 @@
 import React, { useRef, useEffect, useState } from 'react';
 import {
   Stethoscope, ArrowDown, Upload, FileText, Sparkles, Shield,
-  Printer, Table, MessageSquare, AlertCircle, Sun, Moon, X, Download,
+  Printer, Table, MessageSquare, AlertCircle, X, Download,
   ChevronLeft, ChevronRight, Activity, HelpCircle
 } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
@@ -187,9 +187,9 @@ export default function ChatWindow({
   const sampleQueries = activePdf ? loadedStateSuggestions : emptyStateSuggestions;
 
   // Shared color helpers
-  const cardBg = darkMode ? 'bg-[#121212]' : 'bg-white';
-  const cardBorder = darkMode ? 'border-zinc-800' : 'border-zinc-200';
-  const headerBg = darkMode ? 'bg-zinc-950' : 'bg-white';
+  const cardBg = darkMode ? 'bg-[#0e131b]' : 'bg-white';
+  const cardBorder = darkMode ? 'border-white/[0.08]' : 'border-zinc-200';
+  const headerBg = darkMode ? 'bg-[#07090e]' : 'bg-white';
   const textPrimary = darkMode ? 'text-white' : 'text-zinc-900';
   const textSecondary = darkMode ? 'text-zinc-400' : 'text-zinc-500';
   const textMuted = darkMode ? 'text-zinc-500' : 'text-zinc-400';
@@ -202,110 +202,74 @@ export default function ChatWindow({
 
   return (
     <div className={`flex-1 flex flex-col h-full overflow-hidden relative transition-colors duration-200 ${
-      darkMode ? 'bg-zinc-950 text-zinc-50' : 'bg-zinc-50 text-zinc-900'
+      darkMode ? 'bg-[#07090e] text-slate-100' : 'bg-zinc-50 text-zinc-900'
     }`}>
-      {/* Header */}
-      <header className={`h-14 px-4 flex items-center justify-between border-b z-10 transition-colors duration-200 ${
-        darkMode ? 'bg-[#0e0e11] border-white/5' : 'bg-white border-zinc-200'
-      }`}>
-        <div className="flex items-center gap-2.5 sm:gap-3 min-w-0">
+      {/* Header — non-overlapping flex bar (left group shrinks, right group never does) */}
+      <header className="h-14 px-3 md:px-5 flex items-center justify-between gap-2 bg-[#07090e]/95 border-b border-white/[0.07] z-10">
+        <div className="flex items-center gap-2 min-w-0 flex-1">
           {toggleSidebar && (
             <button
               onClick={toggleSidebar}
               aria-label="Toggle sidebar"
-              className={`p-2 rounded-lg transition-colors ${
-                darkMode
-                  ? 'text-zinc-400 hover:text-white hover:bg-zinc-800/80'
-                  : 'text-zinc-600 hover:text-zinc-900 hover:bg-zinc-100'
-              }`}
+              className="p-2 rounded-lg shrink-0 text-slate-400 hover:text-white hover:bg-white/[0.06] transition-colors"
             >
               {sidebarOpen ? <ChevronLeft className="w-4 h-4" /> : <ChevronRight className="w-4 h-4" />}
             </button>
           )}
 
-          {/* Brand title on single line */}
-          <span className={`text-base font-semibold tracking-tight whitespace-nowrap ${
-            darkMode ? 'text-white' : 'text-zinc-900'
-          }`}>
+          {/* Brand title — desktop only so mobile has room for the patient pill + actions */}
+          <span className="hidden sm:block text-base font-semibold tracking-tight whitespace-nowrap text-white shrink-0">
             MediSkye
           </span>
 
-          {/* Subtle Patient Context Selector right next to MediSkye */}
+          {/* Patient Context Selector — truncates instead of pushing into the actions */}
           {currentUser && (
-            <PatientContextSelector
-              currentUser={currentUser}
-              dependents={dependents}
-              selectedPatientId={selectedPatientId}
-              onSelectPatient={onSelectPatient}
-              onOpenDependents={onOpenDependents}
-              darkMode={darkMode}
-              hideLabel={true}
-            />
+            <div className="min-w-0 max-w-[130px] sm:max-w-[200px] overflow-hidden [&_span]:truncate [&_button]:max-w-full [&_button]:min-w-0">
+              <PatientContextSelector
+                currentUser={currentUser}
+                dependents={dependents}
+                selectedPatientId={selectedPatientId}
+                onSelectPatient={onSelectPatient}
+                onOpenDependents={onOpenDependents}
+                darkMode={darkMode}
+                hideLabel={true}
+              />
+            </div>
           )}
         </div>
 
-        <div className="flex items-center gap-1.5 sm:gap-2">
-          {/* Export Printable Doctor Summary when active report is present */}
+        <div className="flex items-center gap-1.5 sm:gap-2 shrink-0 ml-auto">
+          {/* Print Doctor Summary when an active report is present */}
           {activePdf && (
             <button
               onClick={handlePrintDoctorSummary}
               disabled={isExporting}
               aria-label="Export Summary"
-              className={`p-2 rounded-lg text-xs flex items-center gap-1.5 transition-colors border ${
-                isExporting ? 'opacity-70 cursor-not-allowed ' : ''
-              }${
-                darkMode
-                  ? 'bg-zinc-900 hover:bg-zinc-800 text-zinc-300 border-zinc-800 hover:text-white'
-                  : 'bg-white hover:bg-zinc-50 text-zinc-700 border-zinc-200'
+              className={`w-9 h-9 rounded-xl bg-[#111621] border border-white/10 text-slate-200 hover:text-cyan-400 hover:border-cyan-500/40 flex items-center justify-center shrink-0 transition-colors ${
+                isExporting ? 'opacity-70 cursor-not-allowed' : ''
               }`}
-              title="Export 1-Click Printable Doctor Consultation Summary"
+              title={isExporting ? t('chat.preparing_summary', 'Preparing Summary...') : 'Export 1-Click Printable Doctor Consultation Summary'}
             >
-              <Printer className="w-4 h-4" />
-              <span className="hidden lg:inline">
-                {isExporting ? t('chat.preparing_summary', 'Preparing Summary...') : t('chat.export_summary', 'Export Summary')}
-              </span>
+              <Printer className={`w-4 h-4 ${isExporting ? 'animate-pulse' : ''}`} />
             </button>
           )}
 
-          {/* Export Chat Data */}
+          {/* Download / Share Chat */}
           {onOpenExport && (
             <button
               onClick={onOpenExport}
               aria-label="Export chat data"
-              className={`p-2 rounded-lg transition-colors border ${
-                darkMode
-                  ? 'bg-zinc-900 hover:bg-zinc-800 text-zinc-300 border-zinc-800 hover:text-white'
-                  : 'bg-white hover:bg-zinc-50 text-zinc-700 border-zinc-200'
-              }`}
+              className="w-9 h-9 rounded-xl bg-[#111621] border border-white/10 text-slate-200 hover:text-cyan-400 hover:border-cyan-500/40 flex items-center justify-center shrink-0 transition-colors"
               title="Export full chat transcript and lab metrics (PDF or JSON)"
             >
               <Download className="w-4 h-4" />
             </button>
           )}
 
-          {/* Theme toggle */}
-          {setDarkMode && (
-            <button
-              onClick={() => setDarkMode(!darkMode)}
-              aria-label={darkMode ? 'Switch to light theme' : 'Switch to dark theme'}
-              className={`p-2 rounded-lg transition-colors ${
-                darkMode
-                  ? 'text-zinc-400 hover:text-white hover:bg-zinc-800'
-                  : 'text-zinc-500 hover:text-zinc-900 hover:bg-zinc-100'
-              }`}
-            >
-              {darkMode ? <Sun className="w-4 h-4" /> : <Moon className="w-4 h-4" />}
-            </button>
-          )}
-
           {/* User Avatar Circle */}
           {currentUser && (
             <div
-              className={`w-8 h-8 rounded-full flex items-center justify-center font-medium text-xs border ${
-                darkMode
-                  ? 'bg-zinc-800 text-zinc-200 border-white/10'
-                  : 'bg-zinc-200 text-zinc-800 border-zinc-300'
-              }`}
+              className="w-8 h-8 rounded-full shrink-0 flex items-center justify-center font-semibold text-xs border bg-cyan-500/15 text-cyan-300 border-cyan-500/30"
               title={currentUser.email || currentUser.full_name}
             >
               {currentUser.full_name
@@ -365,7 +329,7 @@ export default function ChatWindow({
                 onClick={onOpenUpload}
                 className={`inline-flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-medium border transition-all active:scale-[0.97] ${
                   darkMode
-                    ? 'bg-white text-black border-zinc-700 hover:bg-zinc-200'
+                    ? 'bg-cyan-500 hover:bg-cyan-400 text-slate-950 font-semibold border-cyan-400/40 transition'
                     : 'bg-zinc-900 text-white border-zinc-800 hover:bg-zinc-700'
                 }`}
               >
@@ -476,7 +440,7 @@ export default function ChatWindow({
         <div className="w-full max-w-3xl mx-auto px-4 md:px-6 flex justify-center pb-2 shrink-0 z-10 pointer-events-none">
           <div className={`pointer-events-auto mx-auto mb-2.5 flex items-center rounded-full p-1 border shadow-md w-fit backdrop-blur-md transition-colors ${
             darkMode
-              ? 'bg-zinc-900/90 border-white/10'
+              ? 'bg-[#0e131b]/90 border-white/[0.08]'
               : 'bg-white/95 border-zinc-200 shadow-sm'
           }`}>
             <button
@@ -485,10 +449,10 @@ export default function ChatWindow({
               className={`px-4 py-1 rounded-full text-xs font-medium transition-all flex items-center gap-1.5 ${
                 viewMode === 'chat'
                   ? darkMode
-                    ? 'bg-zinc-700/80 text-white shadow-xs'
+                    ? 'bg-cyan-500/15 text-cyan-300 border border-cyan-500/30'
                     : 'bg-zinc-900 text-white shadow-xs'
                   : darkMode
-                    ? 'text-zinc-400 hover:text-zinc-200'
+                    ? 'text-slate-400 hover:text-slate-200 border border-transparent'
                     : 'text-zinc-600 hover:text-zinc-900'
               }`}
             >
@@ -501,10 +465,10 @@ export default function ChatWindow({
               className={`px-4 py-1 rounded-full text-xs font-medium transition-all flex items-center gap-1.5 ${
                 viewMode === 'metrics'
                   ? darkMode
-                    ? 'bg-zinc-700/80 text-white shadow-xs'
+                    ? 'bg-cyan-500/15 text-cyan-300 border border-cyan-500/30'
                     : 'bg-zinc-900 text-white shadow-xs'
                   : darkMode
-                    ? 'text-zinc-400 hover:text-zinc-200'
+                    ? 'text-slate-400 hover:text-slate-200 border border-transparent'
                     : 'text-zinc-600 hover:text-zinc-900'
               }`}
             >

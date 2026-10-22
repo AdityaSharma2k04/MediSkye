@@ -210,7 +210,7 @@ export default function Register() {
       {/* Subtle background glow */}
       <div className="login-bg-glow" />
 
-      <div className="login-card">
+      <div className="login-card bg-[#0e131b] border border-white/[0.08]">
         {/* Logo */}
         <div className="login-logo">
           <div className="login-logo-icon">
@@ -266,7 +266,7 @@ export default function Register() {
               type="button"
               id="register-go-to-login-btn"
               onClick={() => navigate('/login')}
-              className="login-btn-primary"
+              className="login-btn-primary bg-cyan-500 hover:bg-cyan-400 text-slate-950 font-semibold transition"
             >
               {t('auth.go_to_login', 'Go to Login')}
             </button>
@@ -324,7 +324,7 @@ export default function Register() {
                   />
                 </div>
 
-                <button type="submit" className="login-btn-primary">
+                <button type="submit" className="login-btn-primary bg-cyan-500 hover:bg-cyan-400 text-slate-950 font-semibold transition">
                   {t('auth.continue', 'Continue')}
                 </button>
               </form>
@@ -518,7 +518,7 @@ export default function Register() {
                   </span>
                 </label>
 
-                <button type="submit" className="login-btn-primary" disabled={loading || !!success || isPasswordMismatch}>
+                <button type="submit" className="login-btn-primary bg-cyan-500 hover:bg-cyan-400 text-slate-950 font-semibold transition" disabled={loading || !!success || isPasswordMismatch}>
                   {loading ? (
                     <span className="login-spinner" />
                   ) : success ? (

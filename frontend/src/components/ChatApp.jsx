@@ -27,31 +27,9 @@ import { useNavigate } from 'react-router-dom';
 import { logger } from '../services/logger';
 import { speakText, stopSpeaking } from '../services/speech';
 
-// ── Theme helpers ──────────────────────────────────────────
-function getSystemTheme() {
-  if (typeof window === 'undefined') return 'dark';
-  return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
-}
-
-function getStoredThemePreference() {
-  try {
-    const stored = localStorage.getItem('mediskye_theme');
-    if (stored === 'dark' || stored === 'light') return stored;
-  } catch {}
-  return 'system';
-}
-
-function resolveDarkMode(preference) {
-  if (preference === 'system') return getSystemTheme() === 'dark';
-  return preference === 'dark';
-}
-
-function applyThemeToDOM(theme) {
-  if (theme === 'dark') {
-    document.documentElement.classList.add('dark');
-  } else {
-    document.documentElement.classList.remove('dark');
-  }
+// ── Theme: permanent Obsidian dark ─────────────────────────
+function applyThemeToDOM() {
+  document.documentElement.classList.add('dark');
 }
 
 // ── Auto-naming heuristics ─────────────────────────────────
@@ -130,8 +108,10 @@ export default function ChatApp() {
   const [profileInitialTab, setProfileInitialTab] = useState('profile');
 
   // ── Theme state: 'light' | 'dark' | 'system' — the raw preference is persisted ──
-  const [themePreference, setThemePreference] = useState(() => getStoredThemePreference());
-  const [darkMode, setDarkMode] = useState(() => resolveDarkMode(getStoredThemePreference()));
+  // Permanent Obsidian dark theme — light mode has been removed.
+  const themePreference = 'dark';
+  const darkMode = true;
+  const setThemePreference = useCallback(() => {}, []);
   const [language, setLanguage] = useState('English');
 
   const [sidebarOpen, setSidebarOpen] = useState(() => {
@@ -436,34 +416,16 @@ export default function ChatApp() {
     }
   }, [currentUser, refreshDocuments, loadChatHistory]);
 
-  // ── Apply theme to DOM and persist explicit preference ('dark' | 'light') ──
+  // ── Enforce permanent dark theme on the DOM ──
   useEffect(() => {
-    const isDark = resolveDarkMode(themePreference);
-    setDarkMode(isDark);
-    applyThemeToDOM(isDark ? 'dark' : 'light');
+    applyThemeToDOM('dark');
     try {
-      if (themePreference === 'dark' || themePreference === 'light') {
-        localStorage.setItem('mediskye_theme', themePreference);
-      } else {
-        localStorage.removeItem('mediskye_theme');
-      }
+      localStorage.setItem('mediskye_theme', 'dark');
+      localStorage.setItem('theme', 'dark');
     } catch (e) {
       logger.error('Failed to persist theme preference:', e);
     }
-  }, [themePreference]);
-
-  // ── Follow OS theme changes only while the preference is 'system' ──
-  useEffect(() => {
-    const mq = window.matchMedia('(prefers-color-scheme: dark)');
-    const handler = (e) => {
-      if (themePreference === 'system') {
-        setDarkMode(e.matches);
-        applyThemeToDOM(e.matches ? 'dark' : 'light');
-      }
-    };
-    mq.addEventListener('change', handler);
-    return () => mq.removeEventListener('change', handler);
-  }, [themePreference]);
+  }, []);
 
   // Memory consent prompt on first chat
   const [showMemoryConsentModal, setShowMemoryConsentModal] = useState(false);
@@ -1151,12 +1113,8 @@ export default function ChatApp() {
     }
   };
 
-  const handleSetDarkMode = useCallback((val) => {
-    const currentDark = resolveDarkMode(themePreference);
-    const nextDark = typeof val === 'function' ? val(currentDark) : val;
-    // An explicit light/dark toggle opts out of 'system' tracking.
-    setThemePreference(nextDark ? 'dark' : 'light');
-  }, [themePreference]);
+  // Theme is locked to dark; kept as a no-op for child component prop contracts.
+  const handleSetDarkMode = useCallback(() => {}, []);
 
   const handleDeleteAccount = async () => {
     try {
@@ -1177,13 +1135,13 @@ export default function ChatApp() {
 
   return (
     <div className={`relative flex h-dvh w-screen overflow-hidden transition-colors duration-200 ${
-      darkMode ? 'bg-black text-slate-100' : 'bg-zinc-50 text-zinc-900'
+      darkMode ? 'bg-[#07090e] text-slate-100' : 'bg-zinc-50 text-zinc-900'
     }`}>
       {/* Mobile overlay backdrop when open on < 768px */}
       {sidebarOpen && (
         <div
           data-testid="sidebar-backdrop"
-          className="fixed inset-0 bg-black/50 z-30 md:hidden"
+          className="fixed inset-0 bg-black/60 backdrop-blur-xs z-30 md:hidden"
           onClick={toggleSidebar}
         />
       )}
@@ -1220,7 +1178,7 @@ export default function ChatApp() {
       <main
         className={`flex-1 flex flex-col h-full overflow-hidden relative transition-all duration-250 ease-in-out ${
           sidebarOpen ? 'md:ml-64' : 'md:ml-0'
-        } ${darkMode ? 'bg-zinc-950' : 'bg-zinc-50'}`}
+        } ${darkMode ? 'bg-[#07090e]' : 'bg-zinc-50'}`}
         style={{ transitionDuration: '250ms' }}
       >
         <ChatWindow
@@ -1258,11 +1216,11 @@ export default function ChatApp() {
         {uploadProgress && (
           <div className="max-w-3xl w-full mx-auto px-4 mb-2 animate-fade-in" data-testid="upload-progress-banner">
             <div className={`flex items-center gap-2.5 px-3.5 py-2 rounded-xl text-xs font-medium border shadow-sm ${
-              darkMode ? 'bg-zinc-900 border-zinc-800 text-zinc-300' : 'bg-blue-50/80 border-blue-200 text-blue-800'
+              darkMode ? 'bg-[#0e131b] border-white/[0.08] text-slate-300' : 'bg-blue-50/80 border-blue-200 text-blue-800'
             }`}>
               <span className="relative flex h-2 w-2">
-                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-blue-400 opacity-75" />
-                <span className="relative inline-flex rounded-full h-2 w-2 bg-blue-500" />
+                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-cyan-400 opacity-75" />
+                <span className="relative inline-flex rounded-full h-2 w-2 bg-cyan-500" />
               </span>
               <span>{uploadProgress}</span>
             </div>

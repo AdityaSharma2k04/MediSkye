@@ -543,7 +543,7 @@ export default function SettingsModal({
   if (!isOpen) return null;
 
   const base = darkMode
-    ? 'bg-zinc-900 border-zinc-800 text-zinc-100'
+    ? 'bg-[#0e131b] border-white/[0.08] text-slate-100'
     : 'bg-white border-zinc-200 text-zinc-900';
 
   return (
@@ -578,8 +578,8 @@ export default function SettingsModal({
           <div className="flex-1 overflow-y-auto px-5 py-5 space-y-7 text-sm">
 
             {/* Quick link to Profile & Caregiver Hub (Bug 11) */}
-            <div className={`p-4 rounded-xl border flex items-center justify-between gap-3 ${
-              darkMode ? 'bg-zinc-950 border-zinc-800' : 'bg-zinc-50 border-zinc-200'
+            <div className={`p-4 rounded-xl border flex flex-col sm:flex-row sm:items-center justify-between gap-3 ${
+              darkMode ? 'bg-[#111621] border-white/[0.08]' : 'bg-zinc-50 border-zinc-200'
             }`}>
               <div className="space-y-0.5">
                 <div className={`text-xs font-semibold ${darkMode ? 'text-zinc-200' : 'text-zinc-800'}`}>
@@ -892,11 +892,11 @@ export default function SettingsModal({
               type="button"
               onClick={handleSaveChanges}
               disabled={saving}
-              className={`px-5 py-2 text-xs font-medium rounded-xl transition-colors ${
+              className={`px-5 py-2 text-xs font-semibold rounded-xl transition ${
                 saving
                   ? 'opacity-60 cursor-not-allowed bg-zinc-500 text-white'
                   : darkMode
-                    ? 'bg-zinc-100 text-zinc-900 hover:bg-white'
+                    ? 'bg-cyan-500 hover:bg-cyan-400 text-slate-950 font-semibold'
                     : 'bg-zinc-900 text-white hover:bg-zinc-800'
               }`}
             >

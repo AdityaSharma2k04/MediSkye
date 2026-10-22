@@ -3,23 +3,22 @@
 @tailwind utilities;
 
 :root {
-  --bg-app: #09090b;
-  --text-app: #fafafa;
+  --bg-app: #07090e;
+  --bg-surface: #0a0d14;
+  --text-app: #f1f5f9;
+  color-scheme: dark;
 }
 
 @layer base {
+  /* Permanent Obsidian dark theme — no light-mode body overrides */
+  html,
+  body {
+    background-color: #07090e;
+    color: #f1f5f9;
+  }
+
   body {
     @apply font-sans;
-  }
-
-  /* Dark mode body defaults */
-  html.dark body {
-    @apply text-zinc-50 bg-zinc-950;
-  }
-
-  /* Light mode body defaults */
-  html:not(.dark) body {
-    @apply text-zinc-900 bg-zinc-50;
   }
 }
 
@@ -40,21 +39,6 @@ html.dark ::-webkit-scrollbar-thumb:hover {
   background: rgba(113, 113, 122, 0.6);
 }
 
-/* Light mode scrollbars */
-html:not(.dark) ::-webkit-scrollbar {
-  width: 5px;
-  height: 5px;
-}
-html:not(.dark) ::-webkit-scrollbar-track {
-  background: transparent;
-}
-html:not(.dark) ::-webkit-scrollbar-thumb {
-  background: rgba(161, 161, 170, 0.4);
-  border-radius: 9999px;
-}
-html:not(.dark) ::-webkit-scrollbar-thumb:hover {
-  background: rgba(113, 113, 122, 0.5);
-}
 
 /* ── Keyframe Animations ── */
 @keyframes shimmer {
@@ -347,11 +331,9 @@ html.dark .skeleton-shimmer {
 }
 
 /* Dark mode auth */
+.login-page,
 html.dark .login-page {
-  background: #000000;
-}
-html:not(.dark) .login-page {
-  background: #f4f4f5; /* zinc-100 */
+  background: #07090e;
 }
 
 /* Subtle radial glow */
@@ -392,19 +374,13 @@ html:not(.dark) .login-bg-glow {
   border-radius: 16px;
   animation: cardFadeIn 0.4s ease-out;
 }
+.login-card,
 html.dark .login-card {
-  background: #09090B;
-  border: 1px solid rgba(63, 63, 70, 0.5);
+  background: #0e131b;
+  border: 1px solid rgba(255, 255, 255, 0.08);
   box-shadow:
     0 0 0 1px rgba(255, 255, 255, 0.02),
     0 24px 48px rgba(0, 0, 0, 0.5);
-}
-html:not(.dark) .login-card {
-  background: #ffffff;
-  border: 1px solid rgba(228, 228, 231, 0.8);
-  box-shadow:
-    0 0 0 1px rgba(0, 0, 0, 0.02),
-    0 24px 48px rgba(0, 0, 0, 0.06);
 }
 
 @keyframes cardFadeIn {
@@ -584,16 +560,16 @@ html:not(.dark) .login-password-hint { color: #a1a1aa; }
   gap: 8px;
   margin-top: 4px;
 }
+.login-btn-primary,
 html.dark .login-btn-primary {
-  color: #000000;
-  background: #f4f4f5;
+  color: #020617;
+  background: #06b6d4;
+  font-weight: 600;
 }
-html.dark .login-btn-primary:hover:not(:disabled) { background: #e4e4e7; }
-html:not(.dark) .login-btn-primary {
-  color: #ffffff;
-  background: #18181b;
+.login-btn-primary:hover:not(:disabled),
+html.dark .login-btn-primary:hover:not(:disabled) {
+  background: #22d3ee;
 }
-html:not(.dark) .login-btn-primary:hover:not(:disabled) { background: #27272a; }
 
 .login-btn-primary:active:not(:disabled) {
   transform: scale(0.98);

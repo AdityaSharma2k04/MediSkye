@@ -40,6 +40,7 @@ class UserDTO(BaseModel):
     """
     id: uuid.UUID
     email: str
+    created_at: datetime = datetime.now(UTC)
     email_verified: bool = True
     language_preference: Optional[str] = "English"
     phi_consent_granted: bool = False
@@ -47,8 +48,16 @@ class UserDTO(BaseModel):
     full_name: Optional[str] = None
     date_of_birth: Optional[Any] = None
     biological_sex: Optional[str] = None
+    blood_type: Optional[str] = None
     pre_existing_conditions: Optional[str] = None
+    known_allergies: Optional[str] = None
     current_medications: Optional[str] = None
+    emergency_contact_name: Optional[str] = None
+    emergency_contact_phone: Optional[str] = None
+    height_cm: Optional[float] = None
+    diet_type: Optional[str] = None
+    activity_level: Optional[str] = None
+    occupation: Optional[str] = None
 
     model_config = ConfigDict(from_attributes=True, arbitrary_types_allowed=True)
 
@@ -149,6 +158,7 @@ def _user_to_dto(user: User) -> UserDTO:
     return UserDTO(
         id=user.id,
         email=user.email,
+        created_at=user.created_at or datetime.now(UTC),
         email_verified=True,
         language_preference=user.language_preference,
         phi_consent_granted=bool(user.phi_consent_granted),
@@ -156,8 +166,16 @@ def _user_to_dto(user: User) -> UserDTO:
         full_name=user.full_name,
         date_of_birth=user.date_of_birth,
         biological_sex=user.biological_sex,
+        blood_type=user.blood_type,
         pre_existing_conditions=user.pre_existing_conditions,
+        known_allergies=user.known_allergies,
         current_medications=user.current_medications,
+        emergency_contact_name=user.emergency_contact_name,
+        emergency_contact_phone=user.emergency_contact_phone,
+        height_cm=user.height_cm,
+        diet_type=user.diet_type,
+        activity_level=user.activity_level,
+        occupation=user.occupation,
     )
 
 
@@ -205,10 +223,11 @@ async def _resolve_firebase_user(decoded_token: dict, db: AsyncSession) -> Optio
 
     if not user:
         full_name = decoded_token.get("name") or (normalized_email.split("@")[0] if "@" in normalized_email else "User")
-        random_pwd = secrets.token_urlsafe(32)
+        # Avoid ~400ms synchronous bcrypt hashing on the event loop when auto-provisioning
+        # a Firebase-authenticated user; an unusable prefix sentinel cannot match verify_password.
         user = User(
             email=normalized_email,
-            hashed_password=get_password_hash(random_pwd),
+            hashed_password=f"!firebase:{secrets.token_hex(16)}",
             full_name=full_name,
             phi_consent_granted=True,
             consent_timestamp=datetime.now(UTC),
@@ -216,7 +235,6 @@ async def _resolve_firebase_user(decoded_token: dict, db: AsyncSession) -> Optio
         db.add(user)
         try:
             await db.commit()
-            await db.refresh(user)
         except IntegrityError:
             await db.rollback()
             result = await db.execute(select(User).filter(func.lower(User.email) == normalized_email))
@@ -227,7 +245,6 @@ async def _resolve_firebase_user(decoded_token: dict, db: AsyncSession) -> Optio
             user.full_name = token_name
             try:
                 await db.commit()
-                await db.refresh(user)
             except Exception:
                 await db.rollback()
 
@@ -256,10 +273,13 @@ async def _resolve_user_full(token: str, db: AsyncSession) -> Optional[User]:
                     pass
 
         if firebase_admin._apps:
-            try:
-                decoded_token = fb_auth.verify_id_token(token, check_revoked=True)
-            except TypeError:
-                decoded_token = fb_auth.verify_id_token(token)
+            def _verify_fb_token():
+                try:
+                    return fb_auth.verify_id_token(token, check_revoked=True)
+                except TypeError:
+                    return fb_auth.verify_id_token(token)
+
+            decoded_token = await asyncio.to_thread(_verify_fb_token)
     except Exception as e:
         logger.debug("Firebase Admin SDK verification deferred: %s", e)
         decoded_token = None

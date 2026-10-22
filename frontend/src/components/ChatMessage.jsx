@@ -107,7 +107,7 @@ export default function ChatMessage({ message, onRegenerate, showToast, darkMode
     return (
       <div className="flex justify-end mb-4 animate-bubble-in group">
         <div className={`rounded-2xl rounded-tr-sm px-4 py-2.5 max-w-[85%] ml-auto text-sm leading-relaxed shadow-sm ${
-          darkMode ? 'bg-[#282a2e] text-zinc-100' : 'bg-zinc-900 text-white'
+          darkMode ? 'bg-[#131b26] border border-cyan-500/20 text-slate-100' : 'bg-zinc-900 text-white'
         }`}>
           {message.text}
         </div>

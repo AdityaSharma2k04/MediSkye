@@ -107,14 +107,14 @@ const ChatInput = forwardRef(({
 
   return (
     <div className={`w-full max-w-3xl mx-auto px-4 md:px-6 pb-3 transition-colors duration-200 ${
-      darkMode ? 'bg-zinc-950' : 'bg-zinc-50'
+      darkMode ? 'bg-[#07090e]' : 'bg-zinc-50'
     }`}>
       {/* Unified Gemini-Style Rounded Composer Card */}
       <form
         onSubmit={handleSubmit}
         className={`rounded-3xl border px-4 pt-3 pb-2.5 shadow-lg transition-all duration-150 ${
           darkMode
-            ? 'bg-[#1e1f22] border-white/10 focus-within:border-white/20'
+            ? 'bg-[#0e131b] border-white/10 focus-within:border-cyan-500/40'
             : 'bg-white border-zinc-200 focus-within:border-zinc-300'
         }`}
       >
@@ -229,7 +229,7 @@ const ChatInput = forwardRef(({
                 aria-label={t('chat.stop_generation', 'Stop generation')}
                 className={`w-9 h-9 rounded-full flex items-center justify-center transition-all active:scale-95 shadow-xs ${
                   darkMode
-                    ? 'bg-white text-black hover:bg-zinc-200'
+                    ? 'bg-cyan-500 hover:bg-cyan-400 text-slate-950'
                     : 'bg-zinc-900 text-white hover:bg-zinc-800'
                 }`}
               >
@@ -242,7 +242,7 @@ const ChatInput = forwardRef(({
                 disabled={!text.trim() || disabled}
                 title={t('chat.send_message', 'Send message')}
                 aria-label={t('chat.send_message', 'Send message')}
-                className="w-9 h-9 rounded-full bg-blue-600 hover:bg-blue-500 text-white flex items-center justify-center disabled:opacity-40 transition-all active:scale-95 shadow-sm shrink-0"
+                className="w-9 h-9 rounded-full bg-cyan-500 hover:bg-cyan-400 text-slate-950 flex items-center justify-center disabled:opacity-40 transition-all active:scale-95 shadow-sm shrink-0"
               >
                 <ArrowUp className="w-4 h-4 stroke-[2.5]" />
               </button>
