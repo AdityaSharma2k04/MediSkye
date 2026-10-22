@@ -584,14 +584,25 @@ export default function ChatApp() {
       if (data?.job_id) {
         const jobId = data.job_id;
         const startTime = Date.now();
+        // Fast-start polling: the backend flips the job to COMPLETED as soon as the
+        // vector index is local_ready (Step A). Poll quickly at first so the UI
+        // unlocks within ~0.5s of that flip, then back off to the steady interval.
+        // We intentionally never wait for index_status === 'synced' or for
+        // metrics/summary pre-warming — those run in the background (Step B).
         const POLL_INTERVAL = (typeof window !== 'undefined' && window.__POLL_INTERVAL__) || 2000;
+        const pollDelays = (typeof window !== 'undefined' && window.__POLL_INTERVAL__)
+          ? [POLL_INTERVAL]
+          : [500, 500, 1000, 1000];
         const MAX_WAIT = (typeof window !== 'undefined' && window.__UPLOAD_MAX_WAIT__) || 120000;
         let consecutiveFailures = 0;
         const MAX_CONSECUTIVE_FAILURES = 5;
         let hasRecordedFirstPoll = false;
+        let pollIndex = 0;
 
         while (isMountedRef.current && Date.now() - startTime < MAX_WAIT) {
-          await new Promise((r) => setTimeout(r, POLL_INTERVAL));
+          const delay = pollIndex < pollDelays.length ? pollDelays[pollIndex] : POLL_INTERVAL;
+          pollIndex += 1;
+          await new Promise((r) => setTimeout(r, delay));
 
           if (!hasRecordedFirstPoll && typeof performance !== 'undefined' && performance.mark) {
             hasRecordedFirstPoll = true;
@@ -661,6 +672,10 @@ export default function ChatApp() {
       }
 
       const pdfMeta = { id: newDocId, name: file.name, filename: file.name, size: file.size };
+      // Unlock the UI the moment the job is COMPLETED — the document list sync
+      // below is a background reconciliation and must not keep the spinner up.
+      setUploadProgress(null);
+      setIsGenerating(false);
       setActivePdf(pdfMeta);
       showToast('success', 'Report Ready', 'Your report has been processed.');
 

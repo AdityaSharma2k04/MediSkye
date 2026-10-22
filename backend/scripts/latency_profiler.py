@@ -98,6 +98,8 @@ async def run_single_e2e_pass(
     pdf_fixture: str,
     headless: bool = True,
     run_index: int = 1,
+    diagnose: bool = False,
+    rewrite_api=None,
 ) -> Dict[str, Any]:
     init_firebase()
     timestamp = int(time.time() * 1000)
@@ -139,6 +141,75 @@ async def run_single_e2e_pass(
             )
             page = await context.new_page()
 
+            # ── Optional network waterfall (--diagnose) ──
+            # Records every backend API call relative to the profiler clock so a
+            # slow browser step can be attributed to a specific request
+            # (TTFB = response headers received, END = body fully read).
+            t_origin = time.perf_counter()
+            net_log: List[Dict[str, Any]] = []
+            req_start: Dict[Any, float] = {}
+
+            if rewrite_api:
+                # Transparently send the frontend's API calls to another backend
+                # host (e.g. compare the custom domain vs. the regional run.app URL)
+                # without rebuilding the deployed bundle.
+                src_host, dst_host = rewrite_api
+                src_host, dst_host = src_host.rstrip("/"), dst_host.rstrip("/")
+
+                async def _rewrite(route):
+                    await route.continue_(url=dst_host + route.request.url[len(src_host):])
+
+                await context.route(f"{src_host}/**", _rewrite)
+                print(f"       [rewrite-api] {src_host} -> {dst_host}", flush=True)
+
+            if diagnose:
+                frontend_origin = frontend_url.rstrip("/")
+
+                def _is_api(req) -> bool:
+                    # Any fetch/XHR leaving the frontend origin, except Firebase/Google identity calls.
+                    return (
+                        req.resource_type in ("fetch", "xhr")
+                        and not req.url.startswith(frontend_origin)
+                        and "googleapis.com" not in req.url
+                    )
+
+                def _on_request(req):
+                    if _is_api(req):
+                        req_start[req] = time.perf_counter()
+
+                def _on_response(res):
+                    req = res.request
+                    if req in req_start:
+                        url_no_query = req.url.split("?")[0]
+                        net_log.append({
+                            "method": req.method,
+                            "path": url_no_query,
+                            "status": res.status,
+                            "start_ms": round((req_start[req] - t_origin) * 1000.0),
+                            "ttfb_ms": round((time.perf_counter() - req_start[req]) * 1000.0),
+                            "server_ms": res.headers.get("x-process-time-ms"),
+                            "req": req,
+                        })
+
+                def _on_finished(req):
+                    for entry in net_log:
+                        if entry.get("req") is req and "end_ms" not in entry:
+                            entry["end_ms"] = round((time.perf_counter() - req_start[req]) * 1000.0)
+
+                page.on("request", _on_request)
+                page.on("response", _on_response)
+                page.on("requestfinished", _on_finished)
+                page.on(
+                    "console",
+                    lambda msg: print(f"       [browser console] {msg.text}", flush=True)
+                    if "TIMING" in msg.text or msg.type == "error"
+                    else None,
+                )
+
+            def _mark(label: str):
+                if diagnose:
+                    print(f"       [t+{round((time.perf_counter() - t_origin) * 1000.0)}ms] {label}", flush=True)
+
             # Mock window.print
             await page.add_init_script("""
                 window.__print_called__ = 0;
@@ -146,6 +217,40 @@ async def run_single_e2e_pass(
                     window.__print_called__ += 1;
                     setTimeout(() => window.dispatchEvent(new Event('afterprint')), 50);
                 };
+            """)
+
+            # Network-level TTFT probe: timestamps (performance.now()) when the
+            # /query response headers arrive and when the FIRST body byte of the
+            # SSE stream is read. Lets us separate network/backend latency from
+            # React render latency without modifying the app under test.
+            await page.add_init_script("""
+                (() => {
+                    const origFetch = window.fetch.bind(window);
+                    window.__query_probe__ = [];
+                    window.fetch = async (input, init) => {
+                        const url = typeof input === 'string' ? input : (input && input.url) || '';
+                        const isQuery = /\\/query(\\?|$)/.test(url) && (init?.method || 'GET').toUpperCase() === 'POST';
+                        if (!isQuery) return origFetch(input, init);
+                        const entry = { sent: performance.now(), headers: null, firstByte: null, firstChunk: null, done: null, status: null };
+                        window.__query_probe__.push(entry);
+                        const res = await origFetch(input, init);
+                        entry.headers = performance.now();
+                        entry.status = res.status;
+                        if (!res.body) return res;
+                        const decoder = new TextDecoder();
+                        const tapped = res.body.pipeThrough(new TransformStream({
+                            transform(chunk, controller) {
+                                if (entry.firstByte === null) entry.firstByte = performance.now();
+                                if (entry.firstChunk === null && decoder.decode(chunk, { stream: true }).includes('"chunk"')) {
+                                    entry.firstChunk = performance.now();
+                                }
+                                controller.enqueue(chunk);
+                            },
+                            flush() { entry.done = performance.now(); },
+                        }));
+                        return new Response(tapped, { status: res.status, statusText: res.statusText, headers: res.headers });
+                    };
+                })();
             """)
 
             # 1. Page Load
@@ -166,30 +271,36 @@ async def run_single_e2e_pass(
             await page.wait_for_selector("textarea", state="visible", timeout=30000)
             auth_login_ms = round((time.perf_counter() - t_login_start) * 1000.0, 1)
 
-            # Dismiss memory consent if present
-            try:
-                consent_btn = await page.wait_for_selector('button:has-text("Allow"), button:has-text("Skip")', timeout=3000)
-                if consent_btn:
-                    await consent_btn.click()
-                    await asyncio.sleep(0.5)
-            except Exception:
-                pass
-
             # 3. PDF Upload & Processing
             await page.wait_for_selector("input[type='file']", state="attached", timeout=15000)
             t_upload_start = time.perf_counter()
+            _mark("upload: set_input_files")
             await page.set_input_files("input[type='file']", pdf_fixture)
             metrics_btn_selector = 'button[aria-label="View extracted lab metrics table"]'
             await page.wait_for_selector('text="Report Ready"', state="visible", timeout=120000)
+            _mark("upload: 'Report Ready' toast visible")
             await page.wait_for_selector(metrics_btn_selector, state="visible", timeout=15000)
             pdf_upload_ms = round((time.perf_counter() - t_upload_start) * 1000.0, 1)
+            _mark(f"upload: metrics button visible ({pdf_upload_ms}ms)")
 
             # 4. Lab Metrics (1st Run)
+            # Dismiss memory consent if present before clicking the metrics button.
+            consent_dialog = page.locator('[aria-labelledby="memory-consent-title"]')
+            if await consent_dialog.is_visible():
+                await consent_dialog.locator('button:has-text("Allow")').click()
+                await page.wait_for_selector(
+                    '[aria-labelledby="memory-consent-title"]',
+                    state="hidden",
+                )
+
             t_m1_start = time.perf_counter()
+            _mark("metrics#1: click")
             async with page.expect_response(lambda res: ("extract-metrics" in res.url or "metrics" in res.url) and res.status == 200, timeout=60000):
                 await page.click(metrics_btn_selector)
+            _mark("metrics#1: response received")
             await page.wait_for_selector("text=Clinical Lab Metrics", state="visible", timeout=30000)
             metrics_1_ms = round((time.perf_counter() - t_m1_start) * 1000.0, 1)
+            _mark(f"metrics#1: table visible ({metrics_1_ms}ms)")
 
             # Switch back to chat
             chat_btn_selector = 'button[aria-label="Switch to chat view"]'
@@ -198,10 +309,13 @@ async def run_single_e2e_pass(
 
             # 5. Lab Metrics (Cached)
             t_m2_start = time.perf_counter()
+            _mark("metrics#2: click")
             async with page.expect_response(lambda res: ("extract-metrics" in res.url or "metrics" in res.url) and res.status == 200, timeout=30000):
                 await page.click(metrics_btn_selector)
+            _mark("metrics#2: response received")
             await page.wait_for_selector("text=Clinical Lab Metrics", state="visible", timeout=30000)
             metrics_cached_ms = round((time.perf_counter() - t_m2_start) * 1000.0, 1)
+            _mark(f"metrics#2: table visible ({metrics_cached_ms}ms)")
 
             # Switch back to chat
             await page.click(chat_btn_selector)
@@ -229,26 +343,72 @@ async def run_single_e2e_pass(
             await chat_input.fill("What are my abnormal values?")
             send_btn = await page.wait_for_selector('button[aria-label="Send message"]', state="visible", timeout=15000)
 
-            init_prose_count = await page.locator(".chat-messages-container .prose").count()
+            # TTFT = click "Send" -> the FIRST streamed text node is painted in a
+            # NEW assistant bubble. Measured in-page (performance.now()) by a
+            # MutationObserver armed *before* the click, so the result is not
+            # inflated by Playwright polling round-trips or by waiting for the
+            # whole answer / isGenerating === false.
+            await page.evaluate("""
+                () => {
+                    const container = document.querySelector('.chat-messages-container');
+                    const baseline = container ? container.querySelectorAll('.prose').length : 0;
+                    window.__ttft__ = { clicked: null, firstText: null, baseline };
+                    const hasNewText = () => {
+                        const proses = container ? container.querySelectorAll('.prose') : [];
+                        for (let i = baseline; i < proses.length; i++) {
+                            if ((proses[i].textContent || '').trim().length > 0) return true;
+                        }
+                        return false;
+                    };
+                    const obs = new MutationObserver(() => {
+                        if (window.__ttft__.clicked !== null && window.__ttft__.firstText === null && hasNewText()) {
+                            window.__ttft__.firstText = performance.now();
+                            obs.disconnect();
+                        }
+                    });
+                    obs.observe(container || document.body, { childList: true, subtree: true, characterData: true });
+                    const btn = document.querySelector('button[aria-label="Send message"]');
+                    btn.addEventListener('click', () => { window.__ttft__.clicked = performance.now(); }, { capture: true, once: true });
+                }
+            """)
+
             t_chat_start = time.perf_counter()
+            _mark("chat: click Send")
             await send_btn.click()
 
-            t_ttft = None
-            deadline = time.perf_counter() + 60.0
-            while time.perf_counter() < deadline:
-                current_prose_count = await page.locator(".chat-messages-container .prose").count()
-                if current_prose_count > init_prose_count:
-                    t_ttft = time.perf_counter()
-                    break
-                await asyncio.sleep(0.05)
-
-            if t_ttft is None:
-                t_ttft = time.perf_counter()
-
-            chat_ttft_ms = round((t_ttft - t_chat_start) * 1000.0, 1)
+            await page.wait_for_function("() => window.__ttft__ && window.__ttft__.firstText !== null", timeout=60000)
+            ttft_info = await page.evaluate("() => ({ ...window.__ttft__, probe: (window.__query_probe__ || []).slice(-1)[0] || null })")
+            chat_ttft_ms = round(ttft_info["firstText"] - ttft_info["clicked"], 1)
+            _mark(f"chat: first text painted (TTFT {chat_ttft_ms}ms)")
 
             await page.wait_for_selector('button[aria-label="Copy response"]', state="visible", timeout=120000)
             chat_total_ms = round((time.perf_counter() - t_chat_start) * 1000.0, 1)
+            _mark(f"chat: stream complete ({chat_total_ms}ms)")
+
+            if diagnose:
+                probe = (await page.evaluate("() => ({ ...window.__ttft__, probe: (window.__query_probe__ || []).slice(-1)[0] || null })"))
+                p = probe.get("probe") or {}
+                clicked = probe.get("clicked") or 0.0
+
+                def _rel(v):
+                    return f"{round(v - clicked)}ms" if isinstance(v, (int, float)) else "n/a"
+
+                print(
+                    "       [TTFT breakdown, relative to click] "
+                    f"fetch sent={_rel(p.get('sent'))} | headers={_rel(p.get('headers'))} "
+                    f"(status {p.get('status')}) | first SSE byte={_rel(p.get('firstByte'))} | "
+                    f"first text chunk={_rel(p.get('firstChunk'))} | painted={_rel(probe.get('firstText'))} | "
+                    f"stream done={_rel(p.get('done'))}",
+                    flush=True,
+                )
+
+                print("       [network waterfall] start | TTFB | END | server | status | request", flush=True)
+                for e in sorted(net_log, key=lambda x: x["start_ms"]):
+                    print(
+                        f"         t+{e['start_ms']:>6}ms | {e['ttfb_ms']:>6}ms | {str(e.get('end_ms', '-')):>6}ms | "
+                        f"{str(e.get('server_ms') or '-'):>7} | {e['status']} | {e['method']} {e['path']}",
+                        flush=True,
+                    )
 
             await browser.close()
 
@@ -285,7 +445,14 @@ async def run_single_e2e_pass(
                 pass
 
 
-async def run_profiler(frontend_url: str, api_url: str, n_runs: int = 5, headless: bool = True):
+async def run_profiler(
+    frontend_url: str,
+    api_url: str,
+    n_runs: int = 5,
+    headless: bool = True,
+    diagnose: bool = False,
+    rewrite_api=None,
+):
     current_dir = os.path.dirname(os.path.abspath(__file__))
     root_dir = os.path.abspath(os.path.join(current_dir, "..", ".."))
     pdf_fixture = os.path.join(root_dir, "backend", "tests", "fixtures", "test_report.pdf")
@@ -308,6 +475,8 @@ async def run_profiler(frontend_url: str, api_url: str, n_runs: int = 5, headles
             pdf_fixture=pdf_fixture,
             headless=headless,
             run_index=i + 1,
+            diagnose=diagnose,
+            rewrite_api=rewrite_api,
         )
         all_runs.append(res)
         await asyncio.sleep(1.0)
@@ -368,9 +537,29 @@ def main():
     parser.add_argument("--api-url", default=DEFAULT_API_URL, help="Cloud Run backend URL")
     parser.add_argument("--runs", type=int, default=5, help="Number of benchmark iterations")
     parser.add_argument("--no-headless", action="store_true", help="Run browser in headful mode")
+    parser.add_argument(
+        "--diagnose",
+        action="store_true",
+        help="Print per-step timestamps, a TTFT network breakdown and the backend request waterfall",
+    )
+    parser.add_argument(
+        "--rewrite-api",
+        nargs=2,
+        metavar=("FROM_HOST", "TO_HOST"),
+        help="Route the frontend's API calls from FROM_HOST to TO_HOST (e.g. test a different backend URL)",
+    )
     args = parser.parse_args()
 
-    asyncio.run(run_profiler(args.url, args.api_url, n_runs=args.runs, headless=not args.no_headless))
+    asyncio.run(
+        run_profiler(
+            args.url,
+            args.api_url,
+            n_runs=args.runs,
+            headless=not args.no_headless,
+            diagnose=args.diagnose,
+            rewrite_api=args.rewrite_api,
+        )
+    )
 
 
 if __name__ == "__main__":

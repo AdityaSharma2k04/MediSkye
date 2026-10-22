@@ -344,10 +344,12 @@ async def get_current_user(
     """
     cached_dto = get_cached_user_dto(token)
     if cached_dto is not None:
+        logger.info("AUTH_CACHE: HIT for user_id=%s", cached_dto.id)
         from app.core.logging import user_id_var
         user_id_var.set(str(cached_dto.id))
         return cached_dto
 
+    logger.info("AUTH_CACHE: MISS for token hash %s", _hash_token(token))
     credentials_exception = HTTPException(
         status_code=status.HTTP_401_UNAUTHORIZED,
         detail="Could not validate credentials",
@@ -375,5 +377,4 @@ async def get_current_user(
     from app.core.logging import user_id_var
     user_id_var.set(str(dto.id))
     return dto
-
 

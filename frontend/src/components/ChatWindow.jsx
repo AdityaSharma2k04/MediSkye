@@ -49,6 +49,7 @@ export default function ChatWindow({
   const [localPrintSummaryText, setLocalPrintSummaryText] = useState('');
   // Resolved user for the print summary — falls back to a fresh fetch if currentUser is null
   const [printUser, setPrintUser] = useState(null);
+  const metricsTimingRef = useRef(null);
 
   const isExporting = propIsExportingSummary !== undefined ? propIsExportingSummary : localIsExporting;
   const currentSummaryText = propPrintSummaryText !== undefined ? propPrintSummaryText : localPrintSummaryText;
@@ -90,10 +91,27 @@ export default function ChatWindow({
       setLoadingMetrics(false);
       return;
     }
+    const tFetch = typeof performance !== 'undefined' ? performance.now() : 0;
     const metrics = await fetchLabMetrics(documentId);
+    if (typeof performance !== 'undefined') {
+      metricsTimingRef.current = { fetchMs: performance.now() - tFetch, resolvedAt: performance.now() };
+    }
     setLabMetrics(metrics);
     setLoadingMetrics(false);
   };
+
+  // [METRICS_TIMING] network vs. React commit time for the metrics view.
+  // Logged once per load so slow "browser metrics" can be attributed to the
+  // request or to rendering without attaching a profiler.
+  useEffect(() => {
+    const timing = metricsTimingRef.current;
+    if (!timing || loadingMetrics || viewMode !== 'metrics') return;
+    metricsTimingRef.current = null;
+    const commitMs = performance.now() - timing.resolvedAt;
+    console.info(
+      `[METRICS_TIMING] fetch: ${timing.fetchMs.toFixed(1)}ms | render+commit: ${commitMs.toFixed(1)}ms | rows: ${labMetrics.length}`
+    );
+  }, [loadingMetrics, labMetrics, viewMode]);
 
   const handlePrintDoctorSummary = async () => {
     if (isExporting) return;

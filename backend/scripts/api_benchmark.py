@@ -252,11 +252,15 @@ async def run_benchmark(api_url: str):
             for _ in range(60):
                 await asyncio.sleep(1.0)
                 st_res = await client.get(f"{api_url}/upload/status/{job_id}", headers=headers)
+                if st_res.status_code != 200:
+                    continue
                 st_data = st_res.json()
-                if st_data.get("status") == "COMPLETED":
+                upload_status = str(st_data.get("status", "")).lower()
+                if upload_status == "completed":
                     doc_id = st_data.get("document_id")
+                    print(f"         Upload completed. Document ID = {doc_id}", flush=True)
                     break
-                elif st_data.get("status") == "FAILED":
+                elif upload_status == "failed":
                     raise RuntimeError(f"Upload processing failed: {st_data.get('error')}")
 
             # Fallback to query user's documents if status endpoint didn't embed document_id
