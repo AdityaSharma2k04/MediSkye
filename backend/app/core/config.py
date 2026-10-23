@@ -40,9 +40,6 @@ class Settings(BaseSettings):
     FERNET_KEY: str
     JWT_SECRET_KEY: str
     MEDISKYE_API_KEY: str = ""
-    RESEND_API_KEY: str = ""
-    FROM_EMAIL: str = "onboarding@resend.dev"
-
     # Comma-separated list of allowed origins. In production, set this to your
     # Cloudflare Pages URL via the ALLOWED_ORIGINS env var on Hugging Face Spaces.
     ALLOWED_ORIGINS: Annotated[List[str], NoDecode] = [

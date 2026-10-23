@@ -12,13 +12,11 @@ from app.db.database import get_db
 from app.db.models import User
 from app.schemas.user import UserCreate, UserResponse, Token, CustomVerificationRequest
 from app.core.audit import log_audit
+from app.services.email_service import send_email_via_gmail
 from datetime import datetime, UTC
 from fastapi import Request
 from app.core.limiter import limiter
-from app.core.config import settings
 from app.core.logging import logger
-import resend
-from resend.exceptions import ResendError
 from firebase_admin import auth
 
 router = APIRouter(tags=["Authentication"])
@@ -122,15 +120,13 @@ async def send_custom_verification(
     verification_req: CustomVerificationRequest,
 ) -> Any:
     """
-    Generate email verification link with Firebase Admin SDK and send custom branded email via Resend.
+    Generate an email verification link and send the branded email via Gmail SMTP.
     """
     email = str(verification_req.email)
     try:
         link = await asyncio.to_thread(auth.generate_email_verification_link, email)
     except Exception as e:
         raise HTTPException(status_code=400, detail="Could not generate link. User may not exist.")
-
-    resend.api_key = settings.RESEND_API_KEY
 
     html_content = f"""
     <div style="font-family: sans-serif; max-width: 600px; margin: 0 auto; color: #333;">
@@ -146,17 +142,13 @@ async def send_custom_verification(
     """
 
     try:
-        await asyncio.to_thread(
-            resend.Emails.send,
-            {
-                "from": f"MediSkye <{settings.FROM_EMAIL}>",
-                "to": email,
-                "subject": "Verify your email to start using MediSkye 🩺",
-                "html": html_content,
-            },
+        await send_email_via_gmail(
+            to_email=email,
+            subject="Verify your email to start using MediSkye 🩺",
+            html_body=html_content,
         )
-    except ResendError as e:
-        logger.error(f"Resend API error: {e}")
+    except Exception:
+        logger.exception("Failed to send verification email to %s", email)
         raise HTTPException(status_code=502, detail="Email service is currently unavailable. Please try again later.")
 
     return {"message": "Verification email sent"}
@@ -170,7 +162,7 @@ async def send_custom_password_reset(
     reset_req: CustomVerificationRequest,
 ) -> Any:
     """
-    Generate password reset link via Firebase Admin SDK and send custom branded email via Resend.
+    Generate a password reset link and send the branded email via Gmail SMTP.
     """
     email = str(reset_req.email)
     try:
@@ -179,8 +171,6 @@ async def send_custom_password_reset(
         # IMPORTANT: Do NOT leak if the user exists or not.
         # Return a 200 OK with a generic success message to prevent user enumeration attacks.
         return {"message": "If an account exists with this email, a reset link has been sent."}
-
-    resend.api_key = settings.RESEND_API_KEY
 
     html_content = f"""
     <div style="font-family: sans-serif; max-width: 600px; margin: 0 auto; color: #333;">
@@ -196,17 +186,13 @@ async def send_custom_password_reset(
     """
 
     try:
-        await asyncio.to_thread(
-            resend.Emails.send,
-            {
-                "from": f"MediSkye <{settings.FROM_EMAIL}>",
-                "to": email,
-                "subject": "Reset your MediSkye password 🔒",
-                "html": html_content,
-            },
+        await send_email_via_gmail(
+            to_email=email,
+            subject="Reset your MediSkye password 🔒",
+            html_body=html_content,
         )
-    except ResendError as e:
-        logger.error(f"Resend API error: {e}")
+    except Exception:
+        logger.exception("Failed to send password reset email to %s", email)
         raise HTTPException(status_code=502, detail="Email service is currently unavailable. Please try again later.")
 
     return {"message": "If an account exists with this email, a reset link has been sent."}
