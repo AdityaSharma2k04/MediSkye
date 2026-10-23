@@ -286,8 +286,8 @@ async def _resolve_user_full(token: str, db: AsyncSession) -> Optional[User]:
             except Exception:
                 try:
                     firebase_admin.initialize_app()
-                except Exception:
-                    pass
+                except Exception as init_err:
+                    logger.debug("Firebase Admin init deferred: %s", init_err)
 
         if firebase_admin._apps:
             def _verify_fb_token():
@@ -333,8 +333,8 @@ async def _resolve_user_full(token: str, db: AsyncSession) -> Optional[User]:
                             logger.warning("JWKS token verification failed: %s", jwks_err)
                     else:
                         logger.warning("JWKS token verification failed: %s", jwks_err)
-        except Exception:
-            pass
+        except Exception as hdr_err:
+            logger.debug("Not an RS256 Firebase token: %s", hdr_err)
 
     if decoded_token:
         firebase_info = decoded_token.get("firebase", {})

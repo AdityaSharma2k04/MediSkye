@@ -12,15 +12,11 @@ import time
 import uuid
 import pymupdf as fitz
 from httpx import AsyncClient, ASGITransport
-from sqlalchemy.future import select
 
 # Ensure backend root is on sys.path
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
 from app.main import app
-from app.db.database import AsyncSessionLocal
-from app.db.models import User, Document, Chat, DependentProfile
-from app.rag.index_storage import delete_index_artifacts
 
 
 def generate_sample_pdf_bytes() -> bytes:

@@ -135,8 +135,8 @@ async def delete_user_me(
         from app.core.redis_client import redis_client
         import time as _time
         await redis_client.setex(f"user_revoked_at:{user_email.lower().strip()}", 3600, str(_time.time()))
-    except Exception:
-        pass
+    except Exception as rev_err:
+        logger.debug("Could not record user_revoked_at in redis_client: %s", rev_err)
 
     try:
         fb_user = await asyncio.to_thread(firebase_admin.auth.get_user_by_email, user_email)
@@ -359,8 +359,8 @@ async def delete_my_document(
         evict_index_cache(str(doc.id))
         if doc.file_path:
             evict_index_cache(str(doc.file_path))
-    except Exception:
-        pass
+    except Exception as ev_err:
+        logger.debug("Could not evict index cache for doc %s: %s", doc.id, ev_err)
 
     # Clean up vector cache session directory if present
     try:
@@ -562,7 +562,7 @@ async def get_user_facts(
             dep_uuid = UUID(dependent_id)
             filters.append(PatientFact.dependent_id == dep_uuid)
         except ValueError:
-            pass
+            logger.debug("Ignoring invalid dependent_id UUID: %s", dependent_id)
     else:
         filters.append(PatientFact.dependent_id.is_(None))
 
@@ -698,7 +698,7 @@ async def clear_all_memory_facts(
             dep_uuid = UUID(dependent_id)
             filters.append(PatientFact.dependent_id == dep_uuid)
         except ValueError:
-            pass
+            logger.debug("Ignoring invalid dependent_id UUID: %s", dependent_id)
 
     res = await db.execute(select(PatientFact).filter(*filters))
     facts = res.scalars().all()

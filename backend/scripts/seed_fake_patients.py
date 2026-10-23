@@ -3,7 +3,7 @@ import asyncio
 from datetime import date
 from sqlalchemy.future import select
 from app.db.database import AsyncSessionLocal
-from app.db.models import User, DependentProfile, Document, Chat, ChatChunk, PatientFact, AuditLog
+from app.db.models import User, DependentProfile, Document, Chat, ChatChunk, PatientFact
 from app.core.auth import get_password_hash
 
 PATIENT_DATA = [

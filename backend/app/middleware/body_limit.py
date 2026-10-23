@@ -26,5 +26,5 @@ class BodySizeLimitMiddleware(BaseHTTPMiddleware):
                             },
                         )
                 except ValueError:
-                    pass
+                    content_length = None
         return await call_next(request)

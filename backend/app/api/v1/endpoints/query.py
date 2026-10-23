@@ -116,7 +116,7 @@ async def query_bot(
                     primary_doc = doc_found
                     chat_docs = [doc_found]
         except ValueError:
-            pass
+            logger.debug("Non-UUID session_id provided: %s", body.session_id)
 
     if body.document_id:
         try:
@@ -130,7 +130,7 @@ async def query_bot(
                 if not primary_doc:
                     primary_doc = d_found
         except ValueError:
-            pass
+            logger.debug("Invalid UUID for body.document_id: %s", body.document_id)
 
     has_document = len(chat_docs) > 0 and any(bool(d.file_path) for d in chat_docs)
 
@@ -307,7 +307,7 @@ async def query_bot(
                 active_profile = dep
                 active_dep_id = dep.id
         except ValueError:
-            pass
+            logger.debug("Invalid UUID for body.patient_id: %s", body.patient_id)
 
     await log_audit(
         db,

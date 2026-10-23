@@ -180,8 +180,8 @@ async def process_upload_background(
             if tmp_path and os.path.exists(tmp_path):
                 try:
                     os.unlink(tmp_path)
-                except Exception:
-                    pass
+                except Exception as unlink_err:
+                    logger.debug("Could not unlink temporary upload file %s: %s", tmp_path, unlink_err)
 
     # Step B (Async Background GCS Sync & Cache Warming):
     async def _run_post_upload_tasks():

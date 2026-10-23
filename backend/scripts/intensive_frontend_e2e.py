@@ -10,13 +10,11 @@ and appends a full structured report to ./testing_log.
 import argparse
 import asyncio
 import datetime
-import json
 import os
 import re
 import sys
 import tempfile
 import time
-import uuid
 from typing import Any, Dict, List, Optional, Tuple
 
 import firebase_admin
@@ -584,6 +582,20 @@ async def run_intensive_e2e(frontend_url: str, api_url: str, headless: bool = Tr
             await page.wait_for_selector("text=Where should we start?", state="visible", timeout=15000)
             metrics["new_chat_click_ms"] = round((time.perf_counter() - t0) * 1000.0, 1)
 
+            # Client-Side File Validation Rejection Check (.txt / invalid extension)
+            bad_file_path = os.path.join(tempfile.gettempdir(), "invalid_notes.txt")
+            with open(bad_file_path, "w", encoding="utf-8") as bf:
+                bf.write("Not a medical PDF or image.")
+            uploads_before = len([c for c in api_calls if "/upload" in c["path"] and c["method"] == "POST"])
+            t_bad = time.perf_counter()
+            await page.set_input_files("input[type='file']", bad_file_path)
+            await asyncio.sleep(0.25)
+            metrics["invalid_file_rejection_ms"] = round((time.perf_counter() - t_bad) * 1000.0, 1)
+            uploads_after = len([c for c in api_calls if "/upload" in c["path"] and c["method"] == "POST"])
+            assertions["invalid_file_rejected_client_side"] = (uploads_after == uploads_before)
+            # Reset file input value before valid upload
+            await page.evaluate("() => { const inp = document.querySelector(\"input[type='file']\"); if (inp) inp.value = ''; }")
+
             # File 1: Click "Try with a Sample Blood Test Report" (or upload sample report-1.pdf if deployed bundle predates 1-click upload)
             sample_btn = page.locator('button:has-text("Try with a Sample Blood Test Report")')
             t_up1 = time.perf_counter()
@@ -1050,6 +1062,7 @@ def format_markdown_report(result: Dict[str, Any], frontend_url: str, api_url: s
         "| Check / Invariant | Observed Result | Status |",
         "| :--- | :--- | :--- |",
         f"| Weak Password (`12345678`) Client-Side Gate | Blocked on `/register` | {status_str(a.get('weak_password_blocked', True))} |",
+        f"| Invalid File Format (`.txt`) Client-Side Gate | Rejected in `{m.get('invalid_file_rejection_ms', 0)} ms` without calling `POST /upload` | {status_str(a.get('invalid_file_rejected_client_side', True))} |",
         f"| Fernet-256 Encrypted PHI Persistence (`Profile.jsx`) | Condition + Medication + Allergy decrypted on re-open | {status_str(a.get('fernet_profile_persisted', True))} |",
         f"| Mobile (`375x812`) Top Header Pairwise Overlap | `0px` overlap across Sidebar, Patient Pill, Print, Export | {status_str(a.get('mobile_no_header_overlap', True))} |",
         f"| Mobile (`375x812`) Mode Switcher vs. Composer Overlap | `0px` overlap | {status_str(a.get('mobile_no_footer_overlap', True))} |",

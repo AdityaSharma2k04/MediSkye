@@ -87,6 +87,20 @@ def append_to_testing_log(section_text: str):
 
 def init_firebase():
     if not firebase_admin._apps:
+        from firebase_admin import credentials
+        candidate_keys = [
+            os.path.expanduser(r"~\Downloads\service-acc-key.json"),
+            os.path.expanduser(r"~\OneDrive\Documents\service-acc-key.json"),
+            os.environ.get("GOOGLE_APPLICATION_CREDENTIALS") or "",
+        ]
+        for key_path in candidate_keys:
+            if key_path and os.path.exists(key_path):
+                try:
+                    cred = credentials.Certificate(key_path)
+                    firebase_admin.initialize_app(cred, options={"projectId": PROJECT_ID})
+                    return
+                except Exception:
+                    pass
         try:
             firebase_admin.initialize_app(options={"projectId": PROJECT_ID})
         except Exception:

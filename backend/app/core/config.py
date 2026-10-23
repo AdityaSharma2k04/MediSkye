@@ -121,7 +121,8 @@ class Settings(BaseSettings):
                     if isinstance(parsed, list):
                         return [str(v).strip() for v in parsed if str(v).strip()]
                 except json.JSONDecodeError:
-                    pass
+                    # Fall back to comma-separated parsing below
+                    parsed = None
             return [item.strip() for item in raw.split(",") if item.strip()]
         return value
 

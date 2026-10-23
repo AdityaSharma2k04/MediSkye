@@ -156,8 +156,8 @@ async def process_chat_memory_extraction(
                             chat_filters.append(Chat.document_id.is_(None))
                     else:
                         chat_filters.append(Chat.document_id == c_uuid)
-                except (ValueError, TypeError):
-                    pass
+                except (ValueError, TypeError) as cid_err:
+                    logger.debug("Non-UUID chat_id passed to process_chat_memory_extraction: %s", cid_err)
 
             msg_res = await session.execute(
                 select(Chat)
