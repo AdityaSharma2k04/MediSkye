@@ -1,5 +1,6 @@
 import uuid
 import json
+import shutil
 import asyncio
 import logging
 from typing import List, Optional
@@ -364,6 +365,7 @@ async def delete_my_document(
     except Exception as e:
         logger.error("Error removing vector cache for doc %s: %s", doc.id, e)
 
+    await db.execute(ChatDocument.__table__.delete().where(ChatDocument.document_id == doc.id))
     await db.execute(Chat.__table__.delete().where(Chat.document_id == doc.id, Chat.user_id == current_user.id))
     await db.delete(doc)
     await db.commit()

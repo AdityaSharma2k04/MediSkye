@@ -1,6 +1,5 @@
 import time
 from contextlib import asynccontextmanager
-from pathlib import Path
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles

@@ -1,7 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import {
   X,
-  User,
   Palette,
   Shield,
   Database,
@@ -14,7 +13,6 @@ import {
   EyeOff,
   ExternalLink,
   Brain,
-  Activity,
   Volume2,
 } from 'lucide-react';
 import ConfirmModal from './ConfirmModal';

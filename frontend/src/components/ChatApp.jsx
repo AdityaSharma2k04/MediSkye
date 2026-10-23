@@ -162,6 +162,7 @@ export default function ChatApp() {
   const [isExportingSummary, setIsExportingSummary] = useState(false);
   const [printSummaryText, setPrintSummaryText] = useState('');
   const [uploadProgress, setUploadProgress] = useState(null);
+  const [uploadError, setUploadError] = useState(null);
   const abortControllerRef = useRef(null);
   const isSubmittingRef = useRef(false);
   const isMountedRef = useRef(true);
@@ -495,15 +496,18 @@ export default function ChatApp() {
       file.name.match(/\.(pdf|jpg|jpeg|png)$/i);
     if (!isValidType) {
       console.error('Invalid File Format: Please upload a PDF, JPG, or PNG file.');
+      setUploadError('Invalid file type or size.');
       return null;
     }
 
     const maxMb = 50;
     if (file.size > maxMb * 1024 * 1024) {
       console.error(`File Too Large: Maximum allowed file size is ${maxMb}MB.`);
+      setUploadError('Invalid file type or size.');
       return null;
     }
 
+    setUploadError(null);
     setIsGenerating(true);
 
     try {
@@ -1233,6 +1237,25 @@ export default function ChatApp() {
           onExportSummary={handleExportSummary}
           onOpenExport={() => setIsExportOpen(true)}
         />
+
+        {uploadError && (
+          <div className="max-w-3xl w-full mx-auto px-4 mb-2 animate-fade-in">
+            <div
+              role="alert"
+              className="flex items-center justify-between gap-2.5 px-3.5 py-2 rounded-xl text-xs font-medium bg-red-500/10 border border-red-500/30 text-red-300"
+            >
+              <span>{uploadError}</span>
+              <button
+                type="button"
+                onClick={() => setUploadError(null)}
+                aria-label="Dismiss upload error"
+                className="text-red-300 hover:text-white px-1"
+              >
+                ×
+              </button>
+            </div>
+          </div>
+        )}
 
         {uploadProgress && (
           <div className="max-w-3xl w-full mx-auto px-4 mb-2 animate-fade-in" data-testid="upload-progress-banner">

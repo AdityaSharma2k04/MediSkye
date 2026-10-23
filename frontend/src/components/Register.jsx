@@ -8,7 +8,6 @@ import {
   updateProfile,
   sendEmailVerification,
   reloadAndGetVerifiedToken,
-  signOut,
   getFirebaseErrorMessage,
 } from '../services/firebase';
 import api from '../services/api';

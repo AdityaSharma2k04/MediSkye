@@ -1,15 +1,15 @@
 import React, { useRef, useEffect, useState } from 'react';
 import {
-  Stethoscope, ArrowDown, Upload, FileText, Sparkles, Shield,
-  Printer, Table, MessageSquare, AlertCircle, X, Download,
-  ChevronLeft, ChevronRight, Activity, HelpCircle
+  ArrowDown, Upload, FileText, Sparkles, Shield,
+  Printer, Table, MessageSquare, AlertCircle, Download,
+  Activity, HelpCircle
 } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import ChatMessage from './ChatMessage';
 import LabMetrics from './LabMetrics';
 import PrintableSummary from './PrintableSummary';
 import PatientContextSelector from './PatientContextSelector';
-import { fetchLabMetrics, getProfile, sendQueryStream, getDocumentSummary } from '../services/api';
+import { fetchLabMetrics, getProfile, getDocumentSummary } from '../services/api';
 
 export default function ChatWindow({
   messages,

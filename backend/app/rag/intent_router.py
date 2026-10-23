@@ -11,7 +11,6 @@ This router is the second gate — it catches edge cases the keywords miss and
 intelligently skips FAISS for general questions to save latency and tokens.
 """
 
-import asyncio
 from enum import Enum
 import logging
 import re

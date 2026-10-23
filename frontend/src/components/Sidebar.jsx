@@ -5,8 +5,6 @@ import {
   MessageSquare,
   FileText,
   Settings,
-  ChevronLeft,
-  ChevronRight,
   Shield,
   Activity,
   User,

@@ -2,7 +2,6 @@ import React, { useState, useEffect, useRef } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import {
-  Stethoscope,
   Copy,
   Check,
   Volume2,
@@ -11,7 +10,6 @@ import {
   ThumbsDown,
   RotateCcw,
   Share2,
-  User,
   Sparkles,
   AlertTriangle,
 } from 'lucide-react';

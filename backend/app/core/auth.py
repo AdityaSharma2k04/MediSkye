@@ -8,7 +8,7 @@ from collections import OrderedDict
 from contextlib import asynccontextmanager
 import threading
 from datetime import datetime, timedelta, UTC
-from typing import Optional, Any, Union
+from typing import Optional, Any
 import jwt
 from passlib.context import CryptContext
 from pydantic import BaseModel, ConfigDict, Field

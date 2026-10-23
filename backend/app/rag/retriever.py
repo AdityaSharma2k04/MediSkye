@@ -20,7 +20,7 @@ from langchain_core.documents import Document
 
 from collections import OrderedDict
 import threading
-from app.rag.chunking import MedicalTextSplitter, split_medical_documents
+from app.rag.chunking import MedicalTextSplitter
 from app.rag.embedder import get_embedder
 from app.rag.hybrid_search import BM25Index, save_bm25_index, load_bm25_index, reciprocal_rank_fusion
 from app.rag.index_storage import ensure_index_local, aensure_index_local

@@ -1,7 +1,6 @@
 import asyncio
 import logging
 from typing import Any, Optional
-from google import genai
 from app.core.config import settings
 from app.llm.gemini_client import GeminiUnavailableError, _is_retryable_error, get_genai_client
 

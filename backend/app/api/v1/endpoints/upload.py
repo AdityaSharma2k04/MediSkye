@@ -5,7 +5,6 @@ import uuid
 import asyncio
 import logging
 from typing import Optional
-from pathlib import Path
 from fastapi import APIRouter, BackgroundTasks, Depends, File, Form, HTTPException, UploadFile, status, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select

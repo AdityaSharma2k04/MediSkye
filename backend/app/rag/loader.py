@@ -21,7 +21,6 @@ from pypdf import PdfReader
 
 logger = logging.getLogger(__name__)
 
-from app.core.config import settings
 from app.core.security import sanitize_text
 from app.llm.gemini_client import call_gemini_with_retry
 
@@ -299,13 +298,11 @@ async def _extract_table_pages_with_vision(pdf_path: str, table_page_indices: li
     """
     try:
         import pymupdf as fitz
-        from google import genai
         from google.genai.types import Part
     except ImportError:
         return []
 
     docs: list[Document] = []
-    client = get_genai_client()
 
     VISION_PROMPT = """You are a precise medical document parser. Extract ALL content from this medical report page into well-structured Markdown.
 

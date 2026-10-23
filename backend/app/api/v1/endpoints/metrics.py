@@ -7,7 +7,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 from langchain_community.vectorstores import FAISS
 
-from app.core.config import settings
 from app.core.auth import UserDTO, get_current_user
 from app.core.limiter import limiter
 from app.db.database import get_db
