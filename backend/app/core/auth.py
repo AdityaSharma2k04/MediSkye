@@ -223,6 +223,18 @@ async def _resolve_firebase_user(decoded_token: dict, db: AsyncSession) -> Optio
     if not fb_email:
         return None
     normalized_email = fb_email.lower().strip()
+
+    # Reject tokens issued before an account deletion / revocation event so the
+    # JWKS fallback can never auto-reprovision a deleted account within its 1h JWT window.
+    revoked_at = await redis_client.get(f"user_revoked_at:{normalized_email}")
+    if revoked_at is not None:
+        token_iat = decoded_token.get("iat") or decoded_token.get("auth_time")
+        try:
+            if token_iat is None or float(token_iat) <= float(revoked_at):
+                return None
+        except (ValueError, TypeError):
+            return None
+
     result = await db.execute(select(User).filter(func.lower(User.email) == normalized_email))
     user = result.scalars().first()
 
@@ -286,6 +298,10 @@ async def _resolve_user_full(token: str, db: AsyncSession) -> Optional[User]:
 
             decoded_token = await asyncio.to_thread(_verify_fb_token)
     except Exception as e:
+        err_name = type(e).__name__
+        if err_name in ("UserNotFoundError", "RevokedIdTokenError", "UserDisabledError", "ExpiredIdTokenError"):
+            logger.info("Firebase token explicitly rejected (%s)", err_name)
+            return None
         logger.debug("Firebase Admin SDK verification deferred: %s", e)
         decoded_token = None
 

@@ -236,7 +236,11 @@ export default function ChatApp() {
         prev.map((item) => {
           const isTarget = item.id === targetSessionId || (targetDocId && (item.id === targetDocId || item.document_id === targetDocId));
           if (!isTarget) return item;
-          if (!targetDocId && (!formatted || formatted.length === 0) && item.messages && item.messages.length > 0) {
+          if (
+            Array.isArray(item.messages) &&
+            item.messages.length > 0 &&
+            ((!formatted || formatted.length === 0) || item.messages.some((m) => m.isStreaming))
+          ) {
             return item;
           }
           return { ...item, messages: formatted };
@@ -252,7 +256,13 @@ export default function ChatApp() {
   }, []);
 
   // Load User, Dependents, and Documents simultaneously on Mount (Bug 10 & Bug 1)
-  const refreshPatientContext = useCallback(async () => {
+  const refreshPatientContext = useCallback(async (optimisticUser = null) => {
+    if (optimisticUser && typeof optimisticUser === 'object' && optimisticUser.id) {
+      setCurrentUser(optimisticUser);
+      if (optimisticUser.language_preference) {
+        setLanguage(optimisticUser.language_preference);
+      }
+    }
     try {
       const [userRes, depsRes] = await Promise.all([
         getProfile().catch(() => null),
@@ -374,10 +384,10 @@ export default function ChatApp() {
         setActivePdf(pdfMeta);
         setSessionId(targetDoc.id);
 
-        loadChatHistory(targetDoc.id, targetDoc.id);
+        await loadChatHistory(targetDoc.id, targetDoc.id);
       } else {
         setActivePdf(null);
-        loadChatHistory(null, sessionIdRef.current);
+        await loadChatHistory(null, sessionIdRef.current);
       }
 
       return docs;

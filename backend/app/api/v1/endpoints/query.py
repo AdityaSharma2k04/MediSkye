@@ -323,6 +323,7 @@ async def query_bot(
     biological_sex = active_profile.biological_sex or "Unspecified"
     pre_existing_conditions = active_profile.pre_existing_conditions or "None reported"
     current_medications = active_profile.current_medications or "None reported"
+    known_allergies = getattr(active_profile, "known_allergies", None)
     language_preference = (
         getattr(active_profile, "language_preference", None)
         or getattr(current_user, "language_preference", None)
@@ -434,6 +435,27 @@ async def query_bot(
                         if past_chunks:
                             formatted_past_chats = format_past_chats_for_prompt(past_chunks)
 
+                    # Also include recent turns from the current conversation session
+                    recent_filters = [Chat.user_id == current_user.id, Chat.id != current_chat_id]
+                    if primary_doc:
+                        recent_filters.append(Chat.document_id == primary_doc.id)
+                    else:
+                        recent_filters.append(Chat.document_id.is_(None))
+                    recent_res = await mem_session.execute(
+                        select(Chat).filter(*recent_filters).order_by(Chat.created_at.desc()).limit(6)
+                    )
+                    recent_turns = list(reversed(recent_res.scalars().all()))
+                    if recent_turns:
+                        recent_formatted = format_past_chats_for_prompt(
+                            [{"text": f"{t.role.upper()}: {t.message}", "created_at": t.created_at} for t in recent_turns if t.message]
+                        )
+                        if recent_formatted:
+                            formatted_past_chats = (
+                                f"{formatted_past_chats}\n\n{recent_formatted}"
+                                if formatted_past_chats
+                                else recent_formatted
+                            )
+
             # ── Stage: Generating ──
             if intent != QueryIntent.CASUAL:
                 yield f'event: stage\ndata: {json.dumps({"stage": "generating", "message": "Preparing your answer..."})}\n\n'
@@ -456,6 +478,7 @@ async def query_bot(
                     language_preference=language_preference,
                     patient_facts=formatted_facts,
                     past_chats=formatted_past_chats,
+                    known_allergies=known_allergies,
                     height_cm=height_cm,
                     diet_type=diet_type,
                     activity_level=activity_level,
@@ -472,6 +495,7 @@ async def query_bot(
                     language_preference=language_preference,
                     patient_facts=formatted_facts,
                     past_chats=formatted_past_chats,
+                    known_allergies=known_allergies,
                     height_cm=height_cm,
                     diet_type=diet_type,
                     activity_level=activity_level,

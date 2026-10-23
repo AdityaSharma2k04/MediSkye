@@ -131,6 +131,12 @@ async def delete_user_me(
     await db.delete(current_user)
     await db.commit()
     evict_token_cache_for_user(user_id)
+    try:
+        from app.core.redis_client import redis_client
+        import time as _time
+        await redis_client.setex(f"user_revoked_at:{user_email.lower().strip()}", 3600, str(_time.time()))
+    except Exception:
+        pass
 
     try:
         fb_user = await asyncio.to_thread(firebase_admin.auth.get_user_by_email, user_email)

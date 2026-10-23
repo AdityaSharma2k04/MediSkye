@@ -95,3 +95,72 @@ MEDISKYE SRE BENCHMARK LOG — [2026-10-23 04:23:14]
 | `POST /query (GENERAL_HEALTH)` | 1586.4 ms | 2099.7 ms | 10372.1 ms | 1774.3 ms / 10156.5 ms | 10/10 | 0 | 0 | 0 |
 | `POST /query (DOCUMENT_QA)` | 474.4 ms | 465.0 ms | 661.9 ms | 155.1 ms / 439.6 ms | 10/10 | 0 | 0 | 0 |
 ==================================================
+
+==================================================
+INTENSIVE LIVE FRONTEND E2E AUDIT — [2026-10-23 10:55:08]
+==================================================
+
+**Target Frontend:** `https://mediskye.pages.dev`  
+**Target Backend:** `https://mediskye-1095767703249.asia-southeast1.run.app`
+
+### Table 1: UI Click & Modal Interaction Latencies
+| UI Action / Step | Click-to-Render (ms) | API Network (ms) | Server `X-Process-Time-Ms` | Status |
+| :--- | :--- | :--- | :--- | :--- |
+| Landing Page Cold Load (`1440x900`) | 2536.8 ms | — | — | PASS |
+| Landing Page Warm Reload | 1346.6 ms | — | — | PASS |
+| Nav Click: `Features` (`FeaturesSection.jsx`) | 106.3 ms | — | — | PASS |
+| Nav Click: `How it works` (`HowItWorksSection.jsx`) | 86.4 ms | — | — | PASS |
+| Nav Click: `Safety` (`SafetySection.jsx`) | 71.4 ms | — | — | PASS |
+| CTA Navigate to `/register` | 575.9 ms | — | — | PASS |
+| Register Submit (`/register`) | 3953.0 ms | — | — | PASS |
+| Login Submit -> `/chat` Ready | 1656.6 ms | — | — | PASS |
+| Open `Profile.jsx` Modal | 94.3 ms | — | — | PASS |
+| Save Encrypted Health Profile (`PUT /users/me`) | 520.8 ms | 231.6 ms | 79.6 ms | PASS |
+| Browser Reload Chat History Hydration | 627.3 ms | — | — | PASS |
+| Click `New Conversation` (`Sidebar.jsx`) | 69.6 ms | — | — | PASS |
+| Switch `Metrics` -> `Chat` View Pill | 524.9 ms | — | — | PASS |
+| i18n Switch `English` -> `Hindi (hi)` | 1703.0 ms | — | — | PASS |
+| i18n Switch `Hindi (hi)` -> `English` | 1062.9 ms | — | — | PASS |
+| Mobile (`375x812`) Hamburger Open | 434.1 ms | — | — | PASS |
+| Mobile (`375x812`) Backdrop Close | 267.3 ms | — | — | PASS |
+
+### Table 2: Multi-File Upload Flows & Multi-Document Switching
+| Upload / Document Action | Total E2E Latency (ms) | Notes / Verification | Status |
+| :--- | :--- | :--- | :--- |
+| File 1: Sample Report Upload (`Report 1`) | 3652.0 ms | Unlocks on `status === 'completed'` (`local_ready`) | PASS |
+| File 2: Second Report Upload (`second_thyroid_panel.pdf`) | 3060.5 ms | Distinct Thyroid biomarkers (`TSH 11.4`, `Free T4 0.6`) | PASS |
+| Switch File 2 <-> File 1 in `Sidebar.jsx` | 654.5 ms | Clean state & PDF chip restoration | PASS |
+| Delete Document via Sidebar Modal | 802.2 ms | Verified `404` on `/users/me/documents/{id}/metrics` | PASS |
+
+### Table 3: All 4 AI Intent Routes + Multi-Turn Memory & Encrypted Health Profile Recall
+| Turn / Route | Query / Verification | TTFT (ms) | Total Stream (ms) | Assertion Status |
+| :--- | :--- | :--- | :--- | :--- |
+| Turn 1: `CASUAL` Fast-Path | `"Hi MediSkye!"` (Disclaimer suppressed) | 1366.2 ms | 2671.3 ms | PASS |
+| Turn 2: `EMERGENCY` Fast-Path | `"I am having severe chest pain and can't breathe"` | 242.1 ms | 468.6 ms | PASS |
+| Turn 3: `GENERAL_HEALTH` (Seed) | Seed `174 mg/dL` fasting blood glucose | 3190.3 ms | 6070.7 ms | PASS |
+| Turn 4: `GENERAL_HEALTH` (Memory + PHI Recall) | Recalls `174` + `Metformin` + `Penicillin` | 2192.9 ms | 4239.4 ms | PASS |
+| Turn 5: Post-Reload Continuity | Follow-up after `page.reload()` | 1077.4 ms | 5120.4 ms | PASS |
+| File 1 `DOCUMENT_QA` | Top abnormal biomarkers in File 1 | 8630.8 ms | 10497.2 ms | PASS |
+| File 2 `DOCUMENT_QA` | Abnormal values in File 2 (`TSH 11.4`, `Free T4`) | 4204.1 ms | 9505.6 ms | PASS |
+| File 2 `DOCUMENT_QA` Follow-Up | Multi-turn follow-up inside File 2 | 3769.4 ms | 9510.9 ms | PASS |
+
+### Table 4: Cached vs. Uncached Clinical Artifacts (`LabMetrics`, `PrintableSummary`, `PrintableTranscript`)
+| Clinical Artifact Action | UI Click-to-Render (ms) | API Network (ms) | Server `X-Process-Time-Ms` | Status |
+| :--- | :--- | :--- | :--- | :--- |
+| `LabMetrics` 1st Click (`LabMetrics.jsx`) | 787.9 ms | 252.5 ms | 31.6 ms | PASS |
+| `LabMetrics` 2nd Click (Cached Hit) | 770.0 ms | 286.8 ms | 28.8 ms | PASS |
+| `LabMetrics` `?force_refresh=true` API Re-Extract | — | 3557.7 ms | — | PASS |
+| `PrintableSummary` 1st Click (`PrintableSummary.jsx`) | 732.0 ms | 229.6 ms | 30.7 ms | PASS |
+| `PrintableSummary` 2nd Click (Cached Hit) | 591.4 ms | 230.7 ms | 28.9 ms | PASS |
+| `PrintableTranscript` Export (`PrintableTranscript.jsx`) | 2140.3 ms | — | — | PASS |
+
+### Table 5: Mobile (`375x812`) Bounding-Box Collision & Security/Eviction Checks
+| Check / Invariant | Observed Result | Status |
+| :--- | :--- | :--- |
+| Weak Password (`12345678`) Client-Side Gate | Blocked on `/register` | PASS |
+| Fernet-256 Encrypted PHI Persistence (`Profile.jsx`) | Condition + Medication + Allergy decrypted on re-open | PASS |
+| Mobile (`375x812`) Top Header Pairwise Overlap | `0px` overlap across Sidebar, Patient Pill, Print, Export | PASS |
+| Mobile (`375x812`) Mode Switcher vs. Composer Overlap | `0px` overlap | PASS |
+| Mobile (`375x812`) Horizontal Overflow (`scrollWidth <= 375`) | `scrollWidth = 375px` | PASS |
+| `DELETE /users/me` + Immediate 60s Auth Cache Eviction | Deleted in `4297.9 ms`; immediate `GET /users/me` returned `401` in `615.4 ms` | PASS |
+==================================================

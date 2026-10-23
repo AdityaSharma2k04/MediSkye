@@ -106,6 +106,7 @@ def _format_patient_context(
     pre_existing_conditions: str,
     current_medications: str,
     language_preference: str,
+    known_allergies: Optional[str] = None,
     height_cm: Optional[float] = None,
     diet_type: Optional[str] = None,
     activity_level: Optional[str] = None,
@@ -117,6 +118,8 @@ def _format_patient_context(
         f"- Pre-existing Conditions: {escape_xml_content(str(pre_existing_conditions))}",
         f"- Current Medications: {escape_xml_content(str(current_medications))}",
     ]
+    if known_allergies:
+        lines.append(f"- Known Allergies: {escape_xml_content(str(known_allergies))}")
     if height_cm is not None:
         lines.append(f"- Height: {height_cm} cm")
     if diet_type:
@@ -252,6 +255,7 @@ def build_prompt(
     patient_facts: Optional[str] = None,
     past_chats: Optional[str] = None,
     documents: Optional[List[Dict[str, Any]]] = None,
+    known_allergies: Optional[str] = None,
     height_cm: Optional[float] = None,
     diet_type: Optional[str] = None,
     activity_level: Optional[str] = None,
@@ -272,6 +276,7 @@ def build_prompt(
         pre_existing_conditions=pre_existing_conditions,
         current_medications=current_medications,
         language_preference=language_preference,
+        known_allergies=known_allergies,
         height_cm=height_cm,
         diet_type=diet_type,
         activity_level=activity_level,
@@ -335,6 +340,7 @@ def build_general_health_prompt(
     patient_facts: Optional[str] = None,
     past_chats: Optional[str] = None,
     documents: Optional[List[Dict[str, Any]]] = None,
+    known_allergies: Optional[str] = None,
     height_cm: Optional[float] = None,
     diet_type: Optional[str] = None,
     activity_level: Optional[str] = None,
@@ -352,6 +358,7 @@ def build_general_health_prompt(
         pre_existing_conditions=pre_existing_conditions,
         current_medications=current_medications,
         language_preference=language_preference,
+        known_allergies=known_allergies,
         height_cm=height_cm,
         diet_type=diet_type,
         activity_level=activity_level,
