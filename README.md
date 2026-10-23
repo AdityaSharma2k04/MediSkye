@@ -277,35 +277,61 @@ MediSkye/
 
 ## 📊 Production Latency Benchmarks
 
-Latest production benchmark snapshot: **2026-10-23 03:02:41**. Direct API values are warm p50s from **N=10 runs**; browser E2E values are warm p50s from **N=5 runs**. Values are transcribed from `testing_log`.
+Latest live production benchmark snapshot: **2026-10-23** (Direct API: **13:19:53**; intensive browser E2E: **13:32:12**). Direct API measurements use **N=10 warm runs**; browser latency profiling uses **N=5 runs**. The detailed timestamped logs and intensive E2E report are in [`testing_log`](./testing_log).
 
-### Direct Cloud Run API (warm p50, N=10)
+### Direct Cloud Run API (N=10 warm runs)
 
-| Endpoint | Client warm p50 | Server warm p50 |
+| Endpoint | Cold first hit | Warm p50 | Warm p95 | Server p50 / p95 | Successful warm requests |
+| :--- | ---: | ---: | ---: | ---: | ---: |
+| `GET /health` | 225.2 ms | 138.8 ms | 164.4 ms | 0.5 / 0.9 ms | 10/10 |
+| `GET /users/me` | 149.3 ms | 147.2 ms | 164.9 ms | 1.2 / 1.9 ms | 10/10 |
+| `GET /metrics (cached hit)` | 11,754.6 ms | 184.3 ms | 496.6 ms | 31.4 / 196.5 ms | 10/10 |
+| `POST /summary (cached hit)` | 321.8 ms | 205.9 ms | 507.2 ms | 31.9 / 202.3 ms | 10/10 |
+| `POST /query (GENERAL_HEALTH)` | 1,388.9 ms | 1,453.9 ms | 1,936.8 ms | 1,243.8 / 1,723.5 ms | 10/10 |
+| `POST /query (DOCUMENT_QA)` | 336.6 ms | 360.8 ms | 538.7 ms | 149.3 / 303.3 ms | 10/10 |
+
+The first metrics request was an uncached cold extraction (11,754.6 ms); subsequent warm measurements were successful. Each rate-limited cached endpoint loop waited for the rate-limit window reset when needed.
+
+| Upload / cold-start measurement | Observed |
+| :--- | ---: |
+| Cloud Run idle/wakeup `GET /health` (server: 0.53 ms) | 402.4 ms |
+| Upload fast path to `local_ready` | 6,776.1 ms |
+
+`upload_fast_path_ms` ends when the upload status becomes `completed` / `local_ready`; asynchronous cache warming is measured separately and is not included in this upload time.
+
+### Browser E2E (Playwright, DOCUMENT_QA; N=5)
+
+| Action | Warm p50 | Warm p95 |
 | :--- | ---: | ---: |
-| `GET /health` | 136 ms | 0.4 ms |
-| `GET /users/me` | 149 ms | 1.3 ms |
-| `GET /metrics (cached hit)` | 277 ms | 30.6 ms |
-| `POST /summary (cached hit)` | 166 ms | 29.2 ms |
-| `POST /query (GENERAL_HEALTH)` | 1,422 ms | 1,241 ms |
-| `POST /query (DOCUMENT_QA)` | 314 ms | 153 ms |
+| Page load | 3,152.7 ms | 7,154.8 ms |
+| PDF upload and processing | 1,885.1 ms | 3,935.8 ms |
+| Lab metrics (first run) | 760.2 ms | 924.6 ms |
+| Lab metrics (cached) | 369.6 ms | 9,838.6 ms |
+| Print summary (first run) | 549.5 ms | 573.0 ms |
+| Print summary (cached) | 397.4 ms | 4,908.6 ms |
+| AI chat time to first token (TTFT) | 2,698.9 ms | 3,625.4 ms |
+| AI chat total stream | 8,218.3 ms | 9,011.6 ms |
 
-Cold-start and upload measurements recorded alongside this run:
+The browser p95s for cached metrics and cached summary include single slow outliers (12,204.3 ms and 6,023.9 ms respectively); the p50s better reflect the usual warm response. The profiler verifies metrics prewarm readiness before recording the first cached click.
 
-| Measurement | Observed |
-| :--- | ---: |
-| Cloud Run idle/wakeup `GET /health` | 7,280 ms (server: 0.55 ms) |
-| Upload total | 12,896 ms (includes 10s wait for prewarm) |
+### Intensive live E2E and resilience checks
 
-### Browser E2E (Playwright, DOCUMENT_QA; warm p50, N=5)
+The full intensive Playwright run passed across sample and second-report uploads, `DOCUMENT_QA`, all four intent paths, encrypted profile and multi-turn recall after reload, cached clinical artifacts, Hindi/English localization, and mobile `375x812` layout checks.
 
-| Action | Warm p50 |
-| :--- | ---: |
-| Page load | 1,735 ms |
-| Upload | 5,015 ms |
-| AI chat time to first token (TTFT) | 2,984 ms |
-| Lab metrics (cached) | 246 ms |
-| Print summary (cached) | 395 ms |
+| Check | Result |
+| :--- | :--- |
+| Sample report / second report uploads | 4,589.6 ms / 3,461.0 ms |
+| Grounded document QA (sample / second report) | 2,573.8 ms / 2,640.2 ms TTFT |
+| Encrypted HealthProfile persistence + reload recall | Condition, medication, allergy, and prior-turn glucose recalled |
+| CASUAL / EMERGENCY / GENERAL_HEALTH / DOCUMENT_QA | All verified |
+| LabMetrics first / cached click | 326.1 ms / 370.6 ms |
+| PrintableSummary first / cached click | 897.5 ms / 423.2 ms |
+| PrintableTranscript export | 999.4 ms |
+| Mobile header / footer overlap at `375x812` | 0 px / 0 px |
+| Invalid `.txt` client-side rejection | Error banner in 91.3 ms; no upload request |
+| `DELETE /users/me` / immediate same-token auth check | 204 / 401 in 5,534.0 / 410.4 ms (eviction verified) |
+
+Production status-code gates passed for `401` (missing/tampered token), `403` (unverified email), and `429` (rate-limit burst). The building-index `503` / `Retry-After: 2` response is verified in the backend SRE hardening tests, not by mutating production database state. The targeted local suite passed **8 tests**.
 
 ### Per-stage upload breakdown (`UPLOAD_BREAKDOWN`)
 
@@ -319,7 +345,7 @@ Cold-start and upload measurements recorded alongside this run:
 | `background_gcs_sync` | 1,480 ms | Background (offloaded) | GCS sync with exponential retry backoff |
 | **Total synchronous upload (stage breakdown)** | **2,400 ms** | **100%** | **Ready state set before background tasks** |
 
-The benchmark logs label cached workloads `/metrics` and `/summary`; the implemented routes are document-scoped. See [Verified API Paths](#-verified-api-paths) for the actual FastAPI routes. In this N=10 run, cached metrics and summary each succeeded 9/10 times and returned one `429` (zero `425` responses and retries). The measured upload total includes the profiler's intentional 10-second prewarm wait; the instrumented upload stage breakdown measures processing separately.
+The benchmark logs label cached workloads `/metrics` and `/summary`; the implemented routes are document-scoped. See [Verified API Paths](#-verified-api-paths) for the actual FastAPI routes. The direct API benchmark recorded 10/10 successful warm requests for each endpoint (zero `425`, zero `429`, and zero retries). Stage timings below measure processing separately from the upload fast path.
 
 ---
 
@@ -427,7 +453,7 @@ npm run dev
 
 ## 🧪 Running the Test & Benchmark Suites
 
-The current checked-out suites pass **261 backend pytest tests** and **161 frontend Vitest tests** (**422 total**). The backend count uses the same `not integration` marker exclusion as CI.
+The Phase 1 pre-deployment gate passed **265 backend pytest tests** and **163 frontend Vitest tests** (**428 total**). The backend count uses the same `not integration` marker exclusion as CI. The Phase 1 frontend production build completed with zero warnings; the latest live SRE hardening recheck also passed all **8** targeted building-index / `Retry-After` tests.
 
 ### 1. Backend Unit, E2E, Chaos & Penetration Tests (`pytest`)
 ```bash

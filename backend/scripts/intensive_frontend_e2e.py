@@ -21,7 +21,7 @@ import firebase_admin
 import httpx
 import pymupdf
 from firebase_admin import auth as fb_auth
-from playwright.async_api import Page, async_playwright
+from playwright.async_api import Page, TimeoutError as PlaywrightTimeoutError, async_playwright
 
 sys.stdout.reconfigure(line_buffering=True)
 sys.stderr.reconfigure(line_buffering=True)
@@ -113,7 +113,7 @@ async def measure_stream_turn(
     page: Page,
     prompt_text: str,
     timeout_ms: int = 90000,
-) -> Tuple[float, float, str]:
+) -> Tuple[Optional[float], Optional[float], str]:
     """
     Send a chat message via the UI and measure:
       - ttft_ms: click Send -> first character painted in the new assistant bubble
@@ -157,22 +157,63 @@ async def measure_stream_turn(
     t0 = time.perf_counter()
     await send_btn.click()
 
-    await page.wait_for_function(
-        "() => window.__turn_probe__ && window.__turn_probe__.firstText !== null",
-        timeout=timeout_ms,
-    )
+    try:
+        await page.wait_for_function(
+            """() => {
+                if (window.__turn_probe__ && window.__turn_probe__.firstText !== null) return true;
+                return [...document.querySelectorAll('.chat-messages-container .animate-bubble-in')]
+                    .some((bubble) => [...bubble.querySelectorAll('button')]
+                        .some((button) => button.textContent.trim() === 'Retry'));
+            }""",
+            timeout=timeout_ms,
+        )
+    except PlaywrightTimeoutError as exc:
+        print(f"  [FAIL] Chat response timed out before first text: {exc}", flush=True)
+        return None, None, "[STREAM_ERROR] Timed out before the first response text."
+
+    error_text = await page.evaluate("""
+        () => {
+            const bubble = [...document.querySelectorAll('.chat-messages-container .animate-bubble-in')]
+                .find((item) => [...item.querySelectorAll('button')]
+                    .some((button) => button.textContent.trim() === 'Retry'));
+            return bubble ? bubble.innerText.trim() : null;
+        }
+    """)
+    if error_text:
+        print(f"  [FAIL] Chat UI reported an error: {error_text}", flush=True)
+        return None, None, f"[STREAM_ERROR] {error_text}"
+
     probe = await page.evaluate("() => window.__turn_probe__")
     ttft_ms = round(float(probe["firstText"] - probe["clicked"]), 1)
 
-    # Wait until streaming completes (Stop generation button disappears and Copy response button is visible on last message)
-    await page.wait_for_function(
-        """() => {
-            const stopBtn = document.querySelector('button[aria-label="Stop generation"]');
-            const proses = document.querySelectorAll('.chat-messages-container .prose');
-            return !stopBtn && proses.length > (window.__turn_probe__ ? window.__turn_probe__.baseline : 0);
-        }""",
-        timeout=timeout_ms,
-    )
+    try:
+        await page.wait_for_function(
+            """() => {
+                const hasError = [...document.querySelectorAll('.chat-messages-container .animate-bubble-in')]
+                    .some((bubble) => [...bubble.querySelectorAll('button')]
+                        .some((button) => button.textContent.trim() === 'Retry'));
+                const stopBtn = document.querySelector('button[aria-label="Stop generation"]');
+                const proses = document.querySelectorAll('.chat-messages-container .prose');
+                return hasError || (!stopBtn && proses.length > (window.__turn_probe__ ? window.__turn_probe__.baseline : 0));
+            }""",
+            timeout=timeout_ms,
+        )
+    except PlaywrightTimeoutError as exc:
+        print(f"  [FAIL] Chat stream did not finish: {exc}", flush=True)
+        return None, None, "[STREAM_ERROR] Timed out waiting for the chat stream to finish."
+
+    error_text = await page.evaluate("""
+        () => {
+            const bubble = [...document.querySelectorAll('.chat-messages-container .animate-bubble-in')]
+                .find((item) => [...item.querySelectorAll('button')]
+                    .some((button) => button.textContent.trim() === 'Retry'));
+            return bubble ? bubble.innerText.trim() : null;
+        }
+    """)
+    if error_text:
+        print(f"  [FAIL] Chat UI reported an error: {error_text}", flush=True)
+        return None, None, f"[STREAM_ERROR] {error_text}"
+
     await asyncio.sleep(0.15)
     total_ms = round((time.perf_counter() - t0) * 1000.0, 1)
 
@@ -491,8 +532,11 @@ async def run_intensive_e2e(frontend_url: str, api_url: str, headless: bool = Tr
             metrics["casual_ttft_ms"] = casual_ttft
             metrics["casual_total_ms"] = casual_total
             assertions["casual_disclaimer_suppressed"] = (
-                len(casual_text) > 0 and "not a substitute for professional medical advice" not in casual_text.lower()
+                casual_ttft is not None
+                and len(casual_text) > 0
+                and "not a substitute for professional medical advice" not in casual_text.lower()
             )
+            assertions["casual_turn_completed"] = casual_ttft is not None
             print(f"  Turn 1 (CASUAL): TTFT={casual_ttft}ms | Total={casual_total}ms | No-Disclaimer={assertions['casual_disclaimer_suppressed']}")
 
             # Turn 2: EMERGENCY Route
@@ -502,8 +546,10 @@ async def run_intensive_e2e(frontend_url: str, api_url: str, headless: bool = Tr
             metrics["emergency_banner_ms"] = em_ttft
             metrics["emergency_total_ms"] = em_total
             assertions["emergency_warning_rendered"] = (
-                "emergency" in em_text.lower() or "911" in em_text.lower() or "112" in em_text.lower()
+                em_ttft is not None
+                and ("emergency" in em_text.lower() or "911" in em_text.lower() or "112" in em_text.lower())
             )
+            assertions["emergency_turn_completed"] = em_ttft is not None
             print(f"  Turn 2 (EMERGENCY): Banner={em_ttft}ms | Total={em_total}ms | Warning={assertions['emergency_warning_rendered']}")
 
             # Turn 3: GENERAL_HEALTH + Memory Seeding ("174 mg/dL")
@@ -513,6 +559,7 @@ async def run_intensive_e2e(frontend_url: str, api_url: str, headless: bool = Tr
             )
             metrics["general_health_ttft_ms"] = gh_ttft
             metrics["general_health_total_ms"] = gh_total
+            assertions["general_health_turn_completed"] = gh_ttft is not None
             print(f"  Turn 3 (GENERAL_HEALTH seed): TTFT={gh_ttft}ms | Total={gh_total}ms")
 
             # Wait briefly for background fact extraction of 174 mg/dL to complete in Neon DB
@@ -543,6 +590,8 @@ async def run_intensive_e2e(frontend_url: str, api_url: str, headless: bool = Tr
             assertions["memory_recall_metformin"] = "metformin" in low_mem
             assertions["memory_recall_penicillin"] = "penicillin" in low_mem
             assertions["memory_recall_all"] = (
+                mem_ttft is not None
+                and
                 assertions["memory_recall_174"]
                 and assertions["memory_recall_metformin"]
                 and assertions["memory_recall_penicillin"]
@@ -565,7 +614,11 @@ async def run_intensive_e2e(frontend_url: str, api_url: str, headless: bool = Tr
             )
             metrics["post_reload_ttft_ms"] = reload_ttft
             metrics["post_reload_total_ms"] = reload_total
-            assertions["post_reload_continuity"] = len(reload_text) > 30
+            assertions["post_reload_continuity"] = (
+                reload_ttft is not None
+                and len(reload_text) > 30
+                and not reload_text.startswith("[STREAM_ERROR]")
+            )
             print(f"  Turn 5 (POST-RELOAD): Hydration={metrics['chat_history_hydration_ms']}ms | TTFT={reload_ttft}ms | Total={reload_total}ms")
 
             # ═══════════════════════════════════════════════════════════════════
@@ -589,10 +642,19 @@ async def run_intensive_e2e(frontend_url: str, api_url: str, headless: bool = Tr
             uploads_before = len([c for c in api_calls if "/upload" in c["path"] and c["method"] == "POST"])
             t_bad = time.perf_counter()
             await page.set_input_files("input[type='file']", bad_file_path)
-            await asyncio.sleep(0.25)
+            invalid_banner_visible = False
+            try:
+                await page.wait_for_selector("text=Invalid file type or size.", state="visible", timeout=3000)
+                invalid_banner_visible = True
+            except PlaywrightTimeoutError as exc:
+                print(f"  [FAIL] Invalid-file error banner did not appear: {exc}", flush=True)
             metrics["invalid_file_rejection_ms"] = round((time.perf_counter() - t_bad) * 1000.0, 1)
             uploads_after = len([c for c in api_calls if "/upload" in c["path"] and c["method"] == "POST"])
-            assertions["invalid_file_rejected_client_side"] = (uploads_after == uploads_before)
+            assertions["invalid_file_rejected_client_side"] = (
+                invalid_banner_visible
+                and metrics["invalid_file_rejection_ms"] < 3000
+                and uploads_after == uploads_before
+            )
             # Reset file input value before valid upload
             await page.evaluate("() => { const inp = document.querySelector(\"input[type='file']\"); if (inp) inp.value = ''; }")
 
@@ -630,7 +692,7 @@ async def run_intensive_e2e(frontend_url: str, api_url: str, headless: bool = Tr
             )
             metrics["doc1_qa_ttft_ms"] = d1_ttft
             metrics["doc1_qa_total_ms"] = d1_total
-            assertions["doc1_qa_answered"] = len(d1_text) > 40
+            assertions["doc1_qa_answered"] = d1_ttft is not None and len(d1_text) > 40
             print(
                 f"  File 1 (Sample Report): Upload={metrics['sample_report_upload_total_ms']}ms | "
                 f"QA TTFT={d1_ttft}ms | Total={d1_total}ms"
@@ -650,7 +712,8 @@ async def run_intensive_e2e(frontend_url: str, api_url: str, headless: bool = Tr
             metrics["doc2_qa_ttft_ms"] = d2_ttft
             metrics["doc2_qa_total_ms"] = d2_total
             assertions["doc2_specific_biomarkers"] = (
-                "tsh" in d2_text.lower() or "11.4" in d2_text.lower() or "thyroid" in d2_text.lower()
+                d2_ttft is not None
+                and ("tsh" in d2_text.lower() or "11.4" in d2_text.lower() or "thyroid" in d2_text.lower())
             )
             print(
                 f"  File 2 (Thyroid Report): Upload={metrics['doc2_upload_total_ms']}ms | "
@@ -663,6 +726,7 @@ async def run_intensive_e2e(frontend_url: str, api_url: str, headless: bool = Tr
             )
             metrics["doc2_followup_ttft_ms"] = d2_f_ttft
             metrics["doc2_followup_total_ms"] = d2_f_total
+            assertions["doc2_followup_completed"] = d2_f_ttft is not None
 
             # Switch between documents in Sidebar.jsx
             sidebar_items = page.locator("aside button").filter(has_text=re.compile(r"Sample|Lipid|Report|Thyroid|Metabolic|CBC|Diabetes", re.I))
@@ -1004,7 +1068,7 @@ def format_markdown_report(result: Dict[str, Any], frontend_url: str, api_url: s
         return "PASS" if flag else "FAIL"
 
     lines = [
-        f"**Target Frontend:** `{frontend_url}`  ",
+        f"**Target Frontend:** `{frontend_url}`",
         f"**Target Backend:** `{api_url}`",
         "",
         "### Table 1: UI Click & Modal Interaction Latencies",
@@ -1041,12 +1105,12 @@ def format_markdown_report(result: Dict[str, Any], frontend_url: str, api_url: s
         "| :--- | :--- | :--- | :--- | :--- |",
         f"| Turn 1: `CASUAL` Fast-Path | `\"Hi MediSkye!\"` (Disclaimer suppressed) | {m.get('casual_ttft_ms', 0)} ms | {m.get('casual_total_ms', 0)} ms | {status_str(a.get('casual_disclaimer_suppressed', True))} |",
         f"| Turn 2: `EMERGENCY` Fast-Path | `\"I am having severe chest pain and can't breathe\"` | {m.get('emergency_banner_ms', 0)} ms | {m.get('emergency_total_ms', 0)} ms | {status_str(a.get('emergency_warning_rendered', True))} |",
-        f"| Turn 3: `GENERAL_HEALTH` (Seed) | Seed `174 mg/dL` fasting blood glucose | {m.get('general_health_ttft_ms', 0)} ms | {m.get('general_health_total_ms', 0)} ms | PASS |",
+        f"| Turn 3: `GENERAL_HEALTH` (Seed) | Seed `174 mg/dL` fasting blood glucose | {m.get('general_health_ttft_ms', 0)} ms | {m.get('general_health_total_ms', 0)} ms | {status_str(a.get('general_health_turn_completed', False))} |",
         f"| Turn 4: `GENERAL_HEALTH` (Memory + PHI Recall) | Recalls `174` + `Metformin` + `Penicillin` | {m.get('memory_recall_ttft_ms', 0)} ms | {m.get('memory_recall_total_ms', 0)} ms | {status_str(a.get('memory_recall_all', True))} |",
         f"| Turn 5: Post-Reload Continuity | Follow-up after `page.reload()` | {m.get('post_reload_ttft_ms', 0)} ms | {m.get('post_reload_total_ms', 0)} ms | {status_str(a.get('post_reload_continuity', True))} |",
         f"| File 1 `DOCUMENT_QA` | Top abnormal biomarkers in File 1 | {m.get('doc1_qa_ttft_ms', 0)} ms | {m.get('doc1_qa_total_ms', 0)} ms | {status_str(a.get('doc1_qa_answered', True))} |",
         f"| File 2 `DOCUMENT_QA` | Abnormal values in File 2 (`TSH 11.4`, `Free T4`) | {m.get('doc2_qa_ttft_ms', 0)} ms | {m.get('doc2_qa_total_ms', 0)} ms | {status_str(a.get('doc2_specific_biomarkers', True))} |",
-        f"| File 2 `DOCUMENT_QA` Follow-Up | Multi-turn follow-up inside File 2 | {m.get('doc2_followup_ttft_ms', 0)} ms | {m.get('doc2_followup_total_ms', 0)} ms | PASS |",
+        f"| File 2 `DOCUMENT_QA` Follow-Up | Multi-turn follow-up inside File 2 | {m.get('doc2_followup_ttft_ms', 0)} ms | {m.get('doc2_followup_total_ms', 0)} ms | {status_str(a.get('doc2_followup_completed', False))} |",
         "",
         "### Table 4: Cached vs. Uncached Clinical Artifacts (`LabMetrics`, `PrintableSummary`, `PrintableTranscript`)",
         "| Clinical Artifact Action | UI Click-to-Render (ms) | API Network (ms) | Server `X-Process-Time-Ms` | Status |",
@@ -1062,7 +1126,7 @@ def format_markdown_report(result: Dict[str, Any], frontend_url: str, api_url: s
         "| Check / Invariant | Observed Result | Status |",
         "| :--- | :--- | :--- |",
         f"| Weak Password (`12345678`) Client-Side Gate | Blocked on `/register` | {status_str(a.get('weak_password_blocked', True))} |",
-        f"| Invalid File Format (`.txt`) Client-Side Gate | Rejected in `{m.get('invalid_file_rejection_ms', 0)} ms` without calling `POST /upload` | {status_str(a.get('invalid_file_rejected_client_side', True))} |",
+        f"| Invalid File Format (`.txt`) Client-Side Gate | Error banner in `{m.get('invalid_file_rejection_ms', 0)} ms`; no `POST /upload` | {status_str(a.get('invalid_file_rejected_client_side', False))} |",
         f"| Fernet-256 Encrypted PHI Persistence (`Profile.jsx`) | Condition + Medication + Allergy decrypted on re-open | {status_str(a.get('fernet_profile_persisted', True))} |",
         f"| Mobile (`375x812`) Top Header Pairwise Overlap | `0px` overlap across Sidebar, Patient Pill, Print, Export | {status_str(a.get('mobile_no_header_overlap', True))} |",
         f"| Mobile (`375x812`) Mode Switcher vs. Composer Overlap | `0px` overlap | {status_str(a.get('mobile_no_footer_overlap', True))} |",
