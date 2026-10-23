@@ -6,7 +6,6 @@ import {
   signInWithPopup,
   createUserWithEmailAndPassword,
   updateProfile,
-  sendEmailVerification,
   reloadAndGetVerifiedToken,
   getFirebaseErrorMessage,
 } from '../services/firebase';
@@ -195,21 +194,6 @@ export default function Register() {
         }
       }
 
-      if (typeof sendEmailVerification === 'function') {
-        const origin = typeof window !== 'undefined' && window.location?.origin ? window.location.origin : '';
-        try {
-          await sendEmailVerification(
-            userCredential.user,
-            origin ? { url: `${origin}/login` } : undefined
-          );
-        } catch (verifyErr) {
-          // Fallback if continueUrl domain is not whitelisted yet
-          try {
-            await sendEmailVerification(userCredential.user);
-          } catch (_) {}
-        }
-      }
-
       try {
         await api.post('/auth/send-custom-verification', { email: trimmedEmail });
       } catch (_) {}
@@ -269,19 +253,9 @@ export default function Register() {
     setResendLoading(true);
     try {
       const target = pendingUser || auth?.currentUser;
-      if (target && typeof sendEmailVerification === 'function') {
-        const origin = typeof window !== 'undefined' && window.location?.origin ? window.location.origin : '';
-        try {
-          await sendEmailVerification(target, origin ? { url: `${origin}/login` } : undefined);
-        } catch (_) {
-          await sendEmailVerification(target);
-        }
-      }
       const emailToSend = target?.email || email.trim().toLowerCase();
       if (emailToSend) {
-        try {
-          await api.post('/auth/send-custom-verification', { email: emailToSend });
-        } catch (_) {}
+        await api.post('/auth/send-custom-verification', { email: emailToSend });
       }
       setSuccess(`Verification email resent to ${emailToSend}. Please check your inbox (and Spam/Junk folder).`);
       setResendCooldown(60);

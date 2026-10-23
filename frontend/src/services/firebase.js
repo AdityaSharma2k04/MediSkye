@@ -9,7 +9,9 @@ import {
   updateProfile,
   onIdTokenChanged,
   signOut,
-  sendEmailVerification,
+  applyActionCode,
+  verifyPasswordResetCode,
+  confirmPasswordReset,
 } from "firebase/auth";
 
 // Uses Vite env vars if available, with project fallbacks.
@@ -41,7 +43,9 @@ export {
   updateProfile,
   onIdTokenChanged,
   signOut,
-  sendEmailVerification,
+  applyActionCode,
+  verifyPasswordResetCode,
+  confirmPasswordReset,
 };
 
 /**

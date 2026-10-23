@@ -1,25 +1,149 @@
 import asyncio
-from fastapi import APIRouter, Depends, HTTPException, status
+import html
+from datetime import UTC, datetime
+from typing import Any
+from urllib.parse import parse_qs, urlencode, urlsplit
+
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from fastapi.security import OAuth2PasswordRequestForm
-from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.future import select
+from firebase_admin import auth
+from firebase_admin.auth import ActionCodeSettings, UserNotFoundError
 from sqlalchemy import func
 from sqlalchemy.exc import IntegrityError
-from typing import Any
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.future import select
 
-from app.core.auth import get_password_hash, verify_password, create_access_token, oauth2_scheme
+from app.core.auth import create_access_token, get_password_hash, oauth2_scheme, verify_password
+from app.core.audit import log_audit
+from app.core.logging import logger
+from app.core.limiter import limiter
 from app.db.database import get_db
 from app.db.models import User
-from app.schemas.user import UserCreate, UserResponse, Token, CustomVerificationRequest
-from app.core.audit import log_audit
+from app.schemas.user import CustomVerificationRequest, Token, UserCreate, UserResponse
 from app.services.email_service import send_email_via_gmail
-from datetime import datetime, UTC
-from fastapi import Request
-from app.core.limiter import limiter
-from app.core.logging import logger
-from firebase_admin import auth
 
 router = APIRouter(tags=["Authentication"])
+CUSTOM_AUTH_ACTION_URL = "https://mediskye.pages.dev/auth/action"
+
+
+def _build_custom_action_link(firebase_link: str, mode: str) -> str:
+    oob_code = parse_qs(urlsplit(firebase_link).query).get("oobCode", [None])[0]
+    if not oob_code:
+        raise ValueError("Firebase action link did not include an out-of-band code")
+    return f"{CUSTOM_AUTH_ACTION_URL}?{urlencode({'mode': mode, 'oobCode': oob_code})}"
+
+
+def _build_mediskye_email_html(
+    *,
+    preheader: str,
+    badge_label: str,
+    heading: str,
+    intro_text: str,
+    recipient_email: str,
+    cta_label: str,
+    action_url: str,
+    security_note: str,
+) -> str:
+    """Render a responsive, brand-aligned transactional HTML email for MediSkye."""
+    safe_email = html.escape(recipient_email)
+    safe_url = html.escape(action_url, quote=True)
+
+    return f"""<!DOCTYPE html>
+<html lang="en" xmlns="http://www.w3.org/1999/xhtml">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="color-scheme" content="light dark" />
+  <meta name="supported-color-schemes" content="light dark" />
+  <title>{html.escape(heading)}</title>
+</head>
+<body style="margin: 0; padding: 0; background-color: #07090e; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; -webkit-font-smoothing: antialiased; color: #e2e8f0;">
+  <div style="display: none; max-height: 0; overflow: hidden; opacity: 0; font-size: 1px; line-height: 1px; color: #07090e;">
+    {html.escape(preheader)}&zwnj;&nbsp;&zwnj;&nbsp;&zwnj;&nbsp;
+  </div>
+  <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" bgcolor="#07090e" style="background-color: #07090e; width: 100%; margin: 0; padding: 36px 16px;">
+    <tr>
+      <td align="center">
+        <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" bgcolor="#0d121a" style="max-width: 560px; width: 100%; background-color: #0d121a; border: 1px solid #1e293b; border-radius: 16px; overflow: hidden; box-shadow: 0 20px 50px rgba(0, 0, 0, 0.5);">
+          <tr>
+            <td height="4" bgcolor="#06b6d4" style="background: linear-gradient(90deg, #06b6d4 0%, #38bdf8 100%); font-size: 0; line-height: 0;">&nbsp;</td>
+          </tr>
+          <tr>
+            <td style="padding: 28px 32px 20px; border-bottom: 1px solid #172030;">
+              <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0">
+                <tr>
+                  <td align="left" valign="middle">
+                    <table role="presentation" cellspacing="0" cellpadding="0" border="0">
+                      <tr>
+                        <td width="32" height="32" align="center" valign="middle" bgcolor="#ffffff" style="width: 32px; height: 32px; background-color: #ffffff; border-radius: 8px; font-weight: 800; font-size: 16px; color: #07090e; font-family: monospace;">M</td>
+                        <td style="padding-left: 12px;">
+                          <span style="font-size: 18px; font-weight: 700; color: #f8fafc; letter-spacing: -0.3px;">MediSkye</span>
+                          <span style="display: block; font-size: 11px; font-weight: 500; color: #64748b; letter-spacing: 0.4px; text-transform: uppercase;">Clinical AI Platform</span>
+                        </td>
+                      </tr>
+                    </table>
+                  </td>
+                  <td align="right" valign="middle">
+                    <span style="display: inline-block; padding: 5px 10px; background-color: #0c2530; border: 1px solid #155e75; border-radius: 999px; font-size: 11px; font-weight: 600; color: #22d3ee; letter-spacing: 0.5px; text-transform: uppercase;">{html.escape(badge_label)}</span>
+                  </td>
+                </tr>
+              </table>
+            </td>
+          </tr>
+          <tr>
+            <td style="padding: 32px 32px 24px;">
+              <h1 style="margin: 0 0 14px; font-size: 24px; line-height: 1.3; font-weight: 700; color: #f8fafc; letter-spacing: -0.4px;">{html.escape(heading)}</h1>
+              <p style="margin: 0 0 16px; font-size: 15px; line-height: 1.65; color: #cbd5e1;">{html.escape(intro_text)}</p>
+              <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="margin: 0 0 26px;">
+                <tr>
+                  <td bgcolor="#111824" style="background-color: #111824; border: 1px solid #1e293b; border-radius: 10px; padding: 11px 14px; font-size: 13px; color: #94a3b8;">
+                    Account: <strong style="color: #f1f5f9; font-weight: 600;">{safe_email}</strong>
+                  </td>
+                </tr>
+              </table>
+              <table role="presentation" cellspacing="0" cellpadding="0" border="0" style="margin: 0 0 28px;">
+                <tr>
+                  <td align="center" bgcolor="#06b6d4" style="border-radius: 10px; background-color: #06b6d4;">
+                    <a href="{safe_url}" target="_blank" rel="noopener noreferrer" style="display: inline-block; padding: 14px 28px; font-size: 15px; font-weight: 700; color: #041318; text-decoration: none; border-radius: 10px; letter-spacing: -0.1px;">{html.escape(cta_label)} &rarr;</a>
+                  </td>
+                </tr>
+              </table>
+              <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="margin: 0 0 24px;">
+                <tr>
+                  <td bgcolor="#111824" style="background-color: #111824; border-left: 3px solid #06b6d4; border-radius: 4px 8px 8px 4px; padding: 12px 16px;">
+                    <p style="margin: 0; font-size: 13px; line-height: 1.55; color: #94a3b8;">
+                      <strong style="color: #e2e8f0;">Security Notice:</strong> This single-use link expires in <strong style="color: #e2e8f0;">60 minutes</strong>. {html.escape(security_note)}
+                    </p>
+                  </td>
+                </tr>
+              </table>
+              <p style="margin: 0 0 8px; font-size: 12px; font-weight: 500; color: #64748b;">Button not working? Copy and paste this URL into your browser:</p>
+              <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0">
+                <tr>
+                  <td bgcolor="#07090e" style="background-color: #07090e; border: 1px solid #1e293b; border-radius: 8px; padding: 10px 12px; font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; font-size: 11px; line-height: 1.5; color: #38bdf8; word-break: break-all; overflow-wrap: anywhere;">
+                    <a href="{safe_url}" target="_blank" rel="noopener noreferrer" style="color: #38bdf8; text-decoration: underline; word-break: break-all; overflow-wrap: anywhere;">{safe_url}</a>
+                  </td>
+                </tr>
+              </table>
+            </td>
+          </tr>
+          <tr>
+            <td bgcolor="#090d14" style="background-color: #090d14; padding: 22px 32px; border-top: 1px solid #172030;">
+              <p style="margin: 0 0 8px; font-size: 12px; line-height: 1.5; color: #64748b;">
+                <strong style="color: #94a3b8;">MediSkye AI</strong> &bull; <a href="https://mediskye.pages.dev" style="color: #22d3ee; text-decoration: none;">mediskye.pages.dev</a>
+              </p>
+              <p style="margin: 0; font-size: 11px; line-height: 1.5; color: #475569;">
+                MediSkye is an informational clinical AI assistant designed for health literacy purposes only and is not a substitute for professional medical advice, diagnosis, or treatment.
+              </p>
+            </td>
+          </tr>
+        </table>
+      </td>
+    </tr>
+  </table>
+</body>
+</html>"""
+
 
 @router.post("/register", response_model=UserResponse)
 @limiter.limit("5/minute")
@@ -124,27 +248,41 @@ async def send_custom_verification(
     """
     email = str(verification_req.email)
     try:
-        link = await asyncio.to_thread(auth.generate_email_verification_link, email)
-    except Exception as e:
-        raise HTTPException(status_code=400, detail="Could not generate link. User may not exist.")
+        action_code_settings = ActionCodeSettings(
+            url=CUSTOM_AUTH_ACTION_URL,
+            handle_code_in_app=True,
+        )
+        firebase_link = await asyncio.to_thread(
+            auth.generate_email_verification_link,
+            email,
+            action_code_settings=action_code_settings,
+        )
+        link = _build_custom_action_link(firebase_link, "verifyEmail")
+    except UserNotFoundError:
+        logger.warning("Verification requested for non-existent user: %s", email)
+        return {"message": "Verification email sent"}
+    except Exception:
+        logger.exception("Failed to generate verification link for %s", email)
+        raise HTTPException(status_code=500, detail="An internal error occurred.")
 
-    html_content = f"""
-    <div style="font-family: sans-serif; max-width: 600px; margin: 0 auto; color: #333;">
-        <h2 style="color: #06b6d4;">Welcome to MediSkye 🩺</h2>
-        <p>Hi there,</p>
-        <p>You're one step away from understanding your medical reports. Please verify your email address by clicking the button below:</p>
-        <a href="{link}" style="display: inline-block; padding: 12px 24px; background-color: #06b6d4; color: white; text-decoration: none; border-radius: 6px; font-weight: bold; margin: 20px 0;">Verify my email</a>
-        <p style="font-size: 12px; color: #666;">If the button doesn't work, copy and paste this link: <br>{link}</p>
-        <p style="font-size: 12px; color: #666;">This link will expire in 1 hour. If you didn't request this, please ignore this email.</p>
-        <hr style="border: none; border-top: 1px solid #eee; margin: 30px 0;" />
-        <p style="font-size: 12px; color: #999;">MediSkye is an educational tool, not a substitute for professional medical advice.</p>
-    </div>
-    """
+    html_content = _build_mediskye_email_html(
+        preheader="Confirm your email address to activate your MediSkye clinical workspace.",
+        badge_label="Verify Account",
+        heading="Verify your email address",
+        intro_text=(
+            "Welcome to MediSkye. Confirm your email address below to activate your "
+            "encrypted workspace and start analyzing your laboratory and medical reports."
+        ),
+        recipient_email=email,
+        cta_label="Verify Email Address",
+        action_url=link,
+        security_note="If you did not create a MediSkye account, you can safely disregard this email.",
+    )
 
     try:
         await send_email_via_gmail(
             to_email=email,
-            subject="Verify your email to start using MediSkye 🩺",
+            subject="Verify your email address — MediSkye",
             html_body=html_content,
         )
     except Exception:
@@ -166,29 +304,42 @@ async def send_custom_password_reset(
     """
     email = str(reset_req.email)
     try:
-        link = await asyncio.to_thread(auth.generate_password_reset_link, email)
-    except Exception as e:
+        action_code_settings = ActionCodeSettings(
+            url=CUSTOM_AUTH_ACTION_URL,
+            handle_code_in_app=True,
+        )
+        firebase_link = await asyncio.to_thread(
+            auth.generate_password_reset_link,
+            email,
+            action_code_settings=action_code_settings,
+        )
+        link = _build_custom_action_link(firebase_link, "resetPassword")
+    except Exception:
         # IMPORTANT: Do NOT leak if the user exists or not.
         # Return a 200 OK with a generic success message to prevent user enumeration attacks.
         return {"message": "If an account exists with this email, a reset link has been sent."}
 
-    html_content = f"""
-    <div style="font-family: sans-serif; max-width: 600px; margin: 0 auto; color: #333;">
-        <h2 style="color: #06b6d4;">Reset your MediSkye Password 🔒</h2>
-        <p>Hi there,</p>
-        <p>We received a request to reset the password for your MediSkye account. Click the button below to choose a new password:</p>
-        <a href="{link}" style="display: inline-block; padding: 12px 24px; background-color: #06b6d4; color: white; text-decoration: none; border-radius: 6px; font-weight: bold; margin: 20px 0;">Reset my password</a>
-        <p style="font-size: 12px; color: #666;">If the button doesn't work, copy and paste this link: <br>{link}</p>
-        <p style="font-size: 12px; color: #666;">This link will expire in 1 hour. If you didn't request a password reset, you can safely ignore this email. Your password will not change.</p>
-        <hr style="border: none; border-top: 1px solid #eee; margin: 30px 0;" />
-        <p style="font-size: 12px; color: #999;">MediSkye is an educational tool, not a substitute for professional medical advice.</p>
-    </div>
-    """
+    html_content = _build_mediskye_email_html(
+        preheader="Use this secure link to reset your MediSkye account password.",
+        badge_label="Password Reset",
+        heading="Reset your MediSkye password",
+        intro_text=(
+            "We received a request to reset the password for your MediSkye account. "
+            "Select the button below to choose a new password."
+        ),
+        recipient_email=email,
+        cta_label="Reset Password",
+        action_url=link,
+        security_note=(
+            "If you did not request a password reset, no action is needed—"
+            "your current password will remain unchanged."
+        ),
+    )
 
     try:
         await send_email_via_gmail(
             to_email=email,
-            subject="Reset your MediSkye password 🔒",
+            subject="Reset your password — MediSkye",
             html_body=html_content,
         )
     except Exception:

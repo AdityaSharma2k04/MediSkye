@@ -3,6 +3,7 @@ import { BrowserRouter, Routes, Route, Navigate, useNavigate } from 'react-route
 
 const Login = lazy(() => import('./components/Login'));
 const Register = lazy(() => import('./components/Register'));
+const AuthAction = lazy(() => import('./components/AuthAction'));
 const ChatApp = lazy(() => import('./components/ChatApp'));
 const LandingPage = lazy(() => import('./components/LandingPage'));
 
@@ -164,6 +165,7 @@ export default function App() {
           <Route path="/" element={<LandingPage />} />
           <Route path="/login" element={<Login />} />
           <Route path="/register" element={<Register />} />
+          <Route path="/auth/action" element={<AuthAction />} />
           <Route
             path="/chat/*"
             element={

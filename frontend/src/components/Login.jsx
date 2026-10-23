@@ -5,7 +5,6 @@ import {
   googleProvider,
   signInWithPopup,
   signInWithEmailAndPassword,
-  sendEmailVerification,
   reloadAndGetVerifiedToken,
   signOut,
   getFirebaseErrorMessage,
@@ -88,16 +87,6 @@ export default function Login() {
     if (!unverifiedUser || resendCooldown > 0) return;
     setResendLoading(true);
     try {
-      if (typeof sendEmailVerification === 'function') {
-        const origin = typeof window !== 'undefined' && window.location?.origin ? window.location.origin : '';
-        try {
-          await sendEmailVerification(unverifiedUser, origin ? { url: `${origin}/login` } : undefined);
-        } catch (_) {
-          try {
-            await sendEmailVerification(unverifiedUser);
-          } catch (__) {}
-        }
-      }
       const emailToSend = unverifiedUser.email || email.trim().toLowerCase();
       await api.post('/auth/send-custom-verification', { email: emailToSend });
       setResendSuccess(true);

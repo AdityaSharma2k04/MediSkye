@@ -16,7 +16,6 @@ vi.mock('react-router-dom', async () => {
 const mockSignInWithPopup = vi.fn();
 const mockSignInWithEmailAndPassword = vi.fn();
 const mockSendPasswordResetEmail = vi.fn();
-const mockSendEmailVerification = vi.fn();
 const mockSignOut = vi.fn();
 const mockApiPost = vi.fn();
 
@@ -40,7 +39,6 @@ vi.mock('../services/firebase', async () => {
     signInWithPopup: (...args) => mockSignInWithPopup(...args),
     signInWithEmailAndPassword: (...args) => mockSignInWithEmailAndPassword(...args),
     sendPasswordResetEmail: (...args) => mockSendPasswordResetEmail(...args),
-    sendEmailVerification: (...args) => mockSendEmailVerification(...args),
     signOut: (...args) => mockSignOut(...args),
   };
 });

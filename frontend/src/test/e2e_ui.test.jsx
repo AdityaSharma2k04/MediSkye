@@ -21,7 +21,6 @@ const mockSignInWithEmailAndPassword = vi.fn();
 const mockCreateUserWithEmailAndPassword = vi.fn();
 const mockUpdateProfile = vi.fn();
 const mockSendPasswordResetEmail = vi.fn();
-const mockSendEmailVerification = vi.fn();
 const mockSignOut = vi.fn();
 
 const {
@@ -59,7 +58,6 @@ vi.mock('../services/firebase', async () => {
     createUserWithEmailAndPassword: (...args) => mockCreateUserWithEmailAndPassword(...args),
     updateProfile: (...args) => mockUpdateProfile(...args),
     sendPasswordResetEmail: (...args) => mockSendPasswordResetEmail(...args),
-    sendEmailVerification: (...args) => mockSendEmailVerification(...args),
     signOut: (...args) => mockSignOut(...args),
   };
 });

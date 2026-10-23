@@ -16,7 +16,6 @@ vi.mock('react-router-dom', async () => {
 const mockCreateUserWithEmailAndPassword = vi.fn();
 const mockUpdateProfile = vi.fn();
 const mockSignInWithPopup = vi.fn();
-const mockSendEmailVerification = vi.fn();
 const mockSignOut = vi.fn();
 const mockApiPost = vi.fn();
 
@@ -38,7 +37,6 @@ vi.mock('../services/firebase', async () => {
     createUserWithEmailAndPassword: (...args) => mockCreateUserWithEmailAndPassword(...args),
     updateProfile: (...args) => mockUpdateProfile(...args),
     signInWithPopup: (...args) => mockSignInWithPopup(...args),
-    sendEmailVerification: (...args) => mockSendEmailVerification(...args),
     signOut: (...args) => mockSignOut(...args),
   };
 });
@@ -146,7 +144,6 @@ describe('Register Component with Firebase Auth', () => {
       getIdToken: vi.fn().mockResolvedValue('mock_token_passphrase'),
     };
     mockCreateUserWithEmailAndPassword.mockResolvedValueOnce({ user: mockUser });
-    mockSendEmailVerification.mockResolvedValueOnce();
     mockSignOut.mockResolvedValueOnce();
 
     render(
@@ -287,13 +284,12 @@ describe('Register Component with Firebase Auth', () => {
     expect(mockCreateUserWithEmailAndPassword).not.toHaveBeenCalled();
   });
 
-  it('calls createUserWithEmailAndPassword, sends email verification, signs out, and shows verification banner', async () => {
+  it('creates the account and requests a custom verification link', async () => {
     const mockUser = {
       email: 'user@example.com',
       getIdToken: vi.fn().mockResolvedValue('mock_register_token_789'),
     };
     mockCreateUserWithEmailAndPassword.mockResolvedValueOnce({ user: mockUser });
-    mockSendEmailVerification.mockResolvedValueOnce();
     mockSignOut.mockResolvedValueOnce();
 
     render(
@@ -316,7 +312,6 @@ describe('Register Component with Firebase Auth', () => {
 
     await waitFor(() => {
       expect(mockCreateUserWithEmailAndPassword).toHaveBeenCalledWith(expect.anything(), 'user@example.com', 'validPassword123');
-      expect(mockSendEmailVerification).toHaveBeenCalled();
       expect(mockApiPost).toHaveBeenCalledWith('/auth/send-custom-verification', { email: 'user@example.com' });
       expect(mockSignOut).not.toHaveBeenCalled();
       expect(localStorage.getItem('token')).toBeNull();
@@ -353,7 +348,6 @@ describe('Register Component with Firebase Auth', () => {
 
     await waitFor(() => {
       expect(mockUpdateProfile).toHaveBeenCalledWith(mockUser, { displayName: 'Jane Doe' });
-      expect(mockSendEmailVerification).toHaveBeenCalled();
       expect(mockApiPost).toHaveBeenCalledWith('/auth/send-custom-verification', { email: 'user@example.com' });
       expect(mockSignOut).not.toHaveBeenCalled();
     });
