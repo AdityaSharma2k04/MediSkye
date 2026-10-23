@@ -1,10 +1,10 @@
 import uuid
+import asyncio
 import logging
 from typing import List, Dict, Any, Optional
 import numpy as np
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
-from sqlalchemy.orm import selectinload
 
 from app.core.config import settings
 from app.db.models import PatientFact, ChatChunk, ChatDocument, Document, Chat
@@ -109,7 +109,7 @@ async def get_relevant_past_chunks(
         return list(chunks[:k])
 
     try:
-        query_vec = embedder.embed_query(query)
+        query_vec = await asyncio.to_thread(embedder.embed_query, query)
         scored = []
         for chunk in chunks:
             if chunk.embedding:

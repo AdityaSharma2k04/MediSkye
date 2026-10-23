@@ -1,3 +1,4 @@
+import asyncio
 from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordRequestForm
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -43,9 +44,10 @@ async def register(request: Request, user_in: UserCreate, db: AsyncSession = Dep
         )
     
     try:
+        hashed_pwd = await asyncio.to_thread(get_password_hash, user_in.password)
         user = User(
             email=normalized_email,
-            hashed_password=get_password_hash(user_in.password),
+            hashed_password=hashed_pwd,
             phi_consent_granted=True,
             consent_timestamp=datetime.now(UTC)
         )
@@ -74,7 +76,11 @@ async def login(request: Request, db: AsyncSession = Depends(get_db), form_data:
     normalized_username = form_data.username.lower().strip()
     result = await db.execute(select(User).filter(func.lower(User.email) == normalized_username))
     user = result.scalars().first()
-    if not user or not verify_password(form_data.password, user.hashed_password):
+    password_ok = (
+        await asyncio.to_thread(verify_password, form_data.password, user.hashed_password)
+        if user else False
+    )
+    if not user or not password_ok:
         await log_audit(db, "FAILED_LOGIN", None, form_data.username, client_ip)
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Incorrect email or password")
     
@@ -120,7 +126,7 @@ async def send_custom_verification(
     """
     email = str(verification_req.email)
     try:
-        link = auth.generate_email_verification_link(email)
+        link = await asyncio.to_thread(auth.generate_email_verification_link, email)
     except Exception as e:
         raise HTTPException(status_code=400, detail="Could not generate link. User may not exist.")
 
@@ -140,12 +146,15 @@ async def send_custom_verification(
     """
 
     try:
-        resend.Emails.send({
-            "from": f"MediSkye <{settings.FROM_EMAIL}>",
-            "to": email,
-            "subject": "Verify your email to start using MediSkye 🩺",
-            "html": html_content
-        })
+        await asyncio.to_thread(
+            resend.Emails.send,
+            {
+                "from": f"MediSkye <{settings.FROM_EMAIL}>",
+                "to": email,
+                "subject": "Verify your email to start using MediSkye 🩺",
+                "html": html_content,
+            },
+        )
     except ResendError as e:
         logger.error(f"Resend API error: {e}")
         raise HTTPException(status_code=502, detail="Email service is currently unavailable. Please try again later.")
@@ -165,7 +174,7 @@ async def send_custom_password_reset(
     """
     email = str(reset_req.email)
     try:
-        link = auth.generate_password_reset_link(email)
+        link = await asyncio.to_thread(auth.generate_password_reset_link, email)
     except Exception as e:
         # IMPORTANT: Do NOT leak if the user exists or not.
         # Return a 200 OK with a generic success message to prevent user enumeration attacks.
@@ -187,12 +196,15 @@ async def send_custom_password_reset(
     """
 
     try:
-        resend.Emails.send({
-            "from": f"MediSkye <{settings.FROM_EMAIL}>",
-            "to": email,
-            "subject": "Reset your MediSkye password 🔒",
-            "html": html_content
-        })
+        await asyncio.to_thread(
+            resend.Emails.send,
+            {
+                "from": f"MediSkye <{settings.FROM_EMAIL}>",
+                "to": email,
+                "subject": "Reset your MediSkye password 🔒",
+                "html": html_content,
+            },
+        )
     except ResendError as e:
         logger.error(f"Resend API error: {e}")
         raise HTTPException(status_code=502, detail="Email service is currently unavailable. Please try again later.")

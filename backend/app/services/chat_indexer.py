@@ -1,5 +1,6 @@
 import uuid
 import re
+import asyncio
 import logging
 from datetime import datetime, UTC
 from typing import List, Optional, Any
@@ -81,7 +82,7 @@ async def index_chat_message(
         embedding_vec = None
         if embedder:
             try:
-                embedding_vec = embedder.embed_query(c_text)
+                embedding_vec = await asyncio.to_thread(embedder.embed_query, c_text)
             except Exception as e:
                 logger.warning("Embedding generation failed for chat chunk: %s", e)
 

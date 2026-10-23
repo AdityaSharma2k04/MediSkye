@@ -1,7 +1,9 @@
+import logging
 import sqlalchemy.types as types
-from cryptography.fernet import Fernet
+from cryptography.fernet import Fernet, InvalidToken
 from app.core.config import settings
 
+logger = logging.getLogger(__name__)
 fernet = Fernet(settings.FERNET_KEY.encode() if isinstance(settings.FERNET_KEY, str) else settings.FERNET_KEY)
 
 class EncryptedString(types.TypeDecorator):
@@ -28,6 +30,7 @@ class EncryptedString(types.TypeDecorator):
             # Decrypt the string
             decrypted = fernet.decrypt(value.encode('utf-8'))
             return decrypted.decode('utf-8')
-        except Exception:
-            # If decryption fails (e.g., data was already in DB unencrypted), return as is
+        except (InvalidToken, Exception):
+            # If decryption fails (e.g., data was already in DB unencrypted), log and return as is
+            logger.warning("Fernet decryption failed; falling back to raw database value.")
             return value

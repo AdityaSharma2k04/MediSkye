@@ -1,20 +1,19 @@
 import uuid
 import json
+import asyncio
 import logging
 from typing import List, Optional
 from uuid import UUID
 from datetime import datetime, UTC
-from pathlib import Path
-import shutil
-import os
 import firebase_admin
 import firebase_admin.auth
 from fastapi import APIRouter, Depends, Request, status, HTTPException
+from sqlalchemy import func
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 
 from app.db.database import get_db
-from app.db.models import User, DependentProfile, Document, Chat, PatientFact
+from app.db.models import User, DependentProfile, Document, Chat, ChatDocument, PatientFact, ChatChunk, UploadJob
 from app.core.auth import (
     UserDTO,
     get_current_user,
@@ -37,9 +36,9 @@ from app.schemas.user import (
 from app.schemas.dependent import DependentCreate, DependentUpdate, DependentResponse
 from app.core.audit import log_audit
 from app.core.limiter import limiter
-from app.core.security import clean_filename_to_title
+from app.core.security import clean_filename_to_title, sanitize_text
 from app.services.patient_service import calculate_age
-from app.rag.index_storage import delete_index_artifacts, adelete_index_artifacts
+from app.rag.index_storage import adelete_index_artifacts
 
 logger = logging.getLogger(__name__)
 
@@ -113,7 +112,17 @@ async def delete_user_me(
     for doc in docs.scalars().all():
         if doc.file_path:
             await adelete_index_artifacts(doc.file_path)
-                
+
+    doc_ids_subq = select(Document.id).filter(Document.user_id == user_id)
+    chat_ids_subq = select(Chat.id).filter(Chat.user_id == user_id)
+    await db.execute(
+        ChatDocument.__table__.delete().where(
+            (ChatDocument.document_id.in_(doc_ids_subq)) | (ChatDocument.chat_id.in_(chat_ids_subq))
+        )
+    )
+    await db.execute(ChatChunk.__table__.delete().where(ChatChunk.user_id == user_id))
+    await db.execute(PatientFact.__table__.delete().where(PatientFact.user_id == user_id))
+    await db.execute(UploadJob.__table__.delete().where(UploadJob.user_id == user_id))
     await db.execute(Chat.__table__.delete().where(Chat.user_id == user_id))
     await db.execute(Document.__table__.delete().where(Document.user_id == user_id))
     await db.execute(DependentProfile.__table__.delete().where(DependentProfile.user_id == user_id))
@@ -123,8 +132,8 @@ async def delete_user_me(
     evict_token_cache_for_user(user_id)
 
     try:
-        fb_user = firebase_admin.auth.get_user_by_email(user_email)
-        firebase_admin.auth.delete_user(fb_user.uid)
+        fb_user = await asyncio.to_thread(firebase_admin.auth.get_user_by_email, user_email)
+        await asyncio.to_thread(firebase_admin.auth.delete_user, fb_user.uid)
         logger.info("firebase_delete_ok user_id=%s", user_id)
     except firebase_admin.auth.UserNotFoundError:
         logger.warning("firebase_user_not_found user_id=%s", user_id)
@@ -181,7 +190,7 @@ async def rename_user_document_title(
     if not doc:
         raise HTTPException(status_code=404, detail="Document not found or access denied.")
 
-    doc.title = body.title.strip()
+    doc.title = sanitize_text(body.title).strip()
     db.add(doc)
     await db.commit()
     await db.refresh(doc)
@@ -515,15 +524,15 @@ async def get_memory_status(
 ):
     """Get the current memory consent status and total number of remembered facts."""
     res = await db.execute(
-        select(PatientFact).filter(
+        select(func.count(PatientFact.id)).filter(
             PatientFact.user_id == current_user.id,
-            PatientFact.is_active == True,
+            PatientFact.is_active.is_(True),
         )
     )
-    facts = res.scalars().all()
+    fact_count = int(res.scalar() or 0)
     return {
         "memory_consent_granted": current_user.memory_consent_granted,
-        "fact_count": len(facts),
+        "fact_count": fact_count,
     }
 
 

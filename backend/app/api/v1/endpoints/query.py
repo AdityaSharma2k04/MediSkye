@@ -17,7 +17,7 @@ from app.core.config import settings
 from app.core.auth import UserDTO, get_current_user
 from app.core.limiter import limiter
 from app.core.audit import log_audit
-from app.core.security import generate_title_from_query
+from app.core.security import generate_title_from_query, sanitize_text
 from app.db.database import get_db, AsyncSessionLocal
 from app.db.models import Document, Chat, ChatDocument, DependentProfile
 from app.llm.gemini_client import GeminiUnavailableError, get_genai_client, call_gemini_with_retry
@@ -67,7 +67,7 @@ async def rename_document_title(
     if not doc:
         raise HTTPException(status_code=404, detail="Document not found or access denied.")
 
-    doc.title = body.title.strip()
+    doc.title = sanitize_text(body.title).strip()
     db.add(doc)
     await db.commit()
     await db.refresh(doc)

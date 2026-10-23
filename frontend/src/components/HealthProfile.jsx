@@ -60,6 +60,7 @@ export default function HealthProfile({
 }) {
   const [facts, setFacts] = useState([]);
   const [loading, setLoading] = useState(false);
+  const [errorMsg, setErrorMsg] = useState('');
 
   // New fact form
   const [newType, setNewType] = useState('condition');
@@ -107,6 +108,7 @@ export default function HealthProfile({
     } catch (err) {
       logger.error('Failed to load health facts:', err);
       console.error('Failed to load facts:', err);
+      setErrorMsg(err?.message || 'Failed to load health facts.');
     } finally {
       setLoading(false);
     }
@@ -118,6 +120,7 @@ export default function HealthProfile({
     if (!trimmed) return;
 
     setAddingFact(true);
+    setErrorMsg('');
     try {
       const created = await createFact({
         fact_type: newType,
@@ -130,6 +133,7 @@ export default function HealthProfile({
       setNewText('');
     } catch (err) {
       console.error('Add Fact Failed:', err);
+      setErrorMsg(err?.message || 'Failed to add health fact.');
     } finally {
       setAddingFact(false);
     }
@@ -144,6 +148,7 @@ export default function HealthProfile({
     const trimmed = editText.trim();
     if (!trimmed) return;
 
+    setErrorMsg('');
     try {
       const updated = await updateFact(factId, { fact_text: trimmed });
       setFacts((prev) =>
@@ -152,19 +157,23 @@ export default function HealthProfile({
       setEditingFactId(null);
     } catch (err) {
       console.error('Update Failed:', err);
+      setErrorMsg(err?.message || 'Failed to update health fact.');
     }
   };
 
   const handleDeleteFact = async (factId) => {
+    setErrorMsg('');
     try {
       await deleteFact(factId);
       setFacts((prev) => prev.filter((f) => f.id !== factId));
     } catch (err) {
       console.error('Delete Failed:', err);
+      setErrorMsg(err?.message || 'Failed to delete health fact.');
     }
   };
 
   const handleSaveLifestyleField = async (field, value) => {
+    setErrorMsg('');
     try {
       const payload = {
         [field]: value === '' ? null : field === 'height_cm' ? (value ? parseFloat(value) : null) : value,
@@ -173,6 +182,7 @@ export default function HealthProfile({
       if (onProfileUpdated) onProfileUpdated(updatedUser);
     } catch (err) {
       console.error('Save Failed:', err);
+      setErrorMsg(err?.message || 'Failed to save lifestyle field.');
     }
   };
 
@@ -181,6 +191,7 @@ export default function HealthProfile({
     if (!trimmed) return;
     // Blur fires even when nothing changed — don't create a duplicate weight fact.
     if (trimmed === lastSavedWeight) return;
+    setErrorMsg('');
     try {
       const created = await createFact({
         fact_type: 'weight',
@@ -194,6 +205,7 @@ export default function HealthProfile({
       setUserWeight(savedText);
     } catch (err) {
       console.error('Weight Save Failed:', err);
+      setErrorMsg(err?.message || 'Failed to save weight.');
     }
   };
 
@@ -226,6 +238,11 @@ export default function HealthProfile({
 
   return (
     <div className="space-y-6 text-xs">
+      {errorMsg && (
+        <div role="alert" className="text-xs text-red-300 bg-red-500/10 border border-red-500/30 rounded-xl px-3.5 py-2.5">
+          {errorMsg}
+        </div>
+      )}
       {/* ── Lifestyle Section ── */}
       <div className={`p-4 rounded-2xl border ${darkMode ? 'bg-zinc-900/60 border-zinc-800' : 'bg-white border-zinc-200 shadow-sm'}`}>
         <h4 className={`text-xs font-semibold uppercase tracking-wider mb-3 flex items-center gap-2 ${darkMode ? 'text-zinc-300' : 'text-zinc-800'}`}>

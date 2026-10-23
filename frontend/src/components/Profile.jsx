@@ -114,6 +114,7 @@ export default function Profile({
   const [activeTab, setActiveTab] = useState(initialTab); // 'profile' or 'dependents'
   const [loading, setLoading] = useState(!profile);
   const [saving, setSaving] = useState(false);
+  const [errorMsg, setErrorMsg] = useState('');
   const [pendingDeleteAccount, setPendingDeleteAccount] = useState(false);
   const [pendingDeleteDependent, setPendingDeleteDependent] = useState(null);
 
@@ -230,6 +231,7 @@ export default function Profile({
         }
       } catch (error) {
         console.error('Could not load profile or dependent information:', error);
+        setErrorMsg('Could not load profile or dependent information.');
       } finally {
         setLoading(false);
       }
@@ -245,6 +247,7 @@ export default function Profile({
   const handleProfileSubmit = async (e) => {
     e.preventDefault();
     setSaving(true);
+    setErrorMsg('');
     try {
       const payload = {};
       for (const key in formData) {
@@ -275,6 +278,7 @@ export default function Profile({
       onClose();
     } catch (error) {
       console.error('Could not save profile data:', error);
+      setErrorMsg(error?.message || 'Could not save profile data.');
     } finally {
       setSaving(false);
     }
@@ -282,11 +286,13 @@ export default function Profile({
 
   const handleConfirmDeleteAccount = async () => {
     setPendingDeleteAccount(false);
+    setErrorMsg('');
     try {
       await deleteAccount();
       navigate('/login');
     } catch (error) {
       console.error('Could not delete your account:', error);
+      setErrorMsg(error?.message || 'Could not delete your account.');
     }
   };
 
@@ -360,8 +366,10 @@ export default function Profile({
 
   const handleSaveDependent = async (e) => {
     e.preventDefault();
+    setErrorMsg('');
     if (!dependentForm.full_name.trim()) {
       console.error('Validation Error: Full Name is required for dependents.');
+      setErrorMsg('Full Name is required for dependents.');
       return;
     }
     setSaving(true);
@@ -406,6 +414,7 @@ export default function Profile({
       if (onProfileUpdated) onProfileUpdated();
     } catch (err) {
       console.error('Dependent Save Failed:', err);
+      setErrorMsg(err?.message || 'Could not save dependent.');
     } finally {
       setSaving(false);
     }
@@ -414,12 +423,14 @@ export default function Profile({
   const handleConfirmDeleteDependent = async () => {
     if (!pendingDeleteDependent) return;
     const { id: depId } = pendingDeleteDependent;
+    setErrorMsg('');
     try {
       await deleteDependent(depId);
       setDependents(prev => prev.filter(d => d.id !== depId));
       if (onProfileUpdated) onProfileUpdated();
     } catch (err) {
       console.error('Delete Failed:', err);
+      setErrorMsg(err?.message || 'Could not delete dependent.');
     } finally {
       setPendingDeleteDependent(null);
     }
@@ -530,6 +541,11 @@ export default function Profile({
 
         {/* Scrollable Content Body */}
         <div className="flex-1 overflow-y-auto p-5 sm:p-6 space-y-6">
+          {errorMsg && (
+            <div role="alert" className="text-xs text-red-300 bg-red-500/10 border border-red-500/30 rounded-xl px-4 py-3">
+              {errorMsg}
+            </div>
+          )}
 
           {/* ═════════════════════════════════════════════ */}
           {/* TAB 1: MY PROFILE */}

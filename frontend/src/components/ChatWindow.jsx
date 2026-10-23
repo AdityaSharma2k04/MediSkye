@@ -18,20 +18,15 @@ export default function ChatWindow({
   onRegenerate,
   onSelectSampleQuery,
   onTrySampleReport,
-  onAttachFile,
   activePdf,
   documentId,
   darkMode,
-  setDarkMode,
   currentUser,
   dependents,
   selectedPatientId,
   onSelectPatient,
   onOpenDependents,
-  attachedDocuments = [],
-  onDetachDocument,
   onOpenUpload,
-  sidebarOpen = true,
   toggleSidebar,
   isExportingSummary: propIsExportingSummary,
   printSummaryText: propPrintSummaryText,
@@ -191,16 +186,9 @@ export default function ChatWindow({
   // Shared color helpers
   const cardBg = darkMode ? 'bg-[#0e131b]' : 'bg-white';
   const cardBorder = darkMode ? 'border-white/[0.08]' : 'border-zinc-200';
-  const headerBg = darkMode ? 'bg-[#07090e]' : 'bg-white';
   const textPrimary = darkMode ? 'text-white' : 'text-zinc-900';
   const textSecondary = darkMode ? 'text-zinc-400' : 'text-zinc-500';
   const textMuted = darkMode ? 'text-zinc-500' : 'text-zinc-400';
-
-  const isSelf = !selectedPatientId || selectedPatientId === 'self' || (currentUser && selectedPatientId === currentUser.id);
-  const activeDependent = !isSelf ? dependents?.find(d => d.id === selectedPatientId) : null;
-
-  // A7: Welcome message
-  const firstName = currentUser?.full_name?.split(' ')[0] || null;
 
   return (
     <div className={`flex-1 flex flex-col h-full overflow-hidden relative transition-colors duration-200 ${

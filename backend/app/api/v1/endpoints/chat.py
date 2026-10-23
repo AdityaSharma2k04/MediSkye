@@ -1,14 +1,13 @@
-import uuid
 import logging
 from typing import List, Dict, Any
 from uuid import UUID
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 
 from app.db.database import get_db
-from app.db.models import User, Chat, Document, ChatDocument
-from app.core.auth import get_current_user
+from app.db.models import Chat, Document, ChatDocument
+from app.core.auth import UserDTO, get_current_user
 
 logger = logging.getLogger(__name__)
 
@@ -18,7 +17,7 @@ router = APIRouter(tags=["Chat Multi-Document"])
 @router.get("/chats/{chat_id}/documents", response_model=List[Dict[str, Any]])
 async def get_chat_documents_endpoint(
     chat_id: UUID,
-    current_user: User = Depends(get_current_user),
+    current_user: UserDTO = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
     """
@@ -65,7 +64,7 @@ async def get_chat_documents_endpoint(
 async def attach_document_to_chat(
     chat_id: UUID,
     doc_id: UUID,
-    current_user: User = Depends(get_current_user),
+    current_user: UserDTO = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
     """
@@ -110,7 +109,7 @@ async def attach_document_to_chat(
 async def detach_document_from_chat(
     chat_id: UUID,
     doc_id: UUID,
-    current_user: User = Depends(get_current_user),
+    current_user: UserDTO = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
     """

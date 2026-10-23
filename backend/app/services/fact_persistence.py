@@ -142,10 +142,26 @@ async def process_chat_memory_extraction(
                 logger.info("Skipping memory extraction: memory consent not granted for user %s", user_id)
                 return
 
-            # Fetch last 6 messages for the user
+            # Fetch last 6 messages scoped to the specific conversation/document
+            # so facts never bleed across different documents or patient profiles.
+            chat_filters = [Chat.user_id == u_uuid]
+            if chat_id:
+                try:
+                    c_uuid = uuid.UUID(str(chat_id))
+                    target_chat = await session.get(Chat, c_uuid)
+                    if target_chat is not None:
+                        if target_chat.document_id is not None:
+                            chat_filters.append(Chat.document_id == target_chat.document_id)
+                        else:
+                            chat_filters.append(Chat.document_id.is_(None))
+                    else:
+                        chat_filters.append(Chat.document_id == c_uuid)
+                except (ValueError, TypeError):
+                    pass
+
             msg_res = await session.execute(
                 select(Chat)
-                .filter(Chat.user_id == u_uuid)
+                .filter(*chat_filters)
                 .order_by(Chat.created_at.desc())
                 .limit(6)
             )

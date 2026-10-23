@@ -463,6 +463,11 @@ export default function ChatApp() {
   const messages = currentChat.messages || [];
 
   const handlePatientSelect = (patientId) => {
+    abortControllerRef.current?.abort();
+    abortControllerRef.current = null;
+    stopSpeaking();
+    setIsGenerating(false);
+    isSubmittingRef.current = false;
     setSelectedPatientId(patientId);
     localStorage.setItem('mediskye_patient_id', patientId);
   };
