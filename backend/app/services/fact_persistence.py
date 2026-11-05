@@ -123,10 +123,11 @@ async def process_chat_memory_extraction(
     chat_id: Any,
     user_id: Any,
     dependent_id: Optional[Any] = None,
+    session_id: Optional[str] = None,
 ) -> None:
     """
     Background worker:
-    1. Fetches last 6 messages from the chat session.
+    1. Fetches last 6 messages from the specific conversation session.
     2. Fetches existing active facts.
     3. Calls extract_facts().
     4. Calls save_facts().
@@ -142,15 +143,19 @@ async def process_chat_memory_extraction(
                 logger.info("Skipping memory extraction: memory consent not granted for user %s", user_id)
                 return
 
-            # Fetch last 6 messages scoped to the specific conversation/document
-            # so facts never bleed across different documents or patient profiles.
+            # Fetch last 6 messages scoped strictly to the specific conversation session
+            # so facts never bleed across different conversations or documents.
             chat_filters = [Chat.user_id == u_uuid]
-            if chat_id:
+            if session_id:
+                chat_filters.append(Chat.session_id == session_id)
+            elif chat_id:
                 try:
                     c_uuid = uuid.UUID(str(chat_id))
                     target_chat = await session.get(Chat, c_uuid)
                     if target_chat is not None:
-                        if target_chat.document_id is not None:
+                        if target_chat.session_id:
+                            chat_filters.append(Chat.session_id == target_chat.session_id)
+                        elif target_chat.document_id is not None:
                             chat_filters.append(Chat.document_id == target_chat.document_id)
                         else:
                             chat_filters.append(Chat.document_id.is_(None))

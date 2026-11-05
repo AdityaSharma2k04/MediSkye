@@ -255,13 +255,17 @@ export async function getUploadStatus(jobId, timeoutMs = 10000) {
   return await res.json();
 }
 
-export async function sendQueryStream(queryText, documentId, language = 'English', onChunk, patientId = null, signal = undefined) {
+export async function sendQueryStream(queryText, documentId, language = 'English', onChunk, patientId = null, signal = undefined, sessionId = null) {
   // documentId can be null for general-health queries (no PDF uploaded)
+  const activeSessionId = sessionId || documentId || 'general-health-' + Date.now();
   const payload = {
-    session_id: documentId || 'general-health-' + Date.now(), // dummy UUID-like string; backend checks document existence
+    session_id: activeSessionId,
     query: queryText,
     language: language,
   };
+  if (documentId && documentId !== activeSessionId) {
+    payload.document_id = documentId;
+  }
   if (patientId && patientId !== 'self') {
     payload.patient_id = patientId;
   }
@@ -573,8 +577,11 @@ export async function getUserDocuments() {
   return await res.json();
 }
 
-export async function getDocumentChats(docId) {
-  const url = docId ? `${API_BASE}/users/me/documents/${docId}/chats` : `${API_BASE}/users/me/chats`;
+export async function getDocumentChats(docId, sessionId = null) {
+  let url = docId ? `${API_BASE}/users/me/documents/${docId}/chats` : `${API_BASE}/users/me/chats`;
+  if (!docId && sessionId) {
+    url += `?session_id=${encodeURIComponent(sessionId)}`;
+  }
   const res = await fetch(url, {
     headers: getAuthHeaders(),
   });
@@ -582,12 +589,67 @@ export async function getDocumentChats(docId) {
   return await res.json();
 }
 
-export async function getGeneralChats() {
-  const res = await fetch(`${API_BASE}/users/me/chats`, {
+export async function getGeneralChats(sessionId = null) {
+  let url = `${API_BASE}/users/me/chats`;
+  if (sessionId) {
+    url += `?session_id=${encodeURIComponent(sessionId)}`;
+  }
+  const res = await fetch(url, {
     headers: getAuthHeaders(),
   });
   if (!res.ok) return [];
   return await res.json();
+}
+
+export async function renameChatSession(sessionId, title) {
+  let res = await fetch(`${API_BASE}/users/me/chats/sessions/${encodeURIComponent(sessionId)}`, {
+    method: 'PATCH',
+    headers: {
+      'Content-Type': 'application/json',
+      ...getAuthHeaders(),
+    },
+    body: JSON.stringify({ title }),
+  });
+  if (res.status === 404) {
+    return await renameDocument(sessionId, title);
+  }
+  if (!res.ok) {
+    const errData = await res.json().catch(() => ({}));
+    logger.warn('Failed to rename chat session on server:', {
+      status: res.status,
+      body: errData,
+      sessionId,
+    });
+    throw new Error(errData.detail || 'Failed to rename chat session');
+  }
+  return await res.json();
+}
+
+export async function deleteChatSession(sessionId) {
+  let res = await fetch(`${API_BASE}/users/me/chats/sessions/${encodeURIComponent(sessionId)}`, {
+    method: 'DELETE',
+    headers: { ...getAuthHeaders() },
+  });
+  if (res.status === 404) {
+    return await deleteDocument(sessionId);
+  }
+  if (!res.ok) {
+    const errData = await res.json().catch(() => ({}));
+    throw new Error(errData.detail || 'Failed to delete chat session');
+  }
+  return true;
+}
+
+export async function clearAllChatSessions() {
+  const res = await fetch(`${API_BASE}/users/me/chats`, {
+    method: 'DELETE',
+    headers: { ...getAuthHeaders() },
+  });
+  if (!res.ok) {
+    const errData = await res.json().catch(() => ({}));
+    throw new Error(errData.detail || 'Failed to clear chat sessions');
+  }
+  return true;
 }
 
 export async function renameDocument(documentId, newTitle) {
@@ -621,7 +683,7 @@ export async function renameDocument(documentId, newTitle) {
   return await res.json();
 }
 
-export const renameChat = renameDocument;
+export const renameChat = renameChatSession;
 
 export async function deleteDocument(documentId) {
   const res = await fetch(`${API_BASE}/users/me/documents/${documentId}`, {
@@ -636,7 +698,7 @@ export async function deleteDocument(documentId) {
   return true;
 }
 
-export const deleteChat = deleteDocument;
+export const deleteChat = deleteChatSession;
 
 // ── Patient Memory System APIs ──
 

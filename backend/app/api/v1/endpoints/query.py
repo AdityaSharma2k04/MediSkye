@@ -89,9 +89,11 @@ async def query_bot(
     primary_doc: Optional[Document] = None
     target_chat_id: Optional[uuid.UUID] = None
 
-    if body.session_id:
+    effective_session_id = body.session_id.strip() if (body.session_id and body.session_id.strip()) else None
+
+    if effective_session_id:
         try:
-            parsed_id = uuid.UUID(body.session_id)
+            parsed_id = uuid.UUID(effective_session_id)
             # 1. Check if session_id is an existing chat_id
             chat_check = await db.execute(
                 select(Chat).filter(Chat.id == parsed_id)
@@ -101,6 +103,8 @@ async def query_bot(
                 if chat_found.user_id != current_user.id:
                     raise HTTPException(status_code=403, detail="Forbidden: You do not have access to this session.")
                 target_chat_id = chat_found.id
+                if chat_found.session_id:
+                    effective_session_id = chat_found.session_id
                 chat_docs = await get_chat_documents(target_chat_id, session=db)
                 if chat_docs:
                     primary_doc = chat_docs[0]
@@ -116,7 +120,7 @@ async def query_bot(
                     primary_doc = doc_found
                     chat_docs = [doc_found]
         except ValueError:
-            logger.debug("Non-UUID session_id provided: %s", body.session_id)
+            logger.debug("Non-UUID session_id provided: %s", effective_session_id)
 
     if body.document_id:
         try:
@@ -131,6 +135,18 @@ async def query_bot(
                     primary_doc = d_found
         except ValueError:
             logger.debug("Invalid UUID for body.document_id: %s", body.document_id)
+
+    if not effective_session_id:
+        if primary_doc:
+            effective_session_id = f"doc-{primary_doc.id}"
+        else:
+            effective_session_id = str(uuid.uuid4())
+
+    session_owner_check = await db.execute(
+        select(Chat.user_id).filter(Chat.session_id == effective_session_id, Chat.user_id != current_user.id).limit(1)
+    )
+    if session_owner_check.scalars().first():
+        raise HTTPException(status_code=403, detail="Forbidden: You do not have access to this session.")
 
     has_document = len(chat_docs) > 0 and any(bool(d.file_path) for d in chat_docs)
 
@@ -201,6 +217,17 @@ async def query_bot(
     if needs_doc_title_update or not primary_doc:
         updated_chat_title = generate_title_from_query(body.query, max_words=5, max_len=60)
 
+    existing_title_res = await db.execute(
+        select(Chat.session_title).filter(
+            Chat.session_id == effective_session_id,
+            Chat.user_id == current_user.id,
+            Chat.session_title.isnot(None),
+        ).limit(1)
+    )
+    current_session_title = existing_title_res.scalars().first()
+    if not current_session_title:
+        current_session_title = updated_chat_title or generate_title_from_query(body.query, max_words=5, max_len=60)
+
     # ── Emergency keyword gate ──
     if is_emergency_query(body.query):
         if needs_doc_title_update and primary_doc and updated_chat_title:
@@ -210,12 +237,16 @@ async def query_bot(
         user_chat = Chat(
             user_id=current_user.id,
             document_id=primary_doc.id if primary_doc else None,
+            session_id=effective_session_id,
+            session_title=current_session_title,
             role="user",
             message=body.query,
         )
         ai_chat = Chat(
             user_id=current_user.id,
             document_id=primary_doc.id if primary_doc else None,
+            session_id=effective_session_id,
+            session_title=current_session_title,
             role="ai",
             message=ai_msg,
         )
@@ -225,14 +256,13 @@ async def query_bot(
         await db.close()
 
         async def emergency_stream():
-            if updated_chat_title:
-                yield f'data: {json.dumps({"title": updated_chat_title, "document_id": primary_doc_id_str})}\n\n'
+            yield f'data: {json.dumps({"title": updated_chat_title or current_session_title, "document_id": primary_doc_id_str, "session_id": effective_session_id})}\n\n'
             yield f'data: {json.dumps({"chunk": ai_msg})}\n\n'
             yield f'data: [DONE]\n\n'
 
         return StreamingResponse(emergency_stream(), media_type="text/event-stream")
 
-    session_lock_key = f"{current_user.id}:{body.session_id or 'general'}"
+    session_lock_key = f"{current_user.id}:{effective_session_id or 'general'}"
     if session_lock_key in _active_query_sessions:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
@@ -249,6 +279,8 @@ async def query_bot(
         user_chat = Chat(
             user_id=current_user.id,
             document_id=primary_doc.id if primary_doc else None,
+            session_id=effective_session_id,
+            session_title=current_session_title,
             role="user",
             message=body.query,
         )
@@ -342,8 +374,9 @@ async def query_bot(
 
     async def generate_response_stream():
         try:
-            if updated_chat_title:
-                yield f'data: {json.dumps({"title": updated_chat_title, "document_id": str(primary_doc.id) if primary_doc else None})}\n\n'
+            title_to_emit = updated_chat_title or current_session_title
+            if title_to_emit:
+                yield f'data: {json.dumps({"title": title_to_emit, "document_id": str(primary_doc.id) if primary_doc else None, "session_id": effective_session_id})}\n\n'
 
             # ── Stage 1: Analyzing ──
             if intent == QueryIntent.CASUAL:
@@ -565,7 +598,22 @@ async def query_bot(
                     item = await asyncio.wait_for(queue.get(), timeout=35.0)
                 except asyncio.TimeoutError:
                     logger.warning("Stream token queue read timed out for user_id=%s", current_user.id)
-                    yield f'data: {json.dumps({"error": "The AI service timed out while generating your response. Please try again."})}\n\n'
+                    fallback_msg = "The AI service timed out while generating your response. Please try again."
+                    try:
+                        async with AsyncSessionLocal() as err_session:
+                            ai_chat = Chat(
+                                user_id=current_user.id,
+                                document_id=primary_doc.id if primary_doc else None,
+                                session_id=effective_session_id,
+                                session_title=current_session_title,
+                                role="ai",
+                                message=fallback_msg,
+                            )
+                            err_session.add(ai_chat)
+                            await err_session.commit()
+                    except Exception as db_err:
+                        logger.warning("Failed saving fallback assistant turn on timeout: %s", db_err)
+                    yield f'data: {json.dumps({"error": fallback_msg})}\n\n'
                     yield "data: [DONE]\n\n"
                     return
 
@@ -663,6 +711,8 @@ async def query_bot(
                         ai_chat = Chat(
                             user_id=current_user.id,
                             document_id=primary_doc.id if primary_doc else None,
+                            session_id=effective_session_id,
+                            session_title=current_session_title,
                             role="ai",
                             message=partial_msg,
                         )
@@ -670,14 +720,53 @@ async def query_bot(
                         await cancel_session.commit()
                 except Exception as db_err:
                     logger.warning("Failed saving partial chat turn on disconnect: %s", db_err)
+            else:
+                try:
+                    async with AsyncSessionLocal() as cancel_session:
+                        del_row = await cancel_session.get(Chat, current_chat_id)
+                        if del_row:
+                            await cancel_session.delete(del_row)
+                            await cancel_session.commit()
+                except Exception as db_err:
+                    logger.warning("Failed removing orphaned user turn on disconnect: %s", db_err)
             raise
         except GeminiUnavailableError:
             logger.warning("All Gemini models unavailable during streaming", exc_info=True)
+            try:
+                fallback_msg = "The AI service is temporarily busy due to high demand. Please try again in 1-2 minutes."
+                async with AsyncSessionLocal() as err_session:
+                    ai_chat = Chat(
+                        user_id=current_user.id,
+                        document_id=primary_doc.id if primary_doc else None,
+                        session_id=effective_session_id,
+                        session_title=current_session_title,
+                        role="ai",
+                        message=fallback_msg,
+                    )
+                    err_session.add(ai_chat)
+                    await err_session.commit()
+            except Exception as db_err:
+                logger.warning("Failed saving fallback assistant turn on Gemini error: %s", db_err)
             yield f'data: {json.dumps({"error": "The AI service is temporarily busy due to high demand. Please try again in 1-2 minutes."})}\n\n'
             yield "data: [DONE]\n\n"
             return
         except Exception as e:
             logger.error("Error during streaming query response: %s", e, exc_info=True)
+            try:
+                fallback_msg = "An unexpected error occurred while generating the response."
+                async with AsyncSessionLocal() as err_session:
+                    ai_chat = Chat(
+                        user_id=current_user.id,
+                        document_id=primary_doc.id if primary_doc else None,
+                        session_id=effective_session_id,
+                        session_title=current_session_title,
+                        role="ai",
+                        message=fallback_msg,
+                    )
+                    err_session.add(ai_chat)
+                    await err_session.commit()
+            except Exception as db_err:
+                logger.warning("Failed saving fallback assistant turn on unexpected error: %s", db_err)
             yield f'data: {json.dumps({"error": "An unexpected error occurred while generating the response."})}\n\n'
             yield "data: [DONE]\n\n"
             return
@@ -700,6 +789,8 @@ async def query_bot(
             ai_chat = Chat(
                 user_id=current_user.id,
                 document_id=primary_doc.id if primary_doc else None,
+                session_id=effective_session_id,
+                session_title=current_session_title,
                 role="ai",
                 message=visible_text,
             )
@@ -743,6 +834,7 @@ async def query_bot(
                     chat_id=current_chat_id,
                     user_id=current_user.id,
                     dependent_id=active_dep_id,
+                    session_id=effective_session_id,
                 )
             )
             _background_tasks.add(task)

@@ -30,7 +30,7 @@
   * **Clinical Artifact Tier:** Extracted biomarkers (`cached_metrics`) and printable clinical reports (`cached_summary`) are pre-warmed asynchronously upon upload and persisted in **Neon PostgreSQL**; the latest logged cached summary E2E p50 is **411.5 ms**.
 * **🔐 HIPAA-Aligned Security & Auth Hot-Path Optimization:**
   * Unified **Firebase Authentication** (Google OAuth 2.0 + NIST SP 800-63B Email/Password with email verification enforcement).
-  * **Fernet Symmetric Encryption** at rest for patient health profiles (`health_profile`) with strict SQLAlchemy `lazy="raise"` guards and lightweight Pydantic DTO separation (`get_current_user` vs. `get_current_user_full`) so encrypted PHI is never unnecessarily decrypted on standard API calls.
+  * **Fernet Symmetric Encryption** at rest for patient health profiles (`health_profile`), extracted memory facts (`patient_facts.fact_text`), and chat messages (`chats.message`) with strict SQLAlchemy `lazy="raise"` guards and lightweight Pydantic DTO separation (`get_current_user` vs. `get_current_user_full`) so encrypted PHI is never unnecessarily decrypted on standard API calls.
   * **60s SHA-256 Token TTL Cache** with instant eviction on profile updates or account deletion (`DELETE /users/me`).
 * **📱 Mobile-First & Accessible UI:** Responsive drawer navigation for `375px` viewports, iOS Safari auto-zoom prevention, horizontal scroll wrappers for clinical tables, full keyboard focus trapping (`useFocusTrap`) across all modals, and multi-language (`i18n`) support.
 
@@ -353,9 +353,10 @@ The benchmark logs label cached workloads `/metrics` and `/summary`; the impleme
 
 1. **Zero Unverified Access (`403 Forbidden`):** Email/Password accounts must verify their email address before accessing `/users/me`, `/documents`, or `/query`. Google OAuth accounts with verified emails pass seamlessly.
 2. **Strict Cross-User Isolation (Zero IDOR):** Every document, metric, summary, and chat history query filters strictly by `Document.user_id == current_user.id`.
-3. **Fernet PHI Encryption at Rest:** Patient health profiles (`conditions`, `medications`, `allergies`) are encrypted using Fernet (`AES-128-CBC` + `HMAC-SHA256`) before touching PostgreSQL.
-4. **Prompt Injection Defense:** Uploaded filenames and document chunks are sanitized against XML/HTML tag breakout (`<document name="...">`) before prompt assembly.
-5. **Mid-Stream Disconnect Safety:** The SSE generator in `query.py` catches `(asyncio.CancelledError, GeneratorExit)` to cleanly roll back or close database sessions if a user closes their browser tab mid-stream, preventing Neon connection pool leaks.
+3. **Fernet PHI & Chat Encryption at Rest:** Patient health profiles (`conditions`, `medications`, `allergies`), extracted patient memory facts (`patient_facts.fact_text`), and chat message histories (`chats.message`) are encrypted using Fernet (`AES-128-CBC` + `HMAC-SHA256`) before touching PostgreSQL, with transparent ORM decryption and graceful legacy plaintext compatibility.
+4. **Physical Cascade Hard-Delete for Patient Memory:** Deleting a chat session (`DELETE /users/me/chats/sessions/{session_id}`), clearing chats (`DELETE /users/me/chats`), deleting a document (`DELETE /users/me/documents/{document_id}`), or clearing facts (`DELETE /users/me/memory/facts`) performs an immediate physical cascade hard-delete of derived facts and chat messages in Neon PostgreSQL (guaranteeing physical erasure rather than soft-delete retention).
+5. **Prompt Injection Defense:** Uploaded filenames and document chunks are sanitized against XML/HTML tag breakout (`<document name="...">`) before prompt assembly.
+6. **Mid-Stream Disconnect Safety:** The SSE generator in `query.py` catches `(asyncio.CancelledError, GeneratorExit)` to cleanly roll back or close database sessions if a user closes their browser tab mid-stream, preventing Neon connection pool leaks and eliminating orphaned user message turns.
 
 ---
 
@@ -453,7 +454,7 @@ npm run dev
 
 ## 🧪 Running the Test & Benchmark Suites
 
-The Phase 1 pre-deployment gate passed **265 backend pytest tests** and **163 frontend Vitest tests** (**428 total**). The backend count uses the same `not integration` marker exclusion as CI. The Phase 1 frontend production build completed with zero warnings; the latest live SRE hardening recheck also passed all **8** targeted building-index / `Retry-After` tests.
+The test suites pass **277 backend pytest tests** and **171 frontend Vitest tests** (**448 total**). The backend count uses the same `not integration` marker exclusion as CI. The frontend production build completes with zero warnings; all building-index and live Neon cascade-deletion verifications pass with 100% success.
 
 ### 1. Backend Unit, E2E, Chaos & Penetration Tests (`pytest`)
 ```bash
@@ -493,6 +494,8 @@ The API router is mounted with `API_V1_STR`, whose default in `backend/app/core/
 | Authentication | `POST /register`, `POST /login`, `POST /logout` |
 | Upload and status | `POST /upload`, `GET /upload/status/{job_id}` |
 | RAG chat | `POST /query` |
+| Chat sessions & history | `GET` and `DELETE /users/me/chats`, `PATCH` and `DELETE /users/me/chats/sessions/{session_id}`, `DELETE /chats/{chat_id}` |
+| Patient memory & consent | `GET`, `POST`, and `DELETE /users/me/memory/facts`, `DELETE /users/me/memory/facts/{fact_id}`, `POST /users/me/memory/consent`, `PATCH /users/me/memory-consent` |
 | User profile / delete | `GET`, `PUT`, `PATCH`, and `DELETE /users/me` |
 | Metrics | `POST /extract-metrics`; `GET` and `POST /users/me/documents/{document_id}/metrics` |
 | Document summary | `GET` and `POST /users/me/documents/{document_id}/summary` |

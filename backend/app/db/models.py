@@ -141,8 +141,10 @@ class Chat(Base):
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     user_id = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
     document_id = Column(UUID(as_uuid=True), ForeignKey("documents.id", ondelete="SET NULL"), nullable=True, index=True)  # Nullable: general-health chats have no document
+    session_id = Column(String(64), nullable=True, index=True)
+    session_title = Column(String(255), nullable=True)
     role = Column(String, nullable=False)  # 'user' or 'ai'
-    message = Column(String, nullable=False)
+    message = Column(EncryptedString, nullable=False)
     created_at = Column(DateTime(timezone=True), default=utcnow)
 
     user = orm_relationship("User", back_populates="chats")

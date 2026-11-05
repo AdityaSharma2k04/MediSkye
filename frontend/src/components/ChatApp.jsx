@@ -16,8 +16,12 @@ import {
   getDependents,
   getUserDocuments,
   getDocumentChats,
+  getGeneralChats,
   renameDocument,
   deleteDocument,
+  renameChatSession,
+  deleteChatSession,
+  clearAllChatSessions,
   deleteAccount,
   updateProfile,
   getDocumentSummary,
@@ -216,7 +220,9 @@ export default function ChatApp() {
     activeChatFetchRef.current = fetchKey;
     setLoadingHistory(true);
     try {
-      const chats = await getDocumentChats(targetDocId);
+      const chats = targetDocId
+        ? await getDocumentChats(targetDocId)
+        : await getDocumentChats(null, targetSessionId);
       // Guard against race conditions if user clicked rapidly between two documents
       if (activeChatFetchRef.current !== fetchKey || (targetSessionId && sessionIdRef.current !== targetSessionId)) {
         return;
@@ -287,13 +293,28 @@ export default function ChatApp() {
     refreshPatientContext();
   }, [refreshPatientContext]);
 
-  // Reusable document refresher: synchronizes server document truth with local state
+  // Reusable document refresher: synchronizes server document & conversation truth with local state
   const refreshDocuments = useCallback(async (activeDocId = null, overrideTitle = null) => {
     try {
-      const docs = await getUserDocuments();
-      if (!Array.isArray(docs)) return [];
-
+      const [docsRes, generalChatsRes] = await Promise.all([
+        getUserDocuments().catch(() => []),
+        getGeneralChats().catch(() => []),
+      ]);
+      const docs = Array.isArray(docsRes) ? docsRes : [];
       let effectiveDocs = [...docs];
+
+      // Group standalone chats by session_id
+      const generalChats = Array.isArray(generalChatsRes) ? generalChatsRes : [];
+      const standaloneChatsBySession = new Map();
+      generalChats.forEach((c) => {
+        if (!c.document_id) {
+          const sid = c.session_id || 'legacy-standalone';
+          if (!standaloneChatsBySession.has(sid)) {
+            standaloneChatsBySession.set(sid, []);
+          }
+          standaloneChatsBySession.get(sid).push(c);
+        }
+      });
 
       setConversations((prev) => {
         if (activeDocId && !effectiveDocs.some((d) => d.id === activeDocId)) {
@@ -308,18 +329,13 @@ export default function ChatApp() {
           }
         }
 
-        if (effectiveDocs.length === 0) {
-          const nonDocConvs = prev.filter((c) => !c.document_id && !c.pdf);
-          if (nonDocConvs.length > 0) return nonDocConvs;
-          return [{ id: sessionIdRef.current, title: 'New Conversation', messages: [], pdf: null, patient_id: 'self' }];
-        }
-
         const existingMap = new Map();
         prev.forEach((c) => {
           if (c.id) existingMap.set(c.id, c);
           if (c.document_id) existingMap.set(c.document_id, c);
         });
 
+        // 1. Reconstruct document-bound conversations
         const syncedDocConvs = effectiveDocs.map((doc) => {
           const existing = existingMap.get(doc.id);
           const pdfMeta = {
@@ -364,12 +380,46 @@ export default function ChatApp() {
           };
         });
 
-        // Retain only genuinely non-document conversations with messages when documents exist (Bug 8)
-        const nonDocConvs = prev.filter(
-          (c) => !c.document_id && !c.pdf && !effectiveDocs.some((d) => d.id === c.id) && Array.isArray(c.messages) && c.messages.length > 0
+        // 2. Reconstruct standalone conversations from server session_id grouping
+        const serverStandaloneConvs = [];
+        standaloneChatsBySession.forEach((messagesList, sid) => {
+          const existing = existingMap.get(sid);
+          const title = existing?.title && existing.title !== 'New Conversation'
+            ? existing.title
+            : (messagesList[0]?.session_title || 'New Conversation');
+
+          const formattedMessages = messagesList.map((c) => ({
+            id: c.id,
+            sender: c.role === 'ai' ? 'assistant' : 'user',
+            text: c.message,
+            timestamp: c.created_at
+              ? new Date(c.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+              : '',
+          }));
+
+          serverStandaloneConvs.push({
+            id: sid,
+            document_id: null,
+            patient_id: 'self',
+            title,
+            messages: (existing?.messages && existing.messages.length > formattedMessages.length)
+              ? existing.messages
+              : formattedMessages,
+            pdf: null,
+            created_at: messagesList[0]?.created_at || null,
+          });
+        });
+
+        // 3. Retain local non-document conversations with messages if not yet on server
+        const localNonDocConvs = prev.filter(
+          (c) => !c.document_id && !c.pdf && !effectiveDocs.some((d) => d.id === c.id) && !standaloneChatsBySession.has(c.id)
         );
 
-        return [...syncedDocConvs, ...nonDocConvs];
+        const allConvs = [...syncedDocConvs, ...serverStandaloneConvs, ...localNonDocConvs];
+        if (allConvs.length === 0) {
+          return [{ id: sessionIdRef.current, title: 'New Conversation', messages: [], pdf: null, patient_id: 'self' }];
+        }
+        return allConvs;
       });
 
       const targetDocId = activeDocId || effectiveDocs[0]?.id;
@@ -1074,7 +1124,7 @@ export default function ChatApp() {
     setIsProfileOpen(false);
   };
 
-  const handleClearAllChats = () => {
+  const handleClearAllChats = async () => {
     if (abortControllerRef.current) {
       abortControllerRef.current.abort();
       abortControllerRef.current = null;
@@ -1083,10 +1133,17 @@ export default function ChatApp() {
     setIsGenerating(false);
     isSubmittingRef.current = false;
 
+    try {
+      await clearAllChatSessions();
+    } catch (e) {
+      logger.warn('Failed clearing chats on backend:', e);
+    }
+
     const newId = generateSessionId();
     setSessionId(newId);
     setActivePdf(null);
     setConversations([{ id: newId, title: 'New Conversation', messages: [], pdf: null, patient_id: selectedPatientId }]);
+    await refreshDocuments();
   };
 
   const handleDeleteChat = async (id, skipConfirm = false) => {
@@ -1095,6 +1152,8 @@ export default function ChatApp() {
       const targetDocId = chat?.document_id || (chat?.pdf ? id : null);
       if (targetDocId) {
         await deleteDocument(targetDocId);
+      } else {
+        await deleteChatSession(id);
       }
 
       setConversations((prev) => {
@@ -1142,9 +1201,18 @@ export default function ChatApp() {
         logger.error('Failed to rename document:', err);
       }
     } else {
-      setConversations((prev) =>
-        prev.map((c) => (c.id === id ? { ...c, title: trimmed } : c))
-      );
+      try {
+        const res = await renameChatSession(id, trimmed);
+        const savedTitle = res?.title || trimmed;
+        setConversations((prev) =>
+          prev.map((c) => (c.id === id ? { ...c, title: savedTitle } : c))
+        );
+      } catch (err) {
+        logger.error('Failed to rename chat session:', err);
+        setConversations((prev) =>
+          prev.map((c) => (c.id === id ? { ...c, title: trimmed } : c))
+        );
+      }
     }
   };
 

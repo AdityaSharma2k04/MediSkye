@@ -9,7 +9,7 @@ from datetime import datetime, UTC
 import firebase_admin
 import firebase_admin.auth
 from fastapi import APIRouter, Depends, Request, status, HTTPException
-from sqlalchemy import func
+from sqlalchemy import func, delete, or_
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 
@@ -28,6 +28,7 @@ from app.schemas.user import (
     UserUpdate,
     PasswordChange,
     MemoryConsentRequest,
+    RenameSessionRequest,
     PatientFactResponse,
     PatientFactCreate,
     PatientFactUpdate,
@@ -206,21 +207,35 @@ async def rename_user_document_title(
 
 @router.get("/users/me/chats")
 async def get_general_chats(
+    document_id: Optional[str] = None,
+    session_id: Optional[str] = None,
     current_user: UserDTO = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
-    result = await db.execute(
-        select(Chat)
-        .filter(Chat.user_id == current_user.id, Chat.document_id.is_(None))
-        .order_by(Chat.created_at.asc())
-    )
+    query = select(Chat).filter(Chat.user_id == current_user.id)
+    if document_id:
+        try:
+            d_uuid = uuid.UUID(document_id)
+            query = query.filter(Chat.document_id == d_uuid)
+        except ValueError:
+            pass
+    if session_id:
+        query = query.filter(Chat.session_id == session_id)
+
+    query = query.order_by(Chat.created_at.asc())
+    result = await db.execute(query)
     chats = result.scalars().all()
     return [
         {
             "id": str(c.id),
+            "session_id": c.session_id or (f"doc-{c.document_id}" if c.document_id else f"legacy-{c.user_id}"),
+            "session_title": c.session_title,
+            "document_id": str(c.document_id) if c.document_id else None,
             "role": c.role,
             "message": c.message,
-            "created_at": c.created_at.isoformat() if c.created_at else None
+            "created_at": c.created_at.isoformat() if c.created_at else None,
+            "timestamp": c.created_at.isoformat() if c.created_at else None,
+            "dependent_id": None,
         }
         for c in chats
     ]
@@ -251,12 +266,154 @@ async def get_document_chats(
     return [
         {
             "id": str(c.id),
+            "session_id": c.session_id or f"doc-{doc_uuid}",
+            "session_title": c.session_title,
+            "document_id": str(c.document_id) if c.document_id else str(doc_uuid),
             "role": c.role,
             "message": c.message,
-            "created_at": c.created_at.isoformat() if c.created_at else None
+            "created_at": c.created_at.isoformat() if c.created_at else None,
+            "timestamp": c.created_at.isoformat() if c.created_at else None,
+            "dependent_id": None,
         }
         for c in chats
     ]
+
+
+@router.patch("/users/me/chats/sessions/{session_id}")
+async def rename_chat_session(
+    session_id: str,
+    body: RenameSessionRequest,
+    current_user: UserDTO = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Allow renaming a conversation session (auth-gated to session owner)."""
+    title = sanitize_text(body.title).strip()
+    res = await db.execute(
+        select(Chat).filter(Chat.user_id == current_user.id, Chat.session_id == session_id)
+    )
+    chats = res.scalars().all()
+    if not chats:
+        try:
+            doc_uuid = uuid.UUID(session_id)
+            doc_res = await db.execute(
+                select(Document).filter(Document.id == doc_uuid, Document.user_id == current_user.id)
+            )
+            doc = doc_res.scalars().first()
+            if doc:
+                doc.title = title
+                db.add(doc)
+                await db.commit()
+                return {"session_id": session_id, "title": title}
+        except ValueError:
+            pass
+        raise HTTPException(status_code=404, detail="Chat session not found.")
+
+    for c in chats:
+        c.session_title = title
+        db.add(c)
+
+    doc_ids = {c.document_id for c in chats if c.document_id}
+    if doc_ids:
+        docs_res = await db.execute(
+            select(Document).filter(Document.id.in_(doc_ids), Document.user_id == current_user.id)
+        )
+        for d in docs_res.scalars().all():
+            d.title = title
+            db.add(d)
+
+    await db.commit()
+    return {"session_id": session_id, "title": title, "session_title": title}
+
+
+@router.delete("/users/me/chats/sessions/{session_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_chat_session(
+    session_id: str,
+    current_user: UserDTO = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Delete all chats in a session and cascade delete extracted patient facts."""
+    res = await db.execute(
+        select(Chat).filter(Chat.user_id == current_user.id, Chat.session_id == session_id)
+    )
+    chats = res.scalars().all()
+    if not chats:
+        try:
+            doc_uuid = uuid.UUID(session_id)
+            doc_check = await db.execute(
+                select(Document).filter(Document.id == doc_uuid, Document.user_id == current_user.id)
+            )
+            if doc_check.scalars().first():
+                return await delete_my_document(session_id, current_user, db)
+        except ValueError:
+            pass
+        raise HTTPException(status_code=404, detail="Chat session not found.")
+
+    chat_ids = [c.id for c in chats]
+    chat_id_strs = [str(cid) for cid in chat_ids]
+
+    # CASCADE DELETE EXTRACTED INSIGHTS: Physically delete PatientFact rows where source_id in chat_ids
+    await db.execute(
+        delete(PatientFact).where(
+            PatientFact.user_id == current_user.id,
+            PatientFact.source_id.in_(chat_id_strs),
+        )
+    )
+
+    await db.execute(delete(ChatChunk).where(ChatChunk.chat_id.in_(chat_ids)))
+    await db.execute(delete(ChatDocument).where(ChatDocument.chat_id.in_(chat_ids)))
+    await db.execute(delete(Chat).where(Chat.id.in_(chat_ids)))
+    await db.commit()
+    return None
+
+
+@router.delete("/users/me/chats", status_code=status.HTTP_204_NO_CONTENT)
+async def clear_all_chats(
+    current_user: UserDTO = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Clear all standalone chats and cascade delete associated patient facts."""
+    res = await db.execute(
+        select(Chat.id).filter(Chat.user_id == current_user.id, Chat.document_id.is_(None))
+    )
+    chat_ids = res.scalars().all()
+    if chat_ids:
+        chat_id_strs = [str(cid) for cid in chat_ids]
+        await db.execute(
+            delete(PatientFact).where(
+                PatientFact.user_id == current_user.id,
+                PatientFact.source_id.in_(chat_id_strs),
+            )
+        )
+        await db.execute(delete(ChatChunk).where(ChatChunk.chat_id.in_(chat_ids)))
+        await db.execute(delete(ChatDocument).where(ChatDocument.chat_id.in_(chat_ids)))
+        await db.execute(delete(Chat).where(Chat.id.in_(chat_ids)))
+        await db.commit()
+    return None
+
+
+@router.delete("/users/me/chats/{chat_id}", status_code=status.HTTP_204_NO_CONTENT)
+@router.delete("/chats/{chat_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_single_chat(
+    chat_id: UUID,
+    current_user: UserDTO = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Delete a single chat turn and any associated facts."""
+    chat = await db.get(Chat, chat_id)
+    if not chat or chat.user_id != current_user.id:
+        raise HTTPException(status_code=404, detail="Chat message not found.")
+
+    await db.execute(
+        delete(PatientFact).where(
+            PatientFact.user_id == current_user.id,
+            PatientFact.source_id == str(chat_id),
+        )
+    )
+    await db.execute(delete(ChatChunk).where(ChatChunk.chat_id == chat_id))
+    await db.execute(delete(ChatDocument).where(ChatDocument.chat_id == chat_id))
+    await db.delete(chat)
+    await db.commit()
+    return None
 
 
 def _normalize_cached_metrics(cached) -> List[dict]:
@@ -371,8 +528,43 @@ async def delete_my_document(
     except Exception as e:
         logger.error("Error removing vector cache for doc %s: %s", doc.id, e)
 
+    chat_res = await db.execute(
+        select(Chat).filter(Chat.user_id == current_user.id, Chat.document_id == doc.id)
+    )
+    primary_chats = chat_res.scalars().all()
+
+    chats_to_delete = []
+    for c in primary_chats:
+        cd_res = await db.execute(
+            select(ChatDocument.document_id).filter(
+                ChatDocument.chat_id == c.id,
+                ChatDocument.document_id != doc.id,
+            )
+        )
+        other_docs = cd_res.scalars().all()
+        if other_docs:
+            c.document_id = other_docs[0]
+            db.add(c)
+        else:
+            chats_to_delete.append(c.id)
+
+    chat_id_strs = [str(cid) for cid in chats_to_delete]
+    fact_conditions = [PatientFact.source_id == str(doc.id)]
+    if chat_id_strs:
+        fact_conditions.append(PatientFact.source_id.in_(chat_id_strs))
+
+    await db.execute(
+        delete(PatientFact).where(
+            PatientFact.user_id == current_user.id,
+            or_(*fact_conditions)
+        )
+    )
+
     await db.execute(ChatDocument.__table__.delete().where(ChatDocument.document_id == doc.id))
-    await db.execute(Chat.__table__.delete().where(Chat.document_id == doc.id, Chat.user_id == current_user.id))
+    if chats_to_delete:
+        await db.execute(ChatChunk.__table__.delete().where(ChatChunk.chat_id.in_(chats_to_delete)))
+        await db.execute(Chat.__table__.delete().where(Chat.id.in_(chats_to_delete)))
+
     await db.delete(doc)
     await db.commit()
     return None
@@ -496,6 +688,8 @@ async def delete_dependent(
 
 @router.post("/users/me/memory/consent")
 @router.post("/memory/consent")
+@router.post("/users/me/memory/consent")
+@router.patch("/users/me/memory-consent")
 async def update_memory_consent(
     request: Request,
     body: MemoryConsentRequest,
@@ -504,6 +698,8 @@ async def update_memory_consent(
 ):
     """Enable or disable long-term memory extraction and cross-session personalization."""
     current_user.memory_consent_granted = body.consent
+    if not body.consent and getattr(body, "clear_existing", False):
+        await db.execute(delete(PatientFact).where(PatientFact.user_id == current_user.id))
     db.add(current_user)
     await db.commit()
     await db.refresh(current_user)
@@ -665,7 +861,7 @@ async def delete_memory_fact(
     current_user: UserDTO = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    """Soft delete a specific remembered health fact (auth-gated, cross-user returns 404)."""
+    """Hard delete a specific remembered health fact (auth-gated, cross-user returns 404)."""
     res = await db.execute(
         select(PatientFact).filter(
             PatientFact.id == fact_id,
@@ -676,8 +872,7 @@ async def delete_memory_fact(
     if not fact:
         raise HTTPException(status_code=404, detail="Fact not found.")
 
-    fact.is_active = False
-    fact.last_seen_at = datetime.now(UTC)
+    await db.delete(fact)
     await db.commit()
     await log_audit(db, "FACT_DELETED", current_user.id, f"fact_{fact_id}", request.client.host if request.client else "unknown")
     return {"message": "Fact deleted successfully", "id": str(fact_id)}
@@ -691,7 +886,7 @@ async def clear_all_memory_facts(
     current_user: UserDTO = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    """Soft delete all remembered health facts for the user or dependent."""
+    """Hard delete all remembered health facts for the user or dependent."""
     filters = [PatientFact.user_id == current_user.id]
     if dependent_id:
         try:
@@ -702,9 +897,10 @@ async def clear_all_memory_facts(
 
     res = await db.execute(select(PatientFact).filter(*filters))
     facts = res.scalars().all()
+    count = len(facts)
     for f in facts:
-        f.is_active = False
+        await db.delete(f)
     await db.commit()
     await log_audit(db, "ALL_FACTS_CLEARED", current_user.id, "memory", request.client.host if request.client else "unknown")
-    return {"message": "All memory facts cleared successfully", "count": len(facts)}
+    return {"message": "All memory facts cleared successfully", "count": count}
 

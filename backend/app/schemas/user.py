@@ -77,6 +77,11 @@ class Token(BaseModel):
 
 class MemoryConsentRequest(BaseModel):
     consent: bool
+    clear_existing: Optional[bool] = False
+
+
+class RenameSessionRequest(BaseModel):
+    title: str = Field(..., min_length=1, max_length=255, description="New chat session title")
 
 
 class PasswordChange(BaseModel):
