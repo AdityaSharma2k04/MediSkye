@@ -91,10 +91,13 @@ async def test_export_returns_full_transcript_and_metrics():
         assert data["messages"][1]["role"] == "ai"
         assert data["messages"][1]["message"] == "Yes, your hemoglobin is within the normal range."
 
-        # Cached metrics
+        # Cached metrics (both lab_metrics and metrics alias)
         assert len(data["lab_metrics"]) == 2
+        assert len(data["metrics"]) == 2
         assert data["lab_metrics"][0]["test"] == "Hemoglobin"
+        assert data["metrics"][0]["test"] == "Hemoglobin"
         assert data["lab_metrics"][1]["status"] == "High"
+        assert data["metrics"][1]["status"] == "High"
 
 
 @pytest.mark.asyncio

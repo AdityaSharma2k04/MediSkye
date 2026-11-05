@@ -124,17 +124,39 @@ async def query_bot(
 
     if body.document_id:
         try:
-            doc_uuid = uuid.UUID(body.document_id)
-            doc_res = await db.execute(
-                select(Document).filter(Document.id == doc_uuid, Document.user_id == current_user.id)
+            doc_uuid = uuid.UUID(str(body.document_id))
+        except (ValueError, TypeError):
+            raise HTTPException(status_code=404, detail="Document not found")
+
+        doc_res = await db.execute(
+            select(Document).filter(Document.id == doc_uuid, Document.user_id == current_user.id)
+        )
+        d_found = doc_res.scalars().first()
+        if d_found is None:
+            raise HTTPException(status_code=404, detail="Document not found")
+
+        if d_found not in chat_docs:
+            chat_docs.append(d_found)
+            if not primary_doc:
+                primary_doc = d_found
+
+    raw_doc_ids = getattr(body, "document_ids", None)
+    if raw_doc_ids and isinstance(raw_doc_ids, list):
+        for did in raw_doc_ids:
+            try:
+                d_uuid = uuid.UUID(str(did))
+            except (ValueError, TypeError):
+                raise HTTPException(status_code=404, detail="Document not found")
+            d_res = await db.execute(
+                select(Document).filter(Document.id == d_uuid, Document.user_id == current_user.id)
             )
-            d_found = doc_res.scalars().first()
-            if d_found and d_found not in chat_docs:
-                chat_docs.append(d_found)
+            found_multi_doc = d_res.scalars().first()
+            if found_multi_doc is None:
+                raise HTTPException(status_code=404, detail="Document not found")
+            if found_multi_doc not in chat_docs:
+                chat_docs.append(found_multi_doc)
                 if not primary_doc:
-                    primary_doc = d_found
-        except ValueError:
-            logger.debug("Invalid UUID for body.document_id: %s", body.document_id)
+                    primary_doc = found_multi_doc
 
     if not effective_session_id:
         if primary_doc:

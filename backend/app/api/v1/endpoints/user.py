@@ -488,6 +488,7 @@ async def export_document_data(
             for c in chats
         ],
         "lab_metrics": _normalize_cached_metrics(doc.cached_metrics),
+        "metrics": _normalize_cached_metrics(doc.cached_metrics),
     }
 
 @router.delete("/users/me/documents/{document_id}", status_code=status.HTTP_204_NO_CONTENT)
@@ -675,6 +676,91 @@ async def delete_dependent(
     dep = result.scalars().first()
     if not dep:
         raise HTTPException(status_code=404, detail="Dependent profile not found.")
+
+    # 1. Query all dependent documents
+    doc_res = await db.execute(
+        select(Document).filter(
+            Document.user_id == current_user.id,
+            Document.dependent_id == dependent_id
+        )
+    )
+    dep_docs = doc_res.scalars().all()
+    dep_doc_ids = [d.id for d in dep_docs]
+
+    # 2. Purge local and GCS index artifacts & vector cache
+    from app.rag.retriever import evict_index_cache
+    from app.core.config import settings
+
+    for d in dep_docs:
+        if d.file_path:
+            try:
+                await adelete_index_artifacts(d.file_path)
+            except Exception as e:
+                logger.warning("Failed deleting index artifacts for dependent doc %s: %s", d.id, e)
+        try:
+            evict_index_cache(str(d.id))
+            if d.file_path:
+                evict_index_cache(str(d.file_path))
+        except Exception:
+            pass
+        try:
+            session_cache = settings.VECTOR_CACHE_DIR / str(d.id)
+            if session_cache.is_dir():
+                shutil.rmtree(session_cache, ignore_errors=True)
+        except Exception:
+            pass
+
+    # 3. Find and purge all chats associated with these documents
+    chats_to_purge = set()
+    if dep_doc_ids:
+        c_res = await db.execute(
+            select(Chat.id).filter(
+                Chat.user_id == current_user.id,
+                Chat.document_id.in_(dep_doc_ids)
+            )
+        )
+        for cid in c_res.scalars().all():
+            chats_to_purge.add(cid)
+
+        cd_chats_res = await db.execute(
+            select(ChatDocument.chat_id).filter(
+                ChatDocument.document_id.in_(dep_doc_ids)
+            )
+        )
+        for cid in cd_chats_res.scalars().all():
+            chats_to_purge.add(cid)
+
+    # Cascade-delete chat chunks, chat documents, and chats
+    if chats_to_purge:
+        purge_list = list(chats_to_purge)
+        await db.execute(delete(ChatChunk).where(ChatChunk.chat_id.in_(purge_list)))
+        await db.execute(delete(ChatDocument).where(ChatDocument.chat_id.in_(purge_list)))
+        await db.execute(delete(Chat).where(Chat.id.in_(purge_list)))
+
+    # Delete any chat chunks directly linked to dependent_id
+    await db.execute(delete(ChatChunk).where(ChatChunk.dependent_id == dependent_id))
+
+    # Delete ChatDocuments for these documents
+    if dep_doc_ids:
+        await db.execute(delete(ChatDocument).where(ChatDocument.document_id.in_(dep_doc_ids)))
+
+    # Delete PatientFacts linked to dependent_id or doc IDs
+    fact_conds = [PatientFact.dependent_id == dependent_id]
+    if dep_doc_ids:
+        fact_conds.append(PatientFact.source_id.in_([str(did) for did in dep_doc_ids]))
+    if chats_to_purge:
+        fact_conds.append(PatientFact.source_id.in_([str(cid) for cid in chats_to_purge]))
+
+    await db.execute(
+        delete(PatientFact).where(
+            PatientFact.user_id == current_user.id,
+            or_(*fact_conds)
+        )
+    )
+
+    # Delete the documents
+    if dep_doc_ids:
+        await db.execute(delete(Document).where(Document.id.in_(dep_doc_ids)))
         
     await log_audit(db, "DEPENDENT_DELETED", current_user.id, "dependent", request.client.host if request.client else "unknown", dependent_id=dep.id)
     await db.delete(dep)

@@ -59,6 +59,7 @@ class UserDTO(BaseModel):
     diet_type: Optional[str] = None
     activity_level: Optional[str] = None
     occupation: Optional[str] = Field(default=None, exclude=True)
+    token_invalid_before: Optional[datetime] = None
 
     model_config = ConfigDict(from_attributes=True, arbitrary_types_allowed=True)
 
@@ -181,6 +182,7 @@ def _user_to_dto(user: User) -> UserDTO:
         diet_type=user.diet_type,
         activity_level=user.activity_level,
         occupation=user.occupation,
+        token_invalid_before=user.token_invalid_before,
     )
 
 
@@ -210,7 +212,7 @@ def create_access_token(data: dict, expires_delta: Optional[timedelta] = None):
     expire = now + lifetime
     to_encode.update({
         "exp": expire,
-        "iat": now.timestamp(),
+        "iat": int(now.timestamp()),
         "jti": str(uuid.uuid4()),
     })
     encoded_jwt = jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
@@ -266,6 +268,21 @@ async def _resolve_firebase_user(decoded_token: dict, db: AsyncSession) -> Optio
                 await db.rollback()
 
     if user:
+        if user.token_invalid_before is not None:
+            token_iat = decoded_token.get("iat") or decoded_token.get("auth_time")
+            if token_iat is not None:
+                try:
+                    if int(token_iat) <= int(user.token_invalid_before.timestamp()):
+                        logger.info("Firebase token revoked by user.token_invalid_before (iat=%s, cutoff=%s)", token_iat, user.token_invalid_before.timestamp())
+                        raise HTTPException(
+                            status_code=status.HTTP_401_UNAUTHORIZED,
+                            detail="Token has been revoked",
+                            headers={"WWW-Authenticate": "Bearer"},
+                        )
+                except HTTPException:
+                    raise
+                except (ValueError, TypeError):
+                    pass
         from app.core.logging import user_id_var
         user_id_var.set(str(user.id))
         return user
@@ -362,7 +379,11 @@ async def _resolve_user_full(token: str, db: AsyncSession) -> Optional[User]:
     # Check if token is in Redis blocklist
     is_blocked = await redis_client.get(f"blocked_token:{jti}")
     if is_blocked:
-        return None
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Token has been revoked",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
 
     # Check if user signed out of all devices
     revoked_at = await redis_client.get(f"user_revoked_at:{email}")
@@ -370,12 +391,38 @@ async def _resolve_user_full(token: str, db: AsyncSession) -> Optional[User]:
         iat = payload.get("iat")
         try:
             if iat is None or float(iat) <= float(revoked_at):
-                return None
+                raise HTTPException(
+                    status_code=status.HTTP_401_UNAUTHORIZED,
+                    detail="Token has been revoked",
+                    headers={"WWW-Authenticate": "Bearer"},
+                )
+        except HTTPException:
+            raise
         except (ValueError, TypeError):
             return None
 
-    result = await db.execute(select(User).filter(User.email == email))
+    result = await db.execute(select(User).filter(func.lower(User.email) == email.lower().strip()))
     user = result.scalars().first()
+    if not user:
+        return None
+
+    # Multi-instance database-backed token invalidation check
+    if user.token_invalid_before is not None:
+        iat = payload.get("iat")
+        try:
+            cutoff = int(user.token_invalid_before.timestamp())
+            if iat is not None and int(iat) <= cutoff:
+                logger.info("Local JWT revoked by user.token_invalid_before (iat=%s, cutoff=%s)", iat, cutoff)
+                raise HTTPException(
+                    status_code=status.HTTP_401_UNAUTHORIZED,
+                    detail="Token has been revoked",
+                    headers={"WWW-Authenticate": "Bearer"},
+                )
+        except HTTPException:
+            raise
+        except (ValueError, TypeError):
+            pass
+
     return user
 
 
@@ -395,6 +442,13 @@ async def get_current_user_full(
     from app.core.logging import user_id_var
 
     t0 = time.perf_counter()
+
+    token_iat = None
+    try:
+        unverified = jwt.decode(token, options={"verify_signature": False})
+        token_iat = unverified.get("iat") or unverified.get("auth_time")
+    except Exception:
+        pass
 
     # Fast path: the token was verified within the last 60s (by this or any other
     # endpoint). Skip Firebase/JWKS verification entirely and load the fresh ORM
@@ -421,6 +475,21 @@ async def get_current_user_full(
         # Account deleted since the token was cached — drop the stale entry.
         evict_token_cache_by_token(token)
         raise credentials_exception
+
+    if user.token_invalid_before is not None and token_iat is not None:
+        try:
+            if int(token_iat) <= int(user.token_invalid_before.timestamp()):
+                evict_token_cache_by_token(token)
+                raise HTTPException(
+                    status_code=status.HTTP_401_UNAUTHORIZED,
+                    detail="Token has been revoked",
+                    headers={"WWW-Authenticate": "Bearer"},
+                )
+        except HTTPException:
+            raise
+        except (ValueError, TypeError):
+            pass
+
     logger.info(
         "AUTH CACHE HIT: user %s (full ORM row loaded in %.2fms)",
         user.id,
@@ -441,26 +510,64 @@ async def get_current_user(
     """
     from app.core.logging import user_id_var
 
+    token_iat = None
+    try:
+        unverified = jwt.decode(token, options={"verify_signature": False})
+        token_iat = unverified.get("iat") or unverified.get("auth_time")
+    except Exception:
+        pass
+
     cached_dto = get_cached_user_dto(token)
-    if cached_dto is None:
-        # Coalesce concurrent misses for the same token (parallel SPA requests).
-        async with _single_flight(_hash_token(token)):
-            cached_dto = get_cached_user_dto(token)
-            if cached_dto is None:
-                logger.info("AUTH CACHE MISS: resolving token %s", _short_hash(token))
-                user = await _resolve_user_full(token, db)
-                if not user:
+    if cached_dto is not None:
+        if cached_dto.token_invalid_before is not None and token_iat is not None:
+            try:
+                if int(token_iat) <= int(cached_dto.token_invalid_before.timestamp()):
+                    evict_token_cache_by_token(token)
                     raise HTTPException(
                         status_code=status.HTTP_401_UNAUTHORIZED,
-                        detail="Could not validate credentials",
+                        detail="Token has been revoked",
                         headers={"WWW-Authenticate": "Bearer"},
                     )
-                dto = _user_to_dto(user)
-                cache_user_dto(token, dto)
-                user_id_var.set(str(dto.id))
-                return dto
+            except HTTPException:
+                raise
+            except (ValueError, TypeError):
+                pass
+        logger.info("AUTH CACHE HIT: user %s", cached_dto.id)
+        user_id_var.set(str(cached_dto.id))
+        return cached_dto
 
-    logger.info("AUTH CACHE HIT: user %s", cached_dto.id)
+    # Coalesce concurrent misses for the same token (parallel SPA requests).
+    async with _single_flight(_hash_token(token)):
+        cached_dto = get_cached_user_dto(token)
+        if cached_dto is not None:
+            if cached_dto.token_invalid_before is not None and token_iat is not None:
+                try:
+                    if int(token_iat) <= int(cached_dto.token_invalid_before.timestamp()):
+                        evict_token_cache_by_token(token)
+                        raise HTTPException(
+                            status_code=status.HTTP_401_UNAUTHORIZED,
+                            detail="Token has been revoked",
+                            headers={"WWW-Authenticate": "Bearer"},
+                        )
+                except HTTPException:
+                    raise
+                except (ValueError, TypeError):
+                    pass
+            user_id_var.set(str(cached_dto.id))
+            return cached_dto
+
+        logger.info("AUTH CACHE MISS: resolving token %s", _short_hash(token))
+        user = await _resolve_user_full(token, db)
+        if not user:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Could not validate credentials",
+                headers={"WWW-Authenticate": "Bearer"},
+            )
+        dto = _user_to_dto(user)
+        cache_user_dto(token, dto)
+        user_id_var.set(str(dto.id))
+        return dto
     user_id_var.set(str(cached_dto.id))
     return cached_dto
 

@@ -206,34 +206,63 @@ async def login(request: Request, db: AsyncSession = Depends(get_db), form_data:
         await log_audit(db, "FAILED_LOGIN", None, form_data.username, client_ip)
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Incorrect email or password")
     
+    user.token_invalid_before = None
+    db.add(user)
+    await db.commit()
+    await db.refresh(user)
+
     await log_audit(db, "SUCCESSFUL_LOGIN", user.id, "auth", client_ip)
     access_token = create_access_token(data={"sub": user.email})
     return {"access_token": access_token, "token_type": "bearer"}
 
 
 @router.post("/logout", status_code=status.HTTP_200_OK)
-async def logout(token: str = Depends(oauth2_scheme)):
+async def logout(
+    token: str = Depends(oauth2_scheme),
+    db: AsyncSession = Depends(get_db),
+):
     """
-    Logout the user by adding their JWT to the Redis blocklist.
+    Logout the user by setting token_invalid_before in the database and adding JWT to the Redis blocklist.
     """
     import jwt
-    from app.core.auth import SECRET_KEY, ALGORITHM, evict_token_cache_by_token
+    from app.core.auth import SECRET_KEY, ALGORITHM, evict_token_cache_by_token, evict_token_cache_for_user
     from app.core.redis_client import redis_client
-    # Drop the 60s auth-cache entry first so the revoked token cannot be served
-    # from memory (cache hits skip the Redis blocklist check by design).
+
     evict_token_cache_by_token(token)
+    user_email = None
+    jti = None
+    exp = None
     try:
         payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+        user_email = payload.get("sub")
         jti = payload.get("jti")
         exp = payload.get("exp")
-        if jti and exp:
-            import time
-            ttl = int(exp - time.time())
-            if ttl > 0:
-                await redis_client.setex(f"blocked_token:{jti}", ttl, "true")
-        return {"message": "Successfully logged out"}
     except jwt.InvalidTokenError:
-        raise HTTPException(status_code=401, detail="Invalid token")
+        try:
+            unverified = jwt.decode(token, options={"verify_signature": False})
+            user_email = unverified.get("email") or unverified.get("sub")
+            jti = unverified.get("jti")
+            exp = unverified.get("exp")
+        except Exception:
+            raise HTTPException(status_code=401, detail="Invalid token")
+
+    if jti and exp:
+        import time
+        ttl = int(exp - time.time())
+        if ttl > 0:
+            await redis_client.setex(f"blocked_token:{jti}", ttl, "true")
+
+    if user_email:
+        normalized_email = user_email.lower().strip()
+        result = await db.execute(select(User).filter(func.lower(User.email) == normalized_email))
+        user = result.scalars().first()
+        if user:
+            user.token_invalid_before = datetime.now(UTC)
+            db.add(user)
+            await db.commit()
+            evict_token_cache_for_user(user.id)
+
+    return {"message": "Successfully logged out"}
 
 
 @router.post("/auth/send-custom-verification")

@@ -50,6 +50,14 @@ async def setup_test_database():
                     else:
                         sync_conn.execute(text("ALTER TABLE documents ADD COLUMN cached_summary TEXT"))
 
+            if "users" in inspector.get_table_names():
+                existing_user_cols = {c["name"] for c in inspector.get_columns("users")}
+                if "token_invalid_before" not in existing_user_cols:
+                    if dialect == "postgresql":
+                        sync_conn.execute(text("ALTER TABLE users ADD COLUMN IF NOT EXISTS token_invalid_before TIMESTAMP WITH TIME ZONE"))
+                    else:
+                        sync_conn.execute(text("ALTER TABLE users ADD COLUMN token_invalid_before DATETIME"))
+
         await conn.run_sync(_ensure_document_cache_columns)
 
     yield
