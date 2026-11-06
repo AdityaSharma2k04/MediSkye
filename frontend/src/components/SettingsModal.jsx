@@ -29,10 +29,29 @@ import {
   updatePassword,
   EmailAuthProvider,
   reauthenticateWithCredential,
+  GoogleAuthProvider,
+  reauthenticateWithPopup,
 } from 'firebase/auth';
+import { Link, useInRouterContext } from 'react-router-dom';
 import { auth, getFirebaseErrorMessage } from '../services/firebase';
 import { logger } from '../services/logger';
 import { useTranslation } from 'react-i18next';
+
+function SafeLink({ to, onClick, children, className, ...props }) {
+  const inRouter = useInRouterContext();
+  if (inRouter) {
+    return (
+      <Link to={to} onClick={onClick} className={className} {...props}>
+        {children}
+      </Link>
+    );
+  }
+  return (
+    <a href={to} onClick={onClick} className={className} {...props}>
+      {children}
+    </a>
+  );
+}
 
 function getCategoryBadgeStyle(type = '') {
   const t = (type || '').toLowerCase();
@@ -114,7 +133,7 @@ const selectClass = (darkMode) =>
       : 'bg-zinc-50 border-zinc-200 text-zinc-900 focus:border-zinc-400'
   }`;
 
-function ChangePasswordModal({ isOpen, onClose, darkMode, isGoogleUser = false }) {
+function ChangePasswordModal({ isOpen, onClose, darkMode, isGoogleOnly = false }) {
   const [currentPassword, setCurrentPassword] = useState('');
   const [newPassword, setNewPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
@@ -144,32 +163,58 @@ function ChangePasswordModal({ isOpen, onClose, darkMode, isGoogleUser = false }
 
   if (!isOpen) return null;
 
-  const canSave = !isGoogleUser && currentPassword && newPassword.length >= 8 && newPassword === confirmPassword;
+  const canSave = isGoogleOnly
+    ? newPassword.length >= 8 && newPassword === confirmPassword
+    : currentPassword && newPassword.length >= 8 && newPassword === confirmPassword;
 
-  const handleChangePassword = async () => {
+  const handleSave = async () => {
     if (!canSave || loading) return;
     if (!auth?.currentUser) {
-      console.error('Password Change Failed: No authenticated user found');
+      console.error('Password operation failed: No authenticated user found');
       setPwdError('No authenticated user found');
       return;
     }
     setLoading(true);
     setPwdError(null);
     try {
-      const credential = EmailAuthProvider.credential(auth.currentUser.email, currentPassword);
-      await reauthenticateWithCredential(auth.currentUser, credential);
-      await updatePassword(auth.currentUser, newPassword);
-      onClose();
+      if (isGoogleOnly) {
+        try {
+          await updatePassword(auth.currentUser, newPassword);
+          onClose();
+        } catch (err) {
+          if (err?.code === 'auth/requires-recent-login') {
+            try {
+              const provider = new GoogleAuthProvider();
+              provider.setCustomParameters({ prompt: 'select_account' });
+              await reauthenticateWithPopup(auth.currentUser, provider);
+              await updatePassword(auth.currentUser, newPassword);
+              onClose();
+              return;
+            } catch (reauthErr) {
+              const errorMsg = getFirebaseErrorMessage(reauthErr);
+              setPwdError(errorMsg || reauthErr.message || 'Re-authentication failed');
+              return;
+            }
+          }
+          const errorMsg = getFirebaseErrorMessage(err);
+          setPwdError(errorMsg || err.message || 'Failed to set password');
+        }
+      } else {
+        const credential = EmailAuthProvider.credential(auth.currentUser.email, currentPassword);
+        await reauthenticateWithCredential(auth.currentUser, credential);
+        await updatePassword(auth.currentUser, newPassword);
+        onClose();
+      }
     } catch (err) {
       const errorMsg = getFirebaseErrorMessage(err);
-      console.error('Password Change Failed:', err);
+      console.error('Password change failed:', err);
       setPwdError(errorMsg || err.message || 'Password change failed');
     } finally {
       setLoading(false);
     }
   };
 
-  const handleSave = handleChangePassword;
+  const modalTitle = isGoogleOnly ? 'Set Password' : 'Change Password';
 
   return (
     <div
@@ -181,11 +226,11 @@ function ChangePasswordModal({ isOpen, onClose, darkMode, isGoogleUser = false }
         onMouseDown={(e) => e.stopPropagation()}
         role="dialog"
         aria-modal="true"
-        aria-label="Change password"
+        aria-label={modalTitle}
       >
         <div className={`flex items-center justify-between px-5 py-4 border-b ${darkMode ? 'border-zinc-800' : 'border-zinc-100'}`}>
           <h3 className={`font-semibold text-sm flex items-center gap-2 ${darkMode ? 'text-zinc-100' : 'text-zinc-900'}`}>
-            <Lock className="w-4 h-4" /> Change Password
+            <Lock className="w-4 h-4" /> {modalTitle}
           </h3>
           <button onClick={onClose} aria-label="Close" className={`p-1 rounded-lg ${darkMode ? 'text-zinc-500 hover:text-zinc-200 hover:bg-zinc-800' : 'text-zinc-400 hover:text-zinc-700 hover:bg-zinc-100'}`}>
             <X className="w-4 h-4" />
@@ -197,66 +242,63 @@ function ChangePasswordModal({ isOpen, onClose, darkMode, isGoogleUser = false }
               {pwdError}
             </div>
           )}
-          {isGoogleUser ? (
+          {isGoogleOnly ? (
             <p className={`text-xs leading-relaxed p-3 rounded-xl border ${darkMode ? 'bg-zinc-800/60 border-zinc-700 text-zinc-300' : 'bg-zinc-100 border-zinc-200 text-zinc-600'}`}>
-              You signed in with Google. To set a password, use the 'Forgot Password' link on the login page.
+              Set a password for your account so you can also sign in with your email and password.
             </p>
           ) : (
-            <>
-              <Field label="Current password" darkMode={darkMode}>
-                <div className="relative">
-                  <input
-                    type={showCurrent ? 'text' : 'password'}
-                    value={currentPassword}
-                    onChange={(e) => setCurrentPassword(e.target.value)}
-                    aria-label="Current password"
-                    className={inputClass(darkMode) + ' pr-9'}
-                  />
-                  <button type="button" onClick={() => setShowCurrent(!showCurrent)} aria-label="Toggle password visibility" className={`absolute right-2.5 top-2 ${darkMode ? 'text-zinc-500 hover:text-zinc-300' : 'text-zinc-400 hover:text-zinc-600'}`}>
-                    {showCurrent ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
-                  </button>
-                </div>
-              </Field>
-              <Field label="New password (min 8 characters)" darkMode={darkMode}>
-                <div className="relative">
-                  <input
-                    type={showNext ? 'text' : 'password'}
-                    value={newPassword}
-                    onChange={(e) => setNewPassword(e.target.value)}
-                    aria-label="New password"
-                    className={inputClass(darkMode) + ' pr-9'}
-                  />
-                  <button type="button" onClick={() => setShowNext(!showNext)} aria-label="Toggle password visibility" className={`absolute right-2.5 top-2 ${darkMode ? 'text-zinc-500 hover:text-zinc-300' : 'text-zinc-400 hover:text-zinc-600'}`}>
-                    {showNext ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
-                  </button>
-                </div>
-              </Field>
-              <Field label="Confirm new password" darkMode={darkMode}>
+            <Field label="Current password" darkMode={darkMode}>
+              <div className="relative">
                 <input
-                  type="password"
-                  value={confirmPassword}
-                  onChange={(e) => setConfirmPassword(e.target.value)}
-                  aria-label="Confirm new password"
-                  className={inputClass(darkMode)}
+                  type={showCurrent ? 'text' : 'password'}
+                  value={currentPassword}
+                  onChange={(e) => setCurrentPassword(e.target.value)}
+                  aria-label="Current password"
+                  className={inputClass(darkMode) + ' pr-9'}
                 />
-                {confirmPassword && newPassword !== confirmPassword && (
-                  <p className="text-[10px] text-red-400 mt-1">Passwords do not match</p>
-                )}
-              </Field>
-            </>
+                <button type="button" onClick={() => setShowCurrent(!showCurrent)} aria-label="Toggle password visibility" className={`absolute right-2.5 top-2 ${darkMode ? 'text-zinc-500 hover:text-zinc-300' : 'text-zinc-400 hover:text-zinc-600'}`}>
+                  {showCurrent ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
+                </button>
+              </div>
+            </Field>
           )}
+
+          <Field label="New password (min 8 characters)" darkMode={darkMode}>
+            <div className="relative">
+              <input
+                type={showNext ? 'text' : 'password'}
+                value={newPassword}
+                onChange={(e) => setNewPassword(e.target.value)}
+                aria-label="New password"
+                className={inputClass(darkMode) + ' pr-9'}
+              />
+              <button type="button" onClick={() => setShowNext(!showNext)} aria-label="Toggle password visibility" className={`absolute right-2.5 top-2 ${darkMode ? 'text-zinc-500 hover:text-zinc-300' : 'text-zinc-400 hover:text-zinc-600'}`}>
+                {showNext ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
+              </button>
+            </div>
+          </Field>
+          <Field label="Confirm new password" darkMode={darkMode}>
+            <input
+              type="password"
+              value={confirmPassword}
+              onChange={(e) => setConfirmPassword(e.target.value)}
+              aria-label="Confirm new password"
+              className={inputClass(darkMode)}
+            />
+            {confirmPassword && newPassword !== confirmPassword && (
+              <p className="text-[10px] text-red-400 mt-1">Passwords do not match</p>
+            )}
+          </Field>
         </div>
         <div className={`px-5 py-3 flex justify-end gap-2 border-t ${darkMode ? 'border-zinc-800 bg-zinc-950' : 'border-zinc-100 bg-zinc-50'}`}>
           <button onClick={onClose} className={`px-4 py-2 text-xs rounded-xl border ${darkMode ? 'border-zinc-700 text-zinc-300 hover:bg-zinc-800' : 'border-zinc-200 text-zinc-600 hover:bg-zinc-100'}`}>Cancel</button>
-          {!isGoogleUser && (
-            <button
-              disabled={!canSave || loading}
-              onClick={handleChangePassword}
-              className={`px-4 py-2 text-xs font-medium rounded-xl text-white transition-colors ${canSave && !loading ? 'bg-zinc-900 hover:bg-zinc-800 dark:bg-zinc-100 dark:text-zinc-900 dark:hover:bg-zinc-200' : 'bg-zinc-500 opacity-50 cursor-not-allowed'}`}
-            >
-              {loading ? 'Saving...' : 'Save'}
-            </button>
-          )}
+          <button
+            disabled={!canSave || loading}
+            onClick={handleSave}
+            className={`px-4 py-2 text-xs font-medium rounded-xl text-white transition-colors ${canSave && !loading ? 'bg-zinc-900 hover:bg-zinc-800 dark:bg-zinc-100 dark:text-zinc-900 dark:hover:bg-zinc-200' : 'bg-zinc-500 opacity-50 cursor-not-allowed'}`}
+          >
+            {loading ? (isGoogleOnly ? 'Setting...' : 'Saving...') : (isGoogleOnly ? 'Set password' : 'Save')}
+          </button>
         </div>
       </div>
     </div>
@@ -328,9 +370,10 @@ export default function SettingsModal({
   const [showUnsavedConfirm, setShowUnsavedConfirm] = useState(false);
   const [saveError, setSaveError] = useState(null);
 
-  // Check if current user signed in with Google
-  const isGoogleUser = Boolean(
-    auth?.currentUser?.providerData?.some((p) => p?.providerId === 'google.com' || p?.providerId === 'google') ||
+  // Check if current user signed in with Google and whether they already have a password
+  const providerData = auth?.currentUser?.providerData || [];
+  const hasGoogleProvider = Boolean(
+    providerData.some((p) => p?.providerId === 'google.com' || p?.providerId === 'google') ||
     currentUser?.provider === 'google' ||
     currentUser?.provider === 'google.com' ||
     currentUser?.auth_provider === 'google' ||
@@ -351,6 +394,10 @@ export default function SettingsModal({
       return false;
     })()
   );
+  const hasPasswordProvider = Boolean(
+    providerData.some((p) => p?.providerId === 'password')
+  );
+  const isGoogleOnly = hasGoogleProvider && !hasPasswordProvider;
 
   // Patient Memory State
   const [memoryConsent, setMemoryConsent] = useState(currentUser?.memory_consent_granted ?? false);
@@ -794,25 +841,23 @@ export default function SettingsModal({
               <div className="flex flex-col gap-2">
                 <button
                   type="button"
-                  disabled={isGoogleUser}
-                  onClick={() => !isGoogleUser && setShowPassword(true)}
-                  aria-label="Change password"
+                  onClick={() => setShowPassword(true)}
+                  aria-label={isGoogleOnly ? "Set password" : "Change password"}
                   className={`w-full flex items-center justify-between px-3 py-2.5 rounded-xl border text-xs transition-colors ${
-                    isGoogleUser
-                      ? darkMode
-                        ? 'border-zinc-800 text-zinc-500 cursor-not-allowed opacity-60'
-                        : 'border-zinc-200 text-zinc-400 cursor-not-allowed opacity-60'
-                      : darkMode
-                        ? 'border-zinc-700 text-zinc-300 hover:bg-zinc-800'
-                        : 'border-zinc-200 text-zinc-700 hover:bg-zinc-50'
+                    darkMode
+                      ? 'border-zinc-700 text-zinc-300 hover:bg-zinc-800'
+                      : 'border-zinc-200 text-zinc-700 hover:bg-zinc-50'
                   }`}
                 >
-                  <span className="flex items-center gap-2"><Lock className="w-3.5 h-3.5" /> Change password</span>
-                  {!isGoogleUser && <span className={`text-[10px] ${darkMode ? 'text-zinc-500' : 'text-zinc-400'}`}>→</span>}
+                  <span className="flex items-center gap-2">
+                    <Lock className="w-3.5 h-3.5" />
+                    {isGoogleOnly ? "Set password" : "Change password"}
+                  </span>
+                  <span className={`text-[10px] ${darkMode ? 'text-zinc-500' : 'text-zinc-400'}`}>→</span>
                 </button>
-                {isGoogleUser && (
+                {isGoogleOnly && (
                   <p className={`text-[11px] leading-relaxed px-0.5 ${darkMode ? 'text-zinc-400' : 'text-zinc-500'}`}>
-                    You signed in with Google. To set a password, use the 'Forgot Password' link on the login page.
+                    You signed in with Google. You can set a password to enable email &amp; password sign-in.
                   </p>
                 )}
               </div>
@@ -864,17 +909,14 @@ export default function SettingsModal({
                 <span className="flex items-center gap-2"><Shield className="w-3.5 h-3.5" /> Medical disclaimer</span>
                 <ExternalLink className="w-3 h-3 opacity-50" />
               </button>
-              <button
-                type="button"
-                disabled
-                title="Policy coming soon"
-                className={`w-full flex items-center justify-between px-3 py-2.5 rounded-xl border text-xs cursor-not-allowed opacity-50 ${darkMode ? 'border-zinc-800 text-zinc-500' : 'border-zinc-100 text-zinc-400'}`}
+              <SafeLink
+                to="/privacy"
+                onClick={onClose}
+                className={`w-full flex items-center justify-between px-3 py-2.5 rounded-xl border text-xs transition-colors ${darkMode ? 'border-zinc-800 text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800' : 'border-zinc-100 text-zinc-500 hover:text-zinc-700 hover:bg-zinc-50'}`}
               >
                 <span className="flex items-center gap-2"><Info className="w-3.5 h-3.5" /> Privacy policy</span>
-                <span className={`text-[10px] px-1.5 py-0.5 rounded border ${darkMode ? 'border-zinc-700 text-zinc-500' : 'border-zinc-200 text-zinc-400'}`}>
-                  Coming soon
-                </span>
-              </button>
+                <ExternalLink className="w-3 h-3 opacity-50" />
+              </SafeLink>
             </Section>
           </div>
 
@@ -912,7 +954,7 @@ export default function SettingsModal({
         isOpen={showPassword}
         onClose={() => setShowPassword(false)}
         darkMode={darkMode}
-        isGoogleUser={isGoogleUser}
+        isGoogleOnly={isGoogleOnly}
       />
 
       <DisclaimerModal

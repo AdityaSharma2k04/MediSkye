@@ -5,6 +5,7 @@ import {
   googleProvider,
   signInWithPopup,
   signInWithEmailAndPassword,
+  fetchSignInMethodsForEmail,
   reloadAndGetVerifiedToken,
   signOut,
   getFirebaseErrorMessage,
@@ -221,7 +222,29 @@ export default function Login() {
       localStorage.setItem('token', token);
       navigate('/chat');
     } catch (err) {
-      setError(getFirebaseErrorMessage(err));
+      const code = err?.code;
+      if (code === 'auth/invalid-credential' || code === 'auth/user-not-found' || code === 'auth/wrong-password') {
+        try {
+          const methods = await fetchSignInMethodsForEmail(auth, trimmed);
+          if (!methods || methods.length === 0) {
+            setError("No account found with this email. Please check the spelling or create a new account.");
+          } else if (methods.includes('google.com')) {
+            setError("This email is registered with Google. Please use the 'Continue with Google' button above to sign in.");
+          } else if (methods.includes('password')) {
+            setError("Incorrect password. Please try again or click 'Forgot password?'.");
+          } else {
+            setError("Invalid email or password.");
+          }
+        } catch (fetchErr) {
+          setError(getFirebaseErrorMessage(err));
+        }
+      } else if (code === 'auth/too-many-requests') {
+        setError("Too many failed attempts. For security reasons, your account is temporarily locked. Please try again in 15 minutes.");
+      } else if (code === 'auth/invalid-email') {
+        setError("Please enter a valid email address.");
+      } else {
+        setError(getFirebaseErrorMessage(err));
+      }
     } finally {
       setLoading(false);
     }

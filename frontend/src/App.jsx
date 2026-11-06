@@ -6,6 +6,7 @@ const Register = lazy(() => import('./components/Register'));
 const AuthAction = lazy(() => import('./components/AuthAction'));
 const ChatApp = lazy(() => import('./components/ChatApp'));
 const LandingPage = lazy(() => import('./components/LandingPage'));
+const PrivacyPolicy = lazy(() => import('./components/PrivacyPolicy'));
 
 const LandingSkeleton = () => (
   <div className="min-h-screen bg-zinc-950 text-zinc-50 font-sans flex flex-col justify-between overflow-hidden animate-pulse" aria-label="Loading MediSkye">
@@ -165,6 +166,7 @@ export default function App() {
           <Route path="/" element={<LandingPage />} />
           <Route path="/login" element={<Login />} />
           <Route path="/register" element={<Register />} />
+          <Route path="/privacy" element={<PrivacyPolicy />} />
           <Route path="/auth/action" element={<AuthAction />} />
           <Route
             path="/chat/*"

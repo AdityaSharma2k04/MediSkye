@@ -15,6 +15,7 @@ vi.mock('react-router-dom', async () => {
 
 const mockSignInWithPopup = vi.fn();
 const mockSignInWithEmailAndPassword = vi.fn();
+const mockFetchSignInMethodsForEmail = vi.fn();
 const mockSendPasswordResetEmail = vi.fn();
 const mockSignOut = vi.fn();
 const mockApiPost = vi.fn();
@@ -38,6 +39,7 @@ vi.mock('../services/firebase', async () => {
     googleProvider: {},
     signInWithPopup: (...args) => mockSignInWithPopup(...args),
     signInWithEmailAndPassword: (...args) => mockSignInWithEmailAndPassword(...args),
+    fetchSignInMethodsForEmail: (...args) => mockFetchSignInMethodsForEmail(...args),
     sendPasswordResetEmail: (...args) => mockSendPasswordResetEmail(...args),
     signOut: (...args) => mockSignOut(...args),
   };
@@ -193,10 +195,11 @@ describe('Login Component with Firebase Auth & Password Reset', () => {
     });
   });
 
-  it('maps auth/invalid-credential error to user-friendly message', async () => {
+  it('smart error handling — Scenario A: displays specific error when account does not exist (empty signInMethods)', async () => {
     const err = new Error('Invalid credential');
     err.code = 'auth/invalid-credential';
     mockSignInWithEmailAndPassword.mockRejectedValueOnce(err);
+    mockFetchSignInMethodsForEmail.mockResolvedValueOnce([]);
 
     render(
       <MemoryRouter>
@@ -204,18 +207,73 @@ describe('Login Component with Firebase Auth & Password Reset', () => {
       </MemoryRouter>
     );
 
-    fireEvent.change(screen.getByPlaceholderText(/email address/i), { target: { value: 'user@example.com' } });
+    fireEvent.change(screen.getByPlaceholderText(/email address/i), { target: { value: 'nonexistent@example.com' } });
+    fireEvent.click(screen.getByRole('button', { name: /^continue$/i }));
+
+    fireEvent.change(screen.getByPlaceholderText(/password/i), { target: { value: 'password123' } });
+    fireEvent.click(screen.getByRole('button', { name: /sign in/i }));
+
+    await waitFor(() => {
+      expect(mockFetchSignInMethodsForEmail).toHaveBeenCalledWith(expect.anything(), 'nonexistent@example.com');
+      expect(screen.getByRole('alert')).toHaveTextContent(
+        "No account found with this email. Please check the spelling or create a new account."
+      );
+    });
+  });
+
+  it('smart error handling — Scenario B: displays Google sign-in hint when email is registered with Google', async () => {
+    const err = new Error('Invalid credential');
+    err.code = 'auth/invalid-credential';
+    mockSignInWithEmailAndPassword.mockRejectedValueOnce(err);
+    mockFetchSignInMethodsForEmail.mockResolvedValueOnce(['google.com']);
+
+    render(
+      <MemoryRouter>
+        <Login />
+      </MemoryRouter>
+    );
+
+    fireEvent.change(screen.getByPlaceholderText(/email address/i), { target: { value: 'googleuser@example.com' } });
     fireEvent.click(screen.getByRole('button', { name: /^continue$/i }));
 
     fireEvent.change(screen.getByPlaceholderText(/password/i), { target: { value: 'wrongpassword' } });
     fireEvent.click(screen.getByRole('button', { name: /sign in/i }));
 
     await waitFor(() => {
-      expect(screen.getByText(/invalid email or password/i)).toBeInTheDocument();
+      expect(mockFetchSignInMethodsForEmail).toHaveBeenCalledWith(expect.anything(), 'googleuser@example.com');
+      expect(screen.getByRole('alert')).toHaveTextContent(
+        "This email is registered with Google. Please use the 'Continue with Google' button above to sign in."
+      );
     });
   });
 
-  it('maps auth/too-many-requests error cleanly', async () => {
+  it('smart error handling — Scenario C: displays incorrect password error when email exists with password provider', async () => {
+    const err = new Error('Wrong password');
+    err.code = 'auth/wrong-password';
+    mockSignInWithEmailAndPassword.mockRejectedValueOnce(err);
+    mockFetchSignInMethodsForEmail.mockResolvedValueOnce(['password']);
+
+    render(
+      <MemoryRouter>
+        <Login />
+      </MemoryRouter>
+    );
+
+    fireEvent.change(screen.getByPlaceholderText(/email address/i), { target: { value: 'existing@example.com' } });
+    fireEvent.click(screen.getByRole('button', { name: /^continue$/i }));
+
+    fireEvent.change(screen.getByPlaceholderText(/password/i), { target: { value: 'wrongpassword' } });
+    fireEvent.click(screen.getByRole('button', { name: /sign in/i }));
+
+    await waitFor(() => {
+      expect(mockFetchSignInMethodsForEmail).toHaveBeenCalledWith(expect.anything(), 'existing@example.com');
+      expect(screen.getByRole('alert')).toHaveTextContent(
+        "Incorrect password. Please try again or click 'Forgot password?'."
+      );
+    });
+  });
+
+  it('smart error handling — Scenario D: displays lockout message on auth/too-many-requests', async () => {
     const err = new Error('Too many requests');
     err.code = 'auth/too-many-requests';
     mockSignInWithEmailAndPassword.mockRejectedValueOnce(err);
@@ -233,7 +291,9 @@ describe('Login Component with Firebase Auth & Password Reset', () => {
     fireEvent.click(screen.getByRole('button', { name: /sign in/i }));
 
     await waitFor(() => {
-      expect(screen.getByText("Too many attempts. Please wait a minute before requesting another email.")).toBeInTheDocument();
+      expect(screen.getByRole('alert')).toHaveTextContent(
+        "Too many failed attempts. For security reasons, your account is temporarily locked. Please try again in 15 minutes."
+      );
     });
   });
 

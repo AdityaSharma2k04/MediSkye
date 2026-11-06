@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, fireEvent, waitFor } from '@testing-library/react';
+import { render, screen, fireEvent, waitFor, within } from '@testing-library/react';
 import React from 'react';
 import SettingsModal from '../components/SettingsModal';
 import * as api from '../services/api';
@@ -22,6 +22,7 @@ const {
   mockCredential,
   mockCredentialFn,
   mockReauthenticateWithCredential,
+  mockReauthenticateWithPopup,
   mockUpdatePassword,
   mockAuth,
 } = vi.hoisted(() => {
@@ -30,6 +31,7 @@ const {
     mockCredential: credential,
     mockCredentialFn: vi.fn().mockReturnValue(credential),
     mockReauthenticateWithCredential: vi.fn().mockResolvedValue({}),
+    mockReauthenticateWithPopup: vi.fn().mockResolvedValue({}),
     mockUpdatePassword: vi.fn().mockResolvedValue({}),
     mockAuth: {
       currentUser: {
@@ -47,7 +49,11 @@ vi.mock('firebase/auth', async (importOriginal) => {
     EmailAuthProvider: {
       credential: (...args) => mockCredentialFn(...args),
     },
+    GoogleAuthProvider: vi.fn().mockImplementation(() => ({
+      setCustomParameters: vi.fn(),
+    })),
     reauthenticateWithCredential: (...args) => mockReauthenticateWithCredential(...args),
+    reauthenticateWithPopup: (...args) => mockReauthenticateWithPopup(...args),
     updatePassword: (...args) => mockUpdatePassword(...args),
   };
 });
@@ -287,11 +293,58 @@ describe('SettingsModal Account fields & Deletion', () => {
     });
   });
 
-  it('disables change password button and displays informative message when signed in with Google', async () => {
+  it('allows Google OAuth users without a password to set a password', async () => {
     mockAuth.currentUser = {
-      email: 'patient@example.com',
+      email: 'google_patient@example.com',
       providerData: [{ providerId: 'google.com' }],
     };
+
+    const onClose = vi.fn();
+    render(
+      <SettingsModal
+        isOpen={true}
+        onClose={onClose}
+        darkMode={false}
+        currentUser={mockUser}
+      />
+    );
+
+    const setPwdBtn = await screen.findByRole('button', { name: /set password/i });
+    expect(setPwdBtn).toBeEnabled();
+    expect(
+      screen.getByText("You signed in with Google. You can set a password to enable email & password sign-in.")
+    ).toBeInTheDocument();
+
+    // Clicking enabled button opens modal with 'Set Password'
+    fireEvent.click(setPwdBtn);
+    const dialog = screen.getByRole('dialog', { name: /set password/i });
+    expect(dialog).toBeInTheDocument();
+    expect(within(dialog).queryByLabelText('Current password')).not.toBeInTheDocument();
+
+    const newInput = within(dialog).getByLabelText('New password');
+    const confirmInput = within(dialog).getByLabelText('Confirm new password');
+
+    fireEvent.change(newInput, { target: { value: 'GoogleSet123!' } });
+    fireEvent.change(confirmInput, { target: { value: 'GoogleSet123!' } });
+
+    const submitBtn = within(dialog).getByRole('button', { name: 'Set password' });
+    expect(submitBtn).toBeEnabled();
+    fireEvent.click(submitBtn);
+
+    await waitFor(() => {
+      expect(mockUpdatePassword).toHaveBeenCalledWith(mockAuth.currentUser, 'GoogleSet123!');
+    });
+  });
+
+  it('prompts re-authentication with Google popup if updatePassword throws auth/requires-recent-login', async () => {
+    mockAuth.currentUser = {
+      email: 'google_patient@example.com',
+      providerData: [{ providerId: 'google.com' }],
+    };
+
+    const recentLoginErr = new Error('Requires recent login');
+    recentLoginErr.code = 'auth/requires-recent-login';
+    mockUpdatePassword.mockRejectedValueOnce(recentLoginErr).mockResolvedValueOnce({});
 
     render(
       <SettingsModal
@@ -302,15 +355,23 @@ describe('SettingsModal Account fields & Deletion', () => {
       />
     );
 
-    const changePwdBtn = await screen.findByRole('button', { name: /change password/i });
-    expect(changePwdBtn).toBeDisabled();
-    expect(
-      screen.getByText("You signed in with Google. To set a password, use the 'Forgot Password' link on the login page.")
-    ).toBeInTheDocument();
+    const setPwdBtn = await screen.findByRole('button', { name: /set password/i });
+    fireEvent.click(setPwdBtn);
 
-    // Clicking disabled button should not open modal
-    fireEvent.click(changePwdBtn);
-    expect(screen.queryByRole('dialog', { name: /change password/i })).not.toBeInTheDocument();
+    const dialog = screen.getByRole('dialog', { name: /set password/i });
+    const newInput = within(dialog).getByLabelText('New password');
+    const confirmInput = within(dialog).getByLabelText('Confirm new password');
+
+    fireEvent.change(newInput, { target: { value: 'GoogleSet123!' } });
+    fireEvent.change(confirmInput, { target: { value: 'GoogleSet123!' } });
+
+    const submitBtn = within(dialog).getByRole('button', { name: 'Set password' });
+    fireEvent.click(submitBtn);
+
+    await waitFor(() => {
+      expect(mockReauthenticateWithPopup).toHaveBeenCalledWith(mockAuth.currentUser, expect.anything());
+      expect(mockUpdatePassword).toHaveBeenCalledTimes(2);
+    });
   });
 
   it('persists the language preference via updateProfile', async () => {
@@ -415,18 +476,22 @@ describe('SettingsModal Account fields & Deletion', () => {
     expect(onClose).toHaveBeenCalledTimes(1);
   });
 
-  it('renders Privacy policy as disabled with tooltip in About section', async () => {
+  it('renders Privacy policy as an active link in About section that closes modal on click', async () => {
+    const onClose = vi.fn();
     render(
       <SettingsModal
         isOpen={true}
-        onClose={vi.fn()}
+        onClose={onClose}
         darkMode={false}
         currentUser={mockUser}
       />
     );
 
-    const privacyBtn = await screen.findByRole('button', { name: /privacy policy/i });
-    expect(privacyBtn).toBeDisabled();
-    expect(privacyBtn).toHaveAttribute('title', 'Policy coming soon');
+    const privacyLink = await screen.findByRole('link', { name: /privacy policy/i });
+    expect(privacyLink).toBeInTheDocument();
+    expect(privacyLink).toHaveAttribute('href', '/privacy');
+
+    fireEvent.click(privacyLink);
+    expect(onClose).toHaveBeenCalled();
   });
 });

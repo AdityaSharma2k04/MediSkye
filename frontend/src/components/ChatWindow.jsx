@@ -283,8 +283,8 @@ export default function ChatWindow({
               <div className="flex items-center gap-3 mb-4">
                 <Sparkles className={`w-5 h-5 animate-spin ${textSecondary}`} />
                 <div>
-                  <div className={`text-sm font-medium ${darkMode ? 'text-zinc-300' : 'text-zinc-700'}`}>{t('chat.extracting_metrics', 'Extracting Lab Value Metrics...')}</div>
-                  <div className={`text-xs mt-0.5 ${textMuted}`}>{t('chat.analyzing_ranges', 'Analyzing numerical bounds & reference ranges')}</div>
+                  <div className={`text-sm font-medium ${darkMode ? 'text-zinc-300' : 'text-zinc-700'}`}>{t('chat.extracting_metrics', 'Analyzing clinical biomarkers...')}</div>
+                  <div className={`text-xs mt-0.5 ${textMuted}`}>{t('chat.analyzing_ranges', 'Evaluating clinical bounds & reference ranges')}</div>
                 </div>
               </div>
               <div className={`rounded-xl border overflow-hidden ${cardBg} ${cardBorder}`} role="status" aria-label="Loading lab metrics">
@@ -338,7 +338,7 @@ export default function ChatWindow({
           <div className="min-h-[72vh] flex flex-col items-center justify-center text-center max-w-2xl mx-auto py-8 animate-fade-in">
             <Sparkles className={`w-8 h-8 animate-spin ${textSecondary} mb-3`} />
             <div className={`text-sm font-medium ${darkMode ? 'text-zinc-300' : 'text-zinc-700'}`}>{t('chat.loading_conversation', 'Loading Conversation...')}</div>
-            <div className={`text-xs mt-1 ${textMuted}`}>{t('chat.fetching_messages', 'Fetching latest messages from Neon DB')}</div>
+            <div className={`text-xs mt-1 ${textMuted}`}>{t('chat.fetching_messages', 'Syncing your secure conversations...')}</div>
           </div>
         ) : messages.length === 0 ? (
           /* ── GEMINI MINIMALIST EMPTY STATE ── */

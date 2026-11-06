@@ -88,6 +88,8 @@ def append_to_testing_log(section_text: str):
 
 
 def init_firebase():
+    if "GOOGLE_APPLICATION_CREDENTIALS" in os.environ:
+        os.environ.pop("GOOGLE_APPLICATION_CREDENTIALS", None)
     if not firebase_admin._apps:
         from firebase_admin import credentials
         candidate_keys = [
@@ -362,6 +364,20 @@ async def run_benchmark(api_url: str):
                 },
                 "stream": True,
             },
+            {
+                "name": "POST /query (IDOR 404 Rejection)",
+                "method": "POST",
+                "url": f"{api_url}/query",
+                "headers": headers,
+                "json": {
+                    "session_id": str(uuid.uuid4()),
+                    "document_id": str(uuid.uuid4()),
+                    "query": "Can I access an unowned report?",
+                    "language": "English",
+                },
+                "stream": False,
+                "expected_status": 404,
+            },
         ]
 
         # Table A Results Data
@@ -408,7 +424,8 @@ async def run_benchmark(api_url: str):
                     warm_client_times.append(effective_time)
                     warm_server_times.append(srv_ms)
 
-                    if 200 <= status < 300:
+                    expected = ep.get("expected_status", 200)
+                    if (expected == 404 and status == 404) or (expected == 200 and 200 <= status < 300):
                         n_success += 1
                     elif status == 425:
                         n_425 += 1
@@ -427,7 +444,7 @@ async def run_benchmark(api_url: str):
                         effective_time = ttft_ms if ep["stream"] else total_ms
                         warm_client_times[-1] = effective_time
                         warm_server_times[-1] = srv_ms
-                        if 200 <= status < 300:
+                        if (expected == 404 and status == 404) or (expected == 200 and 200 <= status < 300):
                             n_success += 1
                         else:
                             n_429 += 1
@@ -510,6 +527,52 @@ async def run_benchmark(api_url: str):
                     got_429 = True
                     break
             security_checks.append(("429 Too Many Requests (Rate Limiter Burst Gate)", "429 Triggered" if got_429 else "Not Triggered", got_429))
+
+            # 4. Token Revocation / Logout Verification & Latency
+            logout_email = f"logout_bench_{int(time.time() * 1000)}@example.com"
+            u_logout = None
+            try:
+                u_logout = fb_auth.create_user(email=logout_email, password=test_password, email_verified=True)
+                r_logout_sign = await client.post(
+                    sign_in_url,
+                    json={"email": logout_email, "password": test_password, "returnSecureToken": True},
+                )
+                logout_token = r_logout_sign.json()["idToken"]
+                logout_headers = {"Authorization": f"Bearer {logout_token}"}
+                # Initialize user in backend
+                await client.get(f"{api_url}/users/me", headers=logout_headers)
+
+                # Benchmark POST /logout
+                t_logout_start = time.perf_counter()
+                r_logout = await client.post(f"{api_url}/logout", headers=logout_headers)
+                t_logout_end = time.perf_counter()
+                logout_ms = round((t_logout_end - t_logout_start) * 1000.0, 1)
+                logout_srv = float(r_logout.headers.get("x-process-time-ms", "0"))
+
+                # Benchmark immediate GET /users/me 401 rejection
+                t_401_start = time.perf_counter()
+                r_post_logout_me = await client.get(f"{api_url}/users/me", headers=logout_headers)
+                t_401_end = time.perf_counter()
+                post_logout_401_ms = round((t_401_end - t_401_start) * 1000.0, 1)
+                post_logout_401_srv = float(r_post_logout_me.headers.get("x-process-time-ms", "0"))
+
+                ok_logout = (r_logout.status_code == 200 and r_post_logout_me.status_code == 401)
+                security_checks.append((
+                    "POST /logout Invalidation Latency",
+                    f"{logout_ms} ms (Server: {logout_srv} ms, Code {r_logout.status_code})",
+                    r_logout.status_code == 200,
+                ))
+                security_checks.append((
+                    "Immediate Post-Logout GET /users/me 401 Rejection",
+                    f"{post_logout_401_ms} ms (Server: {post_logout_401_srv} ms, Code {r_post_logout_me.status_code})",
+                    r_post_logout_me.status_code == 401,
+                ))
+            finally:
+                if u_logout:
+                    try:
+                        fb_auth.delete_user(u_logout.uid)
+                    except Exception:
+                        pass
 
         sec_lines = [
             "",

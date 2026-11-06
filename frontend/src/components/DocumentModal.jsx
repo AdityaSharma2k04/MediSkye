@@ -32,7 +32,7 @@ export default function DocumentModal({ source, onClose }) {
                 {source.title || 'Medical PDF Report'}
               </h3>
               <p className="text-xs text-zinc-500 dark:text-zinc-400">
-                Page {source.page || 1} • RAG Match Confidence: <span className="font-semibold text-zinc-900 dark:text-zinc-100">{source.score || '98%'}</span>
+                Page {source.page || 1} • Relevance Match: <span className="font-semibold text-zinc-900 dark:text-zinc-100">{source.score || '98%'}</span>
               </p>
             </div>
           </div>
@@ -48,7 +48,7 @@ export default function DocumentModal({ source, onClose }) {
         <div className="p-6 overflow-y-auto flex-1 text-sm leading-relaxed text-zinc-800 dark:text-zinc-200 font-mono bg-zinc-50 dark:bg-zinc-950">
           <div className="mb-3 flex items-center gap-2 text-xs font-sans text-zinc-500 dark:text-zinc-400">
             <Bookmark className="w-3.5 h-3.5 text-zinc-500" />
-            Extracted Context Chunk:
+            Extracted Report Excerpt:
           </div>
           <div className="p-4 bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-xl whitespace-pre-wrap font-sans text-xs sm:text-sm">
             {source.content || source.excerpt || 'No excerpt available.'}
@@ -56,7 +56,7 @@ export default function DocumentModal({ source, onClose }) {
         </div>
 
         <div className="p-4 px-6 border-t border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 flex justify-between items-center text-xs text-zinc-500 dark:text-zinc-400">
-          <span>Grounded in retrieved PDF vectors</span>
+          <span>Verified against uploaded medical records</span>
           <button
             onClick={onClose}
             className="px-4 py-2 bg-zinc-900 dark:bg-zinc-100 hover:bg-zinc-800 dark:hover:bg-zinc-200 text-white dark:text-zinc-900 font-medium rounded-xl text-xs transition-colors"

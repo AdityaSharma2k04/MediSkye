@@ -12,6 +12,8 @@ import {
   applyActionCode,
   verifyPasswordResetCode,
   confirmPasswordReset,
+  fetchSignInMethodsForEmail,
+  reauthenticateWithPopup,
 } from "firebase/auth";
 
 // Uses Vite env vars if available, with project fallbacks.
@@ -46,6 +48,8 @@ export {
   applyActionCode,
   verifyPasswordResetCode,
   confirmPasswordReset,
+  fetchSignInMethodsForEmail,
+  reauthenticateWithPopup,
 };
 
 /**
@@ -78,7 +82,7 @@ export function getFirebaseErrorMessage(error) {
   const code = error?.code;
   switch (code) {
     case 'auth/invalid-credential':
-      return "Invalid email or password. (If you originally signed up with Google, please click 'Continue with Google'.)";
+      return "Invalid email or password.";
     case 'auth/wrong-password':
       return "Incorrect password. Please try again.";
     case 'auth/missing-email':
@@ -90,9 +94,9 @@ export function getFirebaseErrorMessage(error) {
     case 'auth/weak-password':
       return "Password should be at least 6 characters.";
     case 'auth/invalid-email':
-      return "Please enter a valid email address (e.g., name@example.com).";
+      return "Please enter a valid email address.";
     case 'auth/too-many-requests':
-      return "Too many attempts. Please wait a minute before requesting another email.";
+      return "Too many failed attempts. Please try again later.";
     case 'auth/user-disabled':
       return "This account has been disabled.";
     case 'auth/popup-closed-by-user':

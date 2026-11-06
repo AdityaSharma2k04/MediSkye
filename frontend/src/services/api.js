@@ -4,7 +4,7 @@ import { auth, signOut } from './firebase';
 
 const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:8000';
 
-export function formatApiError(data, fallback = 'Request failed') {
+export function formatApiError(data, fallback = 'Something went wrong on our end. Please try again.') {
   if (!data) return fallback;
   if (typeof data === 'string') return data;
   if (data.detail) {
@@ -298,10 +298,14 @@ export async function sendQueryStream(queryText, documentId, language = 'English
   }
 
   if (!res.ok) {
-    let errorDetail = 'Server error while querying MediSkye.';
+    let errorDetail = res.status >= 500
+      ? 'Something went wrong on our end. Please try again.'
+      : 'Unable to complete your request. Please try again.';
     try {
       const errorData = await res.json();
-      errorDetail = errorData.detail || errorData.error || errorDetail;
+      if (res.status < 500 && (errorData.detail || errorData.error)) {
+        errorDetail = errorData.detail || errorData.error;
+      }
     } catch (e) {}
     const err = new Error(errorDetail);
     err.status = res.status;

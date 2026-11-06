@@ -1,5 +1,5 @@
 ==================================================
-MEDISKYE E2E BROWSER BENCHMARK LOG — [2026-10-23 13:19:53]
+MEDISKYE SRE BENCHMARK LOG — [2026-11-06 00:54:10]
 ==================================================
 
 ﻿==================================================
@@ -276,11 +276,8 @@ INTENSIVE LIVE FRONTEND E2E AUDIT — [2026-10-23 13:14:15]
 | `background_gcs_sync` | 1,480 ms | Background (Offload) | Asynchronous GCS sync with exponential retry backoff (3 attempts) |
 | **Total Synchronous Upload** | **2,400 ms** | **100%** | **Instant Ready Contract (Flipped before background tasks)** |
 
-==================================================
 
-==================================================
 INTENSIVE LIVE FRONTEND E2E AUDIT — [2026-10-23 13:32:12]
-==================================================
 
 **Target Frontend:** `https://mediskye.pages.dev`
 **Target Backend:** `https://mediskye-1095767703249.asia-southeast1.run.app`
@@ -346,4 +343,36 @@ INTENSIVE LIVE FRONTEND E2E AUDIT — [2026-10-23 13:32:12]
 | Mobile (`375x812`) Mode Switcher vs. Composer Overlap | `0px` overlap | PASS |
 | Mobile (`375x812`) Horizontal Overflow (`scrollWidth <= 375`) | `scrollWidth = 375px` | PASS |
 | `DELETE /users/me` + Immediate 60s Auth Cache Eviction | Deleted in `5534.0 ms`; immediate `GET /users/me` returned `401` in `410.4 ms` | PASS |
+
+### Security Fixes Micro-Benchmark Results (N=10 Warm Runs)
+| Operation / Target | Warm Client p50 | Warm Client p95 | Server X-Process-Time (p50/p95) | Target Budget | Status |
+| :--- | ---: | ---: | ---: | :--- | :--- |
+| `DELETE /users/me/dependents/{id}` Cascade | 329.5 ms | 718.4 ms | 150.5 ms / 193.3 ms | < 500 ms | FAIL |
+| `POST /logout` Token Revocation | 202.9 ms | 311.1 ms | 44.3 ms / 48.1 ms | < 100 ms | FAIL |
+| Immediate `GET /users/me` 401 Rejection | 499.2 ms | 9188.3 ms | 297.0 ms / 404.5 ms | Server < 10 ms | FAIL |
+
+**Cold-Start Measurement Row:**
+- **First Hit (Cloud Run Idle/Wakeup GET /health):** `6352.5 ms` (Server Process Time: `0.59 ms`)
+- **Observed Upload Synchronous Fast-Path Total (`local_ready`):** `5075.2 ms`
+
+
+### Table A: Direct Cloud Run API Benchmark (N=10 Warm Runs)
+| Endpoint | Cold (1st Hit) | Warm p50 | Warm p95 | Server X-Process-Time (p50/p95) | n_success | n_425 | n_429 | n_retries |
+| :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- |
+| `GET /health` | 280.2 ms | 130.1 ms | 954.7 ms | 0.5 ms / 0.7 ms | 10/10 | 0 | 0 | 0 |
+| `GET /users/me` | 199.7 ms | 147.3 ms | 194.7 ms | 1.6 ms / 2.2 ms | 10/10 | 0 | 0 | 0 |
+| `GET /metrics (cached hit)` | 202.4 ms | 186.4 ms | 848.6 ms | 32.5 ms / 180.7 ms | 10/10 | 0 | 0 | 0 |
+| `POST /summary (cached hit)` | 183.0 ms | 199.6 ms | 4194.7 ms | 32.3 ms / 185.5 ms | 10/10 | 0 | 0 | 0 |
+| `POST /query (GENERAL_HEALTH)` | 1470.8 ms | 1375.8 ms | 42265.6 ms | 1125.2 ms / 1367.8 ms | 10/10 | 0 | 0 | 1 |
+| `POST /query (DOCUMENT_QA)` | 359.0 ms | 353.7 ms | 636.5 ms | 185.6 ms / 458.8 ms | 10/10 | 0 | 0 | 0 |
+| `POST /query (IDOR 404 Rejection)` | 291.6 ms | 298.8 ms | 407.9 ms | 55.2 ms / 65.8 ms | 10/10 | 0 | 0 | 0 |
+
+### Security & Error-Code Verification Gate
+| Security / Resilience Gate | Observed Response | Status |
+| :--- | :--- | :--- |
+| 401 Unauthorized (Missing & Tampered Bearer Token) | `401 / 401` | PASS |
+| 403 Forbidden (Unverified Email Token Rejected) | `403 (Email not verified)` | PASS |
+| 429 Too Many Requests (Rate Limiter Burst Gate) | `429 Triggered` | PASS |
+| POST /logout Invalidation Latency | `176.0 ms (Server: 45.51 ms, Code 200)` | PASS |
+| Immediate Post-Logout GET /users/me 401 Rejection | `453.3 ms (Server: 294.03 ms, Code 401)` | PASS |
 ==================================================

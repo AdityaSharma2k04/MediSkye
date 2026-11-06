@@ -45,7 +45,10 @@ export default function FooterSection() {
               </a>
             </div>
             <div style={styles.footerCol}>
-              <h4 style={styles.footerColTitle}>Account</h4>
+              <h4 style={styles.footerColTitle}>Legal & Account</h4>
+              <Link to="/privacy" style={styles.footerLink} className="landing-link">
+                Privacy policy
+              </Link>
               <Link to="/login" style={styles.footerLink} className="landing-link">
                 Sign in
               </Link>
