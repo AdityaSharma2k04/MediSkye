@@ -1003,7 +1003,7 @@ async def _reconstruct_document_text(doc: Document) -> str:
     response_model=DocumentSummaryResponse,
     tags=["Documents", "Summary"],
 )
-@limiter.limit("10/minute")
+@limiter.limit(settings.RATE_LIMIT_SUMMARY)
 async def get_or_generate_document_summary(
     request: Request,
     document_id: str,

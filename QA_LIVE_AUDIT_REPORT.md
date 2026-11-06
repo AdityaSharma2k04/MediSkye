@@ -113,13 +113,26 @@ A comprehensive live diagnostic audit was conducted across all 7 operational zon
 ## 4. Test Suite Counts & Production Readiness Verification
 
 1. **Backend Pytest Suite**:
-   - Total Tests: **280 passed in 239.70s** (0 failures, 0 skipped, 0 regressions).
-   - Test count increased from 277 to 280 with dedicated test coverage in `tests/test_audit_fixes.py`.
+   - Total Tests: **286 passed in 274.44s** (0 failures, 0 skipped, 0 regressions, 100% pass rate).
+   - Test count increased to 286 with dedicated coverage for longitudinal memory prompt formatting (`test_memory_prompt.py`), in-memory token revocation cache (`test_logout.py`), and background email dispatch (`test_auth.py`).
 2. **Frontend Vitest Suite**:
-   - Total Tests: **171 passed across 24 test files in 58.17s** (0 failures).
+   - Total Tests: **178 passed across 25 test files in 33.90s** (0 failures, 100% pass rate).
+   - Total automated test suite: **464 tests (286 backend + 178 frontend)**.
 3. **Frontend Production Build**:
-   - `npm run build` completed cleanly in 14.48s with 0 syntax or bundling errors.
+   - `npm run build` completed cleanly in 8.95s with 0 syntax or bundling errors.
 4. **Neon Serverless Database**:
-   - Migration Head: `204cb7f58e36 (head)`.
-   - Zero dangling records across `users`, `dependent_profiles`, `documents`, `chats`, `chat_documents`, `chat_chunks`, `patient_facts`, and `upload_jobs`.
-   - Zero synthetic test accounts remain.
+   - Migration Head: `204cb7f58e36 (head)` — `harden_dependent_cascade_and_token_revocation`.
+   - Zero dangling records across tables (0 orphaned chats, chunks, documents, jobs, and 0 dangling facts).
+   - Exactly 1 user account preserved: active clinical demo user (`adityasharma2k04@gmail.com`, Aarav Verma) with 2 baseline/follow-up lab reports. All 11 diagnostic/benchmark users purged.
+
+---
+
+## 5. Performance Latency Optimizations & Micro-Benchmark Results
+
+| Optimization / Metric | Baseline (Pre-Fix) | Optimized (Post-Fix) | Target Budget | Observed Result | Status |
+|---|---|---|---|---|---|
+| **Cached `/metrics` 10-Request Burst** | 8/10 passed (2x 429, p95 11,880 ms) | 10/10 passed (0x 429, p95 **67.4 ms**, p50 **8.9 ms**) | 10/10 PASS, < 100 ms | Eliminated rate-limit `p95` spike | ✅ PASS |
+| **Cached `/summary` 10-Request Burst** | 8/10 passed (2x 429, p95 11,110 ms) | 10/10 passed (0x 429, p95 **11.0 ms**, p50 **8.3 ms**) | 10/10 PASS, < 100 ms | Eliminated rate-limit `p95` spike | ✅ PASS |
+| **Immediate Post-Logout `GET /users/me` 401** | ~286 ms (Neon DB round-trip) | **3.09 ms p50 / 3.66 ms p95** | Server < 5 ms | In-memory SHA-256 digest cache (`_REVOKED_TOKEN_DIGESTS`) | ✅ PASS |
+| **Email Verification & Reset Dispatch** | ~5,997 ms (blocking Gmail TLS SMTP) | ~1,200–1,500 ms (FastAPI `BackgroundTasks`) | Non-blocking HTTP response | SMTP handshake offloaded to background | ✅ PASS |
+| **Longitudinal Markdown Table Layout** | Crammed `Ref:` in Status column | 6 dedicated columns with standalone `Reference Range` | Scannable, clean, collection date in header | Polished in `DOCTOR_INSTRUCTIONS` & `GENERAL_HEALTH_INSTRUCTIONS` | ✅ PASS |

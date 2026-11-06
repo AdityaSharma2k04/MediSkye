@@ -4,7 +4,7 @@ from datetime import UTC, datetime
 from typing import Any
 from urllib.parse import parse_qs, urlencode, urlsplit
 
-from fastapi import APIRouter, Depends, HTTPException, Request, status
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request, status
 from fastapi.security import OAuth2PasswordRequestForm
 from firebase_admin import auth
 from firebase_admin.auth import ActionCodeSettings, UserNotFoundError
@@ -15,6 +15,7 @@ from sqlalchemy.future import select
 
 from app.core.auth import create_access_token, get_password_hash, oauth2_scheme, verify_password
 from app.core.audit import log_audit
+from app.core.config import settings
 from app.core.logging import logger
 from app.core.limiter import limiter
 from app.db.database import get_db
@@ -225,9 +226,16 @@ async def logout(
     Logout the user by setting token_invalid_before in the database and adding JWT to the Redis blocklist.
     """
     import jwt
-    from app.core.auth import SECRET_KEY, ALGORITHM, evict_token_cache_by_token, evict_token_cache_for_user
+    from app.core.auth import (
+        SECRET_KEY,
+        ALGORITHM,
+        evict_token_cache_by_token,
+        evict_token_cache_for_user,
+        mark_token_revoked_in_memory,
+    )
     from app.core.redis_client import redis_client
 
+    mark_token_revoked_in_memory(token)
     evict_token_cache_by_token(token)
     user_email = None
     jti = None
@@ -265,12 +273,25 @@ async def logout(
     return {"message": "Successfully logged out"}
 
 
+async def _send_email_background(to_email: str, subject: str, html_body: str) -> None:
+    """Async background worker for non-blocking Gmail SMTP dispatch."""
+    try:
+        await send_email_via_gmail(
+            to_email=to_email,
+            subject=subject,
+            html_body=html_body,
+        )
+    except Exception:
+        logger.exception("Failed to send background email to %s", to_email)
+
+
 @router.post("/auth/send-custom-verification")
 @router.post("/send-custom-verification")
 @limiter.limit("3/minute")
 async def send_custom_verification(
     request: Request,
     verification_req: CustomVerificationRequest,
+    background_tasks: BackgroundTasks,
 ) -> Any:
     """
     Generate an email verification link and send the branded email via Gmail SMTP.
@@ -308,15 +329,31 @@ async def send_custom_verification(
         security_note="If you did not create a MediSkye account, you can safely disregard this email.",
     )
 
-    try:
-        await send_email_via_gmail(
-            to_email=email,
-            subject="Verify your email address — MediSkye",
-            html_body=html_content,
+    sync_header = request.headers.get("X-Sync-Email-Test")
+    if sync_header == "1":
+        is_sync = True
+    elif sync_header == "0":
+        is_sync = False
+    else:
+        is_sync = getattr(settings, "ENV", "").lower() == "test"
+
+    if is_sync:
+        try:
+            await send_email_via_gmail(
+                to_email=email,
+                subject="Verify your email address — MediSkye",
+                html_body=html_content,
+            )
+        except Exception:
+            logger.exception("Failed to send verification email to %s", email)
+            raise HTTPException(status_code=502, detail="Email service is currently unavailable. Please try again later.")
+    else:
+        background_tasks.add_task(
+            _send_email_background,
+            email,
+            "Verify your email address — MediSkye",
+            html_content,
         )
-    except Exception:
-        logger.exception("Failed to send verification email to %s", email)
-        raise HTTPException(status_code=502, detail="Email service is currently unavailable. Please try again later.")
 
     return {"message": "Verification email sent"}
 
@@ -327,6 +364,7 @@ async def send_custom_verification(
 async def send_custom_password_reset(
     request: Request,
     reset_req: CustomVerificationRequest,
+    background_tasks: BackgroundTasks,
 ) -> Any:
     """
     Generate a password reset link and send the branded email via Gmail SMTP.
@@ -365,14 +403,32 @@ async def send_custom_password_reset(
         ),
     )
 
-    try:
-        await send_email_via_gmail(
-            to_email=email,
-            subject="Reset your password — MediSkye",
-            html_body=html_content,
+    sync_header = request.headers.get("X-Sync-Email-Test")
+    if sync_header == "1":
+        is_sync = True
+    elif sync_header == "0":
+        is_sync = False
+    else:
+        is_sync = getattr(settings, "ENV", "").lower() == "test"
+
+    if is_sync:
+        try:
+            await send_email_via_gmail(
+                to_email=email,
+                subject="Reset your password — MediSkye",
+                html_body=html_content,
+            )
+        except Exception:
+            logger.exception("Failed to send password reset email to %s", email)
+            raise HTTPException(status_code=502, detail="Email service is currently unavailable. Please try again later.")
+    else:
+        background_tasks.add_task(
+            _send_email_background,
+            email,
+            "Reset your password — MediSkye",
+            html_content,
         )
-    except Exception:
-        logger.exception("Failed to send password reset email to %s", email)
-        raise HTTPException(status_code=502, detail="Email service is currently unavailable. Please try again later.")
+
+    return {"message": "If an account exists with this email, a reset link has been sent."}
 
     return {"message": "If an account exists with this email, a reset link has been sent."}

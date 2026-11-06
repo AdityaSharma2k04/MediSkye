@@ -130,6 +130,43 @@ def clear_token_cache() -> None:
     """Clear all entries in token cache (useful for test resets)."""
     with _TOKEN_CACHE_LOCK:
         _TOKEN_CACHE.clear()
+    clear_revoked_tokens_in_memory()
+
+
+# In-Memory Revoked Token Digest Cache (Sub-5ms rejection after logout)
+_REVOKED_TOKEN_LOCK = threading.Lock()
+_REVOKED_TOKEN_DIGESTS: OrderedDict[str, float] = OrderedDict()
+REVOKED_TOKEN_MAX_SIZE = 2048
+
+
+def mark_token_revoked_in_memory(token: str, ttl_seconds: int = 3600) -> None:
+    """Record a token's SHA-256 digest in-memory for sub-5ms 401 rejection on immediate repeat requests."""
+    key = _hash_token(token)
+    expires_at = time.monotonic() + ttl_seconds
+    with _REVOKED_TOKEN_LOCK:
+        if len(_REVOKED_TOKEN_DIGESTS) >= REVOKED_TOKEN_MAX_SIZE:
+            _REVOKED_TOKEN_DIGESTS.popitem(last=False)
+        _REVOKED_TOKEN_DIGESTS[key] = expires_at
+
+
+def is_token_revoked_in_memory(token: str) -> bool:
+    """Check if token's SHA-256 digest is recorded as revoked and unexpired."""
+    key = _hash_token(token)
+    now = time.monotonic()
+    with _REVOKED_TOKEN_LOCK:
+        expires_at = _REVOKED_TOKEN_DIGESTS.get(key)
+        if expires_at is None:
+            return False
+        if expires_at <= now:
+            _REVOKED_TOKEN_DIGESTS.pop(key, None)
+            return False
+        return True
+
+
+def clear_revoked_tokens_in_memory() -> None:
+    """Clear all entries in revoked tokens cache (useful for test resets)."""
+    with _REVOKED_TOKEN_LOCK:
+        _REVOKED_TOKEN_DIGESTS.clear()
 
 
 # Single-flight guard: the SPA fires GET /users/me and GET /users/me/dependents
@@ -434,6 +471,13 @@ async def get_current_user_full(
     Dedicated dependency for PHI-reading/mutating endpoints.
     Explicitly loads the full ORM User row with perf instrumentation and sets _phi_loaded=True.
     """
+    if is_token_revoked_in_memory(token):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Token has been revoked",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+
     credentials_exception = HTTPException(
         status_code=status.HTTP_401_UNAUTHORIZED,
         detail="Could not validate credentials",
@@ -508,6 +552,13 @@ async def get_current_user(
     High-performance dependency returning a lightweight Pydantic UserDTO.
     Uses in-memory 60s TTL cache to eliminate DB queries on the hot path.
     """
+    if is_token_revoked_in_memory(token):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Token has been revoked",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+
     from app.core.logging import user_id_var
 
     token_iat = None

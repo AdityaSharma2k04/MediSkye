@@ -192,6 +192,9 @@ def test_prompt_builder_forbids_previously_discussed_and_enforces_exact_citation
     assert "CLINICAL DIRECTIONALITY & ZERO CONTRADICTIONS" in sys_doc_qa
     assert "LONGITUDINAL COMPARISONS & PRIOR REPORT HISTORY" in sys_doc_qa
     assert "Markdown table" in sys_doc_qa
+    assert "| Biomarker | Prior Result (Report & Date) | Current Result (Report & Date) | Change | Reference Range | Status |" in sys_doc_qa
+    assert "Keep `Reference Range` in its own dedicated column" in sys_doc_qa
+    assert "specimen collection date" in sys_doc_qa
     assert "PROACTIVE BORDERLINE & SUBCLINICAL TREND DETECTION" in sys_doc_qa
     assert "DEEP MULTI-FACTOR PROFILE SYNTHESIS" in sys_doc_qa
     assert "Strict Lactose Intolerance" in sys_doc_qa
@@ -200,3 +203,4 @@ def test_prompt_builder_forbids_previously_discussed_and_enforces_exact_citation
     sys_general, _ = build_general_health_prompt(user_query="Can ferritin drop without anemia?")
     assert 'NEVER write "[previously discussed]"' in sys_general
     assert "Never group Low" in sys_general
+    assert "Reference Range" in sys_general

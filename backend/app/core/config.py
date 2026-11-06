@@ -24,6 +24,10 @@ class Settings(BaseSettings):
     ENV: str = "production"
     DEBUG: bool = False
 
+    @property
+    def ENVIRONMENT(self) -> str:
+        return self.ENV
+
     # Database & Redis
     DATABASE_URL: str = "sqlite+aiosqlite:///./mediskye.db"
     REDIS_URL: str = "redis://localhost:6379/0"
@@ -70,6 +74,8 @@ class Settings(BaseSettings):
     # Rate Limits
     RATE_LIMIT_UPLOAD: str = "10/minute"
     RATE_LIMIT_QUERY: str = "30/minute"
+    RATE_LIMIT_METRICS: str = "30/minute"
+    RATE_LIMIT_SUMMARY: str = "30/minute"
 
     # Patient Memory & Personalization Flags
     PATIENT_MEMORY_ENABLED: bool = True

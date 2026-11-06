@@ -457,7 +457,7 @@ npm run dev
 
 ## 🧪 Running the Test & Benchmark Suites
 
-The test suites pass **284 backend pytest tests** and **178 frontend Vitest tests** (**462 total**). The backend count uses the same `not integration` marker exclusion as CI. The frontend production build completes with zero warnings; all building-index and live Neon cascade-deletion verifications pass with 100% success.
+The test suites pass **286 backend pytest tests** and **178 frontend Vitest tests** (**464 total**). The backend count uses the same `not integration` marker exclusion as CI. The frontend production build completes with zero warnings; all building-index and live Neon cascade-deletion verifications pass with 100% success.
 
 ### 1. Backend Unit, E2E, Chaos & Penetration Tests (`pytest`)
 ```bash

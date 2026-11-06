@@ -226,3 +226,25 @@ def test_mediskye_email_html_escapes_dynamic_content():
     assert "&lt;button&gt;" in email_html
     assert 'href="https://mediskye.pages.dev/auth/action?code=&quot;unsafe&quot;&amp;next=&lt;script&gt;"' in email_html
     assert "&lt;security&gt;" in email_html
+
+
+@pytest.mark.asyncio
+async def test_send_custom_verification_background_tasks_dispatch():
+    test_email = "async_patient@example.com"
+    fake_link = "https://mediskye.firebaseapp.com/__/auth/action?mode=verifyEmail&apiKey=fakeApiKey&oobCode=verify-code"
+
+    with patch("firebase_admin.auth.generate_email_verification_link", return_value=fake_link), \
+         patch("app.api.v1.endpoints.auth.send_email_via_gmail", new_callable=AsyncMock) as mock_send_email:
+
+        transport = ASGITransport(app=app)
+        async with AsyncClient(transport=transport, base_url="http://test") as ac:
+            response = await ac.post(
+                "/auth/send-custom-verification",
+                json={"email": test_email},
+                headers={"X-Sync-Email-Test": "0"},
+            )
+
+        assert response.status_code == 200
+        assert response.json()["message"] == "Verification email sent"
+        # Background tasks executed by Starlette ASGI transport after response
+        mock_send_email.assert_awaited_once()

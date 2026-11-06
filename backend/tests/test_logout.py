@@ -53,3 +53,20 @@ async def test_logout_without_token_is_rejected():
     async with AsyncClient(transport=transport, base_url="http://test") as ac:
         res = await ac.post("/logout")
         assert res.status_code == 401
+
+
+@pytest.mark.asyncio
+async def test_in_memory_revoked_token_rejection():
+    """Verify that mark_token_revoked_in_memory caches the token digest and rejects immediately."""
+    from app.core.auth import is_token_revoked_in_memory, mark_token_revoked_in_memory
+
+    fake_token = f"fake_token_{uuid.uuid4().hex}"
+    assert not is_token_revoked_in_memory(fake_token)
+    mark_token_revoked_in_memory(fake_token, ttl_seconds=60)
+    assert is_token_revoked_in_memory(fake_token)
+
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as ac:
+        res = await ac.get("/users/me", headers={"Authorization": f"Bearer {fake_token}"})
+        assert res.status_code == 401
+        assert "revoked" in res.json()["detail"].lower()

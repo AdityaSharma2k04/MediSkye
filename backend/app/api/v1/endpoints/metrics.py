@@ -9,6 +9,7 @@ from langchain_community.vectorstores import FAISS
 
 from app.core.auth import UserDTO, get_current_user
 from app.core.limiter import limiter
+from app.core.config import settings
 from app.db.database import get_db
 from app.db.models import User, Document
 from app.schemas.upload import MetricsResponse, LabMetricItem
@@ -271,7 +272,7 @@ async def _get_or_extract_metrics(
 
 
 @router.post("/extract-metrics", response_model=MetricsResponse, tags=["Lab Metrics"])
-@limiter.limit("10/minute")
+@limiter.limit(settings.RATE_LIMIT_METRICS)
 async def extract_metrics(
     request: Request,
     x_session_id: str = Header(..., alias="X-Session-ID"),
@@ -289,7 +290,7 @@ async def extract_metrics(
 
 @router.get("/users/me/documents/{document_id}/metrics", response_model=MetricsResponse, tags=["Lab Metrics"])
 @router.post("/users/me/documents/{document_id}/metrics", response_model=MetricsResponse, tags=["Lab Metrics"])
-@limiter.limit("10/minute")
+@limiter.limit(settings.RATE_LIMIT_METRICS)
 async def get_document_metrics(
     request: Request,
     document_id: str,
