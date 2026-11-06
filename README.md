@@ -279,15 +279,15 @@ MediSkye/
 
 ## 📊 Production Latency Benchmarks
 
-Latest live production benchmark snapshot: **2026-11-06** (Direct API: **09:30:29**; intensive browser E2E: **09:34:04**). Direct API measurements use **N=10 warm runs**; browser latency profiling uses **N=5 runs**. The detailed timestamped logs and intensive E2E report are in [`testing_log`](./testing_log).
+Latest live production benchmark snapshot: **2026-11-06 19:05:00** (Master Final Sign-off Audit; direct API & intensive browser E2E). Direct API measurements use **N=10 warm runs**; browser latency profiling uses **N=5 runs**. The complete audit report is available in [`FINAL_QA_AUDIT_REPORT.md`](./FINAL_QA_AUDIT_REPORT.md) and detailed timestamped logs in [`testing_log`](./testing_log).
 
 ### Direct Cloud Run API (N=10 warm runs)
 
 | Endpoint | Cold first hit | Warm p50 | Warm p95 | Server p50 / p95 | Successful warm requests |
 | :--- | ---: | ---: | ---: | ---: | ---: |
 | `GET /health` | 454.6 ms | 123.1 ms | 133.9 ms | 0.5 / 0.8 ms | 10/10 |
-| `GET /users/me` | 142.3 ms | 147.8 ms | 170.5 ms | 1.5 / 1.7 ms | 10/10 |
-| `GET /metrics (cached hit)` | 161.6 ms | 173.5 ms | 627.1 ms | 29.2 / 288.8 ms | 10/10 |
+| `GET /users/me` (Auth Cache Hit) | 135.3 ms | 134.2 ms | 149.8 ms | **1.57 / 2.37 ms** | **10/10** |
+| `GET /metrics (cached hit)` | 146.8 ms | 154.6 ms | 172.6 ms | **26.54 / 27.22 ms** | **10/10** |
 | `POST /summary (cached hit)` | 162.9 ms | 236.2 ms | 5,532.8 ms | 29.7 / 178.9 ms | 10/10 |
 | `POST /query (GENERAL_HEALTH)` | 1,354.4 ms | 1,633.4 ms | 2,652.9 ms | 1,423.2 / 2,445.1 ms | 10/10 |
 | `POST /query (DOCUMENT_QA)` | 353.6 ms | 425.1 ms | 1,483.9 ms | 155.6 / 423.3 ms | 10/10 |
@@ -331,7 +331,10 @@ The full intensive Playwright run passed across sample and second-report uploads
 | PrintableSummary first / cached click | 366.3 ms / 375.0 ms |
 | PrintableTranscript export | 882.3 ms |
 | Mobile header / footer overlap at `375x812` | 0 px / 0 px (scrollWidth = 375px) |
-| Invalid `.txt` client-side rejection | Error banner in 40.8 ms; no upload request |
+| UI click latencies (Settings / Tabs / i18n) | Settings: 21.8 ms \| Dependents Tab: 28.0 ms \| Profile Tab: 46.0 ms \| i18n: 59.6 ms |
+| Invalid `.txt` client-side rejection | Error banner in 29.7 ms; no upload request |
+| `POST /logout` & Immediate 401 Rejection | 401 in 1.35 ms server time (in-memory digest eviction) |
+| Dependent Profile Cascade & Anti-Teleport | 0 remaining docs, 0 remaining facts, 0 teleported to self |
 | `DELETE /users/me` / immediate same-token auth check | 204 / 401 in 4,052.2 / 381.2 ms (eviction verified) |
 
 Production status-code gates passed for `401` (missing/tampered token), `403` (unverified email), and `429` (rate-limit burst). The building-index `503` / `Retry-After: 2` response is verified in the backend SRE hardening tests, not by mutating production database state. The targeted local suite passed **8 tests**.

@@ -478,3 +478,51 @@ INTENSIVE LIVE FRONTEND E2E AUDIT — [2026-11-06 09:34:03]
 | Mobile (`375x812`) Horizontal Overflow (`scrollWidth <= 375`) | `scrollWidth = 375px` | PASS |
 | `DELETE /users/me` + Immediate 60s Auth Cache Eviction | Deleted in `4052.2 ms`; immediate `GET /users/me` returned `401` in `381.2 ms` | PASS |
 ==================================================
+
+
+==================================================
+MASTER FINAL PRODUCTION SIGN-OFF BENCHMARK — [2026-11-06 19:05:00]
+==================================================
+
+### Table A: Live Backend Security & Auth Latency
+| Metric / Test | Target SLA | Observed Result | Status |
+| :--- | :--- | :--- | :--- |
+| Sub-5ms Post-Logout Token Rejection | Server < 5.0 ms & HTTP 401 | Server: **1.35 ms** (Client: 133.8 ms) | PASS |
+| IDOR Document Access Rejection | HTTP 404 (GET /export & /metrics) | HTTP **404** (Export) / **404** (Metrics) | PASS |
+| IDOR Document Deletion Rejection | HTTP 404 (DELETE /documents/{id}) | HTTP **404** (Owner doc intact: 200) | PASS |
+| Async Email Dispatch Non-blocking | Client Latency < 1,500 ms | Client: **820.1 ms** (Server: 545.9 ms) | PASS |
+
+### Table B: Neon DB Clinical Data Integrity & Hygiene
+| Check / Invariant | Method / Query | Observed Result | Status |
+| :--- | :--- | :--- | :--- |
+| Fernet PHI Encryption at Rest | Raw SQL: `blood_type`, `known_allergies` | `gAAAAABq7c0z...` (Fernet Ciphertext) | PASS |
+| Dependent Profile Cascade Deletion | Physical removal of child docs & facts | Remaining: **0 docs**, **0 facts**, **0 teleported** | PASS |
+| Zero Dangling Patient Facts | Global orphan facts query | **0 orphan records** | PASS |
+
+### Table C: Clinical AI Context & Longitudinal Memory
+| Test Case | Scenario / Query | Observed Verification | Status |
+| :--- | :--- | :--- | :--- |
+| Context Trap (Kidney & Allergy) | Creatinine 1.22 + Creatine 5g + Sprinting | Creatine + sprint explained; NSAIDs avoided | PASS |
+| Longitudinal Comparison Memory | Oct 2026 Baseline vs. Apr 2027 Follow-Up | 6-Column Markdown table with 2026/2027 dates | PASS |
+| Emergency Fast-Path | Severe chest pain & cannot breathe | 911 warning returned in **413.8 ms** (TTFT) | PASS |
+| Casual Fast-Path | "Hi MediSkye!" greeting | Casual response returned with 0 disclaimer | PASS |
+
+### Table D: Browser E2E Smoothness & UI Latency (Playwright)
+| UI Interaction / Mobile Viewport | Target SLA | Measured Latency / Check | Status |
+| :--- | :--- | :--- | :--- |
+| Mobile Viewport Horizontal Overflow (375x812) | scrollWidth <= 375px | **375px** (0px overflow) | PASS |
+| Mobile Top Header Pairwise Collisions | 0px overlap | **0 collisions** across header elements | PASS |
+| Invalid File (.txt) Client-Side Gate | Banner in < 300 ms; 0 POST /upload | Banner in **29.7 ms**; 0 uploads | PASS |
+| Settings Modal Open Render Latency | Render in < 100 ms | **21.8 ms** | PASS |
+| Tab Switch: Dependents (Caregiver Mode) | Render in < 100 ms | **28.0 ms** | PASS |
+| Tab Switch: My Profile | Render in < 100 ms | **46.0 ms** | PASS |
+| Toggle i18n: English -> Hindi | Render in < 100 ms | **59.6 ms** | PASS |
+
+### Table E: Final Burst & Auth Cache Benchmark (N=10 Warm Runs)
+| Endpoint / Workload | Success | Warm Client p50 | Warm Client p95 | Server X-Process-Time (p50/p95) | Target Budget | Status |
+| :--- | :---: | ---: | ---: | ---: | :--- | :---: |
+| `GET /users/me` (Auth Cache Hit) | **10/10** | 134.2 ms | 149.8 ms | **1.57 ms** / **2.37 ms** | Server p50 < 2.0 ms | PASS |
+| `GET /metrics` (Cached Burst) | **10/10** | 154.6 ms | 172.6 ms | **26.54 ms** / **27.22 ms** | Server p95 < 100 ms | PASS |
+
+Cleanup Verification: All synthetic test users purged (0 remaining in Neon DB).
+==================================================
