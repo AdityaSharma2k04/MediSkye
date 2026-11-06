@@ -104,6 +104,7 @@ async def extract_facts(
     existing_facts: List[Any],
     user_id: Any,
     dependent_id: Optional[Any] = None,
+    document_name: Optional[str] = None,
 ) -> Dict[str, Any]:
     """
     Extract durable patient facts and retractions from recent conversation messages using Gemini.
@@ -126,7 +127,8 @@ async def extract_facts(
         return {"facts": [], "retractions": []}
 
     from app.core.security import escape_xml_content
-    safe_messages = f"<conversation>\n{escape_xml_content(formatted_messages)}\n</conversation>"
+    doc_attr = f' document="{escape_xml_content(document_name)}"' if document_name else ""
+    safe_messages = f"<conversation{doc_attr}>\n{escape_xml_content(formatted_messages)}\n</conversation>"
     prompt = (
         template.replace("{existing_facts_json}", json.dumps(normalized_existing, indent=2))
         .replace("{messages}", safe_messages)

@@ -24,6 +24,7 @@
 
 * **⚡ Two-Phase Asynchronous Upload Pipeline:** Decouples critical-path vector indexing (**Step A: ~3–5s**) from background LLM pre-warming and cloud storage syncing (**Step B**), unblocking the user interface immediately while warming caches behind the scenes.
 * **🔍 Hybrid RAG Retrieval (FAISS + BM25):** Combines dense semantic vector embeddings (`models/gemini-embedding-2` batched in slices of 100) with lexical BM25 keyword scoring so exact clinical acronyms (`HbA1c`, `TSH`, `eGFR`, `hs-CRP`) never get lost in vector space.
+* **📈 Longitudinal Multi-Report Comparison (`<prior_lab_reports_history>`) & Source-Attributed Memory:** Cross-chat memory queries prior reports' `cached_metrics` directly from Neon DB and injects them alongside semantic memory chunks, enabling full-panel biomarker tracking (e.g., Ferritin, Hemoglobin, AST, Uric Acid) across follow-up visits with exact source PDF attribution (`(From prior report: "filename.pdf" / YYYY-MM-DD)`).
 * **🧠 0ms Deterministic Intent Router:** Fast-path routing intercepts `EMERGENCY` red-flag symptoms, `CASUAL` greetings, and document-bound `DOCUMENT_QA` queries in **0ms** without burning an extra LLM classification round-trip.
 * **🗄️ 3-Tier Index & Database Caching:**
   * **Vector Index Tier:** In-Memory LRU Cache (`maxsize=10`) $\rightarrow$ Local Ephemeral `/tmp` Disk $\rightarrow$ Google Cloud Storage (`GCS`) fallback with `425/503 Retry-After` multi-instance protection.
@@ -122,8 +123,9 @@ When a user asks a question while a document is selected in the sidebar:
 2. **3-Tier Hybrid Index Lookup & Multi-Instance Safeguard (`retriever.py` & `query.py`):**
    * Checks **Tier 1 (In-Memory LRU Cache)** $\rightarrow$ **Tier 2 (Local `/tmp` Disk)** $\rightarrow$ **Tier 3 (Google Cloud Storage)**.
    * **Multi-Instance Safety Gate:** If Cloud Run scales horizontally and a request hits a brand-new container while `index_status` is still `"building"` or before Phase B's GCS sync finishes, the handler checks index availability *before* writing any `Message` row or calling Vertex AI, returning `503 Service Unavailable` / `425 Too Early` with `Retry-After: 2`. The frontend `api.js` interceptor automatically waits 2s and retries transparently.
-3. **Hybrid Retrieval & Prompt Sanitization (`prompt_builder.py`):**
+3. **Hybrid Retrieval, Longitudinal Memory & Prompt Sanitization (`prompt_builder.py`):**
    * Retrieves top chunks via combined FAISS + BM25 scores, strips internal RAG metadata headers so the AI never outputs phrases like *"Based on RAG chunk 2..."*, escapes the document filename against prompt injection, and injects the user's encrypted health profile context (if consented).
+   * **Longitudinal Multi-Report Comparison:** Automatically injects prior reports' `cached_metrics` under `<prior_lab_reports_history>` and formats cross-chat facts with exact source PDF attribution, instructing the model to generate clean Markdown delta tables and prevent grouping contradictory `Low` and `High` markers.
 4. **Low-Latency SSE Token Streaming (`query.py`):**
    * Streams tokens from `gemini-3.8-flash` with `thinking_config=ThinkingConfig(thinking_budget=0)`, appends the clinical disclaimer upon stream completion, and saves both turns to Neon PostgreSQL for multi-device sync.
 
@@ -455,7 +457,7 @@ npm run dev
 
 ## 🧪 Running the Test & Benchmark Suites
 
-The test suites pass **280 backend pytest tests** and **171 frontend Vitest tests** (**451 total**). The backend count uses the same `not integration` marker exclusion as CI. The frontend production build completes with zero warnings; all building-index and live Neon cascade-deletion verifications pass with 100% success.
+The test suites pass **284 backend pytest tests** and **178 frontend Vitest tests** (**462 total**). The backend count uses the same `not integration` marker exclusion as CI. The frontend production build completes with zero warnings; all building-index and live Neon cascade-deletion verifications pass with 100% success.
 
 ### 1. Backend Unit, E2E, Chaos & Penetration Tests (`pytest`)
 ```bash

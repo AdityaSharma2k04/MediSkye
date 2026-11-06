@@ -55,6 +55,57 @@ async def get_active_facts(
     result = await session.execute(query)
     facts = result.scalars().all()
 
+    # Resolve source document names for facts if linked to a chat or document
+    chat_uuids = []
+    doc_uuids = []
+    for f in facts:
+        if "[Source Report:" not in f.fact_text and f.source_id:
+            try:
+                sid_uuid = uuid.UUID(str(f.source_id))
+                if getattr(f, "source_type", None) == "pdf":
+                    doc_uuids.append(sid_uuid)
+                else:
+                    chat_uuids.append(sid_uuid)
+            except (ValueError, TypeError):
+                pass
+
+    doc_name_by_id = {}
+    if doc_uuids:
+        d_res = await session.execute(select(Document).filter(Document.id.in_(doc_uuids)))
+        for d in d_res.scalars().all():
+            doc_name_by_id[d.id] = d.filename or d.title
+
+    chat_doc_map = {}
+    if chat_uuids:
+        # Check direct chat.document_id
+        c_res = await session.execute(
+            select(Chat.id, Document.filename, Document.title)
+            .join(Document, Chat.document_id == Document.id)
+            .filter(Chat.id.in_(chat_uuids))
+        )
+        for row in c_res.all():
+            chat_doc_map[row[0]] = row[1] or row[2]
+
+        # Check ChatDocument join
+        cd_res = await session.execute(
+            select(ChatDocument.chat_id, Document.filename, Document.title)
+            .join(Document, ChatDocument.document_id == Document.id)
+            .filter(ChatDocument.chat_id.in_(chat_uuids))
+        )
+        for row in cd_res.all():
+            if row[0] not in chat_doc_map:
+                chat_doc_map[row[0]] = row[1] or row[2]
+
+    for f in facts:
+        if "[Source Report:" not in f.fact_text and f.source_id:
+            try:
+                sid_uuid = uuid.UUID(str(f.source_id))
+                resolved_name = doc_name_by_id.get(sid_uuid) or chat_doc_map.get(sid_uuid)
+                if resolved_name:
+                    f.source_doc_name = resolved_name
+            except (ValueError, TypeError):
+                pass
+
     grouped: Dict[str, List[PatientFact]] = {}
     for f in facts:
         ft = f.fact_type.lower()
@@ -95,34 +146,82 @@ async def get_relevant_past_chunks(
     if not chunks:
         return []
 
+    final_chunks: List[ChatChunk] = []
+
     if not query or not query.strip():
-        return list(chunks[:k])
+        final_chunks = list(chunks[:k])
+    else:
+        embedder = None
+        try:
+            from app.rag.embedder import get_embedder
+            embedder = get_embedder()
+        except Exception as e:
+            logger.warning("Embedder not available for past chunk retrieval: %s", e)
 
-    embedder = None
-    try:
-        from app.rag.embedder import get_embedder
-        embedder = get_embedder()
-    except Exception as e:
-        logger.warning("Embedder not available for past chunk retrieval: %s", e)
+        if not embedder:
+            final_chunks = list(chunks[:k])
+        else:
+            try:
+                query_vec = await asyncio.to_thread(embedder.embed_query, query)
+                scored = []
+                for chunk in chunks:
+                    if chunk.embedding:
+                        sim = _cosine_similarity(query_vec, chunk.embedding)
+                        scored.append((sim, chunk))
+                    else:
+                        scored.append((0.0, chunk))
 
-    if not embedder:
-        return list(chunks[:k])
+                scored.sort(key=lambda x: x[0], reverse=True)
+                final_chunks = [chunk for _, chunk in scored[:k]]
+            except Exception as e:
+                logger.error("Cosine similarity matching failed: %s", e)
+                final_chunks = list(chunks[:k])
 
-    try:
-        query_vec = await asyncio.to_thread(embedder.embed_query, query)
-        scored = []
-        for chunk in chunks:
-            if chunk.embedding:
-                sim = _cosine_similarity(query_vec, chunk.embedding)
-                scored.append((sim, chunk))
-            else:
-                scored.append((0.0, chunk))
+    # Annotate chunks with associated document and session details
+    if final_chunks:
+        chat_ids = [c.chat_id for c in final_chunks if c.chat_id]
+        if chat_ids:
+            try:
+                # 1. Fetch Chats
+                c_res = await session.execute(select(Chat).filter(Chat.id.in_(chat_ids)))
+                chats_by_id = {c.id: c for c in c_res.scalars().all()}
 
-        scored.sort(key=lambda x: x[0], reverse=True)
-        return [chunk for _, chunk in scored[:k]]
-    except Exception as e:
-        logger.error("Cosine similarity matching failed: %s", e)
-        return list(chunks[:k])
+                # 2. Check direct Document links
+                doc_ids = [c.document_id for c in chats_by_id.values() if c.document_id]
+                docs_by_id = {}
+                if doc_ids:
+                    d_res = await session.execute(select(Document).filter(Document.id.in_(doc_ids)))
+                    for d in d_res.scalars().all():
+                        docs_by_id[d.id] = d
+
+                # 3. Check ChatDocument join table
+                cd_res = await session.execute(
+                    select(ChatDocument.chat_id, Document)
+                    .join(Document, ChatDocument.document_id == Document.id)
+                    .filter(ChatDocument.chat_id.in_(chat_ids))
+                )
+                cd_docs = {}
+                for row in cd_res.all():
+                    cd_docs[row[0]] = row[1]
+
+                for chunk in final_chunks:
+                    chat_obj = chats_by_id.get(chunk.chat_id)
+                    doc_obj = None
+                    if chat_obj and chat_obj.document_id:
+                        doc_obj = docs_by_id.get(chat_obj.document_id)
+                    if not doc_obj and chunk.chat_id in cd_docs:
+                        doc_obj = cd_docs[chunk.chat_id]
+
+                    if doc_obj:
+                        chunk.source_doc_name = doc_obj.filename or doc_obj.title
+                        chunk.source_doc_date = doc_obj.created_at
+                    if chat_obj:
+                        chunk.source_session_title = chat_obj.session_title
+                        chunk.source_chat_date = chat_obj.created_at or chunk.created_at
+            except Exception as annot_err:
+                logger.warning("Error annotating past chunks with document names: %s", annot_err)
+
+    return final_chunks
 
 
 async def get_chat_documents(

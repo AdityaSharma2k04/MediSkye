@@ -460,6 +460,53 @@ async def query_bot(
             # ── Memory retrieval (Tier 1 facts always, Tier 2 past chunks for DOCUMENT_QA only) ──
             formatted_facts = None
             formatted_past_chats = None
+            prior_documents_metrics: List[Dict[str, Any]] = []
+
+            # ── Historical lab reports (cached_metrics) for longitudinal comparison ──
+            if intent in (QueryIntent.DOCUMENT_QA, QueryIntent.GENERAL_HEALTH):
+                try:
+                    async with AsyncSessionLocal() as hist_session:
+                        excluded_doc_ids = set()
+                        if primary_doc:
+                            excluded_doc_ids.add(primary_doc.id)
+                        for cd in chat_docs:
+                            excluded_doc_ids.add(cd.id)
+
+                        prior_docs_stmt = (
+                            select(Document)
+                            .filter(
+                                Document.user_id == current_user.id,
+                                Document.dependent_id == active_dep_id if active_dep_id else Document.dependent_id.is_(None),
+                                Document.cached_metrics.is_not(None),
+                            )
+                        )
+                        if excluded_doc_ids:
+                            prior_docs_stmt = prior_docs_stmt.filter(Document.id.notin_(list(excluded_doc_ids)))
+
+                        prior_docs_stmt = prior_docs_stmt.order_by(Document.created_at.desc()).limit(3)
+                        prior_docs_res = await hist_session.execute(prior_docs_stmt)
+                        prior_docs = prior_docs_res.scalars().all()
+
+                        for pdoc in prior_docs:
+                            raw_cm = pdoc.cached_metrics
+                            if isinstance(raw_cm, str):
+                                try:
+                                    raw_cm = json.loads(raw_cm)
+                                except Exception:
+                                    raw_cm = []
+                            if isinstance(raw_cm, dict) and "metrics" in raw_cm:
+                                raw_cm = raw_cm["metrics"]
+
+                            if isinstance(raw_cm, list) and len(raw_cm) > 0:
+                                up_date = pdoc.created_at.strftime("%Y-%m-%d") if pdoc.created_at else "Unknown date"
+                                prior_documents_metrics.append({
+                                    "filename": pdoc.filename,
+                                    "title": pdoc.title or pdoc.filename,
+                                    "uploaded_at": up_date,
+                                    "metrics": raw_cm,
+                                })
+                except Exception as hist_err:
+                    logger.warning("Error loading prior document metrics: %s", hist_err)
 
             if intent != QueryIntent.CASUAL and current_user.memory_consent_granted and settings.PATIENT_MEMORY_ENABLED:
                 async with AsyncSessionLocal() as mem_session:
@@ -502,7 +549,17 @@ async def query_bot(
                     recent_turns = list(reversed(recent_res.scalars().all()))
                     if recent_turns:
                         recent_formatted = format_past_chats_for_prompt(
-                            [{"text": f"{t.role.upper()}: {t.message}", "created_at": t.created_at} for t in recent_turns if t.message]
+                            [
+                                {
+                                    "text": f"{t.role.upper()}: {t.message}",
+                                    "created_at": t.created_at,
+                                    "doc_name": primary_doc.filename if primary_doc else None,
+                                    "doc_date": primary_doc.created_at if primary_doc else None,
+                                    "session_title": current_session_title,
+                                }
+                                for t in recent_turns
+                                if t.message
+                            ]
                         )
                         if recent_formatted:
                             formatted_past_chats = (
@@ -538,6 +595,7 @@ async def query_bot(
                     diet_type=diet_type,
                     activity_level=activity_level,
                     occupation=occupation,
+                    prior_documents_metrics=prior_documents_metrics,
                 )
 
             else:
@@ -555,6 +613,7 @@ async def query_bot(
                     diet_type=diet_type,
                     activity_level=activity_level,
                     occupation=occupation,
+                    prior_documents_metrics=prior_documents_metrics,
                 )
 
             full_raw_text = ""

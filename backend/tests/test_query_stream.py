@@ -241,8 +241,9 @@ async def test_query_stream_memory_extraction_task_completes():
                 )
                 facts = facts_res.scalars().all()
                 assert len(facts) >= 1
-                target_fact = next((f for f in facts if f.fact_text == "Hypertension Stage 1"), None)
+                target_fact = next((f for f in facts if "Hypertension Stage 1" in f.fact_text), None)
                 assert target_fact is not None
+                assert "report.pdf" in target_fact.fact_text
                 assert target_fact.is_active is True
                 assert target_fact.confidence == 0.95
 

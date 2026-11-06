@@ -1,10 +1,11 @@
+import re
 import uuid
 import logging
 from datetime import datetime, UTC
 from typing import Dict, Any, Optional
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
-from app.db.models import PatientFact, Chat, User
+from app.db.models import PatientFact, Chat, User, Document, ChatDocument
 from app.db.database import AsyncSessionLocal
 from app.services.fact_extractor import extract_facts
 
@@ -17,12 +18,14 @@ async def save_facts(
     dependent_id: Optional[Any],
     source_chat_id: Optional[Any],
     session: AsyncSession,
+    source_document_name: Optional[str] = None,
 ) -> Dict[str, int]:
     """
     Persist extracted facts and handle retractions in a single transaction:
     - Retractions: mark is_active = False (never hard-deleted).
     - Near-duplicates: update last_seen_at instead of inserting.
     - New facts: insert with source_type='chat', source_id=chat_id.
+    - Source document provenance: append [Source Report: {doc_name}] to fact_text.
     Returns: {"inserted": N, "retracted": M, "updated": K}
     """
     inserted = 0
@@ -79,14 +82,21 @@ async def save_facts(
         if not fact_type or not fact_text:
             continue
 
+        # Attach exact source document name if available and not already formatted
+        if source_document_name and "[Source Report:" not in fact_text:
+            fact_text = f"{fact_text} [Source Report: {source_document_name}]"
+
         confidence = float(fact.get("confidence", 1.0))
         excerpt = fact.get("excerpt")
 
         # Check for near-duplicate among active facts of same type
         matched_existing: Optional[PatientFact] = None
+        clean_new = re.sub(r"\s*\[Source Report:[^\]]+\]", "", fact_text, flags=re.IGNORECASE).strip().lower()
+
         for ef in active_facts:
             if ef.fact_type.lower() == fact_type.lower():
-                if ef.fact_text.strip().lower() == fact_text.lower():
+                clean_ef = re.sub(r"\s*\[Source Report:[^\]]+\]", "", ef.fact_text, flags=re.IGNORECASE).strip().lower()
+                if ef.fact_text.strip().lower() == fact_text.lower() or clean_ef == clean_new:
                     matched_existing = ef
                     break
 
@@ -94,6 +104,9 @@ async def save_facts(
             matched_existing.last_seen_at = now
             if confidence > matched_existing.confidence:
                 matched_existing.confidence = confidence
+            # If existing fact did not have source report attribution, add it
+            if source_document_name and "[Source Report:" not in matched_existing.fact_text:
+                matched_existing.fact_text = f"{matched_existing.fact_text} [Source Report: {source_document_name}]"
             updated += 1
         else:
             new_fact = PatientFact(
@@ -176,6 +189,35 @@ async def process_chat_memory_extraction(
             if not chats:
                 return
 
+            # Resolve associated source document (if any)
+            linked_doc = None
+            for c in chats:
+                if c.document_id:
+                    doc_res = await session.execute(select(Document).filter(Document.id == c.document_id))
+                    linked_doc = doc_res.scalars().first()
+                    if linked_doc:
+                        break
+
+            if not linked_doc and chats:
+                chat_ids = [c.id for c in chats if c.id]
+                cd_res = await session.execute(
+                    select(Document)
+                    .join(ChatDocument, ChatDocument.document_id == Document.id)
+                    .filter(ChatDocument.chat_id.in_(chat_ids))
+                    .order_by(ChatDocument.added_at.desc())
+                )
+                linked_doc = cd_res.scalars().first()
+
+            if not linked_doc and chat_id:
+                try:
+                    c_uuid = uuid.UUID(str(chat_id))
+                    doc_check = await session.execute(select(Document).filter(Document.id == c_uuid))
+                    linked_doc = doc_check.scalars().first()
+                except (ValueError, TypeError):
+                    pass
+
+            source_doc_name = (linked_doc.filename or linked_doc.title) if linked_doc else None
+
             # Fetch existing active facts
             d_uuid = uuid.UUID(str(dependent_id)) if (dependent_id and isinstance(dependent_id, str)) else dependent_id
             facts_res = await session.execute(
@@ -192,6 +234,7 @@ async def process_chat_memory_extraction(
                 existing_facts=existing_facts,
                 user_id=u_uuid,
                 dependent_id=d_uuid,
+                document_name=source_doc_name,
             )
 
             stats = await save_facts(
@@ -200,6 +243,7 @@ async def process_chat_memory_extraction(
                 dependent_id=d_uuid,
                 source_chat_id=chat_id,
                 session=session,
+                source_document_name=source_doc_name,
             )
             logger.info("Fact persistence completed for user %s: %s", user_id, stats)
 

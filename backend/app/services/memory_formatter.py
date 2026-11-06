@@ -66,12 +66,17 @@ def format_facts_for_prompt(
             if isinstance(f, dict):
                 text = f.get("text") or f.get("fact_text") or ""
                 timing = f.get("last_seen_at") or f.get("first_seen_at")
+                doc_name = f.get("source_doc_name") or f.get("document_name")
             else:
                 text = getattr(f, "fact_text", "")
                 timing = getattr(f, "last_seen_at", None) or getattr(f, "first_seen_at", None)
+                doc_name = getattr(f, "source_doc_name", None)
 
             if not text:
                 continue
+
+            if doc_name and "[Source Report:" not in text:
+                text = f"{text} [Source Report: {doc_name}]"
 
             # Format timing tag if not already part of text
             date_str = ""
@@ -104,6 +109,10 @@ def format_facts_for_prompt(
 def format_past_chats_for_prompt(chunks: List[Any]) -> str:
     """
     Format semantic chat chunks for injection into <relevant_past_conversations>.
+    Attaches exact source report name if linked to a document:
+      (From prior report: "{doc.filename}" / {doc_date})
+    Or conversation title if standalone:
+      (From prior conversation: "{session_title}" on {chat_date})
     """
     if not chunks:
         return ""
@@ -113,19 +122,53 @@ def format_past_chats_for_prompt(chunks: List[Any]) -> str:
         if isinstance(c, dict):
             created_at = c.get("created_at")
             text = c.get("text") or c.get("chunk_text") or ""
+            doc_name = c.get("doc_name") or c.get("document_name") or c.get("source_doc_name")
+            doc_date = c.get("doc_date") or c.get("document_date") or created_at
+            session_title = c.get("session_title") or c.get("source_session_title")
         else:
             created_at = getattr(c, "created_at", None)
             text = getattr(c, "chunk_text", "")
+            doc_name = getattr(c, "source_doc_name", None)
+            doc_date = getattr(c, "source_doc_date", None) or created_at
+            session_title = getattr(c, "source_session_title", None)
 
-        date_prefix = ""
-        if created_at and hasattr(created_at, "strftime"):
-            date_prefix = f"[{created_at.strftime('%Y-%m-%d')}] "
-        elif created_at:
-            date_prefix = f"[{str(created_at)[:10]}] "
+            # Fallback to chat / document attributes if loaded
+            if not doc_name and hasattr(c, "chat") and c.chat:
+                if getattr(c.chat, "document", None):
+                    doc_name = c.chat.document.filename or c.chat.document.title
+                    doc_date = c.chat.document.created_at
+                if not session_title:
+                    session_title = c.chat.session_title
+                if not created_at:
+                    created_at = c.chat.created_at
 
         clean_text = escape_xml_content(text.strip())
-        if clean_text:
-            formatted.append(f"{date_prefix}{clean_text}")
+        if not clean_text:
+            continue
+
+        if doc_name:
+            d_str = ""
+            if doc_date and hasattr(doc_date, "strftime"):
+                d_str = doc_date.strftime("%Y-%m-%d")
+            elif doc_date:
+                d_str = str(doc_date)[:10]
+            date_part = f" / {d_str}" if d_str else ""
+            prefix = f'(From prior report: "{escape_xml_content(str(doc_name))}"{date_part})\n'
+        elif session_title:
+            d_str = ""
+            if created_at and hasattr(created_at, "strftime"):
+                d_str = created_at.strftime("%Y-%m-%d")
+            elif created_at:
+                d_str = str(created_at)[:10]
+            date_part = f" on {d_str}" if d_str else ""
+            prefix = f'(From prior conversation: "{escape_xml_content(str(session_title))}"{date_part})\n'
+        elif created_at:
+            d_str = created_at.strftime("%Y-%m-%d") if hasattr(created_at, "strftime") else str(created_at)[:10]
+            prefix = f"[{d_str}] "
+        else:
+            prefix = ""
+
+        formatted.append(f"{prefix}{clean_text}")
 
     return "\n\n".join(formatted)
 
