@@ -370,7 +370,7 @@ export async function parseSSEStream(reader, callbacks = {}) {
   }
 }
 
-export async function fetchLabMetrics(documentId, forceRefresh = false) {
+export async function fetchLabMetrics(documentId, forceRefresh = false, signal = null) {
   try {
     const query = forceRefresh ? '?force_refresh=true' : '';
     const res = await fetch(`${API_BASE}/extract-metrics${query}`, {
@@ -379,6 +379,7 @@ export async function fetchLabMetrics(documentId, forceRefresh = false) {
         'X-Session-ID': documentId,
         ...getAuthHeaders(),
       },
+      signal: signal || undefined,
     });
     const data = await res.json();
     if (!res.ok) {
@@ -396,6 +397,9 @@ export async function fetchLabMetrics(documentId, forceRefresh = false) {
     list.prior_document_date = data.prior_document_date;
     return list;
   } catch (err) {
+    if (err.name === 'AbortError') {
+      return [];
+    }
     logger.error('Failed to fetch metrics:', err);
     return [];
   }

@@ -10,16 +10,41 @@ function stripEmojis(text) {
     .trim();
 }
 
-// Strip LaTeX-style escapes and redundant leading headings
+// Strip LaTeX-style escapes, redundant leading headings, and duplicate metadata headers
 function cleanSummary(text) {
   if (!text) return '';
   let clean = stripEmojis(text)
     .replace(/\\\(/g, '')
     .replace(/\\\)/g, '')
     .replace(/\\%/g, '%');
+
   // Strip redundant leading headings so it doesn't nest under component's heading
   clean = clean.replace(/^\s*#+\s*CLINICAL SUMMARY(?: REPORT)?\s*\n?/i, '');
+
+  // Strip entire metadata sections/blocks (e.g. "### Patient Information", "### Demographics & Metadata")
+  clean = clean.replace(
+    /(?:^|\n)#+\s*(?:Patient\s+(?:Information|Demographics|Details|Profile)|Specimen\s+(?:Details|Information|Context)|Metadata|Report\s+Details)[\s\S]*?(?=\n#+|\n\n[A-Z]|\Z)/gi,
+    '\n'
+  );
+
+  // Strip duplicate AI-generated metadata lines (e.g. "Patient Name:", "Specimen ID:", etc.)
+  const metadataLinePattern = /^\s*(?:[-*•]|\d+\.)?\s*(?:\*{1,2}|_{1,2})?\s*(?:Patient\s+Name|Patient|Specimen\s+(?:ID|Number|Type)|Sample\s+ID|Accession(?:\s+Number|\s+ID)?|Collection\s+Date|Date\s+of\s+Collection|Specimen\s+Date|Report\s+Date|DOB|Date\s+of\s+Birth|Age(?:\s*\/\s*Sex)?|Gender|Sex|Fasting\s+Status|Referred\s+By|Doctor|Physician)\s*(?:\*{1,2}|_{1,2})?\s*[:\-].*$/gmi;
+  clean = clean.replace(metadataLinePattern, '');
+
+  // Collapse 3+ consecutive newlines into double newlines
+  clean = clean.replace(/\n{3,}/g, '\n\n');
+
   return clean.trim();
+}
+
+function toTitleCase(str) {
+  if (!str) return '';
+  return stripEmojis(str)
+    .replace(/[_-]+/g, ' ')
+    .trim()
+    .split(/\s+/)
+    .map((word) => word.charAt(0).toUpperCase() + word.slice(1).toLowerCase())
+    .join(' ');
 }
 
 export default function PrintableSummary({ user, document, summary, metrics, specialists, abnormalMetrics }) {
@@ -42,6 +67,18 @@ export default function PrintableSummary({ user, document, summary, metrics, spe
 
   const docName = stripEmojis(document?.title || document?.name || document?.filename || 'Diagnostic Laboratory Report');
   const collectionDate = document?.collected_at || document?.created_at?.slice(0, 10) || 'Not specified';
+
+  // Compute BMI: (weight_kg / ((height_cm / 100) ** 2)).toFixed(1)
+  const weightVal = parseFloat(user?.weight_kg || user?.weight);
+  const heightVal = parseFloat(user?.height_cm || user?.height);
+  const computedBmi = (weightVal > 0 && heightVal > 0)
+    ? (weightVal / ((heightVal / 100) ** 2)).toFixed(1)
+    : (user?.bmi ? String(user.bmi) : '—');
+
+  // Format Lifestyle as Title Case with a bullet: e.g. Vegetarian • Very Active
+  const dietTitle = user?.diet_type ? toTitleCase(user.diet_type) : 'Standard';
+  const activityTitle = user?.activity_level ? toTitleCase(user.activity_level) : 'Moderate';
+  const lifestyleText = `${dietTitle} • ${activityTitle}`;
 
   // Table 1: Flagged & Notable Delta Biomarkers (Abnormal or >=10% delta shift)
   const allMetricsList = metrics || [];
@@ -111,8 +148,8 @@ export default function PrintableSummary({ user, document, summary, metrics, spe
           <div style={{ fontSize: '9pt', lineHeight: '1.4' }}>
             <div><strong>Patient Name:</strong> {patientName}{user?.relationship ? ` (${stripEmojis(user.relationship)})` : ''}</div>
             <div><strong>DOB / Age:</strong> {patientDob}{patientAge ? ` (${patientAge})` : ''} • <strong>Sex:</strong> {user?.biological_sex || 'Unspecified'}</div>
-            <div><strong>Blood Type:</strong> {user?.blood_type || 'Unknown'} • <strong>BMI:</strong> {user?.bmi || (user?.height_cm && user?.weight_kg ? (user.weight_kg / ((user.height_cm / 100) ** 2)).toFixed(1) : '—')}</div>
-            <div><strong>Lifestyle:</strong> {user?.diet_type ? stripEmojis(user.diet_type).replace('_', ' ') : 'Standard'} • {user?.activity_level ? stripEmojis(user.activity_level).replace('_', ' ') : 'Moderate'}</div>
+            <div><strong>Blood Type:</strong> {user?.blood_type || 'Unknown'} • <strong>BMI:</strong> {computedBmi}</div>
+            <div><strong>Lifestyle:</strong> {lifestyleText}</div>
           </div>
         </div>
 

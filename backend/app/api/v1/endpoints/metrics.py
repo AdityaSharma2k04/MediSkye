@@ -2,6 +2,7 @@ import json
 import uuid
 import logging
 import asyncio
+import copy
 from fastapi import APIRouter, Depends, Header, Request, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
@@ -25,7 +26,9 @@ from app.services.clinical_units import (
     normalize_clinical_unit,
     check_is_future_date,
     canonical_biomarker_name,
+    canonical_biomarker_key,
     compute_biomarker_delta,
+    parse_report_chronology,
 )
 
 logger = logging.getLogger(__name__)
@@ -219,8 +222,11 @@ async def _apply_longitudinal_deltas(
     current_user: Union[User, UserDTO],
     db: AsyncSession,
 ) -> Tuple[List[LabMetricItem], Optional[str], Optional[str]]:
+    # Deepcopy raw_list to prevent any in-memory delta mutations from touching DB state
+    raw_copied = copy.deepcopy(raw_list)
+
     normalized_items = []
-    for item in raw_list:
+    for item in raw_copied:
         if isinstance(item, dict):
             d = dict(item)
         elif hasattr(item, "model_dump"):
@@ -229,6 +235,8 @@ async def _apply_longitudinal_deltas(
             continue
         d["unit"] = normalize_clinical_unit(d.get("unit", ""))
         normalized_items.append(d)
+
+    current_collected_dt = parse_report_chronology(doc)
 
     # Find prior document for same user & dependent with cached metrics
     prior_res = await db.execute(
@@ -239,20 +247,35 @@ async def _apply_longitudinal_deltas(
             Document.id != doc.id,
             Document.cached_metrics.is_not(None)
         )
-        .order_by(Document.created_at.desc())
     )
     candidates = prior_res.scalars().all()
     prior_doc = None
-    if candidates:
+
+    if current_collected_dt and candidates:
+        # Strict Chronological Ordering: ONLY select candidates where candidate_collected_dt < current_collected_dt
+        valid_priors = []
         for cand in candidates:
+            cand_dt = parse_report_chronology(cand)
+            if cand_dt and cand_dt < current_collected_dt:
+                valid_priors.append((cand_dt, cand))
+        if valid_priors:
+            # Sort descending by chronological collection date to find closest prior baseline
+            valid_priors.sort(key=lambda x: x[0], reverse=True)
+            prior_doc = valid_priors[0][1]
+    elif not current_collected_dt and candidates:
+        # Fallback only when current doc has no parseable collection date
+        valid_priors = []
+        for cand in candidates:
+            cand_dt = parse_report_chronology(cand)
+            # If candidate has a collection date but current doesn't, cannot guarantee chronology unless created_at applies
             if cand.created_at and doc.created_at and cand.created_at < doc.created_at:
-                prior_doc = cand
-                break
-            elif not prior_doc:
-                prior_doc = cand
+                valid_priors.append((cand.created_at, cand))
+        if valid_priors:
+            valid_priors.sort(key=lambda x: x[0], reverse=True)
+            prior_doc = valid_priors[0][1]
 
     prior_doc_id = str(prior_doc.id) if prior_doc else None
-    prior_doc_date = (prior_doc.collected_at or prior_doc.created_at.strftime('%d %b %Y')) if prior_doc and (prior_doc.collected_at or prior_doc.created_at) else None
+    prior_doc_date = (prior_doc.collected_at or (prior_doc.created_at.strftime('%d %b %Y') if prior_doc.created_at else None)) if prior_doc else None
 
     prior_metrics_map = {}
     if prior_doc and prior_doc.cached_metrics:
@@ -268,14 +291,14 @@ async def _apply_longitudinal_deltas(
             for pm in raw_prior:
                 if isinstance(pm, dict):
                     t_name = pm.get("test") or pm.get("name") or ""
-                    key = canonical_biomarker_name(t_name)
+                    key = canonical_biomarker_key(t_name)
                     if key:
                         prior_metrics_map[key] = pm
 
     result_items: List[LabMetricItem] = []
     for m in normalized_items:
         t_name = str(m.get("test") or m.get("name") or "").strip()
-        key = canonical_biomarker_name(t_name)
+        key = canonical_biomarker_key(t_name)
         matched_prior = prior_metrics_map.get(key)
 
         prev_val = None
@@ -290,7 +313,7 @@ async def _apply_longitudinal_deltas(
             c_val = str(m.get("value", "")).strip()
             status = str(m.get("status") or "Normal").strip()
             unit = str(m.get("unit") or "").strip()
-            d_abs, d_pct, d_alert = compute_biomarker_delta(c_val, prev_val, status, unit)
+            d_abs, d_pct, d_alert = compute_biomarker_delta(c_val, prev_val, status, unit, canonical_key=key)
 
         result_items.append(LabMetricItem(
             test=t_name,
@@ -333,7 +356,9 @@ async def _get_or_extract_metrics(
         if isinstance(cached, dict) and "metrics" in cached:
             cached = cached["metrics"]
         if isinstance(cached, list):
-            items, p_id, p_date = await _apply_longitudinal_deltas(doc, cached, current_user, db)
+            # Always deepcopy cached_metrics to protect DB column from delta enrichment
+            cached_copy = copy.deepcopy(cached)
+            items, p_id, p_date = await _apply_longitudinal_deltas(doc, cached_copy, current_user, db)
             return MetricsResponse(
                 metrics=items,
                 collected_at=doc.collected_at,
@@ -374,7 +399,8 @@ async def _get_or_extract_metrics(
                 detail="Metrics extraction temporarily unavailable. Please retry in 2 seconds.",
                 headers={"Retry-After": "2"},
             )
-        items, p_id, p_date = await _apply_longitudinal_deltas(doc, raw_metrics, current_user, db)
+        raw_copy = copy.deepcopy(raw_metrics)
+        items, p_id, p_date = await _apply_longitudinal_deltas(doc, raw_copy, current_user, db)
         return MetricsResponse(
             metrics=items,
             collected_at=doc.collected_at,

@@ -48,8 +48,16 @@ function renderStatusPill(row) {
 }
 
 // ── Main LabMetrics Component ─────────────────────────────────────────────────
-export default function LabMetrics({ metrics = [], darkMode, onBack }) {
+export default function LabMetrics({ metrics = [], documentId, darkMode, onBack }) {
   const [search, setSearch] = useState('');
+
+  // Key the loaded metrics state strictly by documentId when passed as an object (e.g. metricsByDocId[documentId])
+  const resolvedMetrics = useMemo(() => {
+    if (metrics && typeof metrics === 'object' && !Array.isArray(metrics)) {
+      return documentId ? (metrics[documentId] || []) : [];
+    }
+    return Array.isArray(metrics) ? metrics : [];
+  }, [metrics, documentId]);
 
   const textPrimary   = darkMode ? 'text-white'    : 'text-zinc-900';
   const textSecondary = darkMode ? 'text-zinc-400' : 'text-zinc-500';
@@ -58,19 +66,19 @@ export default function LabMetrics({ metrics = [], darkMode, onBack }) {
   const theadBg       = darkMode ? 'bg-zinc-900/80' : 'bg-zinc-50';
   const hoverRowBg    = darkMode ? 'hover:bg-zinc-900/50' : 'hover:bg-zinc-50/80';
 
-  const collectedAt = metrics?.collected_at;
-  const isFuture = metrics?.is_future_collection_date;
+  const collectedAt = resolvedMetrics?.collected_at || (Array.isArray(metrics) ? metrics.collected_at : undefined);
+  const isFuture = resolvedMetrics?.is_future_collection_date || (Array.isArray(metrics) ? metrics.is_future_collection_date : undefined);
 
   const hasPriorData = useMemo(() => {
-    if (!metrics || !Array.isArray(metrics)) return false;
-    return metrics.some(
+    if (!resolvedMetrics || !Array.isArray(resolvedMetrics)) return false;
+    return resolvedMetrics.some(
       (m) => m && (m.previous_value != null || m.delta_abs != null || m.delta_pct != null || m.delta_alert != null)
     );
-  }, [metrics]);
+  }, [resolvedMetrics]);
 
   // Deterministic sorting: Flagged (High / Low / Critical / delta_alert) first, then Normal
   const sortedMetrics = useMemo(() => {
-    if (!metrics || !Array.isArray(metrics)) return [];
+    if (!resolvedMetrics || !Array.isArray(resolvedMetrics)) return [];
     const getPriority = (m) => {
       const s = String(m?.status || '').trim().toLowerCase();
       if (s === 'high' || s === 'low' || s === 'critical' || s === 'abnormal' || m?.delta_alert) {
@@ -78,8 +86,8 @@ export default function LabMetrics({ metrics = [], darkMode, onBack }) {
       }
       return 1;
     };
-    return [...metrics].sort((a, b) => getPriority(a) - getPriority(b));
-  }, [metrics]);
+    return [...resolvedMetrics].sort((a, b) => getPriority(a) - getPriority(b));
+  }, [resolvedMetrics]);
 
   // Search filter
   const filteredMetrics = useMemo(() => {
@@ -88,7 +96,7 @@ export default function LabMetrics({ metrics = [], darkMode, onBack }) {
     return sortedMetrics.filter((m) => (m.test || m.name || '').toLowerCase().includes(q));
   }, [sortedMetrics, search]);
 
-  const hasMetrics = metrics && Array.isArray(metrics) && metrics.length > 0;
+  const hasMetrics = resolvedMetrics && Array.isArray(resolvedMetrics) && resolvedMetrics.length > 0;
 
   return (
     <div className="animate-fade-in py-4">
@@ -98,7 +106,7 @@ export default function LabMetrics({ metrics = [], darkMode, onBack }) {
           <h2 className={`text-xl font-bold tracking-tight ${textPrimary}`}>Clinical Lab Metrics</h2>
           {hasMetrics && (
             <p className={`text-xs mt-0.5 ${textSecondary}`}>
-              {metrics.length} test{metrics.length !== 1 ? 's' : ''} extracted • abnormal values shown first
+              {resolvedMetrics.length} test{resolvedMetrics.length !== 1 ? 's' : ''} extracted • abnormal values shown first
             </p>
           )}
         </div>

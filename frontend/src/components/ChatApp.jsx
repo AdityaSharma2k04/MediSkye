@@ -25,6 +25,7 @@ import {
   deleteAccount,
   updateProfile,
   getDocumentSummary,
+  fetchLabMetrics,
 } from '../services/api';
 import { useNavigate } from 'react-router-dom';
 import { logger } from '../services/logger';
@@ -169,6 +170,8 @@ export default function ChatApp() {
   const [uploadProgress, setUploadProgress] = useState(null);
   const [uploadError, setUploadError] = useState(null);
   const abortControllerRef = useRef(null);
+  const [metricsByDocId, setMetricsByDocId] = useState({});
+  const metricsAbortControllerRef = useRef(null);
   const isSubmittingRef = useRef(false);
   const isMountedRef = useRef(true);
   const chatInputRef = useRef(null);
@@ -181,6 +184,10 @@ export default function ChatApp() {
       if (abortControllerRef.current) {
         abortControllerRef.current.abort();
         abortControllerRef.current = null;
+      }
+      if (metricsAbortControllerRef.current) {
+        metricsAbortControllerRef.current.abort();
+        metricsAbortControllerRef.current = null;
       }
     };
   }, []);
@@ -1125,10 +1132,48 @@ export default function ChatApp() {
     }
   };
 
+  const handleLoadMetrics = useCallback(async (docId, forceRefresh = false, externalSignal = null) => {
+    if (!docId) return [];
+    if (metricsAbortControllerRef.current) {
+      metricsAbortControllerRef.current.abort();
+      metricsAbortControllerRef.current = null;
+    }
+    const controller = new AbortController();
+    metricsAbortControllerRef.current = controller;
+
+    if (externalSignal) {
+      externalSignal.addEventListener('abort', () => controller.abort());
+    }
+
+    try {
+      const list = await fetchLabMetrics(docId, forceRefresh, controller.signal);
+      if (!controller.signal.aborted) {
+        setMetricsByDocId((prev) => ({
+          ...prev,
+          [docId]: list,
+        }));
+      }
+      return list;
+    } catch (err) {
+      if (err.name !== 'AbortError') {
+        logger.error('Failed to load metrics:', err);
+      }
+      return [];
+    } finally {
+      if (metricsAbortControllerRef.current === controller) {
+        metricsAbortControllerRef.current = null;
+      }
+    }
+  }, []);
+
   const handleSelectChat = async (id) => {
     if (abortControllerRef.current) {
       abortControllerRef.current.abort();
       abortControllerRef.current = null;
+    }
+    if (metricsAbortControllerRef.current) {
+      metricsAbortControllerRef.current.abort();
+      metricsAbortControllerRef.current = null;
     }
     stopSpeaking();
     setIsGenerating(false);
@@ -1336,6 +1381,8 @@ export default function ChatApp() {
             if (chatInputRef.current) chatInputRef.current.openFileUpload();
           }}
           documentId={currentChat.document_id}
+          metricsByDocId={metricsByDocId}
+          onLoadMetrics={handleLoadMetrics}
           darkMode={darkMode}
           setDarkMode={handleSetDarkMode}
           currentUser={currentUser}

@@ -255,5 +255,68 @@ describe('PrintableSummary', () => {
     );
     expect(screen.getByText(/patient\.fallback@mediskye\.com/)).toBeInTheDocument();
   });
+
+  it('computes and displays BMI accurately from height_cm and weight_kg', () => {
+    const userWithMeasurements = {
+      full_name: 'John Athlete',
+      height_cm: 180,
+      weight_kg: 75,
+    };
+    // BMI = 75 / (1.80^2) = 75 / 3.24 = 23.148... -> 23.1
+    render(
+      <PrintableSummary
+        user={userWithMeasurements}
+        document={mockDocument}
+        summary={mockSummary}
+        metrics={mockMetrics}
+        specialists={mockSpecialists}
+      />
+    );
+    expect(screen.getByText(/23\.1/)).toBeInTheDocument();
+  });
+
+  it('formats Lifestyle as Title Case with a bullet: Vegetarian • Very Active', () => {
+    const userLifestyle = {
+      full_name: 'Veg Athlete',
+      diet_type: 'vegetarian',
+      activity_level: 'very_active',
+    };
+    render(
+      <PrintableSummary
+        user={userLifestyle}
+        document={mockDocument}
+        summary={mockSummary}
+        metrics={mockMetrics}
+        specialists={mockSpecialists}
+      />
+    );
+    expect(screen.getByText(/Vegetarian • Very Active/)).toBeInTheDocument();
+  });
+
+  it('strips duplicate AI-generated metadata headers from summary markdown', () => {
+    const aiSummaryWithDuplicateHeaders = `
+Patient Name: Jane Doe
+Specimen ID: LAB-9921
+Collection Date: 24 Oct 2026
+Report Date: 25 Oct 2026
+
+### Overview
+The patient shows elevated cholesterol levels.
+
+- Fasting Status: Confirmed fasting
+`;
+    render(
+      <PrintableSummary
+        user={mockUser}
+        document={mockDocument}
+        summary={aiSummaryWithDuplicateHeaders}
+        metrics={mockMetrics}
+        specialists={mockSpecialists}
+      />
+    );
+    expect(screen.getByText(/The patient shows elevated cholesterol levels/)).toBeInTheDocument();
+    // Duplicate metadata labels in markdown should be stripped
+    expect(screen.queryByText(/LAB-9921/)).not.toBeInTheDocument();
+  });
 });
 

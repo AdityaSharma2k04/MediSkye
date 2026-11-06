@@ -1,0 +1,238 @@
+import uuid
+import copy
+import pytest
+from httpx import AsyncClient, ASGITransport
+from unittest.mock import MagicMock, patch
+
+from app.main import app
+from app.core.auth import get_password_hash
+from app.db.database import AsyncSessionLocal
+from app.db.models import User, Document
+from tests.conftest import TEST_PASSWORD
+from app.services.clinical_units import (
+    parse_report_chronology,
+    canonical_biomarker_key,
+    compute_biomarker_delta,
+)
+
+
+def test_canonical_biomarker_key_collision_rules():
+    """Verify regex whole-word matching prevents substring collisions."""
+    # 1. HbA1c vs Hemoglobin
+    assert canonical_biomarker_key("HbA1c") == "hba1c"
+    assert canonical_biomarker_key("Glycated Hemoglobin") == "hba1c"
+    assert canonical_biomarker_key("Hemoglobin A1c") == "hba1c"
+    assert canonical_biomarker_key("Hemoglobin") == "hemoglobin"
+    assert canonical_biomarker_key("Hb") == "hemoglobin"
+    assert canonical_biomarker_key("HGB") == "hemoglobin"
+
+    # 2. Fasting Glucose vs AST
+    assert canonical_biomarker_key("Fasting Plasma Glucose") == "fasting_glucose"
+    assert canonical_biomarker_key("Fasting Blood Sugar") == "fasting_glucose"
+    assert canonical_biomarker_key("Glucose") == "glucose"
+    assert canonical_biomarker_key("AST") == "ast"
+    assert canonical_biomarker_key("Aspartate Aminotransferase") == "ast"
+    assert canonical_biomarker_key("AST (SGOT)") == "ast"
+    # Ensure 'fasting' NEVER matches 'ast'
+    assert canonical_biomarker_key("Fasting") != "ast"
+
+    # 3. ALT, Vit D, B12, Ferritin, Creatinine, eGFR, BUN, Uric Acid
+    assert canonical_biomarker_key("Alanine Aminotransferase") == "alt"
+    assert canonical_biomarker_key("ALT (SGPT)") == "alt"
+    assert canonical_biomarker_key("25-OH Vitamin D") == "vitamin_d"
+    assert canonical_biomarker_key("Vit D") == "vitamin_d"
+    assert canonical_biomarker_key("Vitamin B12") == "vitamin_b12"
+    assert canonical_biomarker_key("Serum Ferritin") == "ferritin"
+    assert canonical_biomarker_key("Serum Creatinine") == "creatinine"
+    assert canonical_biomarker_key("eGFR") == "egfr"
+    assert canonical_biomarker_key("Blood Urea Nitrogen") == "bun"
+    assert canonical_biomarker_key("Uric Acid") == "uric_acid"
+
+
+def test_delta_alert_rules():
+    """Verify that delta_alert only triggers on <= -10% drops for allowed normal biomarkers."""
+    # Hemoglobin drop <= -10.0% on Normal -> Notable Drop
+    _, pct_hb, alert_hb = compute_biomarker_delta("13.6", "15.4", status="Normal", canonical_key="hemoglobin")
+    assert pct_hb == "-11.7%"
+    assert alert_hb == "Notable Drop (-11.7%)"
+
+    # Vit D rise +33.3% on Normal -> NOT flagged as notable or abnormal
+    _, pct_d, alert_d = compute_biomarker_delta("46.0", "34.5", status="Normal", canonical_key="vitamin_d")
+    assert pct_d == "+33.3%"
+    assert alert_d is None
+
+    # Vit B12 rise +50% on Normal -> NOT flagged as notable
+    _, pct_b12, alert_b12 = compute_biomarker_delta("450", "300", status="Normal", canonical_key="vitamin_b12")
+    assert alert_b12 is None
+
+    # Ferritin rise +25% on Normal -> NOT flagged as notable
+    _, pct_fer, alert_fer = compute_biomarker_delta("50", "40", status="Normal", canonical_key="ferritin")
+    assert alert_fer is None
+
+    # Uric Acid drop -20% on Normal -> NOT flagged as Notable Drop (not in allowed drop set)
+    _, pct_ua, alert_ua = compute_biomarker_delta("5.0", "6.25", status="Normal", canonical_key="uric_acid")
+    assert alert_ua is None
+
+    # LDL drop -25% on Normal -> NOT flagged as Notable Drop
+    _, pct_ldl, alert_ldl = compute_biomarker_delta("90", "120", status="Normal", canonical_key="ldl")
+    assert alert_ldl is None
+
+
+@pytest.mark.asyncio
+async def test_metrics_chronology_and_collision():
+    """
+    E2E Verification Suite:
+    1. Creates User A.
+    2. Uploads Document 1 (collected_at='24 Oct 2026' with Hb 15.4, HbA1c 4.9, Glucose 83, AST 31, Ferritin 44.0, Vit D 34.5).
+    3. Uploads Document 2 (collected_at='24 Apr 2027' with Hb 13.6, HbA1c 5.0, Glucose 85, AST 48, Ferritin 24.0, Vit D 46.0).
+    4. Calls GET /users/me/documents/{doc2_id}/metrics and asserts:
+       - Hb matches 15.4 (-11.7%, delta_alert == 'Notable Drop (-11.7%)'), NEVER 4.9.
+       - Glucose matches 83 (+2.4%, delta_alert is None), NEVER 31.
+       - Vit D matches 34.5 (+33.3%, delta_alert is None), NOT flagged as abnormal.
+    5. Calls GET /users/me/documents/{doc1_id}/metrics (simulating switching back to Chat 1) and asserts:
+       - Every metric on Document 1 has previous_value is None and delta_alert is None.
+    6. Asserts DB persistence: doc.cached_metrics in DB ONLY stores raw extracted metrics and NEVER contains delta fields.
+    """
+    email = f"user_a_{uuid.uuid4().hex[:8]}@test.com"
+    doc1_raw_metrics = [
+        {"test": "Hemoglobin", "value": "15.4", "unit": "g/dL", "range": "13.0 - 17.0", "status": "Normal"},
+        {"test": "HbA1c", "value": "4.9", "unit": "%", "range": "4.0 - 5.6", "status": "Normal"},
+        {"test": "Glucose", "value": "83", "unit": "mg/dL", "range": "70 - 99", "status": "Normal"},
+        {"test": "AST", "value": "31", "unit": "U/L", "range": "10 - 40", "status": "Normal"},
+        {"test": "Ferritin", "value": "44.0", "unit": "ng/mL", "range": "30.0 - 400.0", "status": "Normal"},
+        {"test": "Vit D", "value": "34.5", "unit": "ng/mL", "range": "30.0 - 100.0", "status": "Normal"},
+    ]
+
+    doc2_raw_metrics = [
+        {"test": "Hemoglobin", "value": "13.6", "unit": "g/dL", "range": "13.0 - 17.0", "status": "Normal"},
+        {"test": "HbA1c", "value": "5.0", "unit": "%", "range": "4.0 - 5.6", "status": "Normal"},
+        {"test": "Glucose", "value": "85", "unit": "mg/dL", "range": "70 - 99", "status": "Normal"},
+        {"test": "AST", "value": "48", "unit": "U/L", "range": "10 - 40", "status": "High"},
+        {"test": "Ferritin", "value": "24.0", "unit": "ng/mL", "range": "30.0 - 400.0", "status": "Low"},
+        {"test": "Vit D", "value": "46.0", "unit": "ng/mL", "range": "30.0 - 100.0", "status": "Normal"},
+    ]
+
+    async with AsyncSessionLocal() as session:
+        user = User(
+            email=email,
+            hashed_password=get_password_hash(TEST_PASSWORD),
+            phi_consent_granted=True,
+        )
+        session.add(user)
+        await session.commit()
+        await session.refresh(user)
+        user_id = user.id
+
+        # Document 1 (Oct 2026 Baseline)
+        doc1 = Document(
+            user_id=user_id,
+            filename="oct_2026_report.pdf",
+            title="October 2026 Baseline",
+            collected_at="24 Oct 2026",
+            cached_metrics=copy.deepcopy(doc1_raw_metrics),
+            index_status="local_ready",
+        )
+        session.add(doc1)
+        await session.commit()
+        await session.refresh(doc1)
+        doc1_id = doc1.id
+
+        # Document 2 (Apr 2027 Follow-Up)
+        doc2 = Document(
+            user_id=user_id,
+            filename="apr_2027_report.pdf",
+            title="April 2027 Follow-Up",
+            collected_at="24 Apr 2027",
+            cached_metrics=copy.deepcopy(doc2_raw_metrics),
+            index_status="local_ready",
+        )
+        session.add(doc2)
+        await session.commit()
+        await session.refresh(doc2)
+        doc2_id = doc2.id
+
+    with patch("firebase_admin.auth.verify_id_token", side_effect=Exception("Local JWT")):
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as ac:
+            login_res = await ac.post("/login", data={"username": email, "password": TEST_PASSWORD})
+            assert login_res.status_code == 200
+            token = login_res.json()["access_token"]
+            headers = {"Authorization": f"Bearer {token}"}
+
+            # ── 1. Call GET /users/me/documents/{doc2_id}/metrics ──
+            res_doc2 = await ac.get(f"/users/me/documents/{doc2_id}/metrics", headers=headers)
+            assert res_doc2.status_code == 200
+            data2 = res_doc2.json()
+            assert data2["prior_document_id"] == str(doc1_id)
+            assert data2["prior_document_date"] == "24 Oct 2026"
+
+            metrics_map2 = {m["test"]: m for m in data2["metrics"]}
+
+            # Hb matches 15.4 (-11.7%, delta_alert == "Notable Drop (-11.7%)"), NEVER 4.9
+            hb = metrics_map2["Hemoglobin"]
+            assert hb["previous_value"] == "15.4"
+            assert hb["previous_value"] != "4.9"
+            assert hb["delta_pct"] == "-11.7%"
+            assert hb["delta_alert"] == "Notable Drop (-11.7%)"
+
+            # Glucose matches 83 (+2.4%, delta_alert is None), NEVER 31
+            glucose = metrics_map2["Glucose"]
+            assert glucose["previous_value"] == "83"
+            assert glucose["previous_value"] != "31"
+            assert glucose["delta_pct"] == "+2.4%"
+            assert glucose["delta_alert"] is None
+
+            # Vit D matches 34.5 (+33.3%, delta_alert is None), NOT flagged as abnormal
+            vit_d = metrics_map2["Vit D"]
+            assert vit_d["previous_value"] == "34.5"
+            assert vit_d["delta_pct"] == "+33.3%"
+            assert vit_d["delta_alert"] is None
+
+            # HbA1c matches 4.9 (not 15.4)
+            hba1c = metrics_map2["HbA1c"]
+            assert hba1c["previous_value"] == "4.9"
+            assert hba1c["previous_value"] != "15.4"
+
+            # AST matches 31 (not 83)
+            ast = metrics_map2["AST"]
+            assert ast["previous_value"] == "31"
+            assert ast["previous_value"] != "83"
+
+            # ── 2. Call GET /users/me/documents/{doc1_id}/metrics (Simulating switching back to Chat 1) ──
+            res_doc1 = await ac.get(f"/users/me/documents/{doc1_id}/metrics", headers=headers)
+            assert res_doc1.status_code == 200
+            data1 = res_doc1.json()
+            assert data1["prior_document_id"] is None
+            assert data1["prior_document_date"] is None
+
+            for m in data1["metrics"]:
+                # Document 1 is the earliest report; it must NEVER use the future report (Apr 2027) as baseline
+                assert m["previous_value"] is None, f"{m['test']} incorrectly matched a future baseline"
+                assert m["previous_date"] is None
+                assert m["delta_abs"] is None
+                assert m["delta_pct"] is None
+                assert m["delta_alert"] is None
+
+    # ── 3. DB Persistence Verification: DB column must ONLY contain raw extracted arrays ──
+    async with AsyncSessionLocal() as check_session:
+        from sqlalchemy.future import select
+
+        res1 = await check_session.execute(select(Document).filter(Document.id == doc1_id))
+        stored_doc1 = res1.scalars().first()
+        res2 = await check_session.execute(select(Document).filter(Document.id == doc2_id))
+        stored_doc2 = res2.scalars().first()
+
+        for d, orig in [(stored_doc1, doc1_raw_metrics), (stored_doc2, doc2_raw_metrics)]:
+            assert isinstance(d.cached_metrics, list)
+            assert len(d.cached_metrics) == len(orig)
+            for item in d.cached_metrics:
+                # Must never contain enriched delta fields in DB
+                assert "previous_value" not in item
+                assert "previous_date" not in item
+                assert "delta_abs" not in item
+                assert "delta_pct" not in item
+                assert "delta_alert" not in item
+                assert "test" in item
+                assert "value" in item
+                assert "unit" in item
+                assert "status" in item
+

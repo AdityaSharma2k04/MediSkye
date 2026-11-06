@@ -38,6 +38,7 @@ from app.schemas.user import (
 from app.schemas.dependent import DependentCreate, DependentUpdate, DependentResponse
 from app.core.audit import log_audit
 from app.core.limiter import limiter
+from app.rag.prompt_builder import build_document_summary_prompt
 from app.core.security import clean_filename_to_title, sanitize_text
 from app.services.patient_service import calculate_age
 from app.services.clinical_units import normalize_clinical_unit, check_is_future_date

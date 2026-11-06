@@ -1,4 +1,4 @@
-import React, { useRef, useEffect, useState } from 'react';
+import React, { useRef, useEffect, useState, useMemo } from 'react';
 import {
   ArrowDown, Upload, FileText, Sparkles, Shield,
   Printer, Table, MessageSquare, AlertCircle, Download,
@@ -50,6 +50,8 @@ export default function ChatWindow({
   onOpenExport,
   viewMode: propViewMode,
   onViewModeChange,
+  metricsByDocId: propMetricsByDocId,
+  onLoadMetrics: propOnLoadMetrics,
 }) {
   const { t } = useTranslation();
   const scrollRef = useRef(null);
@@ -61,21 +63,40 @@ export default function ChatWindow({
     if (onViewModeChange) onViewModeChange(mode);
   };
   const [labMetrics, setLabMetrics] = useState([]);
+  const [localMetricsByDocId, setLocalMetricsByDocId] = useState({});
+  const metricsByDocId = propMetricsByDocId || localMetricsByDocId;
+  const metricsAbortRef = useRef(null);
+
+  const currentDocMetrics = useMemo(() => {
+    if (documentId && metricsByDocId && metricsByDocId[documentId]) {
+      return metricsByDocId[documentId];
+    }
+    return labMetrics;
+  }, [documentId, metricsByDocId, labMetrics]);
+
   const [loadingMetrics, setLoadingMetrics] = useState(false);
   const [showPrintSummary, setShowPrintSummary] = useState(false);
   const [localIsExporting, setLocalIsExporting] = useState(false);
   const [localPrintSummaryText, setLocalPrintSummaryText] = useState('');
+  const isExporting = propIsExportingSummary !== undefined ? propIsExportingSummary : localIsExporting;
+  const currentSummaryText = propPrintSummaryText !== undefined ? propPrintSummaryText : localPrintSummaryText;
   // Resolved user for the print summary — falls back to a fresh fetch if currentUser is null
   const [printUser, setPrintUser] = useState(null);
   const metricsTimingRef = useRef(null);
-
-  const isExporting = propIsExportingSummary !== undefined ? propIsExportingSummary : localIsExporting;
-  const currentSummaryText = propPrintSummaryText !== undefined ? propPrintSummaryText : localPrintSummaryText;
 
   // When activePdf is removed, reset to chat view
   useEffect(() => {
     if (!activePdf && viewMode === 'metrics') setViewMode('chat');
   }, [activePdf]);
+
+  // When switching documentId, abort any in-flight metrics fetch so Document B cannot overwrite Document A
+  useEffect(() => {
+    if (metricsAbortRef.current) {
+      metricsAbortRef.current.abort();
+      metricsAbortRef.current = null;
+      setLoadingMetrics(false);
+    }
+  }, [documentId]);
 
   const scrollToBottom = () => {
     if (scrollRef.current) {
@@ -103,19 +124,43 @@ export default function ChatWindow({
       return;
     }
     setViewMode('metrics');
-    setLoadingMetrics(true);
     if (!documentId) {
       console.error('Metrics Error: No document found for this session.');
-      setLoadingMetrics(false);
       return;
     }
-    const tFetch = typeof performance !== 'undefined' ? performance.now() : 0;
-    const metrics = await fetchLabMetrics(documentId);
-    if (typeof performance !== 'undefined') {
-      metricsTimingRef.current = { fetchMs: performance.now() - tFetch, resolvedAt: performance.now() };
+
+    if (metricsAbortRef.current) {
+      metricsAbortRef.current.abort();
     }
-    setLabMetrics(metrics);
-    setLoadingMetrics(false);
+    const controller = new AbortController();
+    metricsAbortRef.current = controller;
+    setLoadingMetrics(true);
+
+    try {
+      const tFetch = typeof performance !== 'undefined' ? performance.now() : 0;
+      let metrics = [];
+      if (propOnLoadMetrics) {
+        metrics = await propOnLoadMetrics(documentId, false, controller.signal);
+      } else {
+        metrics = await fetchLabMetrics(documentId, false, controller.signal);
+      }
+      if (!controller.signal.aborted) {
+        if (typeof performance !== 'undefined') {
+          metricsTimingRef.current = { fetchMs: performance.now() - tFetch, resolvedAt: performance.now() };
+        }
+        setLabMetrics(metrics);
+        setLocalMetricsByDocId((prev) => ({ ...prev, [documentId]: metrics }));
+      }
+    } catch (err) {
+      if (err.name !== 'AbortError') {
+        console.error('Failed to load metrics:', err);
+      }
+    } finally {
+      if (metricsAbortRef.current === controller) {
+        metricsAbortRef.current = null;
+        setLoadingMetrics(false);
+      }
+    }
   };
 
   // [METRICS_TIMING] network vs. React commit time for the metrics view.
@@ -128,10 +173,10 @@ export default function ChatWindow({
     const commitMs = performance.now() - timing.resolvedAt;
     if (import.meta.env.DEV) {
       console.info(
-        `[METRICS_TIMING] fetch: ${timing.fetchMs.toFixed(1)}ms | render+commit: ${commitMs.toFixed(1)}ms | rows: ${labMetrics.length}`
+        `[METRICS_TIMING] fetch: ${timing.fetchMs.toFixed(1)}ms | render+commit: ${commitMs.toFixed(1)}ms | rows: ${currentDocMetrics.length}`
       );
     }
-  }, [loadingMetrics, labMetrics, viewMode]);
+  }, [loadingMetrics, currentDocMetrics, viewMode]);
 
   const handlePrintDoctorSummary = async () => {
     if (isExporting) return;
@@ -144,10 +189,16 @@ export default function ChatWindow({
     setPrintUser(resolvedUser);
 
     // Auto-fetch metrics if user hasn't opened Lab Metrics tab yet
-    if (documentId && labMetrics.length === 0) {
+    if (documentId && currentDocMetrics.length === 0) {
       try {
-        const m = await fetchLabMetrics(documentId);
+        let m = [];
+        if (propOnLoadMetrics) {
+          m = await propOnLoadMetrics(documentId);
+        } else {
+          m = await fetchLabMetrics(documentId);
+        }
         setLabMetrics(m);
+        setLocalMetricsByDocId((prev) => ({ ...prev, [documentId]: m }));
       } catch (_) {}
     }
 
@@ -402,7 +453,7 @@ export default function ChatWindow({
                 ))}
               </div>
             </div>
-          ) : labMetrics.length === 0 ? (
+          ) : currentDocMetrics.length === 0 ? (
             <div className={`p-8 sm:p-10 text-center rounded-2xl border mt-4 ${cardBg} ${cardBorder} animate-fade-in`}>
               <div className={`w-14 h-14 rounded-2xl flex items-center justify-center mx-auto mb-4 ${
                 darkMode ? 'bg-zinc-800 text-zinc-400' : 'bg-zinc-100 text-zinc-500'
@@ -427,7 +478,8 @@ export default function ChatWindow({
             </div>
           ) : (
             <LabMetrics
-              metrics={labMetrics}
+              metrics={currentDocMetrics}
+              documentId={documentId}
               darkMode={darkMode}
               onBack={() => setViewMode('chat')}
             />
@@ -520,7 +572,7 @@ export default function ChatWindow({
             user={activePatient}
             document={activePdf}
             summary={summaryToPrint}
-            metrics={labMetrics}
+            metrics={currentDocMetrics}
             specialists={messages.flatMap((m) => m.specialists || [])}
           />
         );
