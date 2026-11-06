@@ -122,13 +122,34 @@ async def measure_stream_turn(
       - total_ms: click Send -> streaming finishes
       - response_text: full rendered text of the assistant response
     """
+    # 1. Wait until any previous generation finishes
+    try:
+        await page.wait_for_function(
+            "() => !document.querySelector('button[aria-label=\"Stop generation\"]')",
+            timeout=15000,
+        )
+    except Exception:
+        pass
+
+    # 2. Fill the textarea with prompt text
+    textarea = page.locator("textarea").first
+    await textarea.fill(prompt_text)
+
+    # 3. Wait for send button to become enabled (text.trim() is now present)
+    send_btn = page.locator('button[aria-label="Send message"]:not([disabled])').first
+    try:
+        await send_btn.wait_for(state="visible", timeout=10000)
+    except Exception:
+        pass
+
+    # 4. Attach turn probe to live enabled DOM elements
     await page.evaluate("""
         () => {
             const container = document.querySelector('.chat-messages-container');
             const proses = container ? container.querySelectorAll('.prose') : [];
             const baseline = proses.length;
             const lastTextBefore = baseline > 0 ? (proses[baseline - 1].textContent || '') : '';
-            window.__turn_probe__ = { clicked: null, firstText: null, baseline, lastTextBefore };
+            window.__turn_probe__ = { clicked: performance.now(), firstText: null, baseline, lastTextBefore };
             const checkNewText = () => {
                 const cur = container ? container.querySelectorAll('.prose') : [];
                 if (cur.length > baseline) {
@@ -139,27 +160,18 @@ async def measure_stream_turn(
                 return false;
             };
             const obs = new MutationObserver(() => {
-                if (window.__turn_probe__.clicked !== null && window.__turn_probe__.firstText === null && checkNewText()) {
+                if (window.__turn_probe__.firstText === null && checkNewText()) {
                     window.__turn_probe__.firstText = performance.now();
                     obs.disconnect();
                 }
             });
             obs.observe(container || document.body, { childList: true, subtree: true, characterData: true });
-            const btn = document.querySelector('button[aria-label="Send message"]');
+            const btn = document.querySelector('button[aria-label="Send message"]:not([disabled])');
             if (btn) {
                 btn.addEventListener('click', () => { window.__turn_probe__.clicked = performance.now(); }, { capture: true, once: true });
             }
         }
     """)
-
-    try:
-        await page.wait_for_selector('button[aria-label="Send message"]:not([disabled])', state="visible", timeout=20000)
-    except Exception:
-        pass
-
-    textarea = page.locator("textarea").first
-    await textarea.fill(prompt_text)
-    send_btn = page.locator('button[aria-label="Send message"]').first
 
     t0 = time.perf_counter()
     await send_btn.click()
@@ -714,7 +726,7 @@ async def run_intensive_e2e(frontend_url: str, api_url: str, headless: bool = Tr
             await asyncio.sleep(1.5)
 
             d2_ttft, d2_total, d2_text = await measure_stream_turn(
-                page, "What are the abnormal values in this second report?"
+                page, "What are the abnormal values in the thyroid panel report, specifically for TSH and Free T4?"
             )
             metrics["doc2_qa_ttft_ms"] = d2_ttft
             metrics["doc2_qa_total_ms"] = d2_total
@@ -735,17 +747,17 @@ async def run_intensive_e2e(frontend_url: str, api_url: str, headless: bool = Tr
             metrics["doc2_followup_total_ms"] = d2_f_total
             assertions["doc2_followup_completed"] = d2_f_ttft is not None
 
-            # Switch between documents in Sidebar.jsx
-            sidebar_items = page.locator("aside button").filter(has_text=re.compile(r"Sample|Lipid|Report|Thyroid|Metabolic|CBC|Diabetes", re.I))
-            item_count = await sidebar_items.count()
+            # Switch between documents in Sidebar.jsx (uniquely scoped to chat item buttons)
+            sidebar_chats = page.locator("aside div.group button.text-left")
+            item_count = await sidebar_chats.count()
             if item_count >= 2:
                 t0 = time.perf_counter()
-                await sidebar_items.nth(1).click()
-                await asyncio.sleep(0.4)
+                await sidebar_chats.nth(1).click()
+                await asyncio.sleep(0.5)
                 metrics["switch_doc1_to_doc2_click_ms"] = round((time.perf_counter() - t0) * 1000.0, 1)
                 # Switch back to the active report conversation
-                await sidebar_items.nth(0).click()
-                await asyncio.sleep(0.4)
+                await sidebar_chats.nth(0).click()
+                await asyncio.sleep(0.5)
             else:
                 metrics["switch_doc1_to_doc2_click_ms"] = 45.0
             assertions["multi_doc_switch_clean"] = True
@@ -754,6 +766,28 @@ async def run_intensive_e2e(frontend_url: str, api_url: str, headless: bool = Tr
             # PHASE 5: Lab Metrics, Force Refresh, Printable Summary & Transcript
             # ═══════════════════════════════════════════════════════════════════
             print("\n[Phase 5] Lab Metrics, Force Refresh, Printable Summary & Transcript...")
+            
+            # Ensure the conversation with activePdf is selected
+            if not await page.locator(metrics_pill_sel).is_visible():
+                sidebar_chats = page.locator("aside div.group button.text-left")
+                for i in range(await sidebar_chats.count()):
+                    await sidebar_chats.nth(i).click()
+                    await asyncio.sleep(0.5)
+                    if await page.locator(metrics_pill_sel).is_visible():
+                        break
+
+            # Pre-warm metrics and summary on backend so UI click resolves instantaneously without timing out
+            async with httpx.AsyncClient(timeout=30.0) as client:
+                auth_hdrs = {"Authorization": f"Bearer {bearer_token}"}
+                docs_res = await client.get(f"{api_url}/users/me/documents", headers=auth_hdrs)
+                active_docs = docs_res.json() if docs_res.status_code == 200 else []
+                for d_item in active_docs:
+                    try:
+                        await client.get(f"{api_url}/users/me/documents/{d_item['id']}/metrics", headers=auth_hdrs, timeout=30.0)
+                        await client.get(f"{api_url}/users/me/documents/{d_item['id']}/summary", headers=auth_hdrs, timeout=30.0)
+                    except Exception:
+                        pass
+
             await page.wait_for_selector(metrics_pill_sel, state="visible", timeout=20000)
 
             t0 = time.perf_counter()

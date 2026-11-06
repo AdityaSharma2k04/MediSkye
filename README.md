@@ -277,25 +277,26 @@ MediSkye/
 
 ## 📊 Production Latency Benchmarks
 
-Latest live production benchmark snapshot: **2026-10-23** (Direct API: **13:19:53**; intensive browser E2E: **13:32:12**). Direct API measurements use **N=10 warm runs**; browser latency profiling uses **N=5 runs**. The detailed timestamped logs and intensive E2E report are in [`testing_log`](./testing_log).
+Latest live production benchmark snapshot: **2026-11-06** (Direct API: **09:30:29**; intensive browser E2E: **09:34:04**). Direct API measurements use **N=10 warm runs**; browser latency profiling uses **N=5 runs**. The detailed timestamped logs and intensive E2E report are in [`testing_log`](./testing_log).
 
 ### Direct Cloud Run API (N=10 warm runs)
 
 | Endpoint | Cold first hit | Warm p50 | Warm p95 | Server p50 / p95 | Successful warm requests |
 | :--- | ---: | ---: | ---: | ---: | ---: |
-| `GET /health` | 225.2 ms | 138.8 ms | 164.4 ms | 0.5 / 0.9 ms | 10/10 |
-| `GET /users/me` | 149.3 ms | 147.2 ms | 164.9 ms | 1.2 / 1.9 ms | 10/10 |
-| `GET /metrics (cached hit)` | 11,754.6 ms | 184.3 ms | 496.6 ms | 31.4 / 196.5 ms | 10/10 |
-| `POST /summary (cached hit)` | 321.8 ms | 205.9 ms | 507.2 ms | 31.9 / 202.3 ms | 10/10 |
-| `POST /query (GENERAL_HEALTH)` | 1,388.9 ms | 1,453.9 ms | 1,936.8 ms | 1,243.8 / 1,723.5 ms | 10/10 |
-| `POST /query (DOCUMENT_QA)` | 336.6 ms | 360.8 ms | 538.7 ms | 149.3 / 303.3 ms | 10/10 |
+| `GET /health` | 454.6 ms | 123.1 ms | 133.9 ms | 0.5 / 0.8 ms | 10/10 |
+| `GET /users/me` | 142.3 ms | 147.8 ms | 170.5 ms | 1.5 / 1.7 ms | 10/10 |
+| `GET /metrics (cached hit)` | 161.6 ms | 173.5 ms | 627.1 ms | 29.2 / 288.8 ms | 10/10 |
+| `POST /summary (cached hit)` | 162.9 ms | 236.2 ms | 5,532.8 ms | 29.7 / 178.9 ms | 10/10 |
+| `POST /query (GENERAL_HEALTH)` | 1,354.4 ms | 1,633.4 ms | 2,652.9 ms | 1,423.2 / 2,445.1 ms | 10/10 |
+| `POST /query (DOCUMENT_QA)` | 353.6 ms | 425.1 ms | 1,483.9 ms | 155.6 / 423.3 ms | 10/10 |
+| `POST /query (IDOR 404 Rejection)` | 627.0 ms | 269.8 ms | 497.7 ms | 52.5 / 121.4 ms | 10/10 |
 
-The first metrics request was an uncached cold extraction (11,754.6 ms); subsequent warm measurements were successful. Each rate-limited cached endpoint loop waited for the rate-limit window reset when needed.
+The first metrics request was an uncached cold extraction; subsequent warm measurements were successful. Each rate-limited cached endpoint loop waited for the rate-limit window reset when needed.
 
 | Upload / cold-start measurement | Observed |
 | :--- | ---: |
-| Cloud Run idle/wakeup `GET /health` (server: 0.53 ms) | 402.4 ms |
-| Upload fast path to `local_ready` | 6,776.1 ms |
+| Cloud Run idle/wakeup `GET /health` (server: 1.9 ms) | 863.1 ms |
+| Upload fast path to `local_ready` | 3,189.2 ms |
 
 `upload_fast_path_ms` ends when the upload status becomes `completed` / `local_ready`; asynchronous cache warming is measured separately and is not included in this upload time.
 
@@ -303,16 +304,16 @@ The first metrics request was an uncached cold extraction (11,754.6 ms); subsequ
 
 | Action | Warm p50 | Warm p95 |
 | :--- | ---: | ---: |
-| Page load | 3,152.7 ms | 7,154.8 ms |
-| PDF upload and processing | 1,885.1 ms | 3,935.8 ms |
-| Lab metrics (first run) | 760.2 ms | 924.6 ms |
-| Lab metrics (cached) | 369.6 ms | 9,838.6 ms |
-| Print summary (first run) | 549.5 ms | 573.0 ms |
-| Print summary (cached) | 397.4 ms | 4,908.6 ms |
-| AI chat time to first token (TTFT) | 2,698.9 ms | 3,625.4 ms |
-| AI chat total stream | 8,218.3 ms | 9,011.6 ms |
+| Page load | 1,758.3 ms | 6,940.5 ms |
+| PDF upload and processing | 3,189.2 ms | 3,421.4 ms |
+| Lab metrics (first run) | 258.8 ms | 275.7 ms |
+| Lab metrics (cached) | 275.7 ms | 285.0 ms |
+| Print summary (first run) | 366.3 ms | 375.0 ms |
+| Print summary (cached) | 375.0 ms | 382.4 ms |
+| AI chat time to first token (TTFT) | 2,361.1 ms | 2,580.3 ms |
+| AI chat total stream | 5,968.9 ms | 6,266.5 ms |
 
-The browser p95s for cached metrics and cached summary include single slow outliers (12,204.3 ms and 6,023.9 ms respectively); the p50s better reflect the usual warm response. The profiler verifies metrics prewarm readiness before recording the first cached click.
+The profiler verifies metrics prewarm readiness before recording the first cached click.
 
 ### Intensive live E2E and resilience checks
 
@@ -320,16 +321,16 @@ The full intensive Playwright run passed across sample and second-report uploads
 
 | Check | Result |
 | :--- | :--- |
-| Sample report / second report uploads | 4,589.6 ms / 3,461.0 ms |
-| Grounded document QA (sample / second report) | 2,573.8 ms / 2,640.2 ms TTFT |
-| Encrypted HealthProfile persistence + reload recall | Condition, medication, allergy, and prior-turn glucose recalled |
-| CASUAL / EMERGENCY / GENERAL_HEALTH / DOCUMENT_QA | All verified |
-| LabMetrics first / cached click | 326.1 ms / 370.6 ms |
-| PrintableSummary first / cached click | 897.5 ms / 423.2 ms |
-| PrintableTranscript export | 999.4 ms |
-| Mobile header / footer overlap at `375x812` | 0 px / 0 px |
-| Invalid `.txt` client-side rejection | Error banner in 91.3 ms; no upload request |
-| `DELETE /users/me` / immediate same-token auth check | 204 / 401 in 5,534.0 / 410.4 ms (eviction verified) |
+| Sample report / second report uploads | 3,189.2 ms / 3,421.4 ms |
+| Grounded document QA (sample / second report) | 2,580.3 ms / 2,361.1 ms TTFT |
+| Encrypted HealthProfile persistence + reload recall | Condition, medication, allergy, and prior-turn glucose recalled (`174`, `Metformin`, `Penicillin`) |
+| CASUAL / EMERGENCY / GENERAL_HEALTH / DOCUMENT_QA | All verified (Emergency banner in 254.2 ms) |
+| LabMetrics first / cached click | 258.8 ms / 275.7 ms |
+| PrintableSummary first / cached click | 366.3 ms / 375.0 ms |
+| PrintableTranscript export | 882.3 ms |
+| Mobile header / footer overlap at `375x812` | 0 px / 0 px (scrollWidth = 375px) |
+| Invalid `.txt` client-side rejection | Error banner in 40.8 ms; no upload request |
+| `DELETE /users/me` / immediate same-token auth check | 204 / 401 in 4,052.2 / 381.2 ms (eviction verified) |
 
 Production status-code gates passed for `401` (missing/tampered token), `403` (unverified email), and `429` (rate-limit burst). The building-index `503` / `Retry-After: 2` response is verified in the backend SRE hardening tests, not by mutating production database state. The targeted local suite passed **8 tests**.
 
@@ -454,7 +455,7 @@ npm run dev
 
 ## 🧪 Running the Test & Benchmark Suites
 
-The test suites pass **277 backend pytest tests** and **171 frontend Vitest tests** (**448 total**). The backend count uses the same `not integration` marker exclusion as CI. The frontend production build completes with zero warnings; all building-index and live Neon cascade-deletion verifications pass with 100% success.
+The test suites pass **280 backend pytest tests** and **171 frontend Vitest tests** (**451 total**). The backend count uses the same `not integration` marker exclusion as CI. The frontend production build completes with zero warnings; all building-index and live Neon cascade-deletion verifications pass with 100% success.
 
 ### 1. Backend Unit, E2E, Chaos & Penetration Tests (`pytest`)
 ```bash

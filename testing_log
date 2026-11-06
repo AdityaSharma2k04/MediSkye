@@ -1,5 +1,5 @@
 ==================================================
-MEDISKYE SRE BENCHMARK LOG — [2026-11-06 00:54:10]
+MEDISKYE SRE BENCHMARK LOG — [2026-11-06 09:30:23]
 ==================================================
 
 ﻿==================================================
@@ -375,4 +375,106 @@ INTENSIVE LIVE FRONTEND E2E AUDIT — [2026-10-23 13:32:12]
 | 429 Too Many Requests (Rate Limiter Burst Gate) | `429 Triggered` | PASS |
 | POST /logout Invalidation Latency | `176.0 ms (Server: 45.51 ms, Code 200)` | PASS |
 | Immediate Post-Logout GET /users/me 401 Rejection | `453.3 ms (Server: 294.03 ms, Code 401)` | PASS |
+
+**Cold-Start Measurement Row:**
+- **First Hit (Cloud Run Idle/Wakeup GET /health):** `863.1 ms` (Server Process Time: `1.9 ms`)
+- **Observed Upload Synchronous Fast-Path Total (`local_ready`):** `12475.3 ms`
+
+
+### Table A: Direct Cloud Run API Benchmark (N=10 Warm Runs)
+| Endpoint | Cold (1st Hit) | Warm p50 | Warm p95 | Server X-Process-Time (p50/p95) | n_success | n_425 | n_429 | n_retries |
+| :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- |
+| `GET /health` | 454.6 ms | 123.1 ms | 133.9 ms | 0.5 ms / 0.8 ms | 10/10 | 0 | 0 | 0 |
+| `GET /users/me` | 142.3 ms | 147.8 ms | 170.5 ms | 1.5 ms / 1.7 ms | 10/10 | 0 | 0 | 0 |
+| `GET /metrics (cached hit)` | 161.6 ms | 173.5 ms | 627.1 ms | 29.2 ms / 288.8 ms | 10/10 | 0 | 0 | 0 |
+| `POST /summary (cached hit)` | 162.9 ms | 236.2 ms | 5532.8 ms | 29.7 ms / 178.9 ms | 10/10 | 0 | 0 | 0 |
+| `POST /query (GENERAL_HEALTH)` | 1354.4 ms | 1633.4 ms | 2652.9 ms | 1423.2 ms / 2445.1 ms | 10/10 | 0 | 0 | 0 |
+| `POST /query (DOCUMENT_QA)` | 353.6 ms | 425.1 ms | 1483.9 ms | 155.6 ms / 423.3 ms | 10/10 | 0 | 0 | 0 |
+| `POST /query (IDOR 404 Rejection)` | 627.0 ms | 269.8 ms | 497.7 ms | 52.5 ms / 121.4 ms | 10/10 | 0 | 0 | 0 |
+
+### Security & Error-Code Verification Gate
+| Security / Resilience Gate | Observed Response | Status |
+| :--- | :--- | :--- |
+| 401 Unauthorized (Missing & Tampered Bearer Token) | `401 / 401` | PASS |
+| 403 Forbidden (Unverified Email Token Rejected) | `403 (Email not verified)` | PASS |
+| 429 Too Many Requests (Rate Limiter Burst Gate) | `429 Triggered` | PASS |
+| POST /logout Invalidation Latency | `256.4 ms (Server: 43.82 ms, Code 200)` | PASS |
+| Immediate Post-Logout GET /users/me 401 Rejection | `544.6 ms (Server: 298.78 ms, Code 401)` | PASS |
+==================================================
+
+### Security Fixes Micro-Benchmark Results (N=10 Warm Runs)
+| Operation / Target | Warm Client p50 | Warm Client p95 | Server X-Process-Time (p50/p95) | Target Budget | Status |
+| :--- | ---: | ---: | ---: | :--- | :--- |
+| `DELETE /users/me/dependents/{id}` Cascade | 306.8 ms | 617.3 ms | 136.1 ms / 188.9 ms | < 500 ms | FAIL |
+| `POST /logout` Token Revocation | 211.1 ms | 988.2 ms | 43.9 ms / 48.9 ms | < 100 ms | FAIL |
+| Immediate `GET /users/me` 401 Rejection | 479.2 ms | 585.4 ms | 286.1 ms / 302.1 ms | Server < 10 ms | FAIL |
+
+==================================================
+INTENSIVE LIVE FRONTEND E2E AUDIT — [2026-11-06 09:34:03]
+==================================================
+
+**Target Frontend:** `https://mediskye.pages.dev`
+**Target Backend:** `https://mediskye-1095767703249.asia-southeast1.run.app`
+
+### Table 1: UI Click & Modal Interaction Latencies
+| UI Action / Step | Click-to-Render (ms) | API Network (ms) | Server `X-Process-Time-Ms` | Status |
+| :--- | :--- | :--- | :--- | :--- |
+| Landing Page Cold Load (`1440x900`) | 6940.5 ms | — | — | PASS |
+| Landing Page Warm Reload | 1758.3 ms | — | — | PASS |
+| Nav Click: `Features` (`FeaturesSection.jsx`) | 196.9 ms | — | — | PASS |
+| Nav Click: `How it works` (`HowItWorksSection.jsx`) | 83.2 ms | — | — | PASS |
+| Nav Click: `Safety` (`SafetySection.jsx`) | 119.6 ms | — | — | PASS |
+| CTA Navigate to `/register` | 1566.9 ms | — | — | PASS |
+| Register Submit (`/register`) | 5997.3 ms | — | — | PASS |
+| Login Submit -> `/chat` Ready | 2818.4 ms | — | — | PASS |
+| Open `Profile.jsx` Modal | 124.4 ms | — | — | PASS |
+| Save Encrypted Health Profile (`PUT /users/me`) | 492.6 ms | 207.9 ms | 85.9 ms | PASS |
+| Browser Reload Chat History Hydration | 1434.7 ms | — | — | PASS |
+| Click `New Conversation` (`Sidebar.jsx`) | 77.2 ms | — | — | PASS |
+| Switch `Metrics` -> `Chat` View Pill | 70.6 ms | — | — | PASS |
+| i18n Switch `English` -> `Hindi (hi)` | 393.7 ms | — | — | PASS |
+| i18n Switch `Hindi (hi)` -> `English` | 337.8 ms | — | — | PASS |
+| Mobile (`375x812`) Hamburger Open | 272.1 ms | — | — | PASS |
+| Mobile (`375x812`) Backdrop Close | 56.7 ms | — | — | PASS |
+
+### Table 2: Multi-File Upload Flows & Multi-Document Switching
+| Upload / Document Action | Total E2E Latency (ms) | Notes / Verification | Status |
+| :--- | :--- | :--- | :--- |
+| File 1: Sample Report Upload (`Report 1`) | 3189.2 ms | Unlocks on `status === 'completed'` (`local_ready`) | PASS |
+| File 2: Second Report Upload (`second_thyroid_panel.pdf`) | 3421.4 ms | Distinct Thyroid biomarkers (`TSH 11.4`, `Free T4 0.6`) | PASS |
+| Switch File 2 <-> File 1 in `Sidebar.jsx` | 572.3 ms | Clean state & PDF chip restoration | PASS |
+| Delete Document via Sidebar Modal | 349.2 ms | Verified `404` on `/users/me/documents/{id}/metrics` | PASS |
+
+### Table 3: All 4 AI Intent Routes + Multi-Turn Memory & Encrypted Health Profile Recall
+| Turn / Route | Query / Verification | TTFT (ms) | Total Stream (ms) | Assertion Status |
+| :--- | :--- | :--- | :--- | :--- |
+| Turn 1: `CASUAL` Fast-Path | `"Hi MediSkye!"` (Disclaimer suppressed) | 1578.9 ms | 2882.8 ms | PASS |
+| Turn 2: `EMERGENCY` Fast-Path | `"I am having severe chest pain and can't breathe"` | 254.2 ms | 461.5 ms | PASS |
+| Turn 3: `GENERAL_HEALTH` (Seed) | Seed `174 mg/dL` fasting blood glucose | 2531.0 ms | 17889.9 ms | PASS |
+| Turn 4: `GENERAL_HEALTH` (Memory + PHI Recall) | Recalls `174` + `Metformin` + `Penicillin` | 2285.9 ms | 4728.0 ms | PASS |
+| Turn 5: Post-Reload Continuity | Follow-up after `page.reload()` | 2406.3 ms | 6333.4 ms | PASS |
+| File 1 `DOCUMENT_QA` | Top abnormal biomarkers in File 1 | 2580.3 ms | 6266.5 ms | PASS |
+| File 2 `DOCUMENT_QA` | Abnormal values in File 2 (`TSH 11.4`, `Free T4`) | 2361.1 ms | 5968.9 ms | PASS |
+| File 2 `DOCUMENT_QA` Follow-Up | Multi-turn follow-up inside File 2 | 2867.2 ms | 5756.2 ms | PASS |
+
+### Table 4: Cached vs. Uncached Clinical Artifacts (`LabMetrics`, `PrintableSummary`, `PrintableTranscript`)
+| Clinical Artifact Action | UI Click-to-Render (ms) | API Network (ms) | Server `X-Process-Time-Ms` | Status |
+| :--- | :--- | :--- | :--- | :--- |
+| `LabMetrics` 1st Click (`LabMetrics.jsx`) | 258.8 ms | 152.5 ms | 23.9 ms | PASS |
+| `LabMetrics` 2nd Click (Cached Hit) | 275.7 ms | 153.4 ms | 29.7 ms | PASS |
+| `LabMetrics` `?force_refresh=true` API Re-Extract | — | 3413.2 ms | — | PASS |
+| `PrintableSummary` 1st Click (`PrintableSummary.jsx`) | 366.3 ms | 166.9 ms | 32.7 ms | PASS |
+| `PrintableSummary` 2nd Click (Cached Hit) | 375.0 ms | 175.2 ms | 39.4 ms | PASS |
+| `PrintableTranscript` Export (`PrintableTranscript.jsx`) | 882.3 ms | — | — | PASS |
+
+### Table 5: Mobile (`375x812`) Bounding-Box Collision & Security/Eviction Checks
+| Check / Invariant | Observed Result | Status |
+| :--- | :--- | :--- |
+| Weak Password (`12345678`) Client-Side Gate | Blocked on `/register` | PASS |
+| Invalid File Format (`.txt`) Client-Side Gate | Error banner in `40.8 ms`; no `POST /upload` | PASS |
+| Fernet-256 Encrypted PHI Persistence (`Profile.jsx`) | Condition + Medication + Allergy decrypted on re-open | PASS |
+| Mobile (`375x812`) Top Header Pairwise Overlap | `0px` overlap across Sidebar, Patient Pill, Print, Export | PASS |
+| Mobile (`375x812`) Mode Switcher vs. Composer Overlap | `0px` overlap | PASS |
+| Mobile (`375x812`) Horizontal Overflow (`scrollWidth <= 375`) | `scrollWidth = 375px` | PASS |
+| `DELETE /users/me` + Immediate 60s Auth Cache Eviction | Deleted in `4052.2 ms`; immediate `GET /users/me` returned `401` in `381.2 ms` | PASS |
 ==================================================
