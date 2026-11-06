@@ -92,7 +92,7 @@ export default function PrivacyPolicy() {
             <span>Version: 2.0.0</span>
             <span>•</span>
             <span className="text-emerald-400 flex items-center gap-1 font-sans">
-              <CheckCircle2 className="w-3.5 h-3.5" /> HIPAA-Aware Architecture
+              <CheckCircle2 className="w-3.5 h-3.5" /> Fernet-Encrypted PHI Storage &amp; Strict Per-User Isolation
             </span>
           </div>
         </div>

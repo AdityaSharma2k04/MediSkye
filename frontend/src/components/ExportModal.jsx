@@ -107,7 +107,13 @@ export default function ExportModal({
         });
         // Let the hidden print document commit to the DOM before printing.
         setTimeout(() => {
+          const origTitle = document.title;
+          const patientName = user?.full_name || user?.name || (user?.email ? user.email.split('@')[0] : 'Patient');
+          const docTitle = payload?.document?.title || payload?.document?.filename || 'Lab Report';
+          document.title = `${patientName} - ${docTitle} - Clinical Summary`;
+
           const cleanup = () => {
+            document.title = origTitle;
             setPrintData(null);
             setBusy(null);
             window.removeEventListener('afterprint', cleanup);
@@ -116,6 +122,7 @@ export default function ExportModal({
           window.print();
           // Fallback for browsers that never fire afterprint.
           setTimeout(() => {
+            document.title = origTitle;
             setPrintData(null);
             setBusy(null);
             window.removeEventListener('afterprint', cleanup);

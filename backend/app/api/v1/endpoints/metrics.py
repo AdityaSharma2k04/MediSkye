@@ -19,7 +19,14 @@ from app.rag.embedder import get_embedder
 from app.llm.gemini_client import call_gemini_with_retry
 from google.genai.types import GenerateContentConfig, ThinkingConfig
 
-from typing import Optional, List, Dict, Any, Union
+from typing import Optional, List, Dict, Any, Union, Tuple
+
+from app.services.clinical_units import (
+    normalize_clinical_unit,
+    check_is_future_date,
+    canonical_biomarker_name,
+    compute_biomarker_delta,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -183,10 +190,12 @@ Report text:
             if not test_name or not val_str or not unit_str:
                 continue
 
+            normalized_unit = normalize_clinical_unit(unit_str)
+
             metric_dict = {
                 "test": test_name,
                 "value": val_str,
-                "unit": unit_str,
+                "unit": normalized_unit,
                 "range": str(item.get("range") or item.get("reference_range") or "").strip(),
                 "status": str(item.get("status") or "Normal").strip(),
             }
@@ -204,6 +213,101 @@ Report text:
         return None
 
 
+async def _apply_longitudinal_deltas(
+    doc: Document,
+    raw_list: List[Any],
+    current_user: Union[User, UserDTO],
+    db: AsyncSession,
+) -> Tuple[List[LabMetricItem], Optional[str], Optional[str]]:
+    normalized_items = []
+    for item in raw_list:
+        if isinstance(item, dict):
+            d = dict(item)
+        elif hasattr(item, "model_dump"):
+            d = item.model_dump()
+        else:
+            continue
+        d["unit"] = normalize_clinical_unit(d.get("unit", ""))
+        normalized_items.append(d)
+
+    # Find prior document for same user & dependent with cached metrics
+    prior_res = await db.execute(
+        select(Document)
+        .filter(
+            Document.user_id == current_user.id,
+            Document.dependent_id == doc.dependent_id,
+            Document.id != doc.id,
+            Document.cached_metrics.is_not(None)
+        )
+        .order_by(Document.created_at.desc())
+    )
+    candidates = prior_res.scalars().all()
+    prior_doc = None
+    if candidates:
+        for cand in candidates:
+            if cand.created_at and doc.created_at and cand.created_at < doc.created_at:
+                prior_doc = cand
+                break
+            elif not prior_doc:
+                prior_doc = cand
+
+    prior_doc_id = str(prior_doc.id) if prior_doc else None
+    prior_doc_date = (prior_doc.collected_at or prior_doc.created_at.strftime('%d %b %Y')) if prior_doc and (prior_doc.collected_at or prior_doc.created_at) else None
+
+    prior_metrics_map = {}
+    if prior_doc and prior_doc.cached_metrics:
+        raw_prior = prior_doc.cached_metrics
+        if isinstance(raw_prior, str):
+            try:
+                raw_prior = json.loads(raw_prior)
+            except Exception:
+                raw_prior = []
+        if isinstance(raw_prior, dict) and "metrics" in raw_prior:
+            raw_prior = raw_prior["metrics"]
+        if isinstance(raw_prior, list):
+            for pm in raw_prior:
+                if isinstance(pm, dict):
+                    t_name = pm.get("test") or pm.get("name") or ""
+                    key = canonical_biomarker_name(t_name)
+                    if key:
+                        prior_metrics_map[key] = pm
+
+    result_items: List[LabMetricItem] = []
+    for m in normalized_items:
+        t_name = str(m.get("test") or m.get("name") or "").strip()
+        key = canonical_biomarker_name(t_name)
+        matched_prior = prior_metrics_map.get(key)
+
+        prev_val = None
+        prev_date = None
+        d_abs = None
+        d_pct = None
+        d_alert = None
+
+        if matched_prior:
+            prev_val = str(matched_prior.get("value", "")).strip()
+            prev_date = prior_doc_date
+            c_val = str(m.get("value", "")).strip()
+            status = str(m.get("status") or "Normal").strip()
+            unit = str(m.get("unit") or "").strip()
+            d_abs, d_pct, d_alert = compute_biomarker_delta(c_val, prev_val, status, unit)
+
+        result_items.append(LabMetricItem(
+            test=t_name,
+            value=str(m.get("value", "")).strip(),
+            unit=str(m.get("unit", "")).strip(),
+            range=str(m.get("range") or m.get("reference_range") or "").strip(),
+            status=str(m.get("status") or "Normal").strip(),
+            previous_value=prev_val,
+            previous_date=prev_date,
+            delta_abs=d_abs,
+            delta_pct=d_pct,
+            delta_alert=d_alert,
+        ))
+
+    return result_items, prior_doc_id, prior_doc_date
+
+
 async def _get_or_extract_metrics(
     doc_id: uuid.UUID,
     force_refresh: bool,
@@ -216,6 +320,8 @@ async def _get_or_extract_metrics(
     if not doc or doc.user_id != current_user.id:
         raise HTTPException(status_code=404, detail="Document not found.")
 
+    is_future = check_is_future_date(doc.collected_at)
+
     # 1. Check Cache: use 'is not None' because [] is a valid cached result
     if not force_refresh and doc.cached_metrics is not None:
         cached = doc.cached_metrics
@@ -227,14 +333,19 @@ async def _get_or_extract_metrics(
         if isinstance(cached, dict) and "metrics" in cached:
             cached = cached["metrics"]
         if isinstance(cached, list):
-            parsed_metrics = []
-            for item in cached:
-                if isinstance(item, dict):
-                    parsed_metrics.append(LabMetricItem(**item))
-                elif isinstance(item, LabMetricItem):
-                    parsed_metrics.append(item)
-            return MetricsResponse(metrics=parsed_metrics)
-        return MetricsResponse(metrics=[])
+            items, p_id, p_date = await _apply_longitudinal_deltas(doc, cached, current_user, db)
+            return MetricsResponse(
+                metrics=items,
+                collected_at=doc.collected_at,
+                is_future_collection_date=is_future,
+                prior_document_id=p_id,
+                prior_document_date=p_date,
+            )
+        return MetricsResponse(
+            metrics=[],
+            collected_at=doc.collected_at,
+            is_future_collection_date=is_future,
+        )
 
     if getattr(doc, "index_status", None) == "building":
         raise HTTPException(
@@ -244,7 +355,11 @@ async def _get_or_extract_metrics(
         )
 
     if not doc.file_path:
-        return MetricsResponse(metrics=[])
+        return MetricsResponse(
+            metrics=[],
+            collected_at=doc.collected_at,
+            is_future_collection_date=is_future,
+        )
 
     try:
         raw_metrics = await extract_and_cache_metrics(
@@ -259,16 +374,23 @@ async def _get_or_extract_metrics(
                 detail="Metrics extraction temporarily unavailable. Please retry in 2 seconds.",
                 headers={"Retry-After": "2"},
             )
-        parsed_metrics = [
-            LabMetricItem(**item) if isinstance(item, dict) else item
-            for item in raw_metrics
-        ]
-        return MetricsResponse(metrics=parsed_metrics)
+        items, p_id, p_date = await _apply_longitudinal_deltas(doc, raw_metrics, current_user, db)
+        return MetricsResponse(
+            metrics=items,
+            collected_at=doc.collected_at,
+            is_future_collection_date=is_future,
+            prior_document_id=p_id,
+            prior_document_date=p_date,
+        )
     except HTTPException:
         raise
     except Exception as err:
         logger.error("Metrics extraction error: %s", err)
-        return MetricsResponse(metrics=[])
+        return MetricsResponse(
+            metrics=[],
+            collected_at=doc.collected_at,
+            is_future_collection_date=is_future,
+        )
 
 
 @router.post("/extract-metrics", response_model=MetricsResponse, tags=["Lab Metrics"])

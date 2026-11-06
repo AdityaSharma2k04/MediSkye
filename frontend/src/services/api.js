@@ -389,7 +389,12 @@ export async function fetchLabMetrics(documentId, forceRefresh = false) {
       }
       return [];
     }
-    return data.metrics || [];
+    const list = Array.isArray(data.metrics) ? data.metrics : [];
+    list.collected_at = data.collected_at;
+    list.is_future_collection_date = data.is_future_collection_date;
+    list.prior_document_id = data.prior_document_id;
+    list.prior_document_date = data.prior_document_date;
+    return list;
   } catch (err) {
     logger.error('Failed to fetch metrics:', err);
     return [];
@@ -937,6 +942,24 @@ export async function exportDocumentData(documentId) {
     }
     const data = await res.json().catch(() => null);
     throw new Error(data?.detail || 'Failed to export document data');
+  }
+  return await res.json();
+}
+
+export async function exportUserAccountData() {
+  const headers = await getFreshAuthHeaders();
+  const res = await fetch(`${API_BASE}/users/me/export-data`, {
+    method: 'GET',
+    headers: { ...headers },
+  });
+  if (!res.ok) {
+    if (res.status === 401) {
+      localStorage.removeItem('token');
+      window.dispatchEvent(new Event('auth:expired'));
+      throw new Error('Session expired. Please log in again.');
+    }
+    const data = await res.json().catch(() => null);
+    throw new Error(data?.detail || 'Failed to export account data');
   }
   return await res.json();
 }

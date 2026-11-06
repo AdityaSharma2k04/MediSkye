@@ -62,9 +62,21 @@ export default function Sidebar({
   const renameInputRef = useRef(null);
   const menuRefs = useRef({});
 
-  const filteredChats = conversations.filter((c) =>
-    (c.title || 'New Conversation').toLowerCase().includes(searchQuery.toLowerCase())
-  );
+  // Omit empty untitled placeholder chats from history if they are inactive
+  const filteredChats = conversations
+    .filter((c) => {
+      const isBlankPlaceholder =
+        (c.title === 'New Conversation' || c.title === 'New chat') &&
+        Array.isArray(c.messages) &&
+        c.messages.length === 0 &&
+        !c.pdf &&
+        !c.document_id &&
+        c.id !== activeSessionId;
+      return !isBlankPlaceholder;
+    })
+    .filter((c) =>
+      (c.title || 'New Conversation').toLowerCase().includes(searchQuery.toLowerCase())
+    );
 
   // Close menu when clicking outside or pressing Escape — only active while a menu is open
   useEffect(() => {
@@ -298,11 +310,22 @@ export default function Sidebar({
                               <MessageSquare className="w-3.5 h-3.5 shrink-0 opacity-60" />
                               <span className="truncate flex-1">{displayTitle}</span>
                             </div>
-                            {chat.created_at && (
-                              <span className={`text-[10px] pl-5 ${darkMode ? 'text-zinc-600' : 'text-zinc-400'}`}>
-                                {formatRelativeTime(chat.created_at)}
-                              </span>
-                            )}
+                            <div className="flex items-center gap-1.5 pl-5 mt-0.5">
+                              {chat.collected_at ? (
+                                <span className={`text-[10px] px-1.5 py-0.2 rounded font-medium ${
+                                  darkMode
+                                    ? 'bg-cyan-500/10 text-cyan-400 border border-cyan-500/20'
+                                    : 'bg-cyan-50 text-cyan-700 border border-cyan-200'
+                                }`}>
+                                  {chat.collected_at}
+                                </span>
+                              ) : null}
+                              {chat.created_at && (
+                                <span className={`text-[10px] ${darkMode ? 'text-zinc-500' : 'text-zinc-400'}`}>
+                                  {formatRelativeTime(chat.created_at)}
+                                </span>
+                              )}
+                            </div>
                           </button>
 
                           {/* B3: 3-dot menu */}
@@ -402,7 +425,7 @@ export default function Sidebar({
                 <span>{t('sidebar.logout', 'Log out')}</span>
               </button>
 
-              {/* A6: End-to-end encrypted badge (not HIPAA claim) */}
+              {/* Fernet-encrypted storage & TLS 1.3 badge */}
               <div className="pt-2 flex items-center gap-2.5 px-2">
                 <div className={`w-6 h-6 rounded-full flex items-center justify-center font-bold text-xs ${darkMode ? 'bg-zinc-800 text-zinc-300' : 'bg-zinc-100 text-zinc-600'}`}>
                   <Shield className={`w-3 h-3 ${darkMode ? 'text-zinc-400' : 'text-zinc-500'}`} />
@@ -412,7 +435,7 @@ export default function Sidebar({
                     {currentUser?.full_name || (currentUser?.email ? currentUser.email.split('@')[0] : 'Patient Session')}
                   </div>
                   <div className={`text-[10px] truncate ${darkMode ? 'text-zinc-500' : 'text-zinc-400'}`}>
-                    {t('sidebar.encrypted', 'End-to-end encrypted')}
+                    {t('sidebar.encrypted', 'Encrypted at rest (Fernet) • TLS 1.3 in transit')}
                   </div>
                 </div>
               </div>

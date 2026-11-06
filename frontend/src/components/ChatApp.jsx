@@ -162,6 +162,7 @@ export default function ChatApp() {
   const [selectedSource, setSelectedSource] = useState(null);
 
   const [activePdf, setActivePdf] = useState(null);
+  const [viewMode, setViewMode] = useState('chat');
   const [isGenerating, setIsGenerating] = useState(false);
   const [isExportingSummary, setIsExportingSummary] = useState(false);
   const [printSummaryText, setPrintSummaryText] = useState('');
@@ -231,7 +232,7 @@ export default function ChatApp() {
         ? chats.map((c) => ({
             id: c.id,
             sender: c.role === 'ai' ? 'assistant' : 'user',
-            text: c.message,
+            text: c.role === 'ai' ? c.message : (c.message || '').replace(/^["'“”‘’]+|["'“”‘’]+$/g, '').trim(),
             timestamp: c.created_at
               ? new Date(c.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
               : '',
@@ -342,6 +343,9 @@ export default function ChatApp() {
             id: doc.id,
             name: doc.filename,
             filename: doc.filename,
+            title: doc.title,
+            collected_at: doc.collected_at,
+            is_future_collection_date: doc.is_future_collection_date,
             size: 8192,
           };
           const resolvedDocTitle = (activeDocId && doc.id === activeDocId && overrideTitle)
@@ -365,6 +369,8 @@ export default function ChatApp() {
                 ? existing.documents
                 : [pdfMeta],
               created_at: existing.created_at || doc.created_at,
+              collected_at: doc.collected_at || existing?.collected_at,
+              is_future_collection_date: doc.is_future_collection_date,
             };
           }
 
@@ -377,6 +383,8 @@ export default function ChatApp() {
             pdf: pdfMeta,
             documents: [pdfMeta],
             created_at: doc.created_at,
+            collected_at: doc.collected_at,
+            is_future_collection_date: doc.is_future_collection_date,
           };
         });
 
@@ -391,7 +399,7 @@ export default function ChatApp() {
           const formattedMessages = messagesList.map((c) => ({
             id: c.id,
             sender: c.role === 'ai' ? 'assistant' : 'user',
-            text: c.message,
+            text: c.role === 'ai' ? c.message : (c.message || '').replace(/^["'“”‘’]+|["'“”‘’]+$/g, '').trim(),
             timestamp: c.created_at
               ? new Date(c.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
               : '',
@@ -429,6 +437,9 @@ export default function ChatApp() {
           id: targetDoc.id,
           name: targetDoc.filename,
           filename: targetDoc.filename,
+          title: targetDoc.title,
+          collected_at: targetDoc.collected_at,
+          is_future_collection_date: targetDoc.is_future_collection_date,
           size: 8192,
         };
         setActivePdf(pdfMeta);
@@ -802,7 +813,8 @@ export default function ChatApp() {
   };
 
   const handleSendMessage = async (userQuery, options = {}) => {
-    if (!userQuery || isSubmittingRef.current || isGenerating) return;
+    const cleanUserQuery = (userQuery || '').replace(/^["'“”‘’]+|["'“”‘’]+$/g, '').trim();
+    if (!cleanUserQuery || isSubmittingRef.current || isGenerating) return;
     isSubmittingRef.current = true;
     const { appendUserMessage = true, docIdOverride = null, preserveTitle = null } = options;
 
@@ -816,7 +828,7 @@ export default function ChatApp() {
     const userMsgObj = {
       id: userMsgId,
       sender: 'user',
-      text: userQuery,
+      text: cleanUserQuery,
       timestamp,
     };
 
@@ -1064,14 +1076,27 @@ export default function ChatApp() {
     setIsGenerating(false);
     isSubmittingRef.current = false;
 
+    // If current conversation already has 0 messages and no active PDF, don't create duplicate
+    const activeChat = conversations.find((c) => c.id === sessionId);
+    if (activeChat && (!activeChat.messages || activeChat.messages.length === 0) && !activePdf) {
+      return;
+    }
+
     const newId = generateSessionId();
     setSessionId(newId);
     setActivePdf(null);
+    setViewMode('chat');
     setIsProfileOpen(false);
-    setConversations((prev) => [
-      { id: newId, title: 'New Conversation', messages: [], pdf: null, patient_id: selectedPatientId },
-      ...prev,
-    ]);
+    setConversations((prev) => {
+      // Omit empty 0-message sessions from history
+      const cleaned = prev.filter(
+        (c) => (c.messages && c.messages.length > 0) || c.pdf || c.document_id
+      );
+      return [
+        { id: newId, title: 'New Conversation', messages: [], pdf: null, patient_id: selectedPatientId },
+        ...cleaned,
+      ];
+    });
   };
 
   const handleSampleReportClick = async () => {
@@ -1109,7 +1134,13 @@ export default function ChatApp() {
     setIsGenerating(false);
     isSubmittingRef.current = false;
 
+    // Clean up empty 0-message conversations when switching away
+    setConversations((prev) =>
+      prev.filter((c) => c.id === id || (c.messages && c.messages.length > 0) || c.pdf || c.document_id)
+    );
+
     setSessionId(id);
+    setViewMode('chat');
     const chat = conversations.find((c) => c.id === id);
     if (chat) {
       setActivePdf(chat.pdf || null);
@@ -1287,6 +1318,8 @@ export default function ChatApp() {
         <ChatWindow
           sidebarOpen={sidebarOpen}
           toggleSidebar={toggleSidebar}
+          viewMode={viewMode}
+          onViewModeChange={setViewMode}
           messages={messages}
           isGenerating={isGenerating}
           loadingHistory={loadingHistory}
@@ -1349,25 +1382,31 @@ export default function ChatApp() {
           </div>
         )}
 
-        <ChatInput
-          ref={chatInputRef}
-          onSendMessage={handleSendMessage}
-          onAttachFile={handleAttachFile}
-          activeFile={activePdf}
-          attachedDocuments={Array.isArray(currentChat.documents) && currentChat.documents.length > 0
-            ? currentChat.documents
-            : (activePdf ? [{ id: currentChat.document_id || activePdf.id || 'doc-1', name: activePdf.name, filename: activePdf.name }] : [])}
-          onDetachDocument={handleDetachDocument}
-          onRemoveFile={handleRemoveFile}
-          isGenerating={isGenerating}
-          onStopGeneration={handleStopGeneration}
-          darkMode={darkMode}
-          currentUser={currentUser}
-          dependents={dependents}
-          selectedPatientId={selectedPatientId}
-          onSelectPatient={handlePatientSelect}
-          onOpenDependents={handleOpenDependents}
-        />
+        {viewMode !== 'metrics' && (
+          <ChatInput
+            ref={chatInputRef}
+            onSendMessage={handleSendMessage}
+            onAttachFile={handleAttachFile}
+            activeFile={activePdf}
+            attachedDocuments={
+              Array.isArray(currentChat.documents) && currentChat.documents.length > 1
+                ? currentChat.documents
+                : (messages.length === 0 && activePdf
+                    ? [{ id: currentChat.document_id || activePdf.id || 'doc-1', name: activePdf.name, filename: activePdf.name }]
+                    : [])
+            }
+            onDetachDocument={handleDetachDocument}
+            onRemoveFile={handleRemoveFile}
+            isGenerating={isGenerating}
+            onStopGeneration={handleStopGeneration}
+            darkMode={darkMode}
+            currentUser={currentUser}
+            dependents={dependents}
+            selectedPatientId={selectedPatientId}
+            onSelectPatient={handlePatientSelect}
+            onOpenDependents={handleOpenDependents}
+          />
+        )}
       </main>
 
       <DocumentModal source={selectedSource} onClose={() => setSelectedSource(null)} />

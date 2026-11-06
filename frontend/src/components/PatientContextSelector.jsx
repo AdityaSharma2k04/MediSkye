@@ -33,6 +33,12 @@ export default function PatientContextSelector({
       ? `${activeDependent.full_name} (${activeDependent.relationship})`
       : 'Select Patient';
 
+  const mobileLabel = isSelf
+    ? (currentUser?.full_name ? currentUser.full_name.split(' ')[0] : 'Self')
+    : activeDependent
+      ? activeDependent.full_name.split(' ')[0]
+      : 'Patient';
+
   return (
     <div className="relative inline-block text-left min-w-0 max-w-full" ref={dropdownRef}>
       <div className="flex items-center gap-1.5 min-w-0">
@@ -45,9 +51,10 @@ export default function PatientContextSelector({
           type="button"
           onClick={() => setIsOpen(!isOpen)}
           aria-label="Select patient context"
-          className="min-w-0 max-w-[115px] xs:max-w-[140px] sm:max-w-[200px] flex items-center gap-1 rounded-full bg-white/[0.05] hover:bg-white/[0.09] border border-white/10 px-2.5 py-1 text-xs font-medium text-slate-300 hover:text-white transition"
+          className="min-w-0 max-w-[85px] xs:max-w-[110px] sm:max-w-[200px] flex items-center gap-1 rounded-full bg-white/[0.05] hover:bg-white/[0.09] border border-white/10 px-2 sm:px-2.5 py-1 text-xs font-medium text-slate-300 hover:text-white transition"
         >
-          <span className="truncate">{activeLabel}</span>
+          <span className="hidden sm:inline truncate">{activeLabel}</span>
+          <span className="inline sm:hidden truncate">{mobileLabel}</span>
           <ChevronDown className={`w-3.5 h-3.5 text-slate-400 shrink-0 transition-transform ${isOpen ? 'rotate-180' : ''}`} />
         </button>
       </div>

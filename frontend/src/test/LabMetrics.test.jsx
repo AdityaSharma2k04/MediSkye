@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect } from 'vitest';
 import { render, screen } from '@testing-library/react';
 import React from 'react';
 import LabMetrics from '../components/LabMetrics';
@@ -10,6 +10,32 @@ describe('LabMetrics Clinical Table', () => {
     { test: 'LDL Cholesterol', value: '160', unit: 'mg/dL', range: '0–100', status: 'High' },
   ];
 
+  const longitudinalMetrics = [
+    {
+      test: 'Hemoglobin',
+      value: '13.6',
+      unit: 'g/dL',
+      range: '13.0–17.0',
+      status: 'Normal',
+      previous_value: '15.4',
+      previous_date: '24 Oct 2026',
+      delta_abs: '-1.8 g/dL',
+      delta_pct: -11.7,
+      delta_alert: 'Notable Drop (-11.7%)',
+    },
+    {
+      test: 'Vitamin D',
+      value: '24.2',
+      unit: 'ng/mL',
+      range: '30.0–100.0',
+      status: 'Low',
+      previous_value: '44.2',
+      previous_date: '24 Oct 2026',
+      delta_abs: '-20.0 ng/mL',
+      delta_pct: -45.2,
+    },
+  ];
+
   it('renders clinical table with semantic columns', () => {
     render(<LabMetrics metrics={sampleMetrics} />);
     expect(screen.getByText('Test Name')).toBeInTheDocument();
@@ -18,17 +44,22 @@ describe('LabMetrics Clinical Table', () => {
     expect(screen.getByText('Reference Range')).toBeInTheDocument();
     expect(screen.getByText('Status')).toBeInTheDocument();
 
-    expect(screen.getByText('Hemoglobin')).toBeInTheDocument();
-    expect(screen.getByText('TSH')).toBeInTheDocument();
-    expect(screen.getByText('LDL Cholesterol')).toBeInTheDocument();
+    expect(screen.getAllByText('Hemoglobin')[0]).toBeInTheDocument();
+    expect(screen.getAllByText('TSH')[0]).toBeInTheDocument();
+    expect(screen.getAllByText('LDL Cholesterol')[0]).toBeInTheDocument();
   });
 
-  it('sorts abnormal metrics (High, Low) to the top before Normal metrics', () => {
+  it('renders longitudinal columns (Previous (Date) and Change (Δ %)) when prior data is present', () => {
+    render(<LabMetrics metrics={longitudinalMetrics} />);
+    expect(screen.getByText('Previous (Date)')).toBeInTheDocument();
+    expect(screen.getByText('Change (Δ %)')).toBeInTheDocument();
+  });
+
+  it('sorts abnormal metrics and delta alerts to the top before Normal metrics', () => {
     const { container } = render(<LabMetrics metrics={sampleMetrics} />);
     const rows = container.querySelectorAll('tbody tr');
     expect(rows.length).toBe(3);
 
-    // First two rows should be the abnormal tests (TSH and LDL Cholesterol)
     const firstRowText = rows[0].textContent;
     const secondRowText = rows[1].textContent;
     const thirdRowText = rows[2].textContent;
@@ -39,18 +70,14 @@ describe('LabMetrics Clinical Table', () => {
     expect(thirdRowText).toContain('Normal');
   });
 
-  it('renders status as plain text without background pill badges', () => {
-    const { container } = render(<LabMetrics metrics={sampleMetrics} />);
-    const statusSpans = container.querySelectorAll('tbody tr td:last-child span');
+  it('renders accessible status pills with directional icons', () => {
+    const { container } = render(<LabMetrics metrics={longitudinalMetrics} />);
+    const pills = container.querySelectorAll('.rounded-full');
+    expect(pills.length).toBeGreaterThan(0);
 
-    expect(statusSpans.length).toBe(3);
-    statusSpans.forEach((span) => {
-      // Must not have pill background classes or borders
-      expect(span.className).not.toContain('rounded-full');
-      expect(span.className).not.toContain('bg-red');
-      expect(span.className).not.toContain('bg-emerald');
-      expect(span.style.fontWeight).toBe('600');
-    });
+    // Verify directional status pill text
+    expect(container.textContent).toContain('↓ Low');
+    expect(container.textContent).toContain('Notable Drop');
   });
 
   it('renders graceful empty state when metrics is empty or null', () => {
@@ -66,22 +93,9 @@ describe('LabMetrics Clinical Table', () => {
     expect(screen.queryByRole('button', { name: /Export CSV/i })).not.toBeInTheDocument();
   });
 
-  it('renders table inside a horizontal scroll container with min-width and nowrap columns for mobile responsiveness', () => {
+  it('renders mobile card list for 390px viewports without horizontal clipping', () => {
     const { container } = render(<LabMetrics metrics={sampleMetrics} />);
-    const scrollContainer = container.querySelector('.overflow-x-auto');
-    expect(scrollContainer).toBeInTheDocument();
-    expect(scrollContainer.className).toContain('w-full');
-    expect(scrollContainer.className).toContain('overflow-x-auto');
-    expect(scrollContainer.className).toContain('pb-4');
-
-    const table = scrollContainer.querySelector('table');
-    expect(table).toBeInTheDocument();
-    expect(table.className).toContain('min-w-full');
-    expect(table.className).toContain('min-w-[600px]');
-
-    const statusCells = container.querySelectorAll('tbody tr td:last-child');
-    statusCells.forEach((td) => {
-      expect(td.className).toContain('whitespace-nowrap');
-    });
+    const mobileCardsContainer = container.querySelector('.block.sm\\:hidden');
+    expect(mobileCardsContainer).toBeInTheDocument();
   });
 });

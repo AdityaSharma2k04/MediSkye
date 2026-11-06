@@ -64,6 +64,12 @@ describe('Login Component with Firebase Auth & Password Reset', () => {
     expect(screen.getByText(/or continue with email/i)).toBeInTheDocument();
     expect(screen.getByPlaceholderText(/email address/i)).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /^continue$/i })).toBeInTheDocument();
+    // Forgot password is NOT shown on the initial email step
+    expect(screen.queryByRole('button', { name: /forgot password\?/i })).not.toBeInTheDocument();
+
+    // Advancing to password step displays Forgot password?
+    fireEvent.change(screen.getByPlaceholderText(/email address/i), { target: { value: 'user@example.com' } });
+    fireEvent.click(screen.getByRole('button', { name: /^continue$/i }));
     expect(screen.getByRole('button', { name: /forgot password\?/i })).toBeInTheDocument();
   });
 
@@ -297,21 +303,7 @@ describe('Login Component with Firebase Auth & Password Reset', () => {
     });
   });
 
-  it('shows validation prompt when clicking Forgot password? with an empty email input', async () => {
-    render(
-      <MemoryRouter>
-        <Login />
-      </MemoryRouter>
-    );
-
-    const forgotBtn = screen.getByRole('button', { name: /forgot password\?/i });
-    fireEvent.click(forgotBtn);
-
-    expect(screen.getByText(/please enter your email address in the field above first/i)).toBeInTheDocument();
-    expect(mockSendPasswordResetEmail).not.toHaveBeenCalled();
-  });
-
-  it('calls sendCustomPasswordReset and displays confirmation banner when clicking Forgot password? with a valid email', async () => {
+  it('calls sendCustomPasswordReset and displays confirmation banner when clicking Forgot password? on password step', async () => {
     mockApiPost.mockResolvedValueOnce({ message: 'If an account exists with this email, a reset link has been sent.' });
 
     render(
@@ -321,8 +313,9 @@ describe('Login Component with Firebase Auth & Password Reset', () => {
     );
 
     fireEvent.change(screen.getByPlaceholderText(/email address/i), { target: { value: ' user@example.com ' } });
+    fireEvent.click(screen.getByRole('button', { name: /^continue$/i }));
 
-    const forgotBtn = screen.getByRole('button', { name: /forgot password\?/i });
+    const forgotBtn = await screen.findByRole('button', { name: /forgot password\?/i });
     fireEvent.click(forgotBtn);
 
     await waitFor(() => {
@@ -342,7 +335,9 @@ describe('Login Component with Firebase Auth & Password Reset', () => {
     );
 
     fireEvent.change(screen.getByPlaceholderText(/email address/i), { target: { value: 'notfound@example.com' } });
-    const forgotBtn = screen.getByRole('button', { name: /forgot password\?/i });
+    fireEvent.click(screen.getByRole('button', { name: /^continue$/i }));
+
+    const forgotBtn = await screen.findByRole('button', { name: /forgot password\?/i });
     fireEvent.click(forgotBtn);
 
     await waitFor(() => {
@@ -352,7 +347,7 @@ describe('Login Component with Firebase Auth & Password Reset', () => {
     });
   });
 
-  it('validates email format before continuing or resetting password (rejecting notanemail and test@test)', async () => {
+  it('validates email format before continuing (rejecting notanemail and test@test)', async () => {
     render(
       <MemoryRouter>
         <Login />
@@ -361,18 +356,11 @@ describe('Login Component with Firebase Auth & Password Reset', () => {
 
     const emailInput = screen.getByPlaceholderText(/email address/i);
     const continueBtn = screen.getByRole('button', { name: /^continue$/i });
-    const forgotBtn = screen.getByRole('button', { name: /forgot password\?/i });
 
-    // Invalid email on continue
+    // Invalid email on continue (test@test passes HTML5 email check with @, but fails domain dot regex)
     fireEvent.change(emailInput, { target: { value: 'test@test' } });
     fireEvent.click(continueBtn);
     expect(screen.getByText(/please enter a valid email address \(e\.g\., name@example\.com\)\./i)).toBeInTheDocument();
     expect(screen.queryByPlaceholderText(/password/i)).not.toBeInTheDocument();
-
-    // Invalid email on forgot password
-    fireEvent.change(emailInput, { target: { value: 'invalid-email' } });
-    fireEvent.click(forgotBtn);
-    expect(screen.getByText(/please enter a valid email address \(e\.g\., name@example\.com\)\./i)).toBeInTheDocument();
-    expect(mockSendPasswordResetEmail).not.toHaveBeenCalled();
   });
 });

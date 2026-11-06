@@ -364,27 +364,6 @@ export default function Login() {
               />
             </div>
 
-            <div className="login-forgot-wrapper">
-              <button
-                type="button"
-                onClick={handleForgotPassword}
-                disabled={resetLoading || loading}
-                className="login-forgot-btn"
-              >
-                {resetLoading ? t('auth.sending_reset', 'Sending reset link...') : t('auth.forgot_password', 'Forgot password?')}
-              </button>
-            </div>
-
-            {resetSuccessMessage && (
-              <div className="login-success">
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                  <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14" />
-                  <polyline points="22 4 12 14.01 9 11.01" />
-                </svg>
-                {resetSuccessMessage}
-              </div>
-            )}
-
             <button type="submit" className="login-btn-primary bg-cyan-500 hover:bg-cyan-400 text-slate-950 font-semibold transition">
               {t('auth.continue', 'Continue')}
             </button>
@@ -454,13 +433,8 @@ export default function Login() {
           </form>
         )}
 
-        {/* Divider */}
-        <div className="login-divider">
-          <span>OR</span>
-        </div>
-
         {/* Switch to Register */}
-        <Link to="/register" className="login-btn-secondary">
+        <Link to="/register" className="login-btn-secondary mt-3">
           {t('auth.switch_to_register', 'Create a new account')}
         </Link>
 

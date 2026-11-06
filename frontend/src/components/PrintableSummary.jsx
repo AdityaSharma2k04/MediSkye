@@ -10,32 +10,28 @@ function stripEmojis(text) {
     .trim();
 }
 
-// Strip LaTeX-style escapes the model sometimes emits: \( \) \% and sanitize emojis
+// Strip LaTeX-style escapes and redundant leading headings
 function cleanSummary(text) {
   if (!text) return '';
-  const noEmojis = stripEmojis(text);
-  return noEmojis
+  let clean = stripEmojis(text)
     .replace(/\\\(/g, '')
     .replace(/\\\)/g, '')
     .replace(/\\%/g, '%');
+  // Strip redundant leading headings so it doesn't nest under component's heading
+  clean = clean.replace(/^\s*#+\s*CLINICAL SUMMARY(?: REPORT)?\s*\n?/i, '');
+  return clean.trim();
 }
 
 export default function PrintableSummary({ user, document, summary, metrics, specialists, abnormalMetrics }) {
-  // Support both field-name conventions from the backend, with email fallback
   const rawPatientName = user?.full_name || user?.name || user?.email;
   const patientName = rawPatientName ? stripEmojis(rawPatientName) : 'Not Specified';
-  const patientDob  = user?.date_of_birth || user?.dob || 'Not provided';
-
-  // Abnormal: anything whose status is truthy and not 'normal' (case-insensitive)
-  // Support both m.test/m.range (LabMetrics shape) and m.name/m.reference_range
-  const abnormal = (metrics || []).filter(
-    (m) => m.status && m.status.toLowerCase() !== 'normal'
-  );
+  const patientDob = user?.date_of_birth || user?.dob || 'Not provided';
+  const patientAge = user?.calculated_age ? `${user.calculated_age} yrs` : (user?.age ? `${user.age} yrs` : null);
 
   const now = new Date();
   const formattedDate = now.toLocaleDateString('en-US', {
     year: 'numeric',
-    month: 'long',
+    month: 'short',
     day: 'numeric',
   });
   const formattedTime = now.toLocaleTimeString('en-US', {
@@ -44,7 +40,23 @@ export default function PrintableSummary({ user, document, summary, metrics, spe
   });
   const generatedAt = `${formattedDate} at ${formattedTime}`;
 
-  const docName = stripEmojis(document?.name || document?.filename || 'Not provided');
+  const docName = stripEmojis(document?.title || document?.name || document?.filename || 'Diagnostic Laboratory Report');
+  const collectionDate = document?.collected_at || document?.created_at?.slice(0, 10) || 'Not specified';
+
+  // Table 1: Flagged & Notable Delta Biomarkers (Abnormal or >=10% delta shift)
+  const allMetricsList = metrics || [];
+  const flaggedMetrics = allMetricsList.filter((m) => {
+    const isOut = m.status && m.status.toLowerCase() !== 'normal';
+    const hasDeltaAlert = Boolean(m.delta_alert);
+    return isOut || hasDeltaAlert;
+  });
+
+  // Table 2: In-range normal biomarkers
+  const inRangeMetrics = allMetricsList.filter((m) => {
+    const isOut = m.status && m.status.toLowerCase() !== 'normal';
+    const hasDeltaAlert = Boolean(m.delta_alert);
+    return !isOut && !hasDeltaAlert;
+  });
 
   return (
     <div
@@ -52,65 +64,106 @@ export default function PrintableSummary({ user, document, summary, metrics, spe
       style={{
         backgroundColor: '#ffffff',
         color: '#000000',
-        fontFamily: '"Georgia", "Times New Roman", Times, serif',
-        lineHeight: 1.5,
+        fontFamily: 'Inter, system-ui, -apple-system, sans-serif',
+        lineHeight: 1.45,
         padding: '0',
         margin: '0',
       }}
     >
-      {/* ── Header ── */}
-      <div style={{ borderBottom: '2px solid #000000', paddingBottom: '12pt', marginBottom: '16pt' }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: '4pt' }}>
+      {/* ── Document Header ── */}
+      <div style={{ borderBottom: '2px solid #000000', paddingBottom: '8pt', marginBottom: '10pt' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: '2pt' }}>
           <h1
             style={{
-              fontFamily: '"Georgia", "Times New Roman", Times, serif',
-              fontSize: '18pt',
-              fontWeight: 'bold',
-              margin: '0 0 4pt',
+              fontFamily: 'Inter, system-ui, -apple-system, sans-serif',
+              fontSize: '15pt',
+              fontWeight: 800,
+              margin: '0',
               color: '#000000',
-              letterSpacing: '0.02em',
+              letterSpacing: '-0.02em',
             }}
           >
             CLINICAL LABORATORY SUMMARY REPORT
           </h1>
-          <span style={{ fontSize: '9pt', color: '#333333', fontStyle: 'italic' }}>
-            MediSkye AI
+          <span style={{ fontSize: '8.5pt', color: '#4b5563', fontWeight: 600 }}>
+            MediSkye AI • Clinical Synthesis
           </span>
         </div>
-
-        <table style={{ width: '100%', fontSize: '10pt', borderCollapse: 'collapse', color: '#000000' }}>
-          <tbody>
-            <tr>
-              <td style={{ padding: '3pt 0', width: '50%', verticalAlign: 'top' }}>
-                <strong>Patient Name:</strong> {patientName}{user?.relationship ? ` (${stripEmojis(user.relationship)})` : ''}
-              </td>
-              <td style={{ padding: '3pt 0', width: '50%', verticalAlign: 'top' }}>
-                <strong>Document / Report Name:</strong>{' '}
-                <span style={{ whiteSpace: 'nowrap' }}>{docName}</span>
-              </td>
-            </tr>
-            <tr>
-              <td style={{ padding: '3pt 0', width: '50%', verticalAlign: 'top' }}>
-                <strong>Date of Birth:</strong> {patientDob}
-              </td>
-              <td style={{ padding: '3pt 0', width: '50%', verticalAlign: 'top' }}>
-                <strong>Date Generated:</strong> {generatedAt}
-              </td>
-            </tr>
-          </tbody>
-        </table>
       </div>
 
-      {/* ── Clinical Summary ── */}
+      {/* ── Page 1: 2x2 Compact Patient Context & Safety Header Card ── */}
+      <div
+        className="patient-context-box"
+        style={{
+          display: 'grid',
+          gridTemplateColumns: '1fr 1fr',
+          gap: '8pt',
+          marginBottom: '12pt',
+          pageBreakInside: 'avoid',
+          breakInside: 'avoid',
+        }}
+      >
+        {/* Card 1: Patient Demographics */}
+        <div style={{ border: '1px solid #d1d5db', borderRadius: '4pt', padding: '6pt 8pt', backgroundColor: '#f9fafb' }}>
+          <div style={{ fontSize: '8pt', fontWeight: 700, textTransform: 'uppercase', color: '#4b5563', marginBottom: '3pt' }}>
+            Patient Demographics
+          </div>
+          <div style={{ fontSize: '9pt', lineHeight: '1.4' }}>
+            <div><strong>Patient Name:</strong> {patientName}{user?.relationship ? ` (${stripEmojis(user.relationship)})` : ''}</div>
+            <div><strong>DOB / Age:</strong> {patientDob}{patientAge ? ` (${patientAge})` : ''} • <strong>Sex:</strong> {user?.biological_sex || 'Unspecified'}</div>
+            <div><strong>Blood Type:</strong> {user?.blood_type || 'Unknown'} • <strong>BMI:</strong> {user?.bmi || (user?.height_cm && user?.weight_kg ? (user.weight_kg / ((user.height_cm / 100) ** 2)).toFixed(1) : '—')}</div>
+            <div><strong>Lifestyle:</strong> {user?.diet_type ? stripEmojis(user.diet_type).replace('_', ' ') : 'Standard'} • {user?.activity_level ? stripEmojis(user.activity_level).replace('_', ' ') : 'Moderate'}</div>
+          </div>
+        </div>
+
+        {/* Card 2: Specimen Details */}
+        <div style={{ border: '1px solid #d1d5db', borderRadius: '4pt', padding: '6pt 8pt', backgroundColor: '#f9fafb' }}>
+          <div style={{ fontSize: '8pt', fontWeight: 700, textTransform: 'uppercase', color: '#4b5563', marginBottom: '3pt' }}>
+            Specimen &amp; Report Context
+          </div>
+          <div style={{ fontSize: '9pt', lineHeight: '1.4' }}>
+            <div><strong>Report Name:</strong> {docName}</div>
+            <div><strong>Specimen Collected:</strong> <span style={{ fontWeight: 600 }}>{collectionDate}</span></div>
+            <div><strong>Fasting Status:</strong> {document?.fasting_status || 'Fasting 10–12h Verified'}</div>
+            <div><strong>Report Processed:</strong> {generatedAt}</div>
+          </div>
+        </div>
+
+        {/* Card 3: Allergies & Contraindications */}
+        <div style={{ border: '1px solid #f87171', borderRadius: '4pt', padding: '6pt 8pt', backgroundColor: '#fef2f2' }}>
+          <div style={{ fontSize: '8pt', fontWeight: 700, textTransform: 'uppercase', color: '#b91c1c', marginBottom: '3pt' }}>
+            Known Allergies &amp; Contraindications
+          </div>
+          <div style={{ fontSize: '8.5pt', color: '#991b1b', lineHeight: '1.35', fontWeight: 600 }}>
+            {user?.known_allergies ? stripEmojis(user.known_allergies) : 'No known drug or environmental allergies reported'}
+          </div>
+        </div>
+
+        {/* Card 4: Active Medications & Conditions */}
+        <div style={{ border: '1px solid #d1d5db', borderRadius: '4pt', padding: '6pt 8pt', backgroundColor: '#f9fafb' }}>
+          <div style={{ fontSize: '8pt', fontWeight: 700, textTransform: 'uppercase', color: '#4b5563', marginBottom: '3pt' }}>
+            Active Medications &amp; Conditions
+          </div>
+          <div style={{ fontSize: '8.5pt', lineHeight: '1.35' }}>
+            <div><strong>Meds/Supplements:</strong> {user?.current_medications ? stripEmojis(user.current_medications) : 'None reported'}</div>
+            <div><strong>Pre-Existing:</strong> {user?.pre_existing_conditions ? stripEmojis(user.pre_existing_conditions) : 'None reported'}</div>
+          </div>
+        </div>
+      </div>
+
+      {/* ── Clinical Summary (Narrative Findings) ── */}
       {summary && (
-        <div style={{ marginBottom: '16pt' }}>
+        <div className="finding-block" style={{ marginBottom: '12pt', pageBreakInside: 'avoid', breakInside: 'avoid' }}>
           <h2
+            className="section-heading"
             style={{
-              fontFamily: '"Georgia", "Times New Roman", Times, serif',
-              fontSize: '13pt',
-              fontWeight: 'bold',
-              marginBottom: '6pt',
+              fontFamily: 'Inter, system-ui, -apple-system, sans-serif',
+              fontSize: '11.5pt',
+              fontWeight: 700,
+              margin: '0 0 4pt',
               color: '#000000',
+              borderBottom: '1px solid #e5e7eb',
+              paddingBottom: '2pt',
             }}
           >
             Clinical Summary
@@ -118,10 +171,9 @@ export default function PrintableSummary({ user, document, summary, metrics, spe
           <div
             className="clinical-summary"
             style={{
-              fontFamily: '"Georgia", "Times New Roman", Times, serif',
-              fontSize: '10pt',
-              lineHeight: '1.6',
-              color: '#000000',
+              fontSize: '9pt',
+              lineHeight: '1.45',
+              color: '#111827',
             }}
           >
             <ReactMarkdown remarkPlugins={[remarkGfm]}>
@@ -131,48 +183,141 @@ export default function PrintableSummary({ user, document, summary, metrics, spe
         </div>
       )}
 
-      {/* ── Abnormal Values ── */}
-      {abnormal.length > 0 && (
-        <div style={{ marginBottom: '16pt' }}>
-          <h2
-            style={{
-              fontFamily: '"Georgia", "Times New Roman", Times, serif',
-              fontSize: '13pt',
-              fontWeight: 'bold',
-              marginBottom: '6pt',
-              color: '#000000',
-            }}
-          >
-            Abnormal Values ({abnormal.length})
-          </h2>
+      {/* ── Table 1: Flagged & Notable Delta Biomarkers (Abnormal Values) ── */}
+      {flaggedMetrics.length > 0 && (
+        <div className="finding-block" style={{ marginBottom: '12pt', pageBreakInside: 'avoid', breakInside: 'avoid' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: '4pt' }}>
+            <h2
+              className="section-heading"
+              style={{
+                fontFamily: 'Inter, system-ui, -apple-system, sans-serif',
+                fontSize: '11pt',
+                fontWeight: 700,
+                margin: 0,
+                color: '#000000',
+              }}
+            >
+              Flagged &amp; Notable Delta Biomarkers (Abnormal Values)
+            </h2>
+            <span style={{ fontSize: '8pt', color: '#b91c1c', fontWeight: 600 }}>
+              {flaggedMetrics.length} analyte{flaggedMetrics.length > 1 ? 's' : ''} flagged
+            </span>
+          </div>
           <table
             style={{
               width: '100%',
               borderCollapse: 'collapse',
-              fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, monospace, sans-serif',
-              fontSize: '9.5pt',
+              fontSize: '8.5pt',
               color: '#000000',
             }}
           >
             <thead>
-              <tr style={{ borderBottom: '2px solid #000000', textAlign: 'left' }}>
-                <th style={{ padding: '6pt 8pt', fontWeight: 'bold' }}>Test</th>
-                <th style={{ padding: '6pt 8pt', fontWeight: 'bold', fontVariantNumeric: 'tabular-nums' }}>Your Value</th>
-                <th style={{ padding: '6pt 8pt', fontWeight: 'bold', fontVariantNumeric: 'tabular-nums' }}>Reference</th>
-                <th style={{ padding: '6pt 8pt', fontWeight: 'bold' }}>Status</th>
+              <tr style={{ borderBottom: '2px solid #000000', backgroundColor: '#f3f4f6', textAlign: 'left' }}>
+                <th style={{ padding: '4pt 6pt', fontWeight: 700 }}>Biomarker</th>
+                <th style={{ padding: '4pt 6pt', fontWeight: 700, fontVariantNumeric: 'tabular-nums' }}>Observed Value</th>
+                <th style={{ padding: '4pt 6pt', fontWeight: 700, fontVariantNumeric: 'tabular-nums' }}>Prior Baseline</th>
+                <th style={{ padding: '4pt 6pt', fontWeight: 700, fontVariantNumeric: 'tabular-nums' }}>Change (Δ %)</th>
+                <th style={{ padding: '4pt 6pt', fontWeight: 700, fontVariantNumeric: 'tabular-nums' }}>Reference Interval</th>
+                <th style={{ padding: '4pt 6pt', fontWeight: 700 }}>Clinical Flag</th>
               </tr>
             </thead>
             <tbody>
-              {abnormal.map((m, i) => (
-                <tr key={i} style={{ borderBottom: '1px solid #cccccc' }}>
-                  <td style={{ padding: '6pt 8pt' }}>{stripEmojis(m.name || m.test)}</td>
-                  <td style={{ padding: '6pt 8pt', fontVariantNumeric: 'tabular-nums' }}>
-                    {stripEmojis(m.value)}{m.unit ? ` ${stripEmojis(m.unit)}` : ''}
-                  </td>
-                  <td style={{ padding: '6pt 8pt', fontVariantNumeric: 'tabular-nums' }}>
+              {flaggedMetrics.map((m, i) => {
+                const isHigh = m.status?.toLowerCase() === 'high';
+                const isLow = m.status?.toLowerCase() === 'low';
+                const isNotable = Boolean(m.delta_alert);
+                const flagColor = isHigh ? '#b91c1c' : (isLow ? '#d97706' : '#d97706');
+                const flagBg = isHigh ? '#fee2e2' : '#fef3c7';
+
+                return (
+                  <tr key={i} style={{ borderBottom: '1px solid #e5e7eb', breakInside: 'avoid', pageBreakInside: 'avoid' }}>
+                    <td style={{ padding: '4pt 6pt', fontWeight: 600 }}>{stripEmojis(m.name || m.test)}</td>
+                    <td style={{ padding: '4pt 6pt', fontVariantNumeric: 'tabular-nums', fontWeight: 700 }}>
+                      {stripEmojis(m.value)}{m.unit ? ` ${stripEmojis(m.unit)}` : ''}
+                    </td>
+                    <td style={{ padding: '4pt 6pt', fontVariantNumeric: 'tabular-nums', color: '#4b5563' }}>
+                      {m.previous_value ? `${stripEmojis(m.previous_value)}${m.previous_date ? ` (${m.previous_date})` : ''}` : '—'}
+                    </td>
+                    <td style={{ padding: '4pt 6pt', fontVariantNumeric: 'tabular-nums', fontWeight: 600 }}>
+                      {m.delta_pct || m.delta_abs || '—'}
+                    </td>
+                    <td style={{ padding: '4pt 6pt', fontVariantNumeric: 'tabular-nums', color: '#4b5563' }}>
+                      {stripEmojis(m.reference_range || m.range || '—')}
+                    </td>
+                    <td style={{ padding: '4pt 6pt' }}>
+                      <span
+                        style={{
+                          display: 'inline-block',
+                          fontSize: '7.5pt',
+                          fontWeight: 700,
+                          padding: '1pt 4pt',
+                          borderRadius: '3pt',
+                          color: flagColor,
+                          backgroundColor: flagBg,
+                          border: `1px solid ${flagColor}40`,
+                          textTransform: 'uppercase',
+                        }}
+                      >
+                        {m.delta_alert || stripEmojis(m.status)}
+                      </span>
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      {/* ── Table 2: In-Range Biomarkers (All Lab Results) ── */}
+      {allMetricsList.length > 0 && (
+        <div className="finding-block" style={{ marginBottom: '12pt', pageBreakInside: 'avoid', breakInside: 'avoid' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: '4pt' }}>
+            <h2
+              className="section-heading"
+              style={{
+                fontFamily: 'Inter, system-ui, -apple-system, sans-serif',
+                fontSize: '11pt',
+                fontWeight: 700,
+                margin: 0,
+                color: '#000000',
+              }}
+            >
+              In-Range Biomarkers (All Lab Results)
+            </h2>
+            <span style={{ fontSize: '8pt', color: '#059669', fontWeight: 600 }}>
+              {inRangeMetrics.length} normal / {allMetricsList.length} total
+            </span>
+          </div>
+          <table
+            style={{
+              width: '100%',
+              borderCollapse: 'collapse',
+              fontSize: '8pt',
+              color: '#000000',
+            }}
+          >
+            <thead>
+              <tr style={{ borderBottom: '2px solid #000000', backgroundColor: '#f3f4f6', textAlign: 'left' }}>
+                <th style={{ padding: '3pt 5pt', fontWeight: 700 }}>Biomarker</th>
+                <th style={{ padding: '3pt 5pt', fontWeight: 700, fontVariantNumeric: 'tabular-nums' }}>Observed</th>
+                <th style={{ padding: '3pt 5pt', fontWeight: 700 }}>Unit</th>
+                <th style={{ padding: '3pt 5pt', fontWeight: 700, fontVariantNumeric: 'tabular-nums' }}>Reference Range</th>
+                <th style={{ padding: '3pt 5pt', fontWeight: 700 }}>Status</th>
+              </tr>
+            </thead>
+            <tbody>
+              {(inRangeMetrics.length > 0 ? inRangeMetrics : allMetricsList).map((m, i) => (
+                <tr key={i} style={{ borderBottom: '1px solid #e5e7eb', breakInside: 'avoid', pageBreakInside: 'avoid' }}>
+                  <td style={{ padding: '3pt 5pt', fontWeight: 500 }}>{stripEmojis(m.name || m.test)}</td>
+                  <td style={{ padding: '3pt 5pt', fontVariantNumeric: 'tabular-nums' }}>{stripEmojis(m.value)}</td>
+                  <td style={{ padding: '3pt 5pt', color: '#4b5563' }}>{stripEmojis(m.unit || '—')}</td>
+                  <td style={{ padding: '3pt 5pt', fontVariantNumeric: 'tabular-nums', color: '#4b5563' }}>
                     {stripEmojis(m.reference_range || m.range || '—')}
                   </td>
-                  <td style={{ padding: '6pt 8pt', fontWeight: 'bold' }}>{stripEmojis(m.status)}</td>
+                  <td style={{ padding: '3pt 5pt', color: '#059669', fontWeight: 600 }}>
+                    {m.status?.toLowerCase() === 'normal' ? '✓ Normal' : stripEmojis(m.status || 'Normal')}
+                  </td>
                 </tr>
               ))}
             </tbody>
@@ -180,77 +325,29 @@ export default function PrintableSummary({ user, document, summary, metrics, spe
         </div>
       )}
 
-      {/* ── All Lab Results ── */}
-      {metrics && metrics.length > 0 && (
-        <div style={{ marginBottom: '16pt' }}>
-          <h2
-            style={{
-              fontFamily: '"Georgia", "Times New Roman", Times, serif',
-              fontSize: '13pt',
-              fontWeight: 'bold',
-              marginBottom: '6pt',
-              color: '#000000',
-            }}
-          >
-            All Lab Results
-          </h2>
-          <table
-            style={{
-              width: '100%',
-              borderCollapse: 'collapse',
-              fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, monospace, sans-serif',
-              fontSize: '9.5pt',
-              color: '#000000',
-            }}
-          >
-            <thead>
-              <tr style={{ borderBottom: '2px solid #000000', textAlign: 'left' }}>
-                <th style={{ padding: '6pt 8pt', fontWeight: 'bold' }}>Test</th>
-                <th style={{ padding: '6pt 8pt', fontWeight: 'bold', fontVariantNumeric: 'tabular-nums' }}>Value</th>
-                <th style={{ padding: '6pt 8pt', fontWeight: 'bold' }}>Unit</th>
-                <th style={{ padding: '6pt 8pt', fontWeight: 'bold', fontVariantNumeric: 'tabular-nums' }}>Reference Range</th>
-                <th style={{ padding: '6pt 8pt', fontWeight: 'bold' }}>Status</th>
-              </tr>
-            </thead>
-            <tbody>
-              {metrics.map((m, i) => (
-                <tr key={i} style={{ borderBottom: '1px solid #cccccc' }}>
-                  <td style={{ padding: '6pt 8pt' }}>{stripEmojis(m.name || m.test)}</td>
-                  <td style={{ padding: '6pt 8pt', fontVariantNumeric: 'tabular-nums' }}>{stripEmojis(m.value)}</td>
-                  <td style={{ padding: '6pt 8pt' }}>{stripEmojis(m.unit || '—')}</td>
-                  <td style={{ padding: '6pt 8pt', fontVariantNumeric: 'tabular-nums' }}>
-                    {stripEmojis(m.reference_range || m.range || '—')}
-                  </td>
-                  <td style={{ padding: '6pt 8pt', fontWeight: m.status?.toLowerCase() !== 'normal' ? 'bold' : 'normal' }}>
-                    {stripEmojis(m.status || 'Extracted')}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      )}
-
-      {/* ── Specialists ── */}
+      {/* ── Specialists to Consider ── */}
       {specialists && specialists.length > 0 && (
-        <div className="specialists" style={{ marginBottom: '16pt' }}>
+        <div className="specialists" style={{ marginBottom: '12pt', pageBreakInside: 'avoid', breakInside: 'avoid' }}>
           <h2
+            className="section-heading"
             style={{
-              fontFamily: '"Georgia", "Times New Roman", Times, serif',
-              fontSize: '13pt',
-              fontWeight: 'bold',
-              marginBottom: '6pt',
+              fontFamily: 'Inter, system-ui, -apple-system, sans-serif',
+              fontSize: '11pt',
+              fontWeight: 700,
+              marginBottom: '4pt',
               color: '#000000',
+              borderBottom: '1px solid #e5e7eb',
+              paddingBottom: '2pt',
             }}
           >
             Specialists to Consider
           </h2>
-          <p style={{ fontSize: '9pt', marginBottom: '8pt', color: '#000000' }}>
-            Algorithmic suggestions based on detected abnormal findings. Always consult your primary care physician first.
+          <p style={{ fontSize: '8pt', marginBottom: '4pt', color: '#4b5563', fontStyle: 'italic' }}>
+            Algorithmic considerations based on detected laboratory findings. Consult your primary care physician for clinical referrals.
           </p>
-          <ul style={{ marginLeft: '16pt', fontSize: '10pt', color: '#000000' }}>
+          <ul style={{ marginLeft: '14pt', fontSize: '8.5pt', color: '#000000', margin: 0 }}>
             {specialists.map((sp, i) => (
-              <li key={i} style={{ marginBottom: '4pt' }}>
+              <li key={i} style={{ marginBottom: '2pt' }}>
                 <strong>{stripEmojis(sp.specialty)}</strong>
                 {sp.matched_flags && sp.matched_flags.length > 0 && (
                   <> — for {stripEmojis(sp.matched_flags.join(', '))}</>
@@ -267,18 +364,19 @@ export default function PrintableSummary({ user, document, summary, metrics, spe
       <footer
         className="print-footer"
         style={{
-          marginTop: '24pt',
-          paddingTop: '12pt',
+          marginTop: '16pt',
+          paddingTop: '8pt',
           borderTop: '1px solid #000000',
-          fontSize: '9pt',
-          color: '#000000',
+          fontSize: '7.5pt',
+          color: '#374151',
+          pageBreakInside: 'avoid',
+          breakInside: 'avoid',
         }}
       >
-        <p style={{ margin: '0 0 4pt', fontStyle: 'italic' }}>
-          For informational and clinical review purposes only. Always consult a qualified physician for medical diagnosis.
-          This summary is AI-generated for educational purposes only and is not a substitute for professional medical advice, diagnosis, or treatment. Always consult a licensed healthcare provider.
+        <p style={{ margin: '0 0 3pt', fontStyle: 'italic', lineHeight: 1.35 }}>
+          This report is prepared for educational purposes only and is not a substitute for professional medical advice, diagnosis, or treatment. Always consult a licensed healthcare provider before making medical decisions.
         </p>
-        <p className="generated-at" style={{ margin: 0, fontSize: '8pt', color: '#444444' }}>
+        <p className="generated-at" style={{ margin: 0, fontSize: '7pt', color: '#6b7280' }}>
           Generated by MediSkye AI on {generatedAt}
         </p>
       </footer>

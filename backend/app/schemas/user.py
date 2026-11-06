@@ -144,6 +144,8 @@ class DocumentResponse(BaseModel):
     filename: str
     file_path: Optional[str] = None
     title: Optional[str] = None
+    collected_at: Optional[str] = None
+    is_future_collection_date: Optional[bool] = False
     created_at: Optional[str] = None
     dependent_id: Optional[str] = None
 

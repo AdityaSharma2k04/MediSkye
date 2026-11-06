@@ -11,6 +11,22 @@ import PrintableSummary from './PrintableSummary';
 import PatientContextSelector from './PatientContextSelector';
 import { fetchLabMetrics, getProfile, getDocumentSummary } from '../services/api';
 
+const getShortDocLabel = (pdf) => {
+  if (!pdf) return 'Lab Report';
+  const prefix = (pdf.title && pdf.title.toLowerCase().includes('baseline')) ? 'Baseline' : 'Follow-up';
+  if (pdf.collected_at) {
+    return `${prefix} • ${pdf.collected_at}`;
+  }
+  if (pdf.created_at) {
+    const d = new Date(pdf.created_at);
+    if (!isNaN(d.getTime())) {
+      const formatted = d.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' });
+      return `${prefix} • ${formatted}`;
+    }
+  }
+  return `${prefix} Report`;
+};
+
 export default function ChatWindow({
   messages,
   isGenerating,
@@ -32,11 +48,18 @@ export default function ChatWindow({
   printSummaryText: propPrintSummaryText,
   onExportSummary,
   onOpenExport,
+  viewMode: propViewMode,
+  onViewModeChange,
 }) {
   const { t } = useTranslation();
   const scrollRef = useRef(null);
   const [showScrollBtn, setShowScrollBtn] = useState(false);
-  const [viewMode, setViewMode] = useState('chat');
+  const [internalViewMode, setInternalViewMode] = useState('chat');
+  const viewMode = propViewMode !== undefined ? propViewMode : internalViewMode;
+  const setViewMode = (mode) => {
+    setInternalViewMode(mode);
+    if (onViewModeChange) onViewModeChange(mode);
+  };
   const [labMetrics, setLabMetrics] = useState([]);
   const [loadingMetrics, setLoadingMetrics] = useState(false);
   const [showPrintSummary, setShowPrintSummary] = useState(false);
@@ -157,12 +180,18 @@ export default function ChatWindow({
     setShowPrintSummary(true);
     // Give React time to commit PrintableSummary to the DOM before printing
     setTimeout(() => {
-      window.print();
+      const origTitle = document.title;
+      const patientName = currentUser?.full_name || currentUser?.name || (currentUser?.email ? currentUser.email.split('@')[0] : 'Patient');
+      const docTitle = activePdf?.title || activePdf?.name || activePdf?.filename || 'Lab Report';
+      document.title = `${patientName} - ${docTitle} - Clinical Summary`;
+
       const cleanup = () => {
+        document.title = origTitle;
         setShowPrintSummary(false);
         window.removeEventListener('afterprint', cleanup);
       };
       window.addEventListener('afterprint', cleanup);
+      window.print();
     }, 150);
   };
 
@@ -228,6 +257,36 @@ export default function ChatWindow({
           )}
         </div>
 
+        {/* Workspace Segmented Switcher for Chat | Lab Metrics (Desktop: in header) */}
+        {activePdf && (
+          <div className="hidden sm:flex items-center rounded-full p-1 border border-white/[0.08] bg-[#151a23] shrink-0">
+            <button
+              onClick={() => setViewMode('chat')}
+              aria-label="Switch to chat view"
+              className={`flex items-center gap-1.5 transition rounded-full px-3 py-1 text-xs font-medium ${
+                viewMode === 'chat'
+                  ? 'bg-[#282d37] text-white shadow-xs'
+                  : 'text-slate-400 hover:text-slate-200'
+              }`}
+            >
+              <MessageSquare className="w-3.5 h-3.5" />
+              <span>{t('chat.view_chat', 'Chat')}</span>
+            </button>
+            <button
+              onClick={loadMetrics}
+              aria-label="View extracted lab metrics table"
+              className={`flex items-center gap-1.5 transition rounded-full px-3 py-1 text-xs font-medium ${
+                viewMode === 'metrics'
+                  ? 'bg-[#282d37] text-white shadow-xs'
+                  : 'text-slate-400 hover:text-slate-200'
+              }`}
+            >
+              <Table className="w-3.5 h-3.5" />
+              <span>{t('chat.lab_metrics', 'Lab Metrics')}</span>
+            </button>
+          </div>
+        )}
+
         <div className="flex items-center gap-1.5 sm:gap-2 shrink-0 ml-auto">
           {/* Print Doctor Summary when an active report is present */}
           {activePdf && (
@@ -235,12 +294,12 @@ export default function ChatWindow({
               onClick={handlePrintDoctorSummary}
               disabled={isExporting}
               aria-label="Export Summary"
-              className={`w-9 h-9 rounded-xl bg-white/[0.04] hover:bg-cyan-500/15 border border-white/[0.08] hover:border-cyan-500/30 text-slate-300 hover:text-cyan-300 flex items-center justify-center transition shrink-0 ${
+              className={`w-8 h-8 sm:w-9 sm:h-9 rounded-xl bg-white/[0.04] hover:bg-cyan-500/15 border border-white/[0.08] hover:border-cyan-500/30 text-slate-300 hover:text-cyan-300 flex items-center justify-center transition shrink-0 ${
                 isExporting ? 'opacity-70 cursor-not-allowed' : ''
               }`}
               title={isExporting ? t('chat.preparing_summary', 'Preparing Summary...') : 'Export 1-Click Printable Doctor Consultation Summary'}
             >
-              <Printer className={`w-4 h-4 ${isExporting ? 'animate-pulse' : ''}`} />
+              <Printer className={`w-3.5 h-3.5 sm:w-4 sm:h-4 ${isExporting ? 'animate-pulse' : ''}`} />
             </button>
           )}
 
@@ -249,10 +308,10 @@ export default function ChatWindow({
             <button
               onClick={onOpenExport}
               aria-label="Export chat data"
-              className="w-9 h-9 rounded-xl bg-white/[0.04] hover:bg-cyan-500/15 border border-white/[0.08] hover:border-cyan-500/30 text-slate-300 hover:text-cyan-300 flex items-center justify-center transition shrink-0"
+              className="w-8 h-8 sm:w-9 sm:h-9 rounded-xl bg-white/[0.04] hover:bg-cyan-500/15 border border-white/[0.08] hover:border-cyan-500/30 text-slate-300 hover:text-cyan-300 flex items-center justify-center transition shrink-0"
               title="Export full chat transcript and lab metrics (PDF or JSON)"
             >
-              <Download className="w-4 h-4" />
+              <Download className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
             </button>
           )}
 
@@ -270,11 +329,50 @@ export default function ChatWindow({
         </div>
       </header>
 
+      {/* Mobile Dedicated Sub-Header Bar when an active report is present */}
+      {activePdf && (
+        <div className="sm:hidden px-3 py-1.5 bg-[#0b0e14] border-b border-white/[0.06] flex items-center justify-between gap-2 shrink-0 z-10">
+          <div className="flex items-center rounded-full p-0.5 border border-white/[0.08] bg-[#151a23]">
+            <button
+              onClick={() => setViewMode('chat')}
+              aria-label="Switch to chat view"
+              className={`flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium transition ${
+                viewMode === 'chat'
+                  ? 'bg-[#282d37] text-white shadow-xs'
+                  : 'text-slate-400 hover:text-slate-200'
+              }`}
+            >
+              <span>💬</span>
+              <span>{t('chat.view_chat', 'Chat')}</span>
+            </button>
+            <button
+              onClick={loadMetrics}
+              aria-label="View extracted lab metrics table"
+              className={`flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium transition ${
+                viewMode === 'metrics'
+                  ? 'bg-[#282d37] text-white shadow-xs'
+                  : 'text-slate-400 hover:text-slate-200'
+              }`}
+            >
+              <span>📊</span>
+              <span>{t('chat.lab_metrics', 'Lab Metrics')}</span>
+            </button>
+          </div>
+
+          <div className="text-[11px] text-slate-300 font-mono flex items-center gap-1.5 shrink-0">
+            <span className="w-1.5 h-1.5 rounded-full bg-cyan-400 shrink-0" />
+            <span className="font-medium whitespace-nowrap">
+              {getShortDocLabel(activePdf)}
+            </span>
+          </div>
+        </div>
+      )}
+
       <div
         ref={scrollRef}
         onScroll={handleScroll}
         className={`chat-messages-container flex-1 overflow-y-auto py-4 sm:py-6 w-full mx-auto flex flex-col px-4 md:px-6 transition-all duration-200 ${
-          viewMode === 'metrics' ? 'max-w-4xl' : 'max-w-3xl'
+          viewMode === 'metrics' ? 'max-w-4xl pb-10' : 'max-w-3xl'
         }`}
       >
         {viewMode === 'metrics' ? (
@@ -387,7 +485,7 @@ export default function ChatWindow({
 
             <div className={`flex items-center gap-2 text-xs ${textMuted}`}>
               <Shield className="w-3.5 h-3.5" />
-              <span>{t('chat.encrypted_session', 'End-to-end encrypted session • Discarded on close')}</span>
+              <span>{t('chat.encrypted_session', 'Encrypted at rest (Fernet) • TLS 1.3 in transit')}</span>
             </div>
           </div>
         ) : (
@@ -405,37 +503,6 @@ export default function ChatWindow({
         )}
       </div>
 
-      {/* Non-scrolling bottom Mode Switcher Pill (Directly above composer so chat text is never covered) */}
-      {activePdf && (
-        <div className="w-full max-w-3xl mx-auto px-4 md:px-6 flex justify-center pt-1.5 pb-2.5 shrink-0 bg-[#07090e] z-10">
-          <div className="mx-auto flex items-center rounded-full p-1 border border-white/[0.08] bg-[#151a23] w-fit">
-            <button
-              onClick={() => setViewMode('chat')}
-              aria-label="Switch to chat view"
-              className={`flex items-center gap-1.5 transition ${
-                viewMode === 'chat'
-                  ? 'rounded-full bg-[#282d37] text-white font-medium px-4 py-1.5 text-xs shadow-xs'
-                  : 'rounded-full text-slate-400 hover:text-slate-200 px-4 py-1.5 text-xs font-medium'
-              }`}
-            >
-              <MessageSquare className="w-3.5 h-3.5" />
-              <span>{t('chat.view_chat', 'Chat')}</span>
-            </button>
-            <button
-              onClick={loadMetrics}
-              aria-label="View extracted lab metrics table"
-              className={`flex items-center gap-1.5 transition ${
-                viewMode === 'metrics'
-                  ? 'rounded-full bg-[#282d37] text-white font-medium px-4 py-1.5 text-xs shadow-xs'
-                  : 'rounded-full text-slate-400 hover:text-slate-200 px-4 py-1.5 text-xs font-medium'
-              }`}
-            >
-              <Table className="w-3.5 h-3.5" />
-              <span>{t('chat.lab_metrics', 'Lab Metrics')}</span>
-            </button>
-          </div>
-        </div>
-      )}
 
       {/* PrintableSummary — mounted only when printing */}
       {showPrintSummary && (() => {
@@ -464,7 +531,7 @@ export default function ChatWindow({
           onClick={scrollToBottom}
           aria-label="Scroll to latest message"
           title="Scroll to latest message"
-          className="absolute bottom-14 right-6 z-20 w-8 h-8 rounded-full bg-[#1a1f29] border border-white/15 text-slate-300 hover:text-white shadow-lg flex items-center justify-center transition-all duration-150"
+          className="absolute bottom-3 right-4 z-30 w-8 h-8 rounded-full bg-[#1a1f29]/95 backdrop-blur-xs border border-white/20 text-slate-300 hover:text-white shadow-xl flex items-center justify-center transition-all duration-150"
         >
           <ArrowDown className="w-4 h-4" />
         </button>

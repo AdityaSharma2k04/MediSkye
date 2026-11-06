@@ -138,7 +138,7 @@ describe('SettingsModal Account fields & Deletion', () => {
       />
     );
 
-    const select = screen.getByDisplayValue('English (US)');
+    const select = screen.getByLabelText(/AI Response Language/i);
     fireEvent.change(select, { target: { value: 'Spanish' } });
 
     // API should NOT be called before clicking Save Changes
@@ -168,7 +168,7 @@ describe('SettingsModal Account fields & Deletion', () => {
       />
     );
 
-    const select = screen.getByDisplayValue('English (US)');
+    const select = screen.getByLabelText(/AI Response Language/i);
     fireEvent.change(select, { target: { value: 'Spanish' } });
 
     const saveBtn = screen.getByRole('button', { name: 'Save Changes' });
@@ -393,7 +393,7 @@ describe('SettingsModal Account fields & Deletion', () => {
       />
     );
 
-    const select = screen.getByDisplayValue('English (US)');
+    const select = screen.getByLabelText(/AI Response Language/i);
     fireEvent.change(select, { target: { value: 'Spanish' } });
     fireEvent.click(screen.getByRole('button', { name: 'Save Changes' }));
 
@@ -442,7 +442,7 @@ describe('SettingsModal Account fields & Deletion', () => {
     onClose.mockClear();
 
     // Modify a field to create dirty state
-    const select = screen.getByDisplayValue('English (US)');
+    const select = screen.getByLabelText(/AI Response Language/i);
     fireEvent.change(select, { target: { value: 'French' } });
 
     // Try to close via X button

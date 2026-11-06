@@ -274,18 +274,13 @@ describe('TEST SUITE 2: Frontend E2E UI Journeys', () => {
         </MemoryRouter>
       );
 
-      const forgotBtn = screen.getByRole('button', { name: /forgot password\?/i });
-
-      // Click with empty email -> validation message appears
-      fireEvent.click(forgotBtn);
-      expect(
-        screen.getByText(/please enter your email address in the field above first/i)
-      ).toBeInTheDocument();
-      expect(mockApiPost).not.toHaveBeenCalled();
-
-      // Enter valid email and click forgot password
+      // Enter valid email and advance to password step
       const emailInput = screen.getByPlaceholderText(/email address/i);
       fireEvent.change(emailInput, { target: { value: 'patient@example.com' } });
+      fireEvent.click(screen.getByRole('button', { name: /^continue$/i }));
+
+      // On password step, click Forgot password?
+      const forgotBtn = await screen.findByRole('button', { name: /forgot password\?/i });
       fireEvent.click(forgotBtn);
 
       await waitFor(() => {
@@ -613,7 +608,8 @@ describe('TEST SUITE 2: Frontend E2E UI Journeys', () => {
       // No emojis or progress bars
       expect(container.textContent).not.toMatch(/[\u{1F300}-\u{1F9FF}]/u);
       expect(container.querySelector('[role="progressbar"]')).toBeNull();
-      expect(container.querySelector('.rounded-full')).toBeNull();
+      // Uses accessible status pills with directional icons
+      expect(container.querySelector('.rounded-full')).not.toBeNull();
     });
   });
 
@@ -640,7 +636,7 @@ describe('TEST SUITE 2: Frontend E2E UI Journeys', () => {
         />
       );
 
-      const select = screen.getByDisplayValue('English (US)');
+      const select = screen.getByLabelText(/AI Response Language/i);
       fireEvent.change(select, { target: { value: 'Spanish' } });
 
       const saveBtn = screen.getByRole('button', { name: 'Save Changes' });
@@ -667,7 +663,7 @@ describe('TEST SUITE 2: Frontend E2E UI Journeys', () => {
       );
 
       // Change setting to make state dirty
-      const select = screen.getByDisplayValue('English (US)');
+      const select = screen.getByLabelText(/AI Response Language/i);
       fireEvent.change(select, { target: { value: 'French' } });
 
       // Attempt to close via X button

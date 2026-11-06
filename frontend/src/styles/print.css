@@ -1,7 +1,7 @@
 @media print {
   @page {
-    margin: 18mm 15mm;
-    size: auto;
+    size: A4;
+    margin: 12mm;
   }
 
   /* Unblock multi-page flow: reset root containers to visible block flow */
@@ -47,7 +47,7 @@
     display: none !important;
   }
 
-  /* Ensure #print-summary is a visible flow block */
+  /* Ensure #print-summary is a visible flow block with clinical sans-serif */
   #print-summary {
     display: block !important;
     position: static !important;
@@ -55,14 +55,16 @@
     overflow: visible !important;
     background: #ffffff !important;
     color: #000000 !important;
-    font-family: "Georgia", "Times New Roman", Times, serif;
-    font-size: 11pt;
+    font-family: Inter, system-ui, -apple-system, sans-serif !important;
+    font-size: 9.5pt;
+    line-height: 1.45;
   }
 
   #print-summary * {
     color: #000000 !important;
     background: transparent !important;
     box-shadow: none !important;
+    font-family: Inter, system-ui, -apple-system, sans-serif !important;
   }
 
   /* Clean pagination breaks */
@@ -71,48 +73,62 @@
     break-inside: auto;
     width: 100%;
     border-collapse: collapse;
-    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    font-family: Inter, system-ui, -apple-system, sans-serif !important;
   }
 
   tr {
-    page-break-inside: avoid;
-    break-inside: avoid;
+    page-break-inside: avoid !important;
+    break-inside: avoid !important;
     page-break-after: auto;
   }
 
   th, td {
-    padding: 6pt 8pt;
-    border-bottom: 1px solid #000000;
-    font-size: 9.5pt;
+    padding: 5pt 7pt;
+    border-bottom: 1px solid #d1d5db;
+    font-size: 8.5pt;
   }
 
   th {
     font-weight: 700;
     border-bottom: 2px solid #000000;
     text-align: left;
+    background-color: #f3f4f6 !important;
   }
 
-  h1, h2, h3 {
-    page-break-after: avoid;
-    break-after: avoid;
-    font-family: "Georgia", "Times New Roman", Times, serif;
-    color: #000000;
+  h1, h2, h3, h4, .section-heading {
+    page-break-after: avoid !important;
+    break-after: avoid !important;
+    font-family: Inter, system-ui, -apple-system, sans-serif !important;
+    color: #000000 !important;
+  }
+
+  /* Finding blocks and cards */
+  .clinical-card,
+  .finding-block,
+  .patient-context-box,
+  .specialists {
+    page-break-inside: avoid !important;
+    break-inside: avoid !important;
   }
 
   /* Rendered markdown inside clinical summary */
   .clinical-summary h1,
   .clinical-summary h2 {
-    font-size: 13pt;
-    margin-top: 12pt;
-    margin-bottom: 6pt;
-  }
-
-  .clinical-summary h3 {
     font-size: 11pt;
     margin-top: 10pt;
     margin-bottom: 4pt;
-    border-bottom: 1px solid #000000;
+    page-break-after: avoid !important;
+    break-after: avoid !important;
+  }
+
+  .clinical-summary h3 {
+    font-size: 10pt;
+    margin-top: 8pt;
+    margin-bottom: 3pt;
+    border-bottom: 1px solid #d1d5db;
     padding-bottom: 2pt;
+    page-break-after: avoid !important;
+    break-after: avoid !important;
   }
 
   .clinical-summary strong {
@@ -125,33 +141,35 @@
 
   .clinical-summary ul,
   .clinical-summary ol {
-    margin-left: 18pt;
-    margin-bottom: 6pt;
+    margin-left: 14pt;
+    margin-bottom: 4pt;
   }
 
   .clinical-summary li {
-    margin-bottom: 3pt;
+    margin-bottom: 2pt;
+    page-break-inside: avoid;
+    break-inside: avoid;
   }
 
   .clinical-summary p {
-    margin-bottom: 6pt;
-    line-height: 1.5;
+    margin-bottom: 4pt;
+    line-height: 1.45;
   }
 
   /* Footer */
   .print-footer {
-    page-break-inside: avoid;
-    break-inside: avoid;
-    margin-top: 24pt;
-    padding-top: 12pt;
+    page-break-inside: avoid !important;
+    break-inside: avoid !important;
+    margin-top: 16pt;
+    padding-top: 8pt;
     border-top: 1px solid #000000;
-    font-size: 9pt;
+    font-size: 8pt;
     color: #000000;
   }
 
   .print-footer .generated-at {
-    margin-top: 4pt;
-    font-size: 8pt;
+    margin-top: 2pt;
+    font-size: 7.5pt;
     color: #444444;
   }
 }

@@ -24,6 +24,7 @@ import {
   getMemoryFacts,
   deleteMemoryFact,
   clearAllMemoryFacts,
+  exportUserAccountData,
 } from '../services/api';
 import {
   updatePassword,
@@ -86,7 +87,7 @@ const UI_LANGUAGES = [
   { code: 'hi', label: 'Hindi' },
 ];
 const AI_LANGUAGES = [
-  { code: 'English', label: 'English (US)' },
+  { code: 'English', label: 'English' },
   { code: 'Hindi', label: 'Hindi' },
   { code: 'Spanish', label: 'Spanish' },
   { code: 'French', label: 'French' },
@@ -581,6 +582,30 @@ export default function SettingsModal({
     }
   };
 
+  const [isExporting, setIsExporting] = useState(false);
+  const handleExportData = async () => {
+    try {
+      setIsExporting(true);
+      const data = await exportUserAccountData();
+      const jsonStr = JSON.stringify(data, null, 2);
+      const blob = new Blob([jsonStr], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      const today = new Date().toISOString().slice(0, 10);
+      a.href = url;
+      a.download = `MediSkye-Account-Export-${today}.json`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    } catch (err) {
+      logger.error('Failed to export user account data:', err);
+      alert(err.message || 'Failed to export account data. Please try again.');
+    } finally {
+      setIsExporting(false);
+    }
+  };
+
   useFocusTrap(modalRef, isOpen && !showUnsavedConfirm, handleAttemptClose);
 
   if (!isOpen) return null;
@@ -658,6 +683,7 @@ export default function SettingsModal({
             <Section title={t('settings.preferences', 'Preferences')} icon={Palette} darkMode={darkMode}>
               <Field label={t('settings.ui_language', 'App Interface Language')} darkMode={darkMode}>
                 <select
+                  aria-label="App Interface Language"
                   value={draftState.uiLanguage}
                   onChange={(e) => setDraftState((prev) => ({ ...prev, uiLanguage: e.target.value }))}
                   className={selectClass(darkMode)}
@@ -667,6 +693,7 @@ export default function SettingsModal({
               </Field>
               <Field label={t('settings.ai_language', 'AI Response Language')} darkMode={darkMode}>
                 <select
+                  aria-label="AI Response Language"
                   value={draftState.aiLanguage || 'English'}
                   onChange={(e) => setDraftState((prev) => ({ ...prev, aiLanguage: e.target.value }))}
                   className={selectClass(darkMode)}
@@ -760,7 +787,7 @@ export default function SettingsModal({
                 <div className={`p-3.5 rounded-xl border ${
                   darkMode ? 'bg-zinc-950 border-zinc-800' : 'bg-zinc-50 border-zinc-200'
                 }`}>
-                  <div className="flex items-center justify-between mb-2">
+                  <div className="flex items-center justify-between mb-1.5">
                     <div className="flex items-center gap-2">
                       <span className="text-xs font-medium">Remembered Facts</span>
                       <span className={`text-[10px] px-2 py-0.5 rounded-full font-medium ${
@@ -779,6 +806,9 @@ export default function SettingsModal({
                       </button>
                     )}
                   </div>
+                  <p className={`text-[11px] leading-tight mb-2.5 italic ${darkMode ? 'text-zinc-500' : 'text-zinc-400'}`}>
+                    Changes to the toggle or trash icons take effect immediately.
+                  </p>
 
                   {loadingMemory ? (
                     <div className="py-4 text-center text-xs text-zinc-500">Loading remembered facts...</div>
@@ -789,9 +819,12 @@ export default function SettingsModal({
                         : 'Memory is currently disabled. Enable memory above to allow MediSkye to remember clinical context across chats.'}
                     </p>
                   ) : (
-                    <div className="space-y-2 mt-2 max-h-56 overflow-y-auto pr-1">
+                    <div className="space-y-2">
                       {memoryFacts.map((fact) => {
                         const catStyle = getCategoryBadgeStyle(fact.fact_type || fact.category);
+                        const dateFormatted = fact.created_at
+                          ? new Date(fact.created_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
+                          : null;
                         return (
                           <div
                             key={fact.id}
@@ -807,6 +840,13 @@ export default function SettingsModal({
                                 {fact.source_type && (
                                   <span className="text-[10px] text-zinc-500">
                                     • {fact.source_type.replace('_', ' ')}
+                                  </span>
+                                )}
+                                {dateFormatted && (
+                                  <span className={`text-[10px] px-1.5 py-0.5 rounded font-mono ${
+                                    darkMode ? 'bg-zinc-800/80 text-zinc-400 border border-zinc-700/50' : 'bg-zinc-100 text-zinc-500 border border-zinc-200'
+                                  }`}>
+                                    {dateFormatted}
                                   </span>
                                 )}
                               </div>
@@ -865,34 +905,63 @@ export default function SettingsModal({
 
             {/* ── DATA & PRIVACY ── */}
             <Section title="Data & Privacy" icon={Database} darkMode={darkMode}>
-              <div className="flex flex-col gap-2">
+              <div className="flex flex-col gap-3">
                 <button
-                  disabled
-                  title="Coming soon"
-                  className={`w-full flex items-center gap-2 px-3 py-2.5 rounded-xl border text-xs cursor-not-allowed opacity-50 ${
-                    darkMode ? 'border-zinc-700 text-zinc-400' : 'border-zinc-200 text-zinc-500'
+                  type="button"
+                  onClick={handleExportData}
+                  disabled={isExporting}
+                  className={`w-full flex items-center justify-between px-3 py-2.5 rounded-xl border text-xs font-medium transition-colors ${
+                    darkMode
+                      ? 'border-zinc-700 bg-zinc-800/60 text-zinc-200 hover:bg-zinc-800 hover:border-cyan-500/40'
+                      : 'border-zinc-200 bg-zinc-50 text-zinc-800 hover:bg-zinc-100 hover:border-cyan-500/40'
                   }`}
                 >
-                  <Download className="w-3.5 h-3.5" />
-                  Export my data
-                  <span className={`ml-auto text-[10px] px-1.5 py-0.5 rounded border ${darkMode ? 'border-zinc-700 text-zinc-500' : 'border-zinc-200 text-zinc-400'}`}>
-                    Coming soon
+                  <span className="flex items-center gap-2">
+                    <Download className="w-3.5 h-3.5 text-cyan-400" />
+                    {isExporting ? 'Exporting...' : 'Export my data'}
+                  </span>
+                  <span className={`text-[10px] px-2 py-0.5 rounded-md font-mono ${darkMode ? 'bg-zinc-800 text-zinc-400' : 'bg-zinc-200 text-zinc-600'}`}>
+                    JSON
                   </span>
                 </button>
-                <button
-                  onClick={() => setShowClearConfirm(true)}
-                  className="w-full flex items-center gap-2 px-3 py-2.5 rounded-xl border text-xs border-red-500/30 text-red-400 hover:bg-red-500/10 transition-colors"
-                >
-                  <Trash2 className="w-3.5 h-3.5" />
-                  Clear all conversations
-                </button>
-                <button
-                  onClick={() => setShowDeleteConfirm(true)}
-                  className="w-full flex items-center gap-2 px-3 py-2.5 rounded-xl border text-xs border-red-500/40 text-red-400 hover:bg-red-500/10 transition-colors"
-                >
-                  <UserX className="w-3.5 h-3.5" />
-                  Delete account
-                </button>
+
+                {/* Secondary Warning Action: Clear Conversations */}
+                <div className="pt-0.5">
+                  <button
+                    type="button"
+                    onClick={() => setShowClearConfirm(true)}
+                    className={`w-full flex items-center gap-2 px-3 py-2.5 rounded-xl border text-xs transition-colors ${
+                      darkMode
+                        ? 'border-amber-500/30 text-amber-400 hover:bg-amber-500/10'
+                        : 'border-amber-500/40 text-amber-600 hover:bg-amber-50'
+                    }`}
+                  >
+                    <Trash2 className="w-3.5 h-3.5 text-amber-400" />
+                    Clear all conversations
+                  </button>
+                </div>
+
+                {/* Dedicated Destructive Danger Zone Card */}
+                <div className={`mt-1 p-3 rounded-xl border ${
+                  darkMode ? 'border-red-500/30 bg-red-950/20' : 'border-red-200 bg-red-50/60'
+                }`}>
+                  <div className="flex items-center justify-between mb-1.5">
+                    <span className="text-[11px] font-semibold uppercase tracking-wider text-red-400">
+                      Danger Zone
+                    </span>
+                  </div>
+                  <p className={`text-[11px] leading-relaxed mb-3 ${darkMode ? 'text-zinc-400' : 'text-zinc-600'}`}>
+                    Permanently delete your MediSkye account, medical profiles, uploaded lab documents, and remembered facts.
+                  </p>
+                  <button
+                    type="button"
+                    onClick={() => setShowDeleteConfirm(true)}
+                    className="w-full flex items-center justify-center gap-2 px-3 py-2.5 rounded-xl text-xs font-medium text-white bg-red-600 hover:bg-red-700 transition-colors shadow-sm"
+                  >
+                    <UserX className="w-3.5 h-3.5" />
+                    Delete account
+                  </button>
+                </div>
               </div>
             </Section>
 
@@ -907,7 +976,7 @@ export default function SettingsModal({
                 className={`w-full flex items-center justify-between px-3 py-2.5 rounded-xl border text-xs transition-colors ${darkMode ? 'border-zinc-800 text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800' : 'border-zinc-100 text-zinc-500 hover:text-zinc-700 hover:bg-zinc-50'}`}
               >
                 <span className="flex items-center gap-2"><Shield className="w-3.5 h-3.5" /> Medical disclaimer</span>
-                <ExternalLink className="w-3 h-3 opacity-50" />
+                <Info className="w-3.5 h-3.5 opacity-50" />
               </button>
               <SafeLink
                 to="/privacy"

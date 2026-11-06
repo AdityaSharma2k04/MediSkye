@@ -91,13 +91,11 @@ async def test_export_returns_full_transcript_and_metrics():
         assert data["messages"][1]["role"] == "ai"
         assert data["messages"][1]["message"] == "Yes, your hemoglobin is within the normal range."
 
-        # Cached metrics (both lab_metrics and metrics alias)
+        # Cached metrics (lab_metrics only, metrics alias removed)
         assert len(data["lab_metrics"]) == 2
-        assert len(data["metrics"]) == 2
+        assert "metrics" not in data
         assert data["lab_metrics"][0]["test"] == "Hemoglobin"
-        assert data["metrics"][0]["test"] == "Hemoglobin"
         assert data["lab_metrics"][1]["status"] == "High"
-        assert data["metrics"][1]["status"] == "High"
 
 
 @pytest.mark.asyncio
@@ -174,3 +172,36 @@ async def test_export_requires_auth():
     async with AsyncClient(transport=transport, base_url="http://test") as ac:
         res = await ac.get(f"/users/me/documents/{uuid.uuid4()}/export")
         assert res.status_code in (401, 403)
+
+
+@pytest.mark.asyncio
+async def test_export_my_data_returns_full_account_bundle():
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as ac:
+        email = f"export_all_{uuid.uuid4().hex[:8]}@test.com"
+        headers, user_id = await _create_user_and_headers(ac, email)
+
+        metrics = [
+            {"test": "Hemoglobin", "value": "14.2", "unit": "g/dL", "range": "12-17", "status": "Normal"},
+        ]
+        doc_id = await _seed_document(user_id, cached_metrics=metrics)
+        await _seed_chats(user_id, doc_id, [
+            ("user", "What is my hemoglobin?"),
+            ("ai", "Your hemoglobin is 14.2 g/dL."),
+        ])
+
+        res = await ac.get("/users/me/export-data", headers=headers)
+        assert res.status_code == 200
+        data = res.json()
+
+        assert "profile" in data
+        assert data["profile"]["email"] == email
+        assert "dependent_profiles" in data
+        assert "remembered_facts" in data
+        assert "documents" in data
+        assert len(data["documents"]) == 1
+        assert data["documents"][0]["id"] == str(doc_id)
+        assert len(data["documents"][0]["lab_metrics"]) == 1
+        assert "metrics" not in data["documents"][0]
+        assert len(data["documents"][0]["chat_history"]) == 2
+        assert "export_timestamp" in data

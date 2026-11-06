@@ -40,6 +40,7 @@ from app.core.audit import log_audit
 from app.core.limiter import limiter
 from app.core.security import clean_filename_to_title, sanitize_text
 from app.services.patient_service import calculate_age
+from app.services.clinical_units import normalize_clinical_unit, check_is_future_date
 from app.rag.index_storage import adelete_index_artifacts
 
 logger = logging.getLogger(__name__)
@@ -171,6 +172,8 @@ async def get_my_documents(
             "filename": doc.filename,
             "file_path": doc.file_path,
             "title": doc.title or clean_filename_to_title(doc.filename),
+            "collected_at": doc.collected_at,
+            "is_future_collection_date": check_is_future_date(doc.collected_at),
             "created_at": doc.created_at.isoformat() if doc.created_at else None,
             "dependent_id": str(doc.dependent_id) if doc.dependent_id else None
         }
@@ -417,7 +420,7 @@ async def delete_single_chat(
 
 
 def _normalize_cached_metrics(cached) -> List[dict]:
-    """Normalize Document.cached_metrics into a plain list of dicts (no-op for empty)."""
+    """Normalize Document.cached_metrics into a plain list of dicts with standardized units."""
     if cached is None:
         return []
     if isinstance(cached, str):
@@ -431,11 +434,171 @@ def _normalize_cached_metrics(cached) -> List[dict]:
         return []
     metrics = []
     for item in cached:
+        d = None
         if isinstance(item, dict):
-            metrics.append(item)
+            d = dict(item)
         elif hasattr(item, "model_dump"):
-            metrics.append(item.model_dump())
+            d = item.model_dump()
+        if d is not None:
+            if "unit" in d and d["unit"]:
+                d["unit"] = normalize_clinical_unit(d["unit"])
+            metrics.append(d)
     return metrics
+
+
+@router.get("/users/me/export-data", tags=["Users & Dependents"])
+async def export_my_data(
+    request: Request,
+    current_user: User = Depends(get_current_user_full),
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    Export all user account data as a clean JSON bundle:
+    decrypted profile, dependent_profiles, remembered_facts,
+    and documents (with lab_metrics and chat history).
+    """
+    profile_data = {
+        "id": str(current_user.id),
+        "email": current_user.email,
+        "full_name": current_user.full_name,
+        "date_of_birth": current_user.date_of_birth.isoformat() if current_user.date_of_birth else None,
+        "calculated_age": calculate_age(current_user.date_of_birth),
+        "biological_sex": current_user.biological_sex,
+        "blood_type": current_user.blood_type,
+        "pre_existing_conditions": current_user.pre_existing_conditions,
+        "known_allergies": current_user.known_allergies,
+        "current_medications": current_user.current_medications,
+        "height_cm": current_user.height_cm,
+        "diet_type": current_user.diet_type,
+        "activity_level": current_user.activity_level,
+        "occupation": current_user.occupation,
+        "emergency_contact_name": current_user.emergency_contact_name,
+        "emergency_contact_phone": current_user.emergency_contact_phone,
+        "language_preference": current_user.language_preference,
+        "memory_consent_granted": current_user.memory_consent_granted,
+        "phi_consent_granted": current_user.phi_consent_granted,
+        "created_at": current_user.created_at.isoformat() if current_user.created_at else None,
+    }
+
+    # Decrypted dependent profiles
+    dep_res = await db.execute(
+        select(DependentProfile)
+        .filter(DependentProfile.user_id == current_user.id)
+        .order_by(DependentProfile.created_at.asc())
+    )
+    dependents = dep_res.scalars().all()
+    dependent_profiles_data = [
+        {
+            "id": str(d.id),
+            "relationship": d.relationship,
+            "full_name": d.full_name,
+            "date_of_birth": d.date_of_birth.isoformat() if d.date_of_birth else None,
+            "calculated_age": calculate_age(d.date_of_birth),
+            "biological_sex": d.biological_sex,
+            "blood_type": d.blood_type,
+            "pre_existing_conditions": d.pre_existing_conditions,
+            "known_allergies": d.known_allergies,
+            "current_medications": d.current_medications,
+            "height_cm": d.height_cm,
+            "diet_type": d.diet_type,
+            "activity_level": d.activity_level,
+            "occupation": d.occupation,
+            "emergency_contact_name": d.emergency_contact_name,
+            "emergency_contact_phone": d.emergency_contact_phone,
+            "created_at": d.created_at.isoformat() if d.created_at else None,
+        }
+        for d in dependents
+    ]
+
+    # Remembered facts
+    facts_res = await db.execute(
+        select(PatientFact)
+        .filter(PatientFact.user_id == current_user.id)
+        .order_by(PatientFact.created_at.desc())
+    )
+    facts = facts_res.scalars().all()
+    remembered_facts_data = [
+        {
+            "id": str(f.id),
+            "fact_text": f.fact_text,
+            "fact_category": f.fact_category,
+            "source_report_id": f.source_id,
+            "dependent_id": str(f.dependent_id) if f.dependent_id else None,
+            "is_active": f.is_active,
+            "created_at": f.created_at.isoformat() if f.created_at else None,
+            "updated_at": f.updated_at.isoformat() if f.updated_at else None,
+        }
+        for f in facts
+    ]
+
+    # Documents with lab_metrics and chat history
+    docs_res = await db.execute(
+        select(Document)
+        .filter(Document.user_id == current_user.id)
+        .order_by(Document.created_at.desc())
+    )
+    docs = docs_res.scalars().all()
+    documents_data = []
+    for doc in docs:
+        chats_res = await db.execute(
+            select(Chat)
+            .filter(Chat.user_id == current_user.id, Chat.document_id == doc.id)
+            .order_by(Chat.created_at.asc())
+        )
+        chats = chats_res.scalars().all()
+        chat_history = [
+            {
+                "id": str(c.id),
+                "role": c.role,
+                "message": c.message,
+                "session_id": c.session_id,
+                "created_at": c.created_at.isoformat() if c.created_at else None,
+            }
+            for c in chats
+        ]
+        documents_data.append({
+            "id": str(doc.id),
+            "filename": doc.filename,
+            "title": doc.title or doc.filename,
+            "collected_at": doc.collected_at,
+            "is_future_collection_date": check_is_future_date(doc.collected_at),
+            "created_at": doc.created_at.isoformat() if doc.created_at else None,
+            "dependent_id": str(doc.dependent_id) if doc.dependent_id else None,
+            "cached_summary": doc.cached_summary,
+            "lab_metrics": _normalize_cached_metrics(doc.cached_metrics),
+            "chat_history": chat_history,
+        })
+
+    # Standalone chats
+    standalone_chats_res = await db.execute(
+        select(Chat)
+        .filter(Chat.user_id == current_user.id, Chat.document_id.is_(None))
+        .order_by(Chat.created_at.asc())
+    )
+    standalone_chats_data = [
+        {
+            "id": str(c.id),
+            "role": c.role,
+            "message": c.message,
+            "session_id": c.session_id,
+            "session_title": c.session_title,
+            "created_at": c.created_at.isoformat() if c.created_at else None,
+        }
+        for c in standalone_chats_res.scalars().all()
+    ]
+
+    await log_audit(db, "ACCOUNT_DATA_EXPORTED", current_user.id, "export_data", request.client.host if request.client else "unknown")
+
+    return {
+        "export_timestamp": datetime.now(UTC).isoformat(),
+        "account_id": str(current_user.id),
+        "email": current_user.email,
+        "profile": profile_data,
+        "dependent_profiles": dependent_profiles_data,
+        "remembered_facts": remembered_facts_data,
+        "documents": documents_data,
+        "standalone_chats": standalone_chats_data,
+    }
 
 
 @router.get("/users/me/documents/{document_id}/export")
@@ -475,6 +638,8 @@ async def export_document_data(
             "id": str(doc.id),
             "filename": doc.filename,
             "title": doc.title or doc.filename,
+            "collected_at": doc.collected_at,
+            "is_future_collection_date": check_is_future_date(doc.collected_at),
             "created_at": doc.created_at.isoformat() if doc.created_at else None,
             "dependent_id": str(doc.dependent_id) if doc.dependent_id else None,
         },
@@ -488,7 +653,6 @@ async def export_document_data(
             for c in chats
         ],
         "lab_metrics": _normalize_cached_metrics(doc.cached_metrics),
-        "metrics": _normalize_cached_metrics(doc.cached_metrics),
     }
 
 @router.delete("/users/me/documents/{document_id}", status_code=status.HTTP_204_NO_CONTENT)

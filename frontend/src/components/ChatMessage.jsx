@@ -23,6 +23,46 @@ export const stripAbnormalFlags = (text) => {
     .trim();
 };
 
+const extractTableData = (node) => {
+  if (!node || !node.children) return null;
+  const rows = [];
+  const findRows = (n) => {
+    if (!n) return;
+    const isRow = n.tagName === 'tr' || n.type === 'tableRow';
+    if (isRow) {
+      const cells = (n.children || [])
+        .filter((c) => c && (c.tagName === 'th' || c.tagName === 'td' || c.type === 'tableCell'))
+        .map((c) => {
+          const getText = (cellNode) => {
+            if (!cellNode) return '';
+            if (cellNode.value) return cellNode.value;
+            if (cellNode.children) return cellNode.children.map(getText).join('');
+            return '';
+          };
+          return getText(c).trim();
+        });
+      if (cells.length > 0) {
+        rows.push(cells);
+      }
+    } else if (n.children) {
+      n.children.forEach(findRows);
+    }
+  };
+  findRows(node);
+  return rows;
+};
+
+const getStatusBadgeStyle = (statusText = '') => {
+  const s = statusText.toLowerCase();
+  if (s.includes('drop')) {
+    return 'bg-amber-500/15 text-amber-400 border border-amber-500/30';
+  }
+  if (s.includes('low') || s.includes('high')) {
+    return 'bg-rose-500/15 text-rose-300 border border-rose-500/30';
+  }
+  return 'bg-emerald-500/15 text-emerald-400 border border-emerald-500/30';
+};
+
 export default function ChatMessage({ message, onRegenerate, darkMode }) {
   const [copied, setCopied] = useState(false);
   const [speaking, setSpeaking] = useState(false);
@@ -100,12 +140,13 @@ export default function ChatMessage({ message, onRegenerate, darkMode }) {
   };
 
   if (isUser) {
+    const cleanUserText = (message?.text || message?.message || '').replace(/^["'“”‘’]+|["'“”‘’]+$/g, '').trim();
     return (
       <div className="flex justify-end mb-4 animate-bubble-in group">
         <div className={`rounded-2xl rounded-tr-sm px-4 py-2.5 max-w-[85%] ml-auto text-sm leading-relaxed shadow-sm ${
           darkMode ? 'bg-[#131b26] border border-cyan-500/20 text-slate-100' : 'bg-zinc-900 text-white'
         }`}>
-          {message.text}
+          {cleanUserText}
         </div>
       </div>
     );
@@ -133,7 +174,7 @@ export default function ChatMessage({ message, onRegenerate, darkMode }) {
             <span>MediSkye AI</span>
             <Sparkles className="w-3.5 h-3.5 text-emerald-500 shrink-0" />
           </div>
-          <span className="text-[11px] text-zinc-500">{message.timestamp || 'Just now'}</span>
+          <span className="text-[11px] text-slate-400 dark:text-slate-400">{message.timestamp || 'Just now'}</span>
         </div>
 
         {/* Progressive rotating status line while generating before text arrives */}
@@ -182,7 +223,65 @@ export default function ChatMessage({ message, onRegenerate, darkMode }) {
 
         {content && (
           <div className={`prose max-w-none w-full text-sm leading-relaxed ${darkMode ? 'prose-invert text-zinc-100' : 'text-zinc-800'}`}>
-            <ReactMarkdown remarkPlugins={[remarkGfm]}>
+            <ReactMarkdown
+              remarkPlugins={[remarkGfm]}
+              components={{
+                table: ({ node, ...props }) => {
+                  const rows = extractTableData(node);
+                  const isComparison = rows && rows.length > 1 && rows[0].length >= 5;
+                  return (
+                    <div className="my-3 w-full">
+                      <div className={`overflow-x-auto rounded-xl border border-slate-800 bg-[#0b1017] shadow-inner scrollbar-thin ${
+                        isComparison ? 'hidden sm:block' : 'block'
+                      }`}>
+                        <table className="w-full border-collapse text-left text-xs sm:text-sm my-0" {...props} />
+                      </div>
+                      {isComparison && (
+                        <div className="block sm:hidden space-y-2.5">
+                          {rows.slice(1).map((row, idx) => {
+                            const name = (row[0] || '').replace(/\*\*/g, '');
+                            const baseline = row[1] || '';
+                            const followUp = row[2] || '';
+                            const change = row[3] || '';
+                            const refRange = row[4] || '';
+                            const status = row[5] || '';
+                            return (
+                              <div key={idx} className="p-3 rounded-xl border border-slate-800 bg-[#0c1017] space-y-1.5 shadow-xs">
+                                <div className="flex items-center justify-between gap-2">
+                                  <span className="font-semibold text-xs text-white tracking-tight">{name}</span>
+                                  {status && (
+                                    <span className={`text-[10px] px-2 py-0.5 rounded-full font-medium ${getStatusBadgeStyle(status)}`}>
+                                      {status}
+                                    </span>
+                                  )}
+                                </div>
+                                <div className="flex items-baseline justify-between text-xs pt-0.5">
+                                  <div className="flex items-baseline gap-1.5">
+                                    <span className="font-bold text-sm text-cyan-300">{followUp}</span>
+                                    {change && <span className="text-[11px] font-mono text-slate-300 font-medium">{change}</span>}
+                                  </div>
+                                  {baseline && <span className="text-[10px] text-slate-400 font-mono">prev: {baseline}</span>}
+                                </div>
+                                {refRange && <div className="text-[10px] text-slate-500 font-mono">Ref: {refRange}</div>}
+                              </div>
+                            );
+                          })}
+                        </div>
+                      )}
+                    </div>
+                  );
+                },
+                thead: ({ node, ...props }) => (
+                  <thead className="bg-[#121824] text-slate-300 border-b border-slate-800 font-medium" {...props} />
+                ),
+                th: ({ node, ...props }) => (
+                  <th className="px-3 py-2.5 font-semibold text-xs text-slate-300 whitespace-nowrap" {...props} />
+                ),
+                td: ({ node, ...props }) => (
+                  <td className="px-3 py-2 border-b border-slate-800/40 text-xs text-slate-200 whitespace-nowrap" {...props} />
+                ),
+              }}
+            >
               {content}
             </ReactMarkdown>
           </div>
