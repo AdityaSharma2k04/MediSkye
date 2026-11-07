@@ -139,7 +139,7 @@ export default function ExportModal({
   return (
     <>
       <div
-        className="fixed inset-0 z-[65] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-backdrop-in"
+        className="fixed inset-0 z-[65] flex items-end sm:items-center justify-center p-0 sm:p-4 bg-black/60 backdrop-blur-sm animate-backdrop-in"
         onMouseDown={(e) => {
           if (e.target === e.currentTarget) onClose();
         }}
@@ -149,23 +149,23 @@ export default function ExportModal({
       >
         <div
           ref={modalRef}
-          className={`relative rounded-2xl shadow-2xl max-w-md w-full border animate-modal-in overflow-hidden ${
-            darkMode ? 'bg-zinc-900 border-zinc-800' : 'bg-white border-zinc-200'
+          className={`relative rounded-t-[28px] sm:rounded-3xl shadow-float w-full sm:max-w-md border ms-sheet-mobile sm:animate-modal-in overflow-hidden pb-[env(safe-area-inset-bottom)] sm:pb-0 ${
+            darkMode ? 'bg-graphite border-white/[0.07]' : 'bg-white border-zinc-200'
           }`}
           onMouseDown={(e) => e.stopPropagation()}
         >
           {/* Header */}
-          <div className={`flex items-center justify-between px-5 py-4 border-b ${darkMode ? 'border-zinc-800' : 'border-zinc-100'}`}>
+          <div className={`flex items-center justify-between px-5 py-4 border-b ${darkMode ? 'border-white/[0.07]' : 'border-zinc-100'}`}>
             <div className="flex items-center gap-2.5">
-              <Download className={`w-4 h-4 ${darkMode ? 'text-zinc-300' : 'text-zinc-600'}`} />
-              <h3 className={`font-semibold text-sm ${darkMode ? 'text-zinc-100' : 'text-zinc-900'}`}>
+              <Download className={`w-4 h-4 ${darkMode ? 'text-ink-soft' : 'text-zinc-600'}`} />
+              <h3 className={`font-semibold text-sm ${darkMode ? 'text-ink' : 'text-zinc-900'}`}>
                 Export Chat Data
               </h3>
             </div>
             <button
               onClick={onClose}
               aria-label="Close export dialog"
-              className={`p-1 rounded-lg transition-colors ${darkMode ? 'text-zinc-500 hover:text-zinc-200 hover:bg-zinc-800' : 'text-zinc-400 hover:text-zinc-700 hover:bg-zinc-100'}`}
+              className={`p-1 rounded-lg transition-colors ${darkMode ? 'text-ink-faint hover:text-ink hover:bg-slate2' : 'text-ink-mute hover:text-zinc-700 hover:bg-zinc-100'}`}
             >
               <X className="w-4 h-4" />
             </button>
@@ -177,7 +177,7 @@ export default function ExportModal({
                 {exportError}
               </div>
             )}
-            <p className={`text-xs leading-relaxed ${darkMode ? 'text-zinc-400' : 'text-zinc-500'}`}>
+            <p className={`text-xs leading-relaxed ${darkMode ? 'text-ink-mute' : 'text-ink-faint'}`}>
               Export this conversation{documentTitle ? ` for “${documentTitle}”` : ''} — including every message and the extracted lab metrics.
             </p>
 
@@ -189,18 +189,18 @@ export default function ExportModal({
                 busy ? 'opacity-60 cursor-not-allowed' : ''
               } ${
                 darkMode
-                  ? 'bg-zinc-950 border-zinc-800 hover:border-zinc-700'
+                  ? 'bg-obsidian border-white/[0.07] hover:border-white/[0.12]'
                   : 'bg-zinc-50 border-zinc-200 hover:border-zinc-300'
               }`}
             >
               <div className={`w-9 h-9 rounded-xl flex items-center justify-center shrink-0 ${
-                darkMode ? 'bg-zinc-800 text-amber-300' : 'bg-amber-100 text-amber-700'
+                darkMode ? 'bg-slate2 text-amber-300' : 'bg-amber-100 text-amber-700'
               }`}>
                 <FileJson className="w-5 h-5" />
               </div>
               <div className="min-w-0">
-                <div className={`text-xs font-semibold ${darkMode ? 'text-zinc-100' : 'text-zinc-900'}`}>Download JSON</div>
-                <div className={`text-[11px] leading-relaxed mt-0.5 ${darkMode ? 'text-zinc-500' : 'text-zinc-400'}`}>
+                <div className={`text-xs font-semibold ${darkMode ? 'text-ink' : 'text-zinc-900'}`}>Download JSON</div>
+                <div className={`text-[11px] leading-relaxed mt-0.5 ${darkMode ? 'text-ink-faint' : 'text-ink-mute'}`}>
                   Raw data — full transcript, document metadata and lab metrics in machine-readable JSON.
                 </div>
               </div>
@@ -214,18 +214,18 @@ export default function ExportModal({
                 busy ? 'opacity-60 cursor-not-allowed' : ''
               } ${
                 darkMode
-                  ? 'bg-zinc-950 border-zinc-800 hover:border-zinc-700'
+                  ? 'bg-obsidian border-white/[0.07] hover:border-white/[0.12]'
                   : 'bg-zinc-50 border-zinc-200 hover:border-zinc-300'
               }`}
             >
               <div className={`w-9 h-9 rounded-xl flex items-center justify-center shrink-0 ${
-                darkMode ? 'bg-zinc-800 text-rose-300' : 'bg-rose-100 text-rose-700'
+                darkMode ? 'bg-slate2 text-rose-300' : 'bg-rose-100 text-rose-700'
               }`}>
                 <FileText className="w-5 h-5" />
               </div>
               <div className="min-w-0">
-                <div className={`text-xs font-semibold ${darkMode ? 'text-zinc-100' : 'text-zinc-900'}`}>Download PDF</div>
-                <div className={`text-[11px] leading-relaxed mt-0.5 ${darkMode ? 'text-zinc-500' : 'text-zinc-400'}`}>
+                <div className={`text-xs font-semibold ${darkMode ? 'text-ink' : 'text-zinc-900'}`}>Download PDF</div>
+                <div className={`text-[11px] leading-relaxed mt-0.5 ${darkMode ? 'text-ink-faint' : 'text-ink-mute'}`}>
                   Formal document — formatted transcript, metrics table and medical disclaimer, ready to print or save.
                 </div>
               </div>

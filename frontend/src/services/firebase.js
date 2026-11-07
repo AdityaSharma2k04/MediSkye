@@ -8,6 +8,7 @@ import {
   sendPasswordResetEmail,
   updateProfile,
   onIdTokenChanged,
+  onAuthStateChanged,
   signOut,
   applyActionCode,
   verifyPasswordResetCode,
@@ -44,6 +45,7 @@ export {
   sendPasswordResetEmail,
   updateProfile,
   onIdTokenChanged,
+  onAuthStateChanged,
   signOut,
   applyActionCode,
   verifyPasswordResetCode,
@@ -116,23 +118,30 @@ export function getFirebaseErrorMessage(error) {
   }
 }
 
-// Keep localStorage token fresh automatically when Firebase background-rotates ID tokens
-if (typeof window !== "undefined" && typeof onIdTokenChanged === "function") {
-  try {
-    onIdTokenChanged(auth, async (user) => {
-      if (user && user.emailVerified !== false) {
-        try {
-          const token = await user.getIdToken();
-          localStorage.setItem("token", token);
-          if (user.email) {
-            localStorage.setItem("mediskye_user_email", user.email);
-          }
-        } catch (e) {
-          // Token refresh failure (e.g. offline)
+// Keep localStorage token in sync automatically on auth state changes and ID token rotation
+if (typeof window !== "undefined") {
+  const syncUserToken = async (user) => {
+    if (user && user.emailVerified !== false) {
+      try {
+        const token = await user.getIdToken();
+        localStorage.setItem("token", token);
+        if (user.email) {
+          localStorage.setItem("mediskye_user_email", user.email);
         }
+      } catch (e) {
+        // Token refresh failure (e.g. offline)
       }
-    });
-  } catch (err) {
-    // In unit testing environments where auth might be a mock object
+    }
+  };
+
+  if (typeof onAuthStateChanged === "function") {
+    try {
+      onAuthStateChanged(auth, syncUserToken);
+    } catch (_) {}
+  }
+  if (typeof onIdTokenChanged === "function") {
+    try {
+      onIdTokenChanged(auth, syncUserToken);
+    } catch (_) {}
   }
 }

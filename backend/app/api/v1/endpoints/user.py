@@ -1023,7 +1023,49 @@ async def get_user_facts(
         )
     )
     facts = res.scalars().all()
-    return [PatientFactResponse.model_validate(f) for f in facts]
+
+    chat_ids = []
+    for f in facts:
+        if f.source_id:
+            try:
+                chat_ids.append(UUID(str(f.source_id)))
+            except ValueError:
+                pass
+
+    chat_to_doc = {}
+    direct_doc_ids = set()
+    if chat_ids:
+        # Check if source_id matches a Chat with a document_id
+        c_res = await db.execute(
+            select(Chat.id, Chat.document_id).filter(
+                Chat.id.in_(chat_ids),
+                Chat.document_id.is_not(None),
+            )
+        )
+        for c_id, d_id in c_res.all():
+            if d_id:
+                chat_to_doc[str(c_id)] = str(d_id)
+
+        # Check if source_id is directly a Document id
+        d_res = await db.execute(
+            select(Document.id).filter(
+                Document.id.in_(chat_ids),
+                Document.user_id == current_user.id,
+            )
+        )
+        for (d_id,) in d_res.all():
+            direct_doc_ids.add(str(d_id))
+
+    result = []
+    for f in facts:
+        resp = PatientFactResponse.model_validate(f)
+        s_id_str = str(f.source_id) if f.source_id else None
+        if s_id_str and s_id_str in chat_to_doc:
+            resp.source_document_id = chat_to_doc[s_id_str]
+        elif s_id_str and s_id_str in direct_doc_ids:
+            resp.source_document_id = s_id_str
+        result.append(resp)
+    return result
 
 
 @router.post("/users/me/facts", response_model=PatientFactResponse, status_code=status.HTTP_201_CREATED)

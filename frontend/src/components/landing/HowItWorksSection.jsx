@@ -73,7 +73,7 @@ function AskVisual() {
 function StepCard({ number, visual, title, description }) {
   return (
     <div
-      className="landing-step-card group transform-gpu will-change-transform bg-[#0f1115] border border-white/10 rounded-2xl p-8 transition-all duration-300 ease-in-out hover:-translate-y-1.5 hover:scale-[1.02] hover:shadow-xl hover:shadow-cyan-500/10 hover:border-cyan-500/30 cursor-default"
+      className="landing-step-card group transform-gpu will-change-transform bg-carbon border border-white/10 rounded-2xl p-8 transition-all duration-300 ease-in-out hover:-translate-y-1.5 hover:scale-[1.02] hover:shadow-xl hover:shadow-cyan-500/10 hover:border-cyan-500/30 cursor-default"
     >
       {visual}
       <div style={styles.stepNumber}>{number}</div>

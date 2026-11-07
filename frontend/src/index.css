@@ -2,45 +2,257 @@
 @tailwind components;
 @tailwind utilities;
 
+/* ═══════════════════════════════════════════════════════════════════════════
+   MediSkye Design System — "Clinical Obsidian"
+   Surface ladder · specular hairlines · semantic clinical accents
+   ═══════════════════════════════════════════════════════════════════════════ */
+
 :root {
-  --bg-app: #07090e;
-  --bg-surface: #0a0d14;
-  --text-app: #f1f5f9;
+  /* Surfaces */
+  --ms-obsidian: #05070b;
+  --ms-carbon: #0a0e17;
+  --ms-graphite: #0f1623;
+  --ms-slate: #151d2c;
+  --ms-ridge: #1c2638;
+  /* Lines */
+  --ms-hairline: rgba(255, 255, 255, 0.07);
+  --ms-hairline-strong: rgba(255, 255, 255, 0.12);
+  /* Text */
+  --ms-ink: #e6edf5;
+  --ms-ink-soft: #c3cedb;
+  --ms-ink-mute: #8a97a8;
+  --ms-ink-faint: #5d6a7c;
+  /* Clinical semantics */
+  --ms-cyan: #06b6d4;
+  --ms-emerald: #10b981;
+  --ms-amber: #f59e0b;
+  --ms-rose: #f43f5e;
+  /* Layout */
+  --ms-header-h: 56px;
+  --ms-safe-bottom: env(safe-area-inset-bottom, 0px);
+  --ms-safe-top: env(safe-area-inset-top, 0px);
+
+  /* Legacy aliases kept for components that still read them */
+  --bg-app: var(--ms-obsidian);
+  --bg-surface: var(--ms-carbon);
+  --text-app: var(--ms-ink);
   color-scheme: dark;
 }
 
 @layer base {
-  /* Permanent Obsidian dark theme — no light-mode body overrides */
   html,
   body,
   #root {
-    background-color: #07090e;
-    color: #f1f5f9;
+    background-color: var(--ms-obsidian);
+    color: var(--ms-ink);
     color-scheme: dark;
+  }
+
+  html {
+    /* Razor-sharp text on Windows ClearType + macOS */
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    text-rendering: optimizeLegibility;
+    font-feature-settings: 'cv11', 'ss01', 'ss03';
+    -webkit-tap-highlight-color: transparent;
+    /* Firefox thin scrollbars */
+    scrollbar-width: thin;
+    scrollbar-color: rgba(148, 163, 184, 0.22) transparent;
   }
 
   body {
     @apply font-sans;
+    overscroll-behavior-y: none;
+  }
+
+  /* Firefox: every scroll container gets a thin dark track */
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: rgba(148, 163, 184, 0.22) transparent;
+  }
+
+  ::selection {
+    background: rgba(6, 182, 212, 0.3);
+    color: #fff;
+  }
+
+  :focus-visible {
+    outline: 2px solid rgba(34, 211, 238, 0.85);
+    outline-offset: 2px;
+    border-radius: 6px;
+  }
+
+  /* Prevent Android Chrome / iOS from zooming into inputs under 16px */
+  @media (max-width: 767px) {
+    input,
+    textarea,
+    select {
+      font-size: 16px !important;
+    }
   }
 }
 
-/* ── Scrollbars ── */
-/* Dark mode scrollbars */
-html.dark ::-webkit-scrollbar {
-  width: 5px;
-  height: 5px;
+/* ── Ultra-thin dark scrollbars (Chromium / Edge on Windows) ── */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
 }
-html.dark ::-webkit-scrollbar-track {
+::-webkit-scrollbar-track {
   background: transparent;
 }
-html.dark ::-webkit-scrollbar-thumb {
-  background: rgba(82, 82, 91, 0.4);
+::-webkit-scrollbar-thumb {
+  background-color: rgba(148, 163, 184, 0.18);
   border-radius: 9999px;
+  border: 2px solid transparent;
+  background-clip: content-box;
 }
-html.dark ::-webkit-scrollbar-thumb:hover {
-  background: rgba(113, 113, 122, 0.6);
+::-webkit-scrollbar-thumb:hover {
+  background-color: rgba(148, 163, 184, 0.36);
+}
+::-webkit-scrollbar-corner {
+  background: transparent;
 }
 
+@layer components {
+  /* Glass panel: used for floating menus, palettes, sheets */
+  .ms-glass {
+    background: rgba(13, 19, 30, 0.78);
+    -webkit-backdrop-filter: blur(24px) saturate(140%);
+    backdrop-filter: blur(24px) saturate(140%);
+    border: 1px solid var(--ms-hairline-strong);
+    box-shadow: 0 24px 64px -16px rgba(0, 0, 0, 0.75), inset 0 1px 0 rgba(255, 255, 255, 0.05);
+  }
+
+  /* Specular surface: 1px top highlight that makes panels feel lit */
+  .ms-surface {
+    background: var(--ms-carbon);
+    border: 1px solid var(--ms-hairline);
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04);
+  }
+
+  .ms-raised {
+    background: var(--ms-graphite);
+    border: 1px solid var(--ms-hairline);
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.05);
+  }
+
+  /* Numeric data: tabular figures everywhere a value is printed */
+  .ms-num {
+    font-family: 'JetBrains Mono Variable', 'JetBrains Mono', ui-monospace, 'Cascadia Mono', Consolas, monospace;
+    font-variant-numeric: tabular-nums slashed-zero;
+    font-feature-settings: 'zero', 'tnum';
+    letter-spacing: -0.01em;
+  }
+
+  .ms-display {
+    font-family: 'Fraunces Variable', Fraunces, Georgia, serif;
+    font-optical-sizing: auto;
+    font-variation-settings: 'SOFT' 50, 'WONK' 0;
+    letter-spacing: -0.02em;
+  }
+
+  /* Touch target floor (44×44) on coarse pointers */
+  .ms-tap {
+    min-width: 36px;
+    min-height: 36px;
+  }
+  @media (pointer: coarse) {
+    .ms-tap {
+      min-width: 44px;
+      min-height: 44px;
+    }
+  }
+
+  /* Self-contained horizontal scroll card for chat tables */
+  .ms-table-card {
+    position: relative;
+    overflow-x: auto;
+    overscroll-behavior-x: contain;
+    -webkit-overflow-scrolling: touch;
+    border-radius: 14px;
+    border: 1px solid var(--ms-hairline);
+    background: var(--ms-carbon);
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04);
+  }
+  .ms-table-card table {
+    width: 100%;
+    margin: 0 !important;
+    border-collapse: separate;
+    border-spacing: 0;
+    font-size: 13px;
+  }
+  .ms-table-card thead th {
+    background: var(--ms-graphite);
+    color: var(--ms-ink-mute);
+    font-weight: 600;
+    font-size: 12px;
+    text-align: left;
+    white-space: nowrap;
+    padding: 10px 14px;
+    border-bottom: 1px solid var(--ms-hairline);
+  }
+  .ms-table-card tbody td {
+    padding: 10px 14px;
+    white-space: nowrap;
+    color: var(--ms-ink-soft);
+    border-bottom: 1px solid rgba(255, 255, 255, 0.045);
+    font-variant-numeric: tabular-nums;
+  }
+  .ms-table-card tbody tr:last-child td {
+    border-bottom: 0;
+  }
+  .ms-table-card tbody tr:hover td {
+    background: rgba(255, 255, 255, 0.018);
+  }
+  /* Sticky first column: biomarker names never scroll out of view */
+  .ms-table-card th:first-child,
+  .ms-table-card td:first-child {
+    position: sticky;
+    left: 0;
+    z-index: 1;
+    background: var(--ms-carbon);
+    color: var(--ms-ink);
+    font-weight: 600;
+    box-shadow: 1px 0 0 var(--ms-hairline);
+  }
+  .ms-table-card thead th:first-child {
+    background: var(--ms-graphite);
+    z-index: 2;
+  }
+}
+
+@layer utilities {
+  .h-app {
+    height: 100vh;
+    height: 100dvh;
+  }
+  .min-h-app {
+    min-height: 100vh;
+    min-height: 100dvh;
+  }
+  .pb-safe-composer {
+    padding-bottom: max(0.5rem, env(safe-area-inset-bottom));
+  }
+  .pt-safe {
+    padding-top: env(safe-area-inset-top, 0px);
+  }
+  .no-scrollbar {
+    scrollbar-width: none;
+  }
+  .no-scrollbar::-webkit-scrollbar {
+    display: none;
+  }
+  .mask-fade-x {
+    -webkit-mask-image: linear-gradient(to right, transparent, #000 16px, #000 calc(100% - 16px), transparent);
+    mask-image: linear-gradient(to right, transparent, #000 16px, #000 calc(100% - 16px), transparent);
+  }
+  .bg-ambient {
+    background:
+      radial-gradient(900px 480px at 85% -10%, rgba(6, 182, 212, 0.07), transparent 60%),
+      radial-gradient(700px 420px at -10% 110%, rgba(16, 185, 129, 0.045), transparent 60%),
+      var(--ms-obsidian);
+  }
+}
 
 /* ── Keyframe Animations ── */
 @keyframes shimmer {
@@ -48,108 +260,88 @@ html.dark ::-webkit-scrollbar-thumb:hover {
   50% { opacity: 0.7; }
   100% { opacity: 0.3; }
 }
-
 .animate-shimmer {
   animation: shimmer 1.5s infinite ease-in-out;
 }
 
 @keyframes fadeIn {
   from { opacity: 0; transform: translateY(6px); }
-  to   { opacity: 1; transform: translateY(0); }
+  to { opacity: 1; transform: translateY(0); }
 }
-
 .animate-fade-in {
   animation: fadeIn 0.25s ease-out;
 }
 
 @keyframes slideIn {
   from { opacity: 0; transform: translateY(8px); }
-  to   { opacity: 1; transform: translateY(0); }
+  to { opacity: 1; transform: translateY(0); }
 }
-
 .animate-slide-in {
   animation: slideIn 0.2s ease-out;
 }
 
-/* ── Scroll fade-in section ── */
-.fade-in-section {
-  opacity: 0;
-  transform: translateY(20px);
-  transition: opacity 0.6s cubic-bezier(0.16, 1, 0.3, 1), transform 0.6s cubic-bezier(0.16, 1, 0.3, 1);
-  will-change: opacity, transform;
-}
-
-.fade-in-section.is-visible {
-  opacity: 1;
-  transform: translateY(0);
-}
-
-/* ── Premium micro-interaction keyframes ── */
-
-/* Chat bubbles: graceful rise + settle with a slight scale */
 @keyframes bubbleIn {
-  0%   { opacity: 0; transform: translateY(14px) scale(0.97); }
-  60%  { opacity: 1; transform: translateY(-2px) scale(1.005); }
-  100% { opacity: 1; transform: translateY(0) scale(1); }
+  0% { opacity: 0; transform: translateY(10px); }
+  100% { opacity: 1; transform: translateY(0); }
 }
-
 .animate-bubble-in {
   animation: bubbleIn 0.32s cubic-bezier(0.22, 1, 0.36, 1) both;
 }
 
-/* Modals: scale up from 94% with fade */
 @keyframes modalIn {
-  from { opacity: 0; transform: translateY(10px) scale(0.94); }
-  to   { opacity: 1; transform: translateY(0) scale(1); }
+  from { opacity: 0; transform: translateY(10px) scale(0.97); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
 }
-
 .animate-modal-in {
   animation: modalIn 0.22s cubic-bezier(0.22, 1, 0.36, 1) both;
 }
 
-/* Modal backdrop fade */
-@keyframes backdropIn {
-  from { opacity: 0; }
-  to   { opacity: 1; }
+@keyframes sheetUp {
+  from { transform: translateY(100%); }
+  to { transform: translateY(0); }
+}
+@media (max-width: 639px) {
+  .ms-sheet-mobile {
+    animation: sheetUp 0.32s cubic-bezier(0.22, 1, 0.36, 1) both;
+  }
 }
 
+@keyframes backdropIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
 .animate-backdrop-in {
   animation: backdropIn 0.18s ease-out both;
 }
 
-/* Skeleton loading shimmer sweep */
 @keyframes skeletonSweep {
-  0%   { background-position: 200% 0; }
+  0% { background-position: 200% 0; }
   100% { background-position: -200% 0; }
 }
-
 .skeleton-shimmer {
   background: linear-gradient(
     90deg,
-    rgba(113, 113, 122, 0.08) 25%,
-    rgba(113, 113, 122, 0.2) 50%,
-    rgba(113, 113, 122, 0.08) 75%
+    rgba(28, 38, 56, 0.55) 25%,
+    rgba(45, 58, 80, 0.75) 50%,
+    rgba(28, 38, 56, 0.55) 75%
   );
   background-size: 200% 100%;
   animation: skeletonSweep 1.6s linear infinite;
 }
 
-html.dark .skeleton-shimmer {
-  background: linear-gradient(
-    90deg,
-    rgba(63, 63, 70, 0.35) 25%,
-    rgba(113, 113, 122, 0.55) 50%,
-    rgba(63, 63, 70, 0.35) 75%
-  );
-  background-size: 200% 100%;
-  animation: skeletonSweep 1.6s linear infinite;
+/* Range-bar marker: settles into position once on mount */
+@keyframes markerIn {
+  from { opacity: 0; transform: translate(-50%, -50%) scale(0.4); }
+  to { opacity: 1; transform: translate(-50%, -50%) scale(1); }
+}
+.ms-marker-in {
+  animation: markerIn 0.45s cubic-bezier(0.22, 1, 0.36, 1) both;
 }
 
-/* Mobile safe-area helper for the sticky chat input */
+/* Legacy safe-area helper */
 .pb-safe {
   padding-bottom: max(1rem, env(safe-area-inset-bottom));
 }
-
 @media (min-width: 640px) {
   .pb-safe {
     padding-bottom: max(1.5rem, env(safe-area-inset-bottom));
@@ -165,9 +357,43 @@ html.dark .skeleton-shimmer {
   .animate-modal-in,
   .animate-backdrop-in,
   .animate-toast-in,
-  .skeleton-shimmer {
+  .ms-sheet-mobile,
+  .ms-marker-in,
+  .skeleton-shimmer,
+  .animate-token-pulse,
+  .animate-stage-sweep {
     animation: none !important;
   }
+  * {
+    scroll-behavior: auto !important;
+  }
+}
+
+/* ── cmdk command palette ── */
+[cmdk-group-heading] {
+  padding: 10px 12px 6px;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--ms-ink-faint);
+}
+[cmdk-item] {
+  cursor: pointer;
+}
+[cmdk-item][data-selected='true'] {
+  background: rgba(255, 255, 255, 0.06);
+  color: #fff;
+}
+[cmdk-item][data-disabled='true'] {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+/* ── vaul drawer ── */
+[data-vaul-drawer] {
+  touch-action: none;
+}
+[data-vaul-drawer-direction='bottom'] {
+  padding-bottom: env(safe-area-inset-bottom, 0px);
 }
 
 /* Hide the print summary on screen — it appears only during window.print() */
@@ -183,8 +409,10 @@ html.dark .skeleton-shimmer {
   body * {
     visibility: hidden;
   }
-  #print-summary, #print-summary *,
-  #print-transcript, #print-transcript * {
+  #print-summary,
+  #print-summary *,
+  #print-transcript,
+  #print-transcript * {
     visibility: visible;
   }
   #print-summary,
@@ -198,7 +426,6 @@ html.dark .skeleton-shimmer {
     padding: 20px;
   }
 
-  /* Counter-reset: prevent any browser-injected page counters appearing inline */
   body {
     counter-reset: none;
   }
@@ -211,7 +438,6 @@ html.dark .skeleton-shimmer {
     color: #333;
   }
 
-  /* Tables in the print summary */
   #print-summary table,
   #print-transcript table {
     width: 100%;
@@ -236,7 +462,7 @@ html.dark .skeleton-shimmer {
 
   /* ── Full transcript export layout ── */
   #print-transcript {
-    font-family: 'Inter', -apple-system, 'Segoe UI', sans-serif;
+    font-family: 'Inter Variable', Inter, -apple-system, 'Segoe UI', sans-serif;
   }
   #print-transcript .ts-header {
     border-bottom: 2px solid #000;
@@ -306,9 +532,9 @@ html.dark .skeleton-shimmer {
   }
 }
 
-/* ──────────────────────────────────────────────────────────────
-   Auth Pages — Login / Register (supports both dark and light)
-   ────────────────────────────────────────────────────────────── */
+/* ══════════════════════════════════════════════════════════════
+   Auth — AuthShell split layout + legacy .login-* primitives
+   ══════════════════════════════════════════════════════════════ */
 
 .login-page {
   display: flex;
@@ -319,362 +545,249 @@ html.dark .skeleton-shimmer {
   width: 100%;
   position: relative;
   overflow: hidden;
-  font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+  font-family: 'Inter Variable', Inter, -apple-system, 'Segoe UI', sans-serif;
+  background: var(--ms-obsidian);
 }
 
-/* Dark mode auth */
-.login-page,
-html.dark .login-page {
-  background: #07090e;
-}
-
-/* Subtle radial glow */
 .login-bg-glow {
   position: absolute;
   top: 50%;
   left: 50%;
   transform: translate(-50%, -50%);
-  width: 600px;
-  height: 600px;
+  width: 640px;
+  height: 640px;
   pointer-events: none;
   z-index: 0;
-}
-html.dark .login-bg-glow {
-  background: radial-gradient(
-    circle,
-    rgba(161, 161, 170, 0.04) 0%,
-    rgba(113, 113, 122, 0.02) 40%,
-    transparent 70%
-  );
-}
-html:not(.dark) .login-bg-glow {
-  background: radial-gradient(
-    circle,
-    rgba(161, 161, 170, 0.08) 0%,
-    rgba(113, 113, 122, 0.04) 40%,
-    transparent 70%
-  );
+  background: radial-gradient(circle, rgba(6, 182, 212, 0.07) 0%, rgba(6, 182, 212, 0.02) 40%, transparent 70%);
 }
 
-/* ── Card ── */
 .login-card {
   position: relative;
   z-index: 1;
   width: 100%;
   max-width: 400px;
-  padding: 40px 32px 32px;
-  border-radius: 16px;
+  padding: 36px 32px 28px;
+  border-radius: 20px;
+  background: var(--ms-carbon);
+  border: 1px solid var(--ms-hairline);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.05), 0 32px 64px -24px rgba(0, 0, 0, 0.8);
   animation: cardFadeIn 0.4s ease-out;
-}
-.login-card,
-html.dark .login-card {
-  background: #0e131b;
-  border: 1px solid rgba(255, 255, 255, 0.08);
-  box-shadow:
-    0 0 0 1px rgba(255, 255, 255, 0.02),
-    0 24px 48px rgba(0, 0, 0, 0.5);
 }
 
 @keyframes cardFadeIn {
-  from {
-    opacity: 0;
-    transform: translateY(12px) scale(0.98);
-  }
-  to {
-    opacity: 1;
-    transform: translateY(0) scale(1);
-  }
+  from { opacity: 0; transform: translateY(12px); }
+  to { opacity: 1; transform: translateY(0); }
 }
 
-/* ── Logo ── */
 .login-logo {
   display: flex;
-  justify-content: center;
-  margin-bottom: 24px;
+  justify-content: flex-start;
+  margin-bottom: 22px;
 }
-
 .login-logo-icon {
-  width: 48px;
-  height: 48px;
+  width: 40px;
+  height: 40px;
   display: flex;
   align-items: center;
   justify-content: center;
-  border-radius: 14px;
-  box-shadow: none;
-}
-html.dark .login-logo-icon {
-  background: #f4f4f5;
-  color: #09090B;
-}
-html:not(.dark) .login-logo-icon {
-  background: #18181b;
-  color: #f4f4f5;
+  border-radius: 12px;
+  background: linear-gradient(145deg, #0e7490, #06b6d4);
+  color: #031016;
+  box-shadow: 0 0 0 1px rgba(103, 232, 249, 0.3), 0 8px 24px -8px rgba(6, 182, 212, 0.6);
 }
 
-/* ── Typography ── */
 .login-title {
-  font-size: 22px;
-  font-weight: 600;
-  text-align: center;
+  font-family: 'Fraunces Variable', Fraunces, Georgia, serif;
+  font-optical-sizing: auto;
+  font-size: 28px;
+  font-weight: 500;
+  text-align: left;
   margin: 0 0 8px;
-  letter-spacing: -0.01em;
+  letter-spacing: -0.02em;
+  color: #ffffff;
 }
-html.dark .login-title { color: #ffffff; }
-html:not(.dark) .login-title { color: #18181b; }
 
 .login-subtitle {
   font-size: 14px;
-  text-align: center;
-  margin: 0 0 28px;
-  line-height: 1.5;
+  text-align: left;
+  margin: 0 0 26px;
+  line-height: 1.55;
+  color: var(--ms-ink-mute);
 }
-html.dark .login-subtitle { color: #71717a; }
-html:not(.dark) .login-subtitle { color: #71717a; }
 
-/* ── Form ── */
 .login-form {
   display: flex;
   flex-direction: column;
   gap: 12px;
 }
 
-/* ── Input Fields ── */
 .login-field {
   position: relative;
 }
 .login-field input {
   width: 100%;
-  padding: 12px 42px 12px 14px;
-  font-size: 14px;
+  min-height: 48px;
+  padding: 12px 44px 12px 14px;
+  font-size: 15px;
   font-family: inherit;
   border-radius: 12px;
   outline: none;
-  transition: border-color 0.2s ease, box-shadow 0.2s ease;
   box-sizing: border-box;
+  color: #ffffff;
+  background: var(--ms-graphite);
+  border: 1px solid var(--ms-hairline-strong);
+  transition: border-color 0.18s ease, box-shadow 0.18s ease;
 }
+.login-field input::placeholder {
+  color: var(--ms-ink-faint);
+}
+.login-field input:focus {
+  border-color: rgba(6, 182, 212, 0.55);
+  box-shadow: 0 0 0 4px rgba(6, 182, 212, 0.12);
+}
+
 .login-field-toggle {
   position: absolute;
-  right: 12px;
+  right: 6px;
   top: 50%;
   transform: translateY(-50%);
   background: transparent;
   border: none;
   cursor: pointer;
-  padding: 4px;
+  width: 36px;
+  height: 36px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  border-radius: 6px;
-  transition: color 0.15s ease;
+  border-radius: 8px;
+  color: var(--ms-ink-mute);
+  transition: color 0.15s ease, background 0.15s ease;
 }
-html.dark .login-field-toggle {
-  color: #71717a;
-}
-html.dark .login-field-toggle:hover {
-  color: #f4f4f5;
-}
-html:not(.dark) .login-field-toggle {
-  color: #a1a1aa;
-}
-html:not(.dark) .login-field-toggle:hover {
-  color: #18181b;
-}
-html.dark .login-field input {
-  color: #ffffff;
-  background: rgba(24, 24, 27, 0.9);
-  border: 1px solid #27272a;
-}
-html.dark .login-field input::placeholder { color: #71717a; }
-html.dark .login-field input:focus {
-  border-color: #3f3f46;
-  box-shadow: 0 0 0 3px rgba(63, 63, 70, 0.2);
-}
-html:not(.dark) .login-field input {
-  color: #18181b;
-  background: #fafafa;
-  border: 1px solid #e4e4e7;
-}
-html:not(.dark) .login-field input::placeholder { color: #a1a1aa; }
-html:not(.dark) .login-field input:focus {
-  border-color: #a1a1aa;
-  box-shadow: 0 0 0 3px rgba(161, 161, 170, 0.15);
+.login-field-toggle:hover {
+  color: #fff;
+  background: rgba(255, 255, 255, 0.05);
 }
 
-/* ── Email display chip (step 2) ── */
 .login-email-display {
   display: flex;
   align-items: center;
   justify-content: space-between;
+  min-height: 44px;
   padding: 10px 14px;
   border-radius: 12px;
   font-size: 13px;
   cursor: pointer;
+  background: rgba(6, 182, 212, 0.06);
+  border: 1px solid rgba(6, 182, 212, 0.2);
+  color: var(--ms-ink-soft);
   transition: border-color 0.2s ease;
 }
-html.dark .login-email-display {
-  background: rgba(24, 24, 27, 0.9);
-  border: 1px solid #27272a;
-  color: #a1a1aa;
+.login-email-display:hover {
+  border-color: rgba(6, 182, 212, 0.45);
 }
-html.dark .login-email-display:hover { border-color: #3f3f46; }
-html.dark .login-email-display svg { color: #71717a; }
-
-html:not(.dark) .login-email-display {
-  background: #fafafa;
-  border: 1px solid #e4e4e7;
-  color: #71717a;
+.login-email-display svg {
+  color: var(--ms-ink-mute);
 }
-html:not(.dark) .login-email-display:hover { border-color: #a1a1aa; }
-html:not(.dark) .login-email-display svg { color: #a1a1aa; }
 
-/* ── Password hint ── */
 .login-password-hint {
   font-size: 12px;
   margin: -4px 0 0 2px;
+  color: var(--ms-ink-faint);
 }
-html.dark .login-password-hint { color: #71717a; }
-html:not(.dark) .login-password-hint { color: #a1a1aa; }
 
-/* ── Primary Button ── */
 .login-btn-primary {
   width: 100%;
+  min-height: 48px;
   padding: 12px;
-  font-size: 14px;
-  font-weight: 500;
+  font-size: 15px;
   font-family: inherit;
   border: none;
   border-radius: 12px;
   cursor: pointer;
-  transition: background 0.15s ease, transform 0.1s ease;
   display: flex;
   align-items: center;
   justify-content: center;
   gap: 8px;
   margin-top: 4px;
-}
-.login-btn-primary,
-html.dark .login-btn-primary {
-  color: #020617;
+  color: #031016;
   background: #06b6d4;
   font-weight: 600;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.25), 0 8px 24px -10px rgba(6, 182, 212, 0.7);
+  transition: background 0.15s ease, transform 0.1s ease;
 }
-.login-btn-primary:hover:not(:disabled),
-html.dark .login-btn-primary:hover:not(:disabled) {
+.login-btn-primary:hover:not(:disabled) {
   background: #22d3ee;
 }
-
 .login-btn-primary:active:not(:disabled) {
-  transform: scale(0.98);
+  transform: scale(0.985);
 }
-
 .login-btn-primary:disabled {
   opacity: 0.5;
   cursor: not-allowed;
 }
 
-/* ── Spinner ── */
 .login-spinner {
   display: inline-block;
   width: 18px;
   height: 18px;
   border-radius: 50%;
-  animation: spin 0.6s linear infinite;
-}
-html.dark .login-spinner {
   border: 2px solid rgba(0, 0, 0, 0.15);
   border-top-color: #000000;
-}
-html:not(.dark) .login-spinner {
-  border: 2px solid rgba(255, 255, 255, 0.3);
-  border-top-color: #ffffff;
+  animation: spin 0.6s linear infinite;
 }
 
 @keyframes spin {
   to { transform: rotate(360deg); }
 }
 
-/* ── Divider ── */
 .login-divider {
   display: flex;
   align-items: center;
   gap: 12px;
   margin: 20px 0;
 }
-
 .login-divider::before,
 .login-divider::after {
   content: '';
   flex: 1;
   height: 1px;
+  background: var(--ms-hairline);
 }
-html.dark .login-divider::before,
-html.dark .login-divider::after { background: rgba(63, 63, 70, 0.5); }
-html:not(.dark) .login-divider::before,
-html:not(.dark) .login-divider::after { background: rgba(228, 228, 231, 0.8); }
-
 .login-divider span {
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 500;
-  text-transform: uppercase;
-  letter-spacing: 0.08em;
+  color: var(--ms-ink-faint);
 }
-html.dark .login-divider span { color: #52525b; }
-html:not(.dark) .login-divider span { color: #a1a1aa; }
-
 .login-divider.login-divider-subtle {
   margin: 18px 0;
 }
-.login-divider.login-divider-subtle span {
-  font-size: 12px;
-  text-transform: none;
-  letter-spacing: normal;
-  font-weight: 400;
-}
-html.dark .login-divider.login-divider-subtle span { color: #71717a; }
-html:not(.dark) .login-divider.login-divider-subtle span { color: #a1a1aa; }
 
-/* ── Google Button ── */
 .login-btn-google {
   width: 100%;
+  min-height: 48px;
   padding: 11px 16px;
-  font-size: 14px;
+  font-size: 15px;
   font-weight: 500;
   font-family: inherit;
   border-radius: 12px;
   cursor: pointer;
-  transition: all 0.15s cubic-bezier(0.4, 0, 0.2, 1);
   display: flex;
   align-items: center;
   justify-content: center;
   gap: 12px;
   box-sizing: border-box;
+  color: var(--ms-ink);
+  background: var(--ms-graphite);
+  border: 1px solid var(--ms-hairline-strong);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04);
+  transition: background 0.15s ease, border-color 0.15s ease, transform 0.1s ease;
 }
-html.dark .login-btn-google {
-  color: #f4f4f5;
-  background: rgba(24, 24, 27, 0.7);
-  border: 1px solid rgba(63, 63, 70, 0.6);
-  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.3);
-}
-html.dark .login-btn-google:hover:not(:disabled) {
-  background: rgba(39, 39, 42, 0.9);
-  border-color: rgba(113, 113, 122, 0.7);
-  transform: translateY(-1px);
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.35);
-}
-html:not(.dark) .login-btn-google {
-  color: #18181b;
-  background: #ffffff;
-  border: 1px solid #e4e4e7;
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
-}
-html:not(.dark) .login-btn-google:hover:not(:disabled) {
-  background: #fbfbfb;
-  border-color: #d4d4d8;
-  transform: translateY(-1px);
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.06);
+.login-btn-google:hover:not(:disabled) {
+  background: var(--ms-slate);
+  border-color: rgba(255, 255, 255, 0.2);
 }
 .login-btn-google:active:not(:disabled) {
-  transform: scale(0.98);
+  transform: scale(0.985);
 }
 .login-btn-google:disabled {
   opacity: 0.6;
@@ -687,14 +800,16 @@ html:not(.dark) .login-btn-google:hover:not(:disabled) {
   height: 18px;
   border-radius: 50%;
   border: 2px solid rgba(66, 133, 244, 0.2);
-  border-top-color: #4285F4;
+  border-top-color: #4285f4;
   animation: spin 0.6s linear infinite;
 }
 
-/* ── Secondary Button (outline) ── */
 .login-btn-secondary {
-  display: block;
+  display: flex;
+  align-items: center;
+  justify-content: center;
   width: 100%;
+  min-height: 46px;
   padding: 12px;
   font-size: 14px;
   font-weight: 500;
@@ -704,38 +819,26 @@ html:not(.dark) .login-btn-google:hover:not(:disabled) {
   cursor: pointer;
   text-align: center;
   text-decoration: none;
-  transition: background 0.2s ease, border-color 0.2s ease, color 0.2s ease;
   box-sizing: border-box;
+  color: var(--ms-ink-soft);
+  border: 1px solid var(--ms-hairline-strong);
+  transition: background 0.2s ease, border-color 0.2s ease, color 0.2s ease;
 }
-html.dark .login-btn-secondary {
-  color: #a1a1aa;
-  border: 1px solid #27272a;
-}
-html.dark .login-btn-secondary:hover {
-  background: rgba(24, 24, 27, 0.5);
-  border-color: #3f3f46;
+.login-btn-secondary:hover {
+  background: rgba(255, 255, 255, 0.03);
+  border-color: rgba(255, 255, 255, 0.2);
   color: #ffffff;
 }
-html:not(.dark) .login-btn-secondary {
-  color: #71717a;
-  border: 1px solid #e4e4e7;
-}
-html:not(.dark) .login-btn-secondary:hover {
-  background: rgba(244, 244, 245, 0.5);
-  border-color: #a1a1aa;
-  color: #18181b;
-}
 
-/* ── Error / Success ── */
 .login-error {
   display: flex;
   align-items: center;
   gap: 8px;
   padding: 10px 14px;
   font-size: 13px;
-  color: #fca5a5;
-  background: rgba(239, 68, 68, 0.08);
-  border: 1px solid rgba(239, 68, 68, 0.15);
+  color: #fda4af;
+  background: rgba(244, 63, 94, 0.08);
+  border: 1px solid rgba(244, 63, 94, 0.22);
   border-radius: 12px;
   margin-bottom: 8px;
 }
@@ -748,69 +851,59 @@ html:not(.dark) .login-btn-secondary:hover {
   font-size: 13px;
   color: #6ee7b7;
   background: rgba(16, 185, 129, 0.08);
-  border: 1px solid rgba(16, 185, 129, 0.15);
+  border: 1px solid rgba(16, 185, 129, 0.2);
   border-radius: 12px;
   margin-bottom: 8px;
   animation: cardFadeIn 0.3s ease-out;
 }
 
-/* ── Forgot Password ── */
 .login-forgot-wrapper {
   display: flex;
   justify-content: flex-end;
-  margin-top: 4px;
-  margin-bottom: 12px;
+  margin-top: 2px;
+  margin-bottom: 8px;
 }
-
 .login-forgot-btn {
   background: transparent;
   border: none;
-  padding: 0;
-  font-size: 12px;
-  color: #a1a1aa;
+  padding: 6px 2px;
+  font-size: 13px;
+  color: var(--ms-ink-mute);
   cursor: pointer;
   transition: color 0.15s ease;
   text-decoration: none;
 }
-
 .login-forgot-btn:hover:not(:disabled) {
-  color: #18181b;
+  color: #ffffff;
   text-decoration: underline;
 }
-
-html.dark .login-forgot-btn {
-  color: #71717a;
-}
-
-html.dark .login-forgot-btn:hover:not(:disabled) {
-  color: #f4f4f5;
-  text-decoration: underline;
-}
-
 .login-forgot-btn:disabled {
   opacity: 0.5;
   cursor: not-allowed;
 }
 
-/* ── Footer ── */
 .login-footer {
-  font-size: 11px;
-  text-align: center;
-  margin: 24px 0 0;
+  font-size: 12px;
+  text-align: left;
+  margin: 22px 0 0;
   line-height: 1.5;
+  color: var(--ms-ink-faint);
 }
-html.dark .login-footer { color: #52525b; }
-html:not(.dark) .login-footer { color: #a1a1aa; }
 
-/* ── Responsive ── */
 @media (max-width: 480px) {
   .login-card {
-    margin: 16px;
-    padding: 32px 20px 24px;
+    margin: 0;
+    padding: 28px 20px 24px;
+    border-radius: 0;
+    border-left: 0;
+    border-right: 0;
+    box-shadow: none;
+    background: transparent;
+    border: 0;
   }
 }
 
-/* ── Scroll Animations ── */
+/* ── Scroll Animations (landing) ── */
 .fade-in-section,
 .fade-in-up {
   opacity: 0;
@@ -818,10 +911,20 @@ html:not(.dark) .login-footer { color: #a1a1aa; }
   transition: opacity 0.6s cubic-bezier(0.16, 1, 0.3, 1), transform 0.6s cubic-bezier(0.16, 1, 0.3, 1);
   will-change: opacity, transform;
 }
-
 .fade-in-section.is-visible,
 .fade-in-up.is-visible {
   opacity: 1;
   transform: translateY(0);
 }
 
+@keyframes sheetSide {
+  from { transform: translateX(100%); opacity: 0.6; }
+  to { transform: translateX(0); opacity: 1; }
+}
+
+/* Composer: keep the placeholder on one line so the textarea never grows on load */
+.ms-composer-input::placeholder {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}

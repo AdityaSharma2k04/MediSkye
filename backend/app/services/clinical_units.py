@@ -112,9 +112,16 @@ def parse_report_chronology(doc: Any) -> Optional[datetime]:
         date_formats = (
             "%d %b %Y",
             "%d %B %Y",
+            "%B %d, %Y",
+            "%b %d, %Y",
+            "%B %d %Y",
+            "%b %d %Y",
             "%Y-%m-%d",
             "%d/%m/%Y",
             "%m/%d/%Y",
+            "%d-%b-%Y",
+            "%d-%B-%Y",
+            "%d-%m-%Y",
             "%Y-%m-%d %H:%M:%S",
         )
         for fmt in date_formats:
@@ -282,6 +289,7 @@ def compute_biomarker_delta(
     status: str = "Normal",
     unit: str = "",
     canonical_key: str = "",
+    prev_unit: str = "",
 ) -> Tuple[Optional[str], Optional[str], Optional[str]]:
     """
     Computes absolute and percentage delta between current and previous values.
@@ -294,6 +302,12 @@ def compute_biomarker_delta(
       Never flag a rise in Vitamin D, B12, or Ferritin as "abnormal".
       Never flag a drop in Uric Acid or LDL as "Notable Drop".
     """
+    if unit and prev_unit:
+        u1 = normalize_clinical_unit(unit).strip().lower().replace(" ", "")
+        u2 = normalize_clinical_unit(prev_unit).strip().lower().replace(" ", "")
+        if u1 and u2 and u1 != u2:
+            return (None, None, None)
+
     c_val = _parse_first_float(current_val_str)
     p_val = _parse_first_float(prev_val_str)
 

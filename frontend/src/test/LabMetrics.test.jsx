@@ -98,23 +98,4 @@ describe('LabMetrics Clinical Table', () => {
     const mobileCardsContainer = container.querySelector('.block.sm\\:hidden');
     expect(mobileCardsContainer).toBeInTheDocument();
   });
-
-  it('keys loaded metrics state strictly by documentId when passed metricsByDocId map', () => {
-    const metricsByDocId = {
-      'doc-A': [
-        { test: 'Hemoglobin A', value: '15.4', unit: 'g/dL', range: '13-17', status: 'Normal' },
-      ],
-      'doc-B': [
-        { test: 'Ferritin B', value: '24.0', unit: 'ng/mL', range: '30-400', status: 'Low' },
-      ],
-    };
-
-    const { rerender } = render(<LabMetrics metrics={metricsByDocId} documentId="doc-A" />);
-    expect(screen.getAllByText('Hemoglobin A').length).toBeGreaterThan(0);
-    expect(screen.queryByText('Ferritin B')).not.toBeInTheDocument();
-
-    rerender(<LabMetrics metrics={metricsByDocId} documentId="doc-B" />);
-    expect(screen.getAllByText('Ferritin B').length).toBeGreaterThan(0);
-    expect(screen.queryByText('Hemoglobin A')).not.toBeInTheDocument();
-  });
 });

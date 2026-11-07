@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import AuthShell from './auth/AuthShell';
 import { useNavigate, Link } from 'react-router-dom';
 import {
   auth,
@@ -129,7 +130,6 @@ export default function Register() {
       if (userEmail) {
         localStorage.setItem('mediskye_user_email', userEmail);
       }
-      localStorage.setItem('token', token);
       navigate('/chat');
     } catch (err) {
       const mapped = typeof getFirebaseErrorMessage === 'function' ? getFirebaseErrorMessage(err) : '';
@@ -199,8 +199,6 @@ export default function Register() {
       } catch (_) {}
 
       if (userCredential.user && userCredential.user.emailVerified === true) {
-        const token = await userCredential.user.getIdToken(true);
-        localStorage.setItem('token', token);
         localStorage.setItem('mediskye_user_email', trimmedEmail);
         navigate('/chat');
         return;
@@ -267,20 +265,8 @@ export default function Register() {
   };
 
   return (
-    <div className="login-page">
-      {/* Subtle background glow */}
-      <div className="login-bg-glow" />
-
-      <div className="login-card bg-[#0e131b] border border-white/[0.08]">
-        {/* Logo */}
-        <div className="login-logo">
-          <div className="login-logo-icon">
-            <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
-              <path d="M22 12h-4l-3 9L9 3l-3 9H2" />
-            </svg>
-          </div>
-        </div>
-
+    <AuthShell>
+      <div className="login-card">
         {/* Heading */}
         <h1 className="login-title">{t('auth.register_title', 'Create your account')}</h1>
         <p className="login-subtitle">
@@ -635,6 +621,6 @@ export default function Register() {
           {t('auth.tagline', 'MediSkye AI — Making medical reports understandable for everyone.')}
         </p>
       </div>
-    </div>
+    </AuthShell>
   );
 }

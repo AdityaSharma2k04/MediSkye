@@ -91,7 +91,6 @@ describe('Login Component with Firebase Auth & Password Reset', () => {
 
     await waitFor(() => {
       expect(mockSignInWithPopup).toHaveBeenCalled();
-      expect(localStorage.getItem('token')).toBe('mock_firebase_id_token_123');
       expect(localStorage.getItem('mediskye_user_email')).toBe('google_user@test.com');
       expect(mockNavigate).toHaveBeenCalledWith('/chat');
     });
@@ -156,7 +155,6 @@ describe('Login Component with Firebase Auth & Password Reset', () => {
 
     await waitFor(() => {
       expect(mockSignInWithEmailAndPassword).toHaveBeenCalledWith(expect.anything(), 'patient@example.com', 'Secret123!');
-      expect(localStorage.getItem('token')).toBe('mock_email_token_456');
       expect(localStorage.getItem('mediskye_user_email')).toBe('patient@example.com');
       expect(mockNavigate).toHaveBeenCalledWith('/chat');
     });

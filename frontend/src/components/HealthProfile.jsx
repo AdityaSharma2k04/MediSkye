@@ -22,6 +22,7 @@ import {
   updateProfile,
 } from '../services/api';
 import { logger } from '../services/logger';
+import { parseWeightToKgString } from '../lib/clinical';
 
 const FACT_CATEGORIES = [
   { key: 'condition', label: 'Conditions', icon: Heart },
@@ -189,18 +190,23 @@ export default function HealthProfile({
   const handleSaveWeightFact = async () => {
     const trimmed = (userWeight || '').trim();
     if (!trimmed) return;
+    const converted = parseWeightToKgString(trimmed);
     // Blur fires even when nothing changed — don't create a duplicate weight fact.
-    if (trimmed === lastSavedWeight) return;
+    if (converted === lastSavedWeight || trimmed === lastSavedWeight) return;
     setErrorMsg('');
     try {
-      const created = await createFact({
+      const payload = {
         fact_type: 'weight',
-        fact_text: trimmed,
+        fact_text: converted,
         confidence: 1.0,
         source_type: 'user_edit',
-      });
+      };
+      if (activeDependentId && activeDependentId !== 'self') {
+        payload.dependent_id = activeDependentId;
+      }
+      const created = await createFact(payload);
       setFacts((prev) => [created, ...prev.filter((f) => f.id !== created.id)]);
-      const savedText = created.fact_text ?? trimmed;
+      const savedText = created.fact_text ?? converted;
       setLastSavedWeight(savedText);
       setUserWeight(savedText);
     } catch (err) {
@@ -211,13 +217,13 @@ export default function HealthProfile({
 
   const inputClass = `w-full px-3 py-2 text-xs rounded-xl border transition-colors focus:outline-none ${
     darkMode
-      ? 'bg-zinc-950 border-zinc-700 text-white placeholder-zinc-500 focus:border-zinc-500'
+      ? 'bg-obsidian border-white/[0.12] text-white placeholder:text-ink-faint focus:border-zinc-500'
       : 'bg-zinc-50 border-zinc-200 text-zinc-900 placeholder-zinc-400 focus:border-zinc-400'
   }`;
 
   const selectClass = `w-full px-3 py-2 text-xs rounded-xl border transition-colors focus:outline-none cursor-pointer ${
     darkMode
-      ? 'bg-zinc-950 border-zinc-700 text-white focus:border-zinc-500'
+      ? 'bg-obsidian border-white/[0.12] text-white focus:border-zinc-500'
       : 'bg-zinc-50 border-zinc-200 text-zinc-900 focus:border-zinc-400'
   }`;
 
@@ -244,15 +250,15 @@ export default function HealthProfile({
         </div>
       )}
       {/* ── Lifestyle Section ── */}
-      <div className={`p-4 rounded-2xl border ${darkMode ? 'bg-zinc-900/60 border-zinc-800' : 'bg-white border-zinc-200 shadow-sm'}`}>
-        <h4 className={`text-xs font-semibold uppercase tracking-wider mb-3 flex items-center gap-2 ${darkMode ? 'text-zinc-300' : 'text-zinc-800'}`}>
+      <div className={`p-4 rounded-2xl border ${darkMode ? 'bg-graphite/60 border-white/[0.07]' : 'bg-white border-zinc-200 shadow-sm'}`}>
+        <h4 className={`text-xs font-semibold mb-3 flex items-center gap-2 ${darkMode ? 'text-ink-soft' : 'text-zinc-800'}`}>
           <Activity className="w-4 h-4 text-emerald-500" />
           Lifestyle &amp; Vitals
         </h4>
 
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
           <div>
-            <label className={`block text-[11px] font-medium mb-1 ${darkMode ? 'text-zinc-400' : 'text-zinc-500'}`}>
+            <label className={`block text-[11px] font-medium mb-1 ${darkMode ? 'text-ink-mute' : 'text-ink-faint'}`}>
               Diet Pattern
             </label>
             <select
@@ -275,7 +281,7 @@ export default function HealthProfile({
           </div>
 
           <div>
-            <label className={`block text-[11px] font-medium mb-1 ${darkMode ? 'text-zinc-400' : 'text-zinc-500'}`}>
+            <label className={`block text-[11px] font-medium mb-1 ${darkMode ? 'text-ink-mute' : 'text-ink-faint'}`}>
               Activity Level
             </label>
             <select
@@ -298,7 +304,7 @@ export default function HealthProfile({
           </div>
 
           <div>
-            <label className={`block text-[11px] font-medium mb-1 ${darkMode ? 'text-zinc-400' : 'text-zinc-500'}`}>
+            <label className={`block text-[11px] font-medium mb-1 ${darkMode ? 'text-ink-mute' : 'text-ink-faint'}`}>
               Height (cm)
             </label>
             <input
@@ -313,7 +319,7 @@ export default function HealthProfile({
           </div>
 
           <div>
-            <label className={`block text-[11px] font-medium mb-1 ${darkMode ? 'text-zinc-400' : 'text-zinc-500'}`}>
+            <label className={`block text-[11px] font-medium mb-1 ${darkMode ? 'text-ink-mute' : 'text-ink-faint'}`}>
               Recent Weight
             </label>
             <input
@@ -328,7 +334,7 @@ export default function HealthProfile({
           </div>
 
           <div className="sm:col-span-2">
-            <label className={`block text-[11px] font-medium mb-1 ${darkMode ? 'text-zinc-400' : 'text-zinc-500'}`}>
+            <label className={`block text-[11px] font-medium mb-1 ${darkMode ? 'text-ink-mute' : 'text-ink-faint'}`}>
               Occupation
             </label>
             <input
@@ -345,8 +351,8 @@ export default function HealthProfile({
       </div>
 
       {/* ── Add Manual Fact Form ── */}
-      <div className={`p-4 rounded-2xl border ${darkMode ? 'bg-zinc-900/60 border-zinc-800' : 'bg-white border-zinc-200 shadow-sm'}`}>
-        <h4 className={`text-xs font-semibold uppercase tracking-wider mb-3 flex items-center gap-2 ${darkMode ? 'text-zinc-300' : 'text-zinc-800'}`}>
+      <div className={`p-4 rounded-2xl border ${darkMode ? 'bg-graphite/60 border-white/[0.07]' : 'bg-white border-zinc-200 shadow-sm'}`}>
+        <h4 className={`text-xs font-semibold mb-3 flex items-center gap-2 ${darkMode ? 'text-ink-soft' : 'text-zinc-800'}`}>
           <Plus className="w-4 h-4 text-emerald-500" />
           Add Health Fact Manually
         </h4>
@@ -380,7 +386,7 @@ export default function HealthProfile({
             className={`w-full sm:w-auto px-4 py-2 rounded-xl font-medium transition-colors shrink-0 ${
               darkMode
                 ? 'bg-zinc-100 text-black hover:bg-white disabled:opacity-50'
-                : 'bg-zinc-900 text-white hover:bg-black disabled:opacity-50'
+                : 'bg-graphite text-white hover:bg-black disabled:opacity-50'
             }`}
           >
             Add Fact
@@ -391,11 +397,11 @@ export default function HealthProfile({
       {/* ── Grouped Facts List ── */}
       <div className="space-y-4">
         {loading ? (
-          <div className="py-6 text-center text-zinc-500">Loading health facts...</div>
+          <div className="py-6 text-center text-ink-faint">Loading health facts...</div>
         ) : facts.length === 0 ? (
-          <div className={`p-6 text-center rounded-2xl border ${darkMode ? 'bg-zinc-950 border-zinc-800 text-zinc-400' : 'bg-zinc-50 border-zinc-200 text-zinc-600'}`}>
+          <div className={`p-6 text-center rounded-2xl border ${darkMode ? 'bg-obsidian border-white/[0.07] text-ink-mute' : 'bg-zinc-50 border-zinc-200 text-zinc-600'}`}>
             <p className="font-medium text-xs">No health facts recorded yet.</p>
-            <p className="text-[11px] text-zinc-500 mt-1">
+            <p className="text-[11px] text-ink-faint mt-1">
               Add facts manually above or allow MediSkye to remember clinical findings during your chats.
             </p>
           </div>
@@ -409,16 +415,16 @@ export default function HealthProfile({
               <div
                 key={cat.key}
                 className={`p-4 rounded-2xl border ${
-                  darkMode ? 'bg-zinc-900/60 border-zinc-800' : 'bg-white border-zinc-200 shadow-sm'
+                  darkMode ? 'bg-graphite/60 border-white/[0.07]' : 'bg-white border-zinc-200 shadow-sm'
                 }`}
               >
-                <div className="flex items-center gap-2 mb-3 pb-2 border-b border-zinc-100 dark:border-zinc-800">
+                <div className="flex items-center gap-2 mb-3 pb-2 border-b border-zinc-100 dark:border-white/[0.07]">
                   <Icon className="w-3.5 h-3.5 text-emerald-500" />
-                  <h5 className={`font-semibold text-xs uppercase tracking-wider ${darkMode ? 'text-zinc-300' : 'text-zinc-700'}`}>
+                  <h5 className={`font-semibold text-xs ${darkMode ? 'text-ink-soft' : 'text-zinc-700'}`}>
                     {cat.label}
                   </h5>
                   <span className={`text-[10px] px-1.5 py-0.2 rounded-full font-medium ${
-                    darkMode ? 'bg-zinc-800 text-zinc-400' : 'bg-zinc-100 text-zinc-600'
+                    darkMode ? 'bg-slate2 text-ink-mute' : 'bg-zinc-100 text-zinc-600'
                   }`}>
                     {catFacts.length}
                   </span>
@@ -434,7 +440,7 @@ export default function HealthProfile({
                       <div
                         key={fact.id}
                         className={`p-2.5 rounded-xl border transition-all ${
-                          darkMode ? 'bg-zinc-950 border-zinc-800/80' : 'bg-zinc-50 border-zinc-200'
+                          darkMode ? 'bg-obsidian border-white/[0.07]' : 'bg-zinc-50 border-zinc-200'
                         }`}
                       >
                         {isEditing ? (
@@ -459,7 +465,7 @@ export default function HealthProfile({
                               onClick={() => setEditingFactId(null)}
                               aria-label="Cancel fact edit"
                               className={`p-1.5 rounded-lg transition-colors ${
-                                darkMode ? 'text-zinc-400 hover:bg-zinc-800' : 'text-zinc-500 hover:bg-zinc-200'
+                                darkMode ? 'text-ink-mute hover:bg-slate2' : 'text-ink-faint hover:bg-zinc-200'
                               }`}
                               title="Cancel"
                             >
@@ -469,10 +475,10 @@ export default function HealthProfile({
                         ) : (
                           <div className="flex items-start justify-between gap-3">
                             <div className="space-y-1 flex-1 min-w-0">
-                              <p className={`text-xs font-medium leading-relaxed break-words ${darkMode ? 'text-zinc-200' : 'text-zinc-800'}`}>
+                              <p className={`text-xs font-medium leading-relaxed break-words ${darkMode ? 'text-ink' : 'text-zinc-800'}`}>
                                 {fact.fact_text}
                               </p>
-                              <div className="flex items-center gap-2 text-[10px] text-zinc-500 flex-wrap">
+                              <div className="flex items-center gap-2 text-[10px] text-ink-faint flex-wrap">
                                 <span className={`px-1.5 py-0.2 rounded border font-medium ${
                                   confidencePercent >= 80
                                     ? 'text-emerald-400 border-emerald-500/20 bg-emerald-500/10'
@@ -488,8 +494,8 @@ export default function HealthProfile({
                               <button
                                 onClick={() => handleStartEdit(fact)}
                                 aria-label="Edit fact"
-                                className={`p-1.5 rounded-lg text-zinc-400 hover:text-zinc-200 transition-colors ${
-                                  darkMode ? 'hover:bg-zinc-800' : 'hover:bg-zinc-200'
+                                className={`p-1.5 rounded-lg text-ink-mute hover:text-ink transition-colors ${
+                                  darkMode ? 'hover:bg-slate2' : 'hover:bg-zinc-200'
                                 }`}
                                 title="Edit fact"
                               >
@@ -498,8 +504,8 @@ export default function HealthProfile({
                               <button
                                 onClick={() => handleDeleteFact(fact.id)}
                                 aria-label="Forget fact"
-                                className={`p-1.5 rounded-lg text-zinc-400 hover:text-red-400 transition-colors ${
-                                  darkMode ? 'hover:bg-zinc-800' : 'hover:bg-zinc-200'
+                                className={`p-1.5 rounded-lg text-ink-mute hover:text-red-400 transition-colors ${
+                                  darkMode ? 'hover:bg-slate2' : 'hover:bg-zinc-200'
                                 }`}
                                 title="Forget fact"
                               >

@@ -132,6 +132,7 @@ class PatientFactResponse(BaseModel):
     source_type: str = "chat"
     source_id: Optional[str] = None
     source_excerpt: Optional[str] = None
+    source_document_id: Optional[str] = None
     first_seen_at: Optional[datetime] = None
     last_seen_at: Optional[datetime] = None
     created_at: Optional[datetime] = None

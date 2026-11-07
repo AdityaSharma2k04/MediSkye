@@ -71,7 +71,7 @@ function getCategoryBadgeStyle(type = '') {
     case 'measurement':
       return 'bg-cyan-500/10 text-cyan-400 border-cyan-500/20';
     default:
-      return 'bg-zinc-500/10 text-zinc-400 border-zinc-500/20';
+      return 'bg-zinc-500/10 text-ink-mute border-zinc-500/20';
   }
 }
 
@@ -98,9 +98,9 @@ const LANGUAGES = AI_LANGUAGES;
 function Section({ title, icon: Icon, children, darkMode }) {
   return (
     <div>
-      <div className={`flex items-center gap-2 mb-3 pb-2 border-b ${darkMode ? 'border-zinc-800' : 'border-zinc-100'}`}>
-        <Icon className={`w-4 h-4 ${darkMode ? 'text-zinc-400' : 'text-zinc-500'}`} />
-        <h4 className={`text-xs font-semibold uppercase tracking-wider ${darkMode ? 'text-zinc-400' : 'text-zinc-500'}`}>
+      <div className={`flex items-center gap-2 mb-3 pb-2 border-b ${darkMode ? 'border-white/[0.07]' : 'border-zinc-100'}`}>
+        <Icon className={`w-4 h-4 ${darkMode ? 'text-ink-mute' : 'text-ink-faint'}`} />
+        <h4 className={`text-xs font-semibold ${darkMode ? 'text-ink-mute' : 'text-ink-faint'}`}>
           {title}
         </h4>
       </div>
@@ -112,7 +112,7 @@ function Section({ title, icon: Icon, children, darkMode }) {
 function Field({ label, children, darkMode }) {
   return (
     <div>
-      <label className={`block text-[11px] font-medium mb-1 ${darkMode ? 'text-zinc-400' : 'text-zinc-500'}`}>
+      <label className={`block text-[11px] font-medium mb-1 ${darkMode ? 'text-ink-mute' : 'text-ink-faint'}`}>
         {label}
       </label>
       {children}
@@ -123,14 +123,14 @@ function Field({ label, children, darkMode }) {
 const inputClass = (darkMode) =>
   `w-full px-3 py-2 text-xs rounded-xl border transition-colors focus:outline-none ${
     darkMode
-      ? 'bg-zinc-950 border-zinc-700 text-white placeholder-zinc-500 focus:border-zinc-500'
+      ? 'bg-obsidian border-white/[0.12] text-white placeholder:text-ink-faint focus:border-zinc-500'
       : 'bg-zinc-50 border-zinc-200 text-zinc-900 placeholder-zinc-400 focus:border-zinc-400'
   }`;
 
 const selectClass = (darkMode) =>
   `w-full px-3 py-2 text-xs rounded-xl border transition-colors focus:outline-none cursor-pointer ${
     darkMode
-      ? 'bg-zinc-950 border-zinc-700 text-white focus:border-zinc-500'
+      ? 'bg-obsidian border-white/[0.12] text-white focus:border-zinc-500'
       : 'bg-zinc-50 border-zinc-200 text-zinc-900 focus:border-zinc-400'
   }`;
 
@@ -219,21 +219,21 @@ function ChangePasswordModal({ isOpen, onClose, darkMode, isGoogleOnly = false }
 
   return (
     <div
-      className="fixed inset-0 z-[70] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-backdrop-in"
+      className="fixed inset-0 z-[70] flex items-end sm:items-center justify-center p-0 sm:p-4 bg-black/60 backdrop-blur-sm animate-backdrop-in"
       onMouseDown={onClose}
     >
       <div
-        className={`relative rounded-2xl shadow-2xl max-w-sm w-full border animate-modal-in ${darkMode ? 'bg-zinc-900 border-zinc-800' : 'bg-white border-zinc-200'}`}
+        className={`relative rounded-t-[28px] sm:rounded-2xl shadow-float w-full sm:max-w-sm border ms-sheet-mobile sm:animate-modal-in pb-[env(safe-area-inset-bottom)] sm:pb-0 ${darkMode ? 'bg-graphite border-white/[0.07]' : 'bg-white border-zinc-200'}`}
         onMouseDown={(e) => e.stopPropagation()}
         role="dialog"
         aria-modal="true"
         aria-label={modalTitle}
       >
-        <div className={`flex items-center justify-between px-5 py-4 border-b ${darkMode ? 'border-zinc-800' : 'border-zinc-100'}`}>
-          <h3 className={`font-semibold text-sm flex items-center gap-2 ${darkMode ? 'text-zinc-100' : 'text-zinc-900'}`}>
+        <div className={`flex items-center justify-between px-5 py-4 border-b ${darkMode ? 'border-white/[0.07]' : 'border-zinc-100'}`}>
+          <h3 className={`font-semibold text-sm flex items-center gap-2 ${darkMode ? 'text-ink' : 'text-zinc-900'}`}>
             <Lock className="w-4 h-4" /> {modalTitle}
           </h3>
-          <button onClick={onClose} aria-label="Close" className={`p-1 rounded-lg ${darkMode ? 'text-zinc-500 hover:text-zinc-200 hover:bg-zinc-800' : 'text-zinc-400 hover:text-zinc-700 hover:bg-zinc-100'}`}>
+          <button onClick={onClose} aria-label="Close" className={`p-1 rounded-lg ${darkMode ? 'text-ink-faint hover:text-ink hover:bg-slate2' : 'text-ink-mute hover:text-zinc-700 hover:bg-zinc-100'}`}>
             <X className="w-4 h-4" />
           </button>
         </div>
@@ -244,7 +244,7 @@ function ChangePasswordModal({ isOpen, onClose, darkMode, isGoogleOnly = false }
             </div>
           )}
           {isGoogleOnly ? (
-            <p className={`text-xs leading-relaxed p-3 rounded-xl border ${darkMode ? 'bg-zinc-800/60 border-zinc-700 text-zinc-300' : 'bg-zinc-100 border-zinc-200 text-zinc-600'}`}>
+            <p className={`text-xs leading-relaxed p-3 rounded-xl border ${darkMode ? 'bg-slate2/60 border-white/[0.12] text-ink-soft' : 'bg-zinc-100 border-zinc-200 text-zinc-600'}`}>
               Set a password for your account so you can also sign in with your email and password.
             </p>
           ) : (
@@ -257,7 +257,7 @@ function ChangePasswordModal({ isOpen, onClose, darkMode, isGoogleOnly = false }
                   aria-label="Current password"
                   className={inputClass(darkMode) + ' pr-9'}
                 />
-                <button type="button" onClick={() => setShowCurrent(!showCurrent)} aria-label="Toggle password visibility" className={`absolute right-2.5 top-2 ${darkMode ? 'text-zinc-500 hover:text-zinc-300' : 'text-zinc-400 hover:text-zinc-600'}`}>
+                <button type="button" onClick={() => setShowCurrent(!showCurrent)} aria-label="Toggle password visibility" className={`absolute right-2.5 top-2 ${darkMode ? 'text-ink-faint hover:text-ink-soft' : 'text-ink-mute hover:text-zinc-600'}`}>
                   {showCurrent ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
                 </button>
               </div>
@@ -273,7 +273,7 @@ function ChangePasswordModal({ isOpen, onClose, darkMode, isGoogleOnly = false }
                 aria-label="New password"
                 className={inputClass(darkMode) + ' pr-9'}
               />
-              <button type="button" onClick={() => setShowNext(!showNext)} aria-label="Toggle password visibility" className={`absolute right-2.5 top-2 ${darkMode ? 'text-zinc-500 hover:text-zinc-300' : 'text-zinc-400 hover:text-zinc-600'}`}>
+              <button type="button" onClick={() => setShowNext(!showNext)} aria-label="Toggle password visibility" className={`absolute right-2.5 top-2 ${darkMode ? 'text-ink-faint hover:text-ink-soft' : 'text-ink-mute hover:text-zinc-600'}`}>
                 {showNext ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
               </button>
             </div>
@@ -291,12 +291,12 @@ function ChangePasswordModal({ isOpen, onClose, darkMode, isGoogleOnly = false }
             )}
           </Field>
         </div>
-        <div className={`px-5 py-3 flex justify-end gap-2 border-t ${darkMode ? 'border-zinc-800 bg-zinc-950' : 'border-zinc-100 bg-zinc-50'}`}>
-          <button onClick={onClose} className={`px-4 py-2 text-xs rounded-xl border ${darkMode ? 'border-zinc-700 text-zinc-300 hover:bg-zinc-800' : 'border-zinc-200 text-zinc-600 hover:bg-zinc-100'}`}>Cancel</button>
+        <div className={`px-5 py-3 flex justify-end gap-2 border-t ${darkMode ? 'border-white/[0.07] bg-obsidian' : 'border-zinc-100 bg-zinc-50'}`}>
+          <button onClick={onClose} className={`px-4 py-2 text-xs rounded-xl border ${darkMode ? 'border-white/[0.12] text-ink-soft hover:bg-slate2' : 'border-zinc-200 text-zinc-600 hover:bg-zinc-100'}`}>Cancel</button>
           <button
             disabled={!canSave || loading}
             onClick={handleSave}
-            className={`px-4 py-2 text-xs font-medium rounded-xl text-white transition-colors ${canSave && !loading ? 'bg-zinc-900 hover:bg-zinc-800 dark:bg-zinc-100 dark:text-zinc-900 dark:hover:bg-zinc-200' : 'bg-zinc-500 opacity-50 cursor-not-allowed'}`}
+            className={`px-4 py-2 text-xs font-medium rounded-xl text-white transition-colors ${canSave && !loading ? 'bg-graphite hover:bg-slate2 dark:bg-zinc-100 dark:text-zinc-900 dark:hover:bg-zinc-200' : 'bg-zinc-500 opacity-50 cursor-not-allowed'}`}
           >
             {loading ? (isGoogleOnly ? 'Setting...' : 'Saving...') : (isGoogleOnly ? 'Set password' : 'Save')}
           </button>
@@ -318,27 +318,27 @@ function DisclaimerModal({ isOpen, onClose, darkMode }) {
 
   return (
     <div
-      className="fixed inset-0 z-[70] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-backdrop-in"
+      className="fixed inset-0 z-[70] flex items-end sm:items-center justify-center p-0 sm:p-4 bg-black/60 backdrop-blur-sm animate-backdrop-in"
       onMouseDown={onClose}
     >
       <div
-        className={`relative rounded-2xl shadow-2xl max-w-sm w-full border animate-modal-in ${darkMode ? 'bg-zinc-900 border-zinc-800' : 'bg-white border-zinc-200'}`}
+        className={`relative rounded-t-[28px] sm:rounded-2xl shadow-float w-full sm:max-w-sm border ms-sheet-mobile sm:animate-modal-in pb-[env(safe-area-inset-bottom)] sm:pb-0 ${darkMode ? 'bg-graphite border-white/[0.07]' : 'bg-white border-zinc-200'}`}
         onMouseDown={(e) => e.stopPropagation()}
         role="dialog"
         aria-modal="true"
         aria-label="Medical disclaimer"
       >
-        <div className={`flex items-center justify-between px-5 py-4 border-b ${darkMode ? 'border-zinc-800' : 'border-zinc-100'}`}>
-          <h3 className={`font-semibold text-sm ${darkMode ? 'text-zinc-100' : 'text-zinc-900'}`}>Medical Disclaimer</h3>
-          <button onClick={onClose} aria-label="Close" className={`p-1 rounded-lg ${darkMode ? 'text-zinc-500 hover:text-zinc-200 hover:bg-zinc-800' : 'text-zinc-400 hover:text-zinc-700 hover:bg-zinc-100'}`}>
+        <div className={`flex items-center justify-between px-5 py-4 border-b ${darkMode ? 'border-white/[0.07]' : 'border-zinc-100'}`}>
+          <h3 className={`font-semibold text-sm ${darkMode ? 'text-ink' : 'text-zinc-900'}`}>Medical Disclaimer</h3>
+          <button onClick={onClose} aria-label="Close" className={`p-1 rounded-lg ${darkMode ? 'text-ink-faint hover:text-ink hover:bg-slate2' : 'text-ink-mute hover:text-zinc-700 hover:bg-zinc-100'}`}>
             <X className="w-4 h-4" />
           </button>
         </div>
         <div className="px-5 py-5">
-          <p className={`text-sm leading-relaxed ${darkMode ? 'text-zinc-300' : 'text-zinc-600'}`}>{DISCLAIMER_TEXT}</p>
+          <p className={`text-sm leading-relaxed ${darkMode ? 'text-ink-soft' : 'text-zinc-600'}`}>{DISCLAIMER_TEXT}</p>
         </div>
-        <div className={`px-5 py-3 flex justify-end border-t ${darkMode ? 'border-zinc-800 bg-zinc-950' : 'border-zinc-100 bg-zinc-50'}`}>
-          <button onClick={onClose} className={`px-4 py-2 text-xs font-medium rounded-xl ${darkMode ? 'bg-zinc-800 text-zinc-200 hover:bg-zinc-700' : 'bg-zinc-900 text-white hover:bg-zinc-800'}`}>Close</button>
+        <div className={`px-5 py-3 flex justify-end border-t ${darkMode ? 'border-white/[0.07] bg-obsidian' : 'border-zinc-100 bg-zinc-50'}`}>
+          <button onClick={onClose} className={`px-4 py-2 text-xs font-medium rounded-xl ${darkMode ? 'bg-slate2 text-ink hover:bg-zinc-700' : 'bg-graphite text-white hover:bg-slate2'}`}>Close</button>
         </div>
       </div>
     </div>
@@ -611,14 +611,14 @@ export default function SettingsModal({
   if (!isOpen) return null;
 
   const base = darkMode
-    ? 'bg-[#0e131b] border-white/[0.08] text-slate-100'
+    ? 'bg-carbon border-white/[0.08] text-slate-100'
     : 'bg-white border-zinc-200 text-zinc-900';
 
   return (
     <>
       {/* Main Settings Modal */}
       <div
-        className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm animate-backdrop-in"
+        className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4 bg-black/60 backdrop-blur-sm animate-backdrop-in"
         onMouseDown={handleAttemptClose}
         role="dialog"
         aria-modal="true"
@@ -626,17 +626,17 @@ export default function SettingsModal({
       >
         <div
           ref={modalRef}
-          className={`${base} rounded-2xl shadow-2xl border max-w-lg w-full max-h-[88vh] flex flex-col overflow-hidden animate-modal-in`}
+          className={`${base} rounded-t-[28px] sm:rounded-3xl shadow-float border w-full sm:max-w-lg max-h-[94dvh] sm:max-h-[88dvh] flex flex-col overflow-hidden ms-sheet-mobile sm:animate-modal-in`}
           onMouseDown={(e) => e.stopPropagation()}
         >
           {/* Header */}
-          <div className={`flex items-center justify-between px-5 py-4 border-b shrink-0 ${darkMode ? 'border-zinc-800' : 'border-zinc-100'}`}>
-            <h3 className="font-semibold text-sm">Settings &amp; Preferences</h3>
+          <div className={`flex items-center justify-between px-5 py-4 border-b shrink-0 ${darkMode ? 'border-white/[0.07]' : 'border-zinc-100'}`}>
+            <h3 className="ms-display text-lg text-white">Settings &amp; Preferences</h3>
             <button
               ref={closeRef}
               onClick={handleAttemptClose}
               aria-label="Close settings"
-              className={`p-1.5 rounded-lg transition-colors ${darkMode ? 'text-zinc-400 hover:text-zinc-100 hover:bg-zinc-800' : 'text-zinc-400 hover:text-zinc-700 hover:bg-zinc-100'}`}
+              className={`p-1.5 rounded-lg transition-colors ${darkMode ? 'text-ink-mute hover:text-ink hover:bg-slate2' : 'text-ink-mute hover:text-zinc-700 hover:bg-zinc-100'}`}
             >
               <X className="w-4 h-4" />
             </button>
@@ -652,13 +652,13 @@ export default function SettingsModal({
 
             {/* Quick link to Profile & Caregiver Hub (Bug 11) */}
             <div className={`p-4 rounded-xl border flex flex-col sm:flex-row sm:items-center justify-between gap-4 ${
-              darkMode ? 'bg-[#111621] border-white/[0.08]' : 'bg-zinc-50 border-zinc-200'
+              darkMode ? 'bg-graphite border-white/[0.08]' : 'bg-zinc-50 border-zinc-200'
             }`}>
               <div className="space-y-0.5">
-                <div className={`text-xs font-semibold ${darkMode ? 'text-zinc-200' : 'text-zinc-800'}`}>
+                <div className={`text-xs font-semibold ${darkMode ? 'text-ink' : 'text-zinc-800'}`}>
                   Health Profile &amp; Caregivers
                 </div>
-                <p className={`text-[11px] leading-relaxed ${darkMode ? 'text-zinc-400' : 'text-zinc-500'}`}>
+                <p className={`text-[11px] leading-relaxed ${darkMode ? 'text-ink-mute' : 'text-ink-faint'}`}>
                   Manage clinical vitals, allergies, conditions, and family dependent profiles.
                 </p>
               </div>
@@ -670,7 +670,7 @@ export default function SettingsModal({
                 }}
                 className={`px-3.5 py-2 text-xs font-medium rounded-xl border whitespace-nowrap transition-colors flex items-center gap-1.5 ${
                   darkMode
-                    ? 'bg-zinc-900 border-zinc-700 text-zinc-200 hover:bg-zinc-800 hover:text-white'
+                    ? 'bg-graphite border-white/[0.12] text-ink hover:bg-slate2 hover:text-white'
                     : 'bg-white border-zinc-300 text-zinc-700 hover:bg-zinc-100 hover:text-zinc-900'
                 }`}
               >
@@ -704,23 +704,23 @@ export default function SettingsModal({
 
               {/* Auto-read AI responses aloud */}
               <div className={`p-3.5 rounded-xl border flex items-center justify-between gap-3 ${
-                darkMode ? 'bg-zinc-950 border-zinc-800' : 'bg-zinc-50 border-zinc-200'
+                darkMode ? 'bg-obsidian border-white/[0.07]' : 'bg-zinc-50 border-zinc-200'
               }`}>
                 <div className="space-y-0.5 pr-2">
                   <div className="flex items-center gap-2">
-                    <Volume2 className={`w-3.5 h-3.5 ${draftState.autoRead ? 'text-emerald-400' : darkMode ? 'text-zinc-500' : 'text-zinc-400'}`} />
-                    <span className={`text-xs font-semibold ${darkMode ? 'text-zinc-200' : 'text-zinc-800'}`}>
+                    <Volume2 className={`w-3.5 h-3.5 ${draftState.autoRead ? 'text-emerald-400' : darkMode ? 'text-ink-faint' : 'text-ink-mute'}`} />
+                    <span className={`text-xs font-semibold ${darkMode ? 'text-ink' : 'text-zinc-800'}`}>
                       {t('settings.auto_read', 'Auto-read AI responses aloud')}
                     </span>
                     <span className={`text-[10px] px-1.5 py-0.2 rounded-full font-medium border ${
                       draftState.autoRead
                         ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20'
-                        : 'bg-zinc-500/10 text-zinc-400 border-zinc-500/20'
+                        : 'bg-zinc-500/10 text-ink-mute border-zinc-500/20'
                     }`}>
                       {draftState.autoRead ? t('settings.on', 'On') : t('settings.off', 'Off')}
                     </span>
                   </div>
-                  <p className={`text-[11px] leading-relaxed ${darkMode ? 'text-zinc-400' : 'text-zinc-500'}`}>
+                  <p className={`text-[11px] leading-relaxed ${darkMode ? 'text-ink-mute' : 'text-ink-faint'}`}>
                     {t('settings.auto_read_desc', 'Speaks each completed answer in the selected AI language. Any new question or Stop immediately silences the reading.')}
                   </p>
                 </div>
@@ -748,7 +748,7 @@ export default function SettingsModal({
               <div className="space-y-3">
                 {/* Consent Toggle Switch */}
                 <div className={`p-3.5 rounded-xl border flex items-center justify-between gap-3 ${
-                  darkMode ? 'bg-zinc-950 border-zinc-800' : 'bg-zinc-50 border-zinc-200'
+                  darkMode ? 'bg-obsidian border-white/[0.07]' : 'bg-zinc-50 border-zinc-200'
                 }`}>
                   <div className="space-y-0.5 pr-2">
                     <div className="flex items-center gap-2">
@@ -756,12 +756,12 @@ export default function SettingsModal({
                       <span className={`text-[10px] px-1.5 py-0.2 rounded-full font-medium border ${
                         memoryConsent
                           ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20'
-                          : 'bg-zinc-500/10 text-zinc-400 border-zinc-500/20'
+                          : 'bg-zinc-500/10 text-ink-mute border-zinc-500/20'
                       }`}>
                         {memoryConsent ? 'Active' : 'Disabled'}
                       </span>
                     </div>
-                    <p className={`text-[11px] leading-relaxed ${darkMode ? 'text-zinc-400' : 'text-zinc-500'}`}>
+                    <p className={`text-[11px] leading-relaxed ${darkMode ? 'text-ink-mute' : 'text-ink-faint'}`}>
                       Allow MediSkye to remember clinical facts across sessions (conditions, medications, lab trends, lifestyle).
                     </p>
                   </div>
@@ -785,13 +785,13 @@ export default function SettingsModal({
 
                 {/* Facts Browser */}
                 <div className={`p-3.5 rounded-xl border ${
-                  darkMode ? 'bg-zinc-950 border-zinc-800' : 'bg-zinc-50 border-zinc-200'
+                  darkMode ? 'bg-obsidian border-white/[0.07]' : 'bg-zinc-50 border-zinc-200'
                 }`}>
                   <div className="flex items-center justify-between mb-1.5">
                     <div className="flex items-center gap-2">
                       <span className="text-xs font-medium">Remembered Facts</span>
                       <span className={`text-[10px] px-2 py-0.5 rounded-full font-medium ${
-                        darkMode ? 'bg-zinc-800 text-zinc-300' : 'bg-zinc-200 text-zinc-700'
+                        darkMode ? 'bg-slate2 text-ink-soft' : 'bg-zinc-200 text-zinc-700'
                       }`}>
                         {memoryFacts.length}
                       </span>
@@ -806,14 +806,14 @@ export default function SettingsModal({
                       </button>
                     )}
                   </div>
-                  <p className={`text-[11px] leading-tight mb-2.5 italic ${darkMode ? 'text-zinc-500' : 'text-zinc-400'}`}>
+                  <p className={`text-[11px] leading-tight mb-2.5 italic ${darkMode ? 'text-ink-faint' : 'text-ink-mute'}`}>
                     Changes to the toggle or trash icons take effect immediately.
                   </p>
 
                   {loadingMemory ? (
-                    <div className="py-4 text-center text-xs text-zinc-500">Loading remembered facts...</div>
+                    <div className="py-4 text-center text-xs text-ink-faint">Loading remembered facts...</div>
                   ) : memoryFacts.length === 0 ? (
-                    <p className={`text-[11px] py-1 leading-relaxed ${darkMode ? 'text-zinc-500' : 'text-zinc-400'}`}>
+                    <p className={`text-[11px] py-1 leading-relaxed ${darkMode ? 'text-ink-faint' : 'text-ink-mute'}`}>
                       {memoryConsent
                         ? 'No clinical facts remembered yet. As you consult with MediSkye or upload reports, key findings will appear here.'
                         : 'Memory is currently disabled. Enable memory above to allow MediSkye to remember clinical context across chats.'}
@@ -829,28 +829,28 @@ export default function SettingsModal({
                           <div
                             key={fact.id}
                             className={`p-2.5 rounded-lg border text-xs flex items-start justify-between gap-2.5 ${
-                              darkMode ? 'bg-zinc-900 border-zinc-800' : 'bg-white border-zinc-200'
+                              darkMode ? 'bg-graphite border-white/[0.07]' : 'bg-white border-zinc-200'
                             }`}
                           >
                             <div className="space-y-1 flex-1 min-w-0">
                               <div className="flex items-center gap-1.5 flex-wrap">
-                                <span className={`text-[10px] font-medium px-1.5 py-0.5 rounded border uppercase tracking-wider ${catStyle}`}>
+                                <span className={`text-[10px] font-medium px-1.5 py-0.5 rounded border ${catStyle}`}>
                                   {fact.fact_type || fact.category}
                                 </span>
                                 {fact.source_type && (
-                                  <span className="text-[10px] text-zinc-500">
+                                  <span className="text-[10px] text-ink-faint">
                                     • {fact.source_type.replace('_', ' ')}
                                   </span>
                                 )}
                                 {dateFormatted && (
                                   <span className={`text-[10px] px-1.5 py-0.5 rounded font-mono ${
-                                    darkMode ? 'bg-zinc-800/80 text-zinc-400 border border-zinc-700/50' : 'bg-zinc-100 text-zinc-500 border border-zinc-200'
+                                    darkMode ? 'bg-slate2/80 text-ink-mute border border-white/[0.12]' : 'bg-zinc-100 text-ink-faint border border-zinc-200'
                                   }`}>
                                     {dateFormatted}
                                   </span>
                                 )}
                               </div>
-                              <p className={`text-xs font-medium break-words ${darkMode ? 'text-zinc-200' : 'text-zinc-800'}`}>
+                              <p className={`text-xs font-medium break-words ${darkMode ? 'text-ink' : 'text-zinc-800'}`}>
                                 {fact.fact_text || fact.fact_value}
                               </p>
                             </div>
@@ -858,8 +858,8 @@ export default function SettingsModal({
                               type="button"
                               disabled={deletingFactId === fact.id}
                               onClick={() => handleDeleteFact(fact.id)}
-                              className={`p-1 rounded-md text-zinc-400 hover:text-red-400 transition-colors shrink-0 ${
-                                darkMode ? 'hover:bg-zinc-800' : 'hover:bg-zinc-100'
+                              className={`p-1 rounded-md text-ink-mute hover:text-red-400 transition-colors shrink-0 ${
+                                darkMode ? 'hover:bg-slate2' : 'hover:bg-zinc-100'
                               }`}
                               title="Delete fact"
                             >
@@ -885,7 +885,7 @@ export default function SettingsModal({
                   aria-label={isGoogleOnly ? "Set password" : "Change password"}
                   className={`w-full flex items-center justify-between px-3 py-2.5 rounded-xl border text-xs transition-colors ${
                     darkMode
-                      ? 'border-zinc-700 text-zinc-300 hover:bg-zinc-800'
+                      ? 'border-white/[0.12] text-ink-soft hover:bg-slate2'
                       : 'border-zinc-200 text-zinc-700 hover:bg-zinc-50'
                   }`}
                 >
@@ -893,10 +893,10 @@ export default function SettingsModal({
                     <Lock className="w-3.5 h-3.5" />
                     {isGoogleOnly ? "Set password" : "Change password"}
                   </span>
-                  <span className={`text-[10px] ${darkMode ? 'text-zinc-500' : 'text-zinc-400'}`}>→</span>
+                  <span className={`text-[10px] ${darkMode ? 'text-ink-faint' : 'text-ink-mute'}`}>→</span>
                 </button>
                 {isGoogleOnly && (
-                  <p className={`text-[11px] leading-relaxed px-0.5 ${darkMode ? 'text-zinc-400' : 'text-zinc-500'}`}>
+                  <p className={`text-[11px] leading-relaxed px-0.5 ${darkMode ? 'text-ink-mute' : 'text-ink-faint'}`}>
                     You signed in with Google. You can set a password to enable email &amp; password sign-in.
                   </p>
                 )}
@@ -912,7 +912,7 @@ export default function SettingsModal({
                   disabled={isExporting}
                   className={`w-full flex items-center justify-between px-3 py-2.5 rounded-xl border text-xs font-medium transition-colors ${
                     darkMode
-                      ? 'border-zinc-700 bg-zinc-800/60 text-zinc-200 hover:bg-zinc-800 hover:border-cyan-500/40'
+                      ? 'border-white/[0.12] bg-slate2/60 text-ink hover:bg-slate2 hover:border-cyan-500/40'
                       : 'border-zinc-200 bg-zinc-50 text-zinc-800 hover:bg-zinc-100 hover:border-cyan-500/40'
                   }`}
                 >
@@ -920,7 +920,7 @@ export default function SettingsModal({
                     <Download className="w-3.5 h-3.5 text-cyan-400" />
                     {isExporting ? 'Exporting...' : 'Export my data'}
                   </span>
-                  <span className={`text-[10px] px-2 py-0.5 rounded-md font-mono ${darkMode ? 'bg-zinc-800 text-zinc-400' : 'bg-zinc-200 text-zinc-600'}`}>
+                  <span className={`text-[10px] px-2 py-0.5 rounded-md font-mono ${darkMode ? 'bg-slate2 text-ink-mute' : 'bg-zinc-200 text-zinc-600'}`}>
                     JSON
                   </span>
                 </button>
@@ -946,11 +946,11 @@ export default function SettingsModal({
                   darkMode ? 'border-red-500/30 bg-red-950/20' : 'border-red-200 bg-red-50/60'
                 }`}>
                   <div className="flex items-center justify-between mb-1.5">
-                    <span className="text-[11px] font-semibold uppercase tracking-wider text-red-400">
+                    <span className="text-[11px] font-semibold text-red-400">
                       Danger Zone
                     </span>
                   </div>
-                  <p className={`text-[11px] leading-relaxed mb-3 ${darkMode ? 'text-zinc-400' : 'text-zinc-600'}`}>
+                  <p className={`text-[11px] leading-relaxed mb-3 ${darkMode ? 'text-ink-mute' : 'text-zinc-600'}`}>
                     Permanently delete your MediSkye account, medical profiles, uploaded lab documents, and remembered facts.
                   </p>
                   <button
@@ -967,13 +967,13 @@ export default function SettingsModal({
 
             {/* ── ABOUT ── */}
             <Section title="About" icon={Info} darkMode={darkMode}>
-              <div className={`flex items-center justify-between text-xs px-3 py-2.5 rounded-xl border ${darkMode ? 'border-zinc-800 text-zinc-400' : 'border-zinc-100 text-zinc-500'}`}>
+              <div className={`flex items-center justify-between text-xs px-3 py-2.5 rounded-xl border ${darkMode ? 'border-white/[0.07] text-ink-mute' : 'border-zinc-100 text-ink-faint'}`}>
                 <span>App version</span>
-                <span className={`font-mono ${darkMode ? 'text-zinc-300' : 'text-zinc-700'}`}>v{APP_VERSION}</span>
+                <span className={`font-mono ${darkMode ? 'text-ink-soft' : 'text-zinc-700'}`}>v{APP_VERSION}</span>
               </div>
               <button
                 onClick={() => setShowDisclaimer(true)}
-                className={`w-full flex items-center justify-between px-3 py-2.5 rounded-xl border text-xs transition-colors ${darkMode ? 'border-zinc-800 text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800' : 'border-zinc-100 text-zinc-500 hover:text-zinc-700 hover:bg-zinc-50'}`}
+                className={`w-full flex items-center justify-between px-3 py-2.5 rounded-xl border text-xs transition-colors ${darkMode ? 'border-white/[0.07] text-ink-mute hover:text-ink hover:bg-slate2' : 'border-zinc-100 text-ink-faint hover:text-zinc-700 hover:bg-zinc-50'}`}
               >
                 <span className="flex items-center gap-2"><Shield className="w-3.5 h-3.5" /> Medical disclaimer</span>
                 <Info className="w-3.5 h-3.5 opacity-50" />
@@ -981,7 +981,7 @@ export default function SettingsModal({
               <SafeLink
                 to="/privacy"
                 onClick={onClose}
-                className={`w-full flex items-center justify-between px-3 py-2.5 rounded-xl border text-xs transition-colors ${darkMode ? 'border-zinc-800 text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800' : 'border-zinc-100 text-zinc-500 hover:text-zinc-700 hover:bg-zinc-50'}`}
+                className={`w-full flex items-center justify-between px-3 py-2.5 rounded-xl border text-xs transition-colors ${darkMode ? 'border-white/[0.07] text-ink-mute hover:text-ink hover:bg-slate2' : 'border-zinc-100 text-ink-faint hover:text-zinc-700 hover:bg-zinc-50'}`}
               >
                 <span className="flex items-center gap-2"><Info className="w-3.5 h-3.5" /> Privacy policy</span>
                 <ExternalLink className="w-3 h-3 opacity-50" />
@@ -990,12 +990,12 @@ export default function SettingsModal({
           </div>
 
           {/* Footer */}
-          <div className={`px-5 py-4 border-t shrink-0 flex items-center justify-end gap-2 ${darkMode ? 'border-zinc-800 bg-zinc-950' : 'border-zinc-100 bg-zinc-50'}`}>
+          <div className={`px-5 py-3.5 pb-[max(0.875rem,env(safe-area-inset-bottom))] border-t shrink-0 flex items-center justify-end gap-2 ${darkMode ? 'border-white/[0.07] bg-obsidian/60' : 'border-zinc-100 bg-zinc-50'}`}>
             <button
               type="button"
               onClick={handleAttemptClose}
               className={`px-4 py-2 text-xs font-medium rounded-xl border transition-colors ${
-                darkMode ? 'border-zinc-700 text-zinc-300 hover:bg-zinc-800' : 'border-zinc-200 text-zinc-600 hover:bg-zinc-100'
+                darkMode ? 'border-white/[0.12] text-ink-soft hover:bg-slate2' : 'border-zinc-200 text-zinc-600 hover:bg-zinc-100'
               }`}
             >
               Cancel
@@ -1009,7 +1009,7 @@ export default function SettingsModal({
                   ? 'opacity-60 cursor-not-allowed bg-zinc-500 text-white'
                   : darkMode
                     ? 'bg-cyan-500 hover:bg-cyan-400 text-slate-950 font-semibold'
-                    : 'bg-zinc-900 text-white hover:bg-zinc-800'
+                    : 'bg-graphite text-white hover:bg-slate2'
               }`}
             >
               {saving ? 'Saving...' : 'Save Changes'}

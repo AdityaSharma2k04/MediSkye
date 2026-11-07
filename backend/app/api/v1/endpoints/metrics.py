@@ -1,11 +1,15 @@
 import json
 import uuid
+import re
 import logging
 import asyncio
 import copy
+from datetime import datetime, UTC
+from pydantic import BaseModel
 from fastapi import APIRouter, Depends, Header, Request, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
+from sqlalchemy.orm.attributes import flag_modified
 from langchain_community.vectorstores import FAISS
 
 from app.core.auth import UserDTO, get_current_user
@@ -29,6 +33,7 @@ from app.services.clinical_units import (
     canonical_biomarker_key,
     compute_biomarker_delta,
     parse_report_chronology,
+    _parse_first_float,
 )
 
 logger = logging.getLogger(__name__)
@@ -112,6 +117,7 @@ async def extract_and_cache_metrics(
 
     if not combined_text.strip():
         doc.cached_metrics = []
+        flag_modified(doc, "cached_metrics")
         db.add(doc)
         await db.commit()
         return []
@@ -154,6 +160,7 @@ Report text:
         )
         if not response or not response.text:
             doc.cached_metrics = []
+            flag_modified(doc, "cached_metrics")
             db.add(doc)
             await db.commit()
             return []
@@ -166,6 +173,7 @@ Report text:
         parsed = json.loads(text)
         if not isinstance(parsed, list):
             doc.cached_metrics = []
+            flag_modified(doc, "cached_metrics")
             db.add(doc)
             await db.commit()
             return []
@@ -205,6 +213,7 @@ Report text:
             raw_metrics.append(metric_dict)
 
         doc.cached_metrics = raw_metrics
+        flag_modified(doc, "cached_metrics")
         db.add(doc)
         await db.commit()
         await db.refresh(doc)
@@ -309,11 +318,14 @@ async def _apply_longitudinal_deltas(
 
         if matched_prior:
             prev_val = str(matched_prior.get("value", "")).strip()
+            prev_unit = str(matched_prior.get("unit", "")).strip()
             prev_date = prior_doc_date
             c_val = str(m.get("value", "")).strip()
             status = str(m.get("status") or "Normal").strip()
             unit = str(m.get("unit") or "").strip()
-            d_abs, d_pct, d_alert = compute_biomarker_delta(c_val, prev_val, status, unit, canonical_key=key)
+            d_abs, d_pct, d_alert = compute_biomarker_delta(
+                c_val, prev_val, status, unit, canonical_key=key, prev_unit=prev_unit
+            )
 
         result_items.append(LabMetricItem(
             test=t_name,
@@ -452,4 +464,179 @@ async def get_document_metrics(
         raise HTTPException(status_code=400, detail="Invalid session/document ID.")
 
     return await _get_or_extract_metrics(doc_id, force_refresh, current_user, db)
+
+
+# ── Longitudinal Trends Endpoint (REDESIGN_CHANGELOG.md §3.3-A) ──────────
+
+class MetricTrendPoint(BaseModel):
+    document_id: str
+    collected_at: Optional[str] = None
+    value: float
+    raw_value: str
+    status: str
+
+
+class MetricTrendSeries(BaseModel):
+    key: str
+    name: str
+    unit: str
+    reference_range: str
+    points: List[MetricTrendPoint]
+
+
+class MetricTrendReport(BaseModel):
+    document_id: str
+    title: str
+    collected_at: Optional[str] = None
+
+
+class MetricTrendsResponse(BaseModel):
+    patient_id: str
+    generated_at: str
+    reports: List[MetricTrendReport]
+    series: List[MetricTrendSeries]
+
+
+def normalize_biomarker_name(name: str) -> str:
+    """Normalize biomarker name to match frontend normalizeName() in clinical.js."""
+    n = re.sub(r'\(.*?\)', '', str(name or ''))
+    return re.sub(r'[^a-zA-Z0-9]+', '', n).lower().strip()
+
+
+@router.get("/users/me/metrics/trends", response_model=MetricTrendsResponse, tags=["Lab Metrics"])
+@limiter.limit(settings.RATE_LIMIT_METRICS)
+async def get_patient_metric_trends(
+    request: Request,
+    patient_id: Optional[str] = None,
+    limit: int = 8,
+    keys: Optional[str] = None,
+    current_user: UserDTO = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    dep_uuid = None
+    if patient_id and patient_id != "self":
+        try:
+            dep_uuid = uuid.UUID(patient_id)
+        except ValueError:
+            return MetricTrendsResponse(
+                patient_id=patient_id,
+                generated_at=datetime.now(UTC).isoformat(),
+                reports=[],
+                series=[],
+            )
+
+    filters = [
+        Document.user_id == current_user.id,
+        Document.cached_metrics.is_not(None),
+    ]
+    if dep_uuid:
+        filters.append(Document.dependent_id == dep_uuid)
+    else:
+        filters.append(Document.dependent_id.is_(None))
+
+    stmt = select(Document).filter(*filters)
+    res = await db.execute(stmt)
+    docs = list(res.scalars().all())
+
+    if not docs:
+        return MetricTrendsResponse(
+            patient_id=patient_id or "self",
+            generated_at=datetime.now(UTC).isoformat(),
+            reports=[],
+            series=[],
+        )
+
+    # Parse collection date and sort chronologically (oldest to newest)
+    def _doc_sort_key(d: Document):
+        dt = parse_report_chronology(d)
+        if dt:
+            return dt
+        if d.created_at:
+            return d.created_at.replace(tzinfo=None) if d.created_at.tzinfo else d.created_at
+        return datetime.min
+
+    docs.sort(key=_doc_sort_key)
+    # Take up to `limit` reports (most recent limit, sorted chronologically oldest to newest)
+    target_docs = docs[-limit:] if len(docs) > limit else docs
+
+    reports: List[MetricTrendReport] = []
+    series_map: Dict[str, Dict[str, Any]] = {}
+    requested_keys = set(k.strip().lower() for k in keys.split(",")) if keys else None
+
+    for d in target_docs:
+        date_label = d.collected_at or (d.created_at.strftime("%d %b %Y") if d.created_at else None)
+        reports.append(
+            MetricTrendReport(
+                document_id=str(d.id),
+                title=d.title or d.filename or "Lab Report",
+                collected_at=date_label,
+            )
+        )
+
+        raw = d.cached_metrics
+        if isinstance(raw, str):
+            try:
+                raw = json.loads(raw)
+            except Exception:
+                raw = []
+        if isinstance(raw, dict) and "metrics" in raw:
+            raw = raw["metrics"]
+        if not isinstance(raw, list):
+            continue
+
+        for m in raw:
+            if not isinstance(m, dict):
+                continue
+            t_name = str(m.get("test") or m.get("name") or "").strip()
+            norm_key = normalize_biomarker_name(t_name)
+            if not norm_key:
+                continue
+            if requested_keys and norm_key not in requested_keys:
+                continue
+
+            val_float = _parse_first_float(m.get("value"))
+            if val_float is None:
+                continue
+
+            unit = normalize_clinical_unit(str(m.get("unit") or "").strip())
+            ref_range = str(m.get("range") or m.get("reference_range") or "").strip()
+            status = str(m.get("status") or "Normal").strip()
+            raw_val = str(m.get("value", "")).strip()
+
+            if norm_key not in series_map:
+                series_map[norm_key] = {
+                    "key": norm_key,
+                    "name": t_name,
+                    "unit": unit,
+                    "reference_range": ref_range,
+                    "points": [],
+                }
+
+            series_map[norm_key]["points"].append(
+                MetricTrendPoint(
+                    document_id=str(d.id),
+                    collected_at=date_label,
+                    value=val_float,
+                    raw_value=raw_val,
+                    status=status,
+                )
+            )
+
+    series_list = [
+        MetricTrendSeries(
+            key=s["key"],
+            name=s["name"],
+            unit=s["unit"],
+            reference_range=s["reference_range"],
+            points=s["points"],
+        )
+        for s in series_map.values()
+    ]
+
+    return MetricTrendsResponse(
+        patient_id=patient_id or "self",
+        generated_at=datetime.now(UTC).isoformat(),
+        reports=reports,
+        series=series_list,
+    )
 

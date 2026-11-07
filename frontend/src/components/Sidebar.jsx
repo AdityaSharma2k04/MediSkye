@@ -1,22 +1,28 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect, useMemo } from 'react';
 import {
   Plus,
   Search,
   MessageSquare,
   FileText,
   Settings,
-  Shield,
-  Activity,
-  User,
+  ShieldCheck,
+  Users,
   Trash2,
   MoreHorizontal,
   Pencil,
   Check,
   X,
   LogOut,
+  Brain,
+  PanelLeftClose,
 } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import ConfirmModal from './ConfirmModal';
+import { cn } from '../lib/cn';
+import { BrandLockup } from './workbench/Brand';
+import { PatientAvatar } from './workbench/PatientSwitcher';
+import Kbd from './ui/Kbd';
+import { MOD_LABEL } from '../hooks/useHotkeys';
 
 function formatRelativeTime(ts) {
   if (!ts) return '';
@@ -42,12 +48,14 @@ export default function Sidebar({
   onNewChat,
   onOpenSettings,
   onOpenProfile,
-  darkMode,
-  activePdf,
+  onOpenMemory,
+  onOpenPalette,
+  activePdf, // eslint-disable-line no-unused-vars
   onLogout,
   onDeleteChat,
   onRenameChat,
   currentUser,
+  dependents = [],
 }) {
   const { t } = useTranslation();
   const [searchQuery, setSearchQuery] = useState('');
@@ -55,15 +63,23 @@ export default function Sidebar({
   const [pendingLogout, setPendingLogout] = useState(false);
   const [openMenuId, setOpenMenuId] = useState(null);
   const [renamingId, setRenamingId] = useState(null);
-
-  // Guarantee menu is closed on every mount (guards against StrictMode double-invoke)
-  useEffect(() => { setOpenMenuId(null); }, []);
   const [renameValue, setRenameValue] = useState('');
   const renameInputRef = useRef(null);
   const menuRefs = useRef({});
 
+  // Guarantee menu is closed on every mount (guards against StrictMode double-invoke)
+  useEffect(() => {
+    setOpenMenuId(null);
+  }, []);
+
+  const dependentIndex = useMemo(() => {
+    const m = new Map();
+    (dependents || []).forEach((d, i) => m.set(String(d.id), { name: d.full_name, index: i + 1 }));
+    return m;
+  }, [dependents]);
+
   // Omit empty untitled placeholder chats from history if they are inactive
-  const filteredChats = conversations
+  const filteredChats = (conversations || [])
     .filter((c) => {
       const isBlankPlaceholder =
         (c.title === 'New Conversation' || c.title === 'New chat') &&
@@ -74,18 +90,17 @@ export default function Sidebar({
         c.id !== activeSessionId;
       return !isBlankPlaceholder;
     })
-    .filter((c) =>
-      (c.title || 'New Conversation').toLowerCase().includes(searchQuery.toLowerCase())
-    );
+    .filter((c) => (c.title || 'New Conversation').toLowerCase().includes(searchQuery.toLowerCase()));
 
-  // Close menu when clicking outside or pressing Escape — only active while a menu is open
+  const reportChats = filteredChats.filter((c) => c.pdf || c.document_id);
+  const plainChats = filteredChats.filter((c) => !(c.pdf || c.document_id));
+
+  // Close menu when clicking outside or pressing Escape
   useEffect(() => {
-    if (!openMenuId) return;
+    if (!openMenuId) return undefined;
     const handleMouseDown = (e) => {
       const ref = menuRefs.current[openMenuId];
-      if (ref && !ref.contains(e.target)) {
-        setOpenMenuId(null);
-      }
+      if (ref && !ref.contains(e.target)) setOpenMenuId(null);
     };
     const handleKeyDown = (e) => {
       if (e.key === 'Escape') setOpenMenuId(null);
@@ -98,7 +113,6 @@ export default function Sidebar({
     };
   }, [openMenuId]);
 
-  // Focus rename input when opened
   useEffect(() => {
     if (renamingId && renameInputRef.current) {
       renameInputRef.current.focus();
@@ -107,9 +121,7 @@ export default function Sidebar({
   }, [renamingId]);
 
   const handleDeleteConfirmed = () => {
-    if (pendingDeleteId && onDeleteChat) {
-      onDeleteChat(pendingDeleteId, /* skipConfirm */ true);
-    }
+    if (pendingDeleteId && onDeleteChat) onDeleteChat(pendingDeleteId, /* skipConfirm */ true);
     setPendingDeleteId(null);
   };
 
@@ -120,9 +132,7 @@ export default function Sidebar({
   };
 
   const commitRename = (id) => {
-    if (renameValue.trim() && onRenameChat) {
-      onRenameChat(id, renameValue.trim());
-    }
+    if (renameValue.trim() && onRenameChat) onRenameChat(id, renameValue.trim());
     setRenamingId(null);
   };
 
@@ -131,311 +141,264 @@ export default function Sidebar({
     setRenameValue('');
   };
 
+  const renderChat = (chat, index) => {
+    const isActive = Boolean(chat.id) && chat.id === activeSessionId;
+    const isRenaming = Boolean(renamingId) && renamingId === chat.id;
+    const isMenuOpen = Boolean(openMenuId) && openMenuId === chat.id;
+    const displayTitle = chat.title || 'New Conversation';
+    const isReport = Boolean(chat.pdf || chat.document_id);
+    const dep = chat.patient_id && chat.patient_id !== 'self' ? dependentIndex.get(String(chat.patient_id)) : null;
+
+    return (
+      <div key={chat.id || `chat-${index}`} className="relative group flex items-center w-full min-w-0">
+        {isRenaming ? (
+          <div className="flex-1 flex items-center gap-1 min-w-0 px-1 py-1">
+            <input
+              ref={renameInputRef}
+              type="text"
+              value={renameValue}
+              onChange={(e) => setRenameValue(e.target.value.slice(0, 60))}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') commitRename(chat.id);
+                if (e.key === 'Escape') cancelRename();
+              }}
+              maxLength={60}
+              aria-label="Rename chat"
+              className="flex-1 min-w-0 h-9 text-[13px] px-2.5 rounded-lg bg-graphite text-white border border-cyan-500/40 focus:outline-none"
+            />
+            <button
+              type="button"
+              onClick={() => commitRename(chat.id)}
+              aria-label="Confirm rename"
+              className="ms-tap shrink-0 w-8 h-8 rounded-lg flex items-center justify-center text-emerald-300 hover:bg-white/[0.06]"
+            >
+              <Check className="w-3.5 h-3.5" />
+            </button>
+            <button
+              type="button"
+              onClick={cancelRename}
+              aria-label="Cancel rename"
+              className="ms-tap shrink-0 w-8 h-8 rounded-lg flex items-center justify-center text-ink-mute hover:text-white hover:bg-white/[0.06]"
+            >
+              <X className="w-3.5 h-3.5" />
+            </button>
+          </div>
+        ) : (
+          <>
+            <button
+              type="button"
+              onClick={() => onSelectChat(chat.id)}
+              aria-current={isActive ? 'page' : undefined}
+              className={cn(
+                'relative flex-1 min-w-0 text-left pl-2.5 pr-9 py-2 rounded-xl text-[13px] flex items-start gap-2.5 transition-colors',
+                isActive ? 'bg-white/[0.07] text-white' : 'text-ink-mute hover:bg-white/[0.035] hover:text-ink'
+              )}
+            >
+              {isActive && <span className="absolute left-0 top-2 bottom-2 w-[2px] rounded-full bg-clinical-cyan" aria-hidden="true" />}
+              {isReport ? (
+                <FileText className={cn('w-4 h-4 mt-px shrink-0', isActive ? 'text-cyan-300' : 'text-ink-faint')} />
+              ) : (
+                <MessageSquare className={cn('w-4 h-4 mt-px shrink-0', isActive ? 'text-ink-soft' : 'text-ink-faint')} />
+              )}
+              <span className="min-w-0 flex-1">
+                <span className="block truncate font-medium">{displayTitle}</span>
+                {(chat.collected_at || chat.created_at || dep) && (
+                  <span className="flex items-center gap-1.5 mt-1">
+                    {dep && <PatientAvatar name={dep.name} index={dep.index} size="sm" className="!w-4 !h-4 !text-[8px]" />}
+                    {chat.collected_at ? (
+                      <span className="text-[10px] ms-num px-1.5 py-px rounded-md bg-cyan-500/10 text-cyan-200/90 border border-cyan-500/15">{chat.collected_at}</span>
+                    ) : null}
+                    {chat.created_at && <span className="text-[10px] text-ink-faint">{formatRelativeTime(chat.created_at)}</span>}
+                  </span>
+                )}
+              </span>
+            </button>
+
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                if (!chat.id) return;
+                setOpenMenuId((prev) => (prev === chat.id ? null : chat.id));
+              }}
+              aria-label="Chat options"
+              aria-haspopup="menu"
+              aria-expanded={isMenuOpen}
+              className={cn(
+                'absolute right-1 top-1.5 w-7 h-7 rounded-lg flex items-center justify-center text-ink-mute hover:text-white hover:bg-white/[0.08] transition-opacity',
+                'opacity-0 group-hover:opacity-100 focus:opacity-100 [@media(pointer:coarse)]:opacity-100',
+                isMenuOpen && '!opacity-100'
+              )}
+            >
+              <MoreHorizontal className="w-4 h-4" />
+            </button>
+
+            {isMenuOpen && (
+              <div
+                ref={(el) => {
+                  if (chat.id) menuRefs.current[chat.id] = el;
+                }}
+                role="menu"
+                className="absolute right-0 top-9 z-50 w-40 rounded-xl ms-glass overflow-hidden text-[13px] p-1 animate-slide-in"
+              >
+                <button
+                  type="button"
+                  onClick={() => startRename(chat)}
+                  className="w-full flex items-center gap-2 px-2.5 h-9 rounded-lg text-ink-soft hover:bg-white/[0.06] hover:text-white transition-colors"
+                >
+                  <Pencil className="w-3.5 h-3.5" />
+                  <span>{t('sidebar.rename', 'Rename')}</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setOpenMenuId(null);
+                    setPendingDeleteId(chat.id);
+                  }}
+                  className="w-full flex items-center gap-2 px-2.5 h-9 rounded-lg text-rose-300 hover:bg-rose-500/10 transition-colors"
+                >
+                  <Trash2 className="w-3.5 h-3.5" />
+                  <span>{t('sidebar.delete', 'Delete')}</span>
+                </button>
+              </div>
+            )}
+          </>
+        )}
+      </div>
+    );
+  };
+
+  const footerBtn = 'ms-tap w-full flex items-center gap-2.5 px-2.5 h-9 rounded-xl text-[13px] text-ink-mute hover:bg-white/[0.04] hover:text-white transition-colors';
+  const identity = currentUser?.full_name || (currentUser?.email ? currentUser.email.split('@')[0] : 'Patient Session');
+
   return (
     <>
-      <aside
-        className={`w-72 md:w-64 h-full flex flex-col border-r ${
-          darkMode
-            ? 'bg-[#07090e] border-white/[0.07]'
-            : 'bg-white border-zinc-200'
-        }`}
-      >
-        <div className={`p-4 flex items-center justify-between border-b ${darkMode ? 'border-white/[0.07]' : 'border-zinc-200'}`}>
-          {isOpen ? (
-            <div className="flex items-center gap-2.5">
-              <div className={`w-7 h-7 rounded-xl flex items-center justify-center font-bold text-xs ${darkMode ? 'bg-cyan-500 text-slate-950' : 'bg-zinc-900 text-white'}`}>
-                <Activity className="w-3.5 h-3.5" />
-              </div>
-              <div>
-                <h1 className={`font-semibold text-sm tracking-tight ${darkMode ? 'text-white' : 'text-zinc-900'}`}>{t('sidebar.title', 'MediSkye AI')}</h1>
-                <span className={`text-[10px] font-medium uppercase tracking-wider block ${darkMode ? 'text-zinc-400' : 'text-zinc-500'}`}>
-                  {t('sidebar.medical_assistant', 'Medical Assistant')}
-                </span>
-              </div>
-            </div>
-          ) : (
-            <div className={`w-7 h-7 rounded-xl flex items-center justify-center font-bold text-xs mx-auto ${darkMode ? 'bg-zinc-100 text-black' : 'bg-zinc-900 text-white'}`}>
-              M
-            </div>
+      <aside className="w-full h-full flex flex-col border-r border-white/[0.06] bg-obsidian pt-safe">
+        <div className="h-14 px-3.5 flex items-center justify-between shrink-0">
+          <BrandLockup size={28} subtitle={t('sidebar.medical_assistant', 'Medical Assistant')} />
+          {isOpen && onToggle && (
+            <button
+              type="button"
+              onClick={onToggle}
+              aria-label="Collapse sidebar"
+              title="Collapse sidebar"
+              className="ms-tap w-8 h-8 rounded-lg flex items-center justify-center text-ink-faint hover:text-white hover:bg-white/[0.06] transition"
+            >
+              <PanelLeftClose className="w-4 h-4" />
+            </button>
           )}
         </div>
 
         {isOpen && (
-          <div className="flex-1 flex flex-col overflow-hidden p-3 space-y-3">
-            {/* A2: Keep only this top "New Consultation" button */}
-            <button
-              onClick={onNewChat}
-              className={`w-full flex items-center justify-center gap-2 py-2 px-3.5 rounded-xl font-medium text-xs transition-all duration-150 active:scale-[0.98] ${
-                darkMode
-                  ? 'bg-cyan-500 hover:bg-cyan-400 text-slate-950 font-semibold'
-                  : 'bg-zinc-900 hover:bg-zinc-800 text-white'
-              }`}
-            >
-              <Plus className="w-3.5 h-3.5" />
-              <span>{t('sidebar.new_consultation', 'New Conversation')}</span>
-            </button>
+          <div className="flex-1 min-h-0 flex flex-col px-2.5 pb-2.5 gap-3">
+            <div className="flex items-center gap-2 px-0.5">
+              <button
+                type="button"
+                onClick={onNewChat}
+                className="ms-tap flex-1 flex items-center justify-center gap-2 h-10 px-3 rounded-xl font-semibold text-[13px] bg-clinical-cyan hover:bg-cyan-300 text-slate-950 shadow-[0_8px_24px_-12px_rgba(6,182,212,0.9)] transition active:scale-[0.98]"
+              >
+                <Plus className="w-4 h-4" />
+                <span>{t('sidebar.new_consultation', 'New Conversation')}</span>
+              </button>
+              {onOpenPalette && (
+                <button
+                  type="button"
+                  onClick={onOpenPalette}
+                  aria-label="Open command palette"
+                  title={`Search everything (${MOD_LABEL}+K)`}
+                  className="ms-tap w-10 h-10 rounded-xl flex items-center justify-center bg-white/[0.03] border border-white/[0.08] text-ink-mute hover:text-white hover:bg-white/[0.06] transition"
+                >
+                  <Search className="w-4 h-4" />
+                </button>
+              )}
+            </div>
 
-            {activePdf && (
-              <div className={`p-2.5 rounded-xl text-xs flex items-center gap-2.5 border ${darkMode ? 'bg-zinc-900 border-zinc-800' : 'bg-zinc-50 border-zinc-200'}`}>
-                <FileText className={`w-4 h-4 shrink-0 ${darkMode ? 'text-zinc-300' : 'text-zinc-500'}`} />
-                <div className="overflow-hidden">
-                  <div className={`font-medium truncate ${darkMode ? 'text-white' : 'text-zinc-900'}`}>{activePdf.name}</div>
-                  <div className={`text-[10px] ${darkMode ? 'text-zinc-400' : 'text-zinc-500'}`}>{t('sidebar.active_report', 'Active report')}</div>
-                </div>
-              </div>
-            )}
-
-            <div className="relative">
-              <Search className={`w-3.5 h-3.5 absolute left-3 top-2.5 ${darkMode ? 'text-zinc-500' : 'text-zinc-400'}`} />
+            <div className="relative px-0.5">
+              <Search className="w-3.5 h-3.5 absolute left-3.5 top-1/2 -translate-y-1/2 text-ink-faint" />
               <input
                 type="text"
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
                 placeholder={t('sidebar.search', 'Search chats...')}
-                className={`w-full pl-8 pr-3 py-1.5 text-xs rounded-xl border focus:outline-none transition-all ${
-                  darkMode
-                    ? 'bg-zinc-900/60 text-white placeholder-zinc-500 border-zinc-800 focus:border-zinc-700'
-                    : 'bg-zinc-50 text-zinc-900 placeholder-zinc-400 border-zinc-200 focus:border-zinc-400'
-                }`}
+                aria-label="Search chat history"
+                className="w-full h-9 pl-8 pr-12 text-[13px] rounded-xl bg-white/[0.03] text-white placeholder:text-ink-faint border border-white/[0.06] focus:outline-none focus:border-white/[0.16] transition"
               />
+              <span className="absolute right-2.5 top-1/2 -translate-y-1/2 hidden lg:inline-flex">
+                <Kbd>{`${MOD_LABEL} K`}</Kbd>
+              </span>
             </div>
 
-            {/* HISTORY section — no duplicate "New Consultation" (A2) */}
-            <div className="flex-1 overflow-y-auto space-y-0.5 pr-1">
-              <div className={`text-[10px] font-semibold uppercase tracking-wider px-2 py-1 ${darkMode ? 'text-zinc-500' : 'text-zinc-400'}`}>
-                {t('sidebar.history', 'History')}
-              </div>
-
+            <div className="flex-1 min-h-0 overflow-y-auto -mx-1 px-1 space-y-4">
               {filteredChats.length === 0 ? (
-                conversations.length === 0 ? (
-                  <div className="flex flex-col items-center text-center py-8 px-3 animate-fade-in">
-                    <div className={`w-10 h-10 rounded-2xl flex items-center justify-center mb-3 ${
-                      darkMode ? 'bg-zinc-800/80 text-zinc-400' : 'bg-zinc-100 text-zinc-500'
-                    }`}>
+                (conversations || []).length === 0 ? (
+                  <div className="flex flex-col items-center text-center py-10 px-3 animate-fade-in">
+                    <div className="w-10 h-10 rounded-2xl flex items-center justify-center mb-3 bg-white/[0.04] text-ink-mute">
                       <MessageSquare className="w-5 h-5" />
                     </div>
-                    <div className={`text-xs font-semibold mb-1 ${darkMode ? 'text-zinc-200' : 'text-zinc-700'}`}>
-                      {t('sidebar.no_conversations_title', 'No conversations yet')}
-                    </div>
-                    <div className={`text-[11px] leading-relaxed mb-4 ${darkMode ? 'text-zinc-500' : 'text-zinc-400'}`}>
+                    <div className="text-xs font-semibold mb-1 text-ink-soft">{t('sidebar.no_conversations_title', 'No conversations yet')}</div>
+                    <div className="text-[11px] leading-relaxed mb-4 text-ink-faint">
                       {t('sidebar.no_conversations_subtitle', 'Upload a medical report or start a new conversation to see it here.')}
                     </div>
                     <button
+                      type="button"
                       onClick={onNewChat}
-                      className={`px-3 py-1.5 rounded-lg text-[11px] font-medium border transition-all active:scale-[0.97] ${
-                        darkMode
-                          ? 'border-zinc-700 text-zinc-300 hover:bg-zinc-800 hover:text-white'
-                          : 'border-zinc-300 text-zinc-600 hover:bg-zinc-50 hover:text-zinc-900'
-                      }`}
+                      className="px-3 h-8 rounded-lg text-[11px] font-medium border border-white/[0.1] text-ink-soft hover:bg-white/[0.05] hover:text-white transition"
                     >
                       {t('sidebar.new_consultation', 'New Conversation')}
                     </button>
                   </div>
                 ) : (
-                  <div className="flex flex-col items-center text-center py-8 px-3 animate-fade-in">
-                    <Search className={`w-5 h-5 mb-2 ${darkMode ? 'text-zinc-600' : 'text-zinc-400'}`} />
-                    <div className={`text-xs ${darkMode ? 'text-zinc-500' : 'text-zinc-400'}`}>{t('sidebar.no_chats', 'No chats found')}</div>
+                  <div className="flex flex-col items-center text-center py-10 px-3 animate-fade-in">
+                    <Search className="w-5 h-5 mb-2 text-ink-faint" />
+                    <div className="text-xs text-ink-faint">{t('sidebar.no_chats', 'No chats found')}</div>
                   </div>
                 )
               ) : (
-                filteredChats.map((chat, index) => {
-                  const isActive = Boolean(chat.id) && chat.id === activeSessionId;
-                  const isRenaming = Boolean(renamingId) && renamingId === chat.id;
-                  const isMenuOpen = Boolean(openMenuId) && openMenuId === chat.id;
-                  const displayTitle = chat.title || 'New Conversation';
-
-                  return (
-                    <div key={chat.id || `chat-${index}`} className="relative group flex items-center w-full min-w-0">
-                      {isRenaming ? (
-                        /* Inline rename row — replaces the title in place, inside the chat item */
-                        <div className="flex-1 flex items-center gap-1 min-w-0">
-                          <input
-                            ref={renameInputRef}
-                            type="text"
-                            value={renameValue}
-                            onChange={(e) => setRenameValue(e.target.value.slice(0, 60))}
-                            onKeyDown={(e) => {
-                              if (e.key === 'Enter') commitRename(chat.id);
-                              if (e.key === 'Escape') cancelRename();
-                            }}
-                            maxLength={60}
-                            aria-label="Rename chat"
-                            className={`flex-1 min-w-0 text-xs px-2 py-1 rounded border focus:outline-none focus:border-blue-500 transition-colors ${
-                              darkMode
-                                ? 'bg-gray-800 text-white border-gray-600'
-                                : 'bg-slate-100 text-zinc-900 border-zinc-300'
-                            }`}
-                          />
-                          <button
-                            type="button"
-                            onClick={() => commitRename(chat.id)}
-                            aria-label="Confirm rename"
-                            className={`shrink-0 p-1 rounded transition-colors ${
-                              darkMode
-                                ? 'text-emerald-400 hover:text-emerald-300 hover:bg-zinc-700/50'
-                                : 'text-emerald-600 hover:text-emerald-500 hover:bg-zinc-200'
-                            }`}
-                          >
-                            <Check className="w-3.5 h-3.5" />
-                          </button>
-                          <button
-                            type="button"
-                            onClick={cancelRename}
-                            aria-label="Cancel rename"
-                            className={`shrink-0 p-1 rounded transition-colors ${
-                              darkMode
-                                ? 'text-zinc-400 hover:text-zinc-200 hover:bg-zinc-700/50'
-                                : 'text-zinc-500 hover:text-zinc-800 hover:bg-zinc-200'
-                            }`}
-                          >
-                            <X className="w-3.5 h-3.5" />
-                          </button>
-                        </div>
-                      ) : (
-                        <>
-                          {/* B4: Title + timestamp secondary line */}
-                          <button
-                            onClick={() => onSelectChat(chat.id)}
-                            className={`flex-1 text-left p-2 pr-8 rounded-xl text-xs flex flex-col gap-0.5 transition-colors ${
-                              isActive
-                                ? darkMode
-                                ? 'bg-zinc-800 text-white font-medium border border-zinc-700'
-                                : 'bg-zinc-100 text-zinc-900 font-medium border border-zinc-300'
-                                : darkMode
-                                ? 'text-zinc-400 hover:bg-zinc-900/50 hover:text-white'
-                                : 'text-zinc-500 hover:bg-zinc-50 hover:text-zinc-900'
-                            }`}
-                          >
-                            <div className="flex items-center gap-2">
-                              <MessageSquare className="w-3.5 h-3.5 shrink-0 opacity-60" />
-                              <span className="truncate flex-1">{displayTitle}</span>
-                            </div>
-                            <div className="flex items-center gap-1.5 pl-5 mt-0.5">
-                              {chat.collected_at ? (
-                                <span className={`text-[10px] px-1.5 py-0.2 rounded font-medium ${
-                                  darkMode
-                                    ? 'bg-cyan-500/10 text-cyan-400 border border-cyan-500/20'
-                                    : 'bg-cyan-50 text-cyan-700 border border-cyan-200'
-                                }`}>
-                                  {chat.collected_at}
-                                </span>
-                              ) : null}
-                              {chat.created_at && (
-                                <span className={`text-[10px] ${darkMode ? 'text-zinc-500' : 'text-zinc-400'}`}>
-                                  {formatRelativeTime(chat.created_at)}
-                                </span>
-                              )}
-                            </div>
-                          </button>
-
-                          {/* B3: 3-dot menu */}
-                          <button
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              if (!chat.id) return;
-                              setOpenMenuId((prev) => (prev === chat.id ? null : chat.id));
-                            }}
-                            aria-label="Chat options"
-                            className={`absolute right-1.5 p-1 rounded opacity-0 group-hover:opacity-100 transition-opacity ${isMenuOpen ? '!opacity-100' : ''} ${
-                              darkMode
-                                ? 'text-zinc-500 hover:text-white hover:bg-zinc-700'
-                                : 'text-zinc-400 hover:text-zinc-700 hover:bg-zinc-100'
-                            }`}
-                          >
-                            <MoreHorizontal className="w-3.5 h-3.5" />
-                          </button>
-
-                          {/* Dropdown menu */}
-                          {isMenuOpen && (
-                            <div
-                              ref={(el) => {
-                                if (chat.id) menuRefs.current[chat.id] = el;
-                              }}
-                              className={`absolute right-0 top-8 z-50 w-36 rounded-xl shadow-lg border overflow-hidden text-xs ${
-                                darkMode ? 'bg-zinc-900 border-zinc-800' : 'bg-white border-zinc-200'
-                              }`}
-                            >
-                              <button
-                                onClick={() => startRename(chat)}
-                                className={`w-full flex items-center gap-2 px-3 py-2 transition-colors ${
-                                  darkMode ? 'text-zinc-300 hover:bg-zinc-800 hover:text-white' : 'text-zinc-700 hover:bg-zinc-50'
-                                }`}
-                              >
-                                <Pencil className="w-3.5 h-3.5" />
-                                <span>{t('sidebar.rename', 'Rename')}</span>
-                              </button>
-                              <button
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  setOpenMenuId(null);
-                                  setPendingDeleteId(chat.id);
-                                }}
-                                className="w-full flex items-center gap-2 px-3 py-2 text-red-400 hover:bg-red-950/40 hover:text-red-300 transition-colors"
-                              >
-                                <Trash2 className="w-3.5 h-3.5" />
-                                <span>{t('sidebar.delete', 'Delete')}</span>
-                              </button>
-                            </div>
-                          )}
-                        </>
-                      )}
-                    </div>
-                  );
-                })
+                <>
+                  {reportChats.length > 0 && (
+                    <section aria-label="Lab reports">
+                      <h3 className="px-2.5 pb-1 text-[11px] font-semibold text-ink-faint">Lab reports</h3>
+                      <div className="space-y-0.5">{reportChats.map(renderChat)}</div>
+                    </section>
+                  )}
+                  {plainChats.length > 0 && (
+                    <section aria-label={t('sidebar.history', 'History')}>
+                      <h3 className="px-2.5 pb-1 text-[11px] font-semibold text-ink-faint">{t('sidebar.history', 'History')}</h3>
+                      <div className="space-y-0.5">{plainChats.map(renderChat)}</div>
+                    </section>
+                  )}
+                </>
               )}
             </div>
 
-            {/* A5: Slim footer — Profile & Caregiver Hub + Settings only */}
-            <div className={`pt-3 border-t space-y-1 ${darkMode ? 'border-zinc-800' : 'border-zinc-200'}`}>
-              <button
-                onClick={onOpenProfile}
-                className={`w-full flex items-center justify-between p-2 rounded-xl text-xs transition-colors ${
-                  darkMode
-                    ? 'text-zinc-400 hover:bg-zinc-900 hover:text-white'
-                    : 'text-zinc-500 hover:bg-zinc-100 hover:text-zinc-900'
-                }`}
-              >
-                <div className="flex items-center gap-2">
-                  <User className="w-3.5 h-3.5 text-indigo-400" />
-                  <span>{t('sidebar.profile', 'Profile & Caregiver Hub')}</span>
-                </div>
+            <div className="pt-2 border-t border-white/[0.06] space-y-0.5">
+              {onOpenMemory && (
+                <button type="button" onClick={onOpenMemory} className={footerBtn}>
+                  <Brain className="w-4 h-4 text-violet-300" />
+                  <span>Memory vault</span>
+                </button>
+              )}
+              <button type="button" onClick={onOpenProfile} className={footerBtn}>
+                <Users className="w-4 h-4 text-cyan-300" />
+                <span>{t('sidebar.profile', 'Profile & Caregiver Hub')}</span>
               </button>
-
-              <button
-                onClick={onOpenSettings}
-                className={`w-full flex items-center gap-2 p-2 rounded-xl text-xs transition-colors ${
-                  darkMode
-                    ? 'text-zinc-400 hover:bg-zinc-900 hover:text-white'
-                    : 'text-zinc-500 hover:bg-zinc-100 hover:text-zinc-900'
-                }`}
-              >
-                <Settings className="w-3.5 h-3.5" />
+              <button type="button" onClick={onOpenSettings} className={footerBtn}>
+                <Settings className="w-4 h-4" />
                 <span>{t('sidebar.settings', 'Settings')}</span>
               </button>
-
-              <button
-                onClick={() => setPendingLogout(true)}
-                className={`w-full flex items-center gap-2 p-2 rounded-xl text-xs transition-colors ${
-                  darkMode
-                    ? 'text-zinc-400 hover:bg-zinc-900 hover:text-white'
-                    : 'text-zinc-500 hover:bg-zinc-100 hover:text-zinc-900'
-                }`}
-              >
-                <LogOut className="w-3.5 h-3.5 text-red-400" />
+              <button type="button" onClick={() => setPendingLogout(true)} className={footerBtn}>
+                <LogOut className="w-4 h-4 text-rose-400" />
                 <span>{t('sidebar.logout', 'Log out')}</span>
               </button>
 
-              {/* Fernet-encrypted storage & TLS 1.3 badge */}
-              <div className="pt-2 flex items-center gap-2.5 px-2">
-                <div className={`w-6 h-6 rounded-full flex items-center justify-center font-bold text-xs ${darkMode ? 'bg-zinc-800 text-zinc-300' : 'bg-zinc-100 text-zinc-600'}`}>
-                  <Shield className={`w-3 h-3 ${darkMode ? 'text-zinc-400' : 'text-zinc-500'}`} />
-                </div>
-                <div className="overflow-hidden text-[11px]">
-                  <div className={`font-medium truncate ${darkMode ? 'text-white' : 'text-zinc-900'}`}>
-                    {currentUser?.full_name || (currentUser?.email ? currentUser.email.split('@')[0] : 'Patient Session')}
-                  </div>
-                  <div className={`text-[10px] truncate ${darkMode ? 'text-zinc-500' : 'text-zinc-400'}`}>
-                    {t('sidebar.encrypted', 'Encrypted at rest (Fernet) • TLS 1.3 in transit')}
+              <div className="mt-1.5 flex items-center gap-2.5 px-2 py-2 rounded-xl bg-white/[0.02] border border-white/[0.05]">
+                <PatientAvatar name={identity} size="md" />
+                <div className="min-w-0 text-[11px]">
+                  <div className="font-medium truncate text-ink">{identity}</div>
+                  <div className="flex items-center gap-1 text-[10px] truncate text-ink-faint">
+                    <ShieldCheck className="w-3 h-3 shrink-0 text-emerald-400/80" />
+                    <span className="truncate">{t('sidebar.encrypted', 'Encrypted at rest (Fernet) • TLS 1.3 in transit')}</span>
                   </div>
                 </div>
               </div>
@@ -444,7 +407,6 @@ export default function Sidebar({
         )}
       </aside>
 
-      {/* Delete chat confirmation modal */}
       <ConfirmModal
         isOpen={!!pendingDeleteId}
         onClose={() => setPendingDeleteId(null)}
@@ -454,10 +416,9 @@ export default function Sidebar({
         confirmLabel="Delete"
         requireTyping={null}
         closeable={true}
-        darkMode={darkMode}
+        darkMode
       />
 
-      {/* Logout confirmation modal */}
       <ConfirmModal
         isOpen={pendingLogout}
         onClose={() => setPendingLogout(false)}
@@ -470,7 +431,7 @@ export default function Sidebar({
         confirmLabel="Log out"
         requireTyping={null}
         closeable={true}
-        darkMode={darkMode}
+        darkMode
       />
     </>
   );

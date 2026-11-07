@@ -1,6 +1,7 @@
 import React from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
+import { rangeGeometry, deltaPct, formatDeltaPct } from '../lib/clinical';
 
 // ── Sanitize emojis from text and data ─────────────────────────────────────────
 function stripEmojis(text) {
@@ -10,41 +11,35 @@ function stripEmojis(text) {
     .trim();
 }
 
-// Strip LaTeX-style escapes, redundant leading headings, and duplicate metadata headers
+// Strip LaTeX-style escapes and redundant leading headings
 function cleanSummary(text) {
   if (!text) return '';
   let clean = stripEmojis(text)
     .replace(/\\\(/g, '')
     .replace(/\\\)/g, '')
     .replace(/\\%/g, '%');
-
   // Strip redundant leading headings so it doesn't nest under component's heading
   clean = clean.replace(/^\s*#+\s*CLINICAL SUMMARY(?: REPORT)?\s*\n?/i, '');
-
-  // Strip entire metadata sections/blocks (e.g. "### Patient Information", "### Demographics & Metadata")
-  clean = clean.replace(
-    /(?:^|\n)#+\s*(?:Patient\s+(?:Information|Demographics|Details|Profile)|Specimen\s+(?:Details|Information|Context)|Metadata|Report\s+Details)[\s\S]*?(?=\n#+|\n\n[A-Z]|\Z)/gi,
-    '\n'
-  );
-
-  // Strip duplicate AI-generated metadata lines (e.g. "Patient Name:", "Specimen ID:", etc.)
-  const metadataLinePattern = /^\s*(?:[-*•]|\d+\.)?\s*(?:\*{1,2}|_{1,2})?\s*(?:Patient\s+Name|Patient|Specimen\s+(?:ID|Number|Type)|Sample\s+ID|Accession(?:\s+Number|\s+ID)?|Collection\s+Date|Date\s+of\s+Collection|Specimen\s+Date|Report\s+Date|DOB|Date\s+of\s+Birth|Age(?:\s*\/\s*Sex)?|Gender|Sex|Fasting\s+Status|Referred\s+By|Doctor|Physician)\s*(?:\*{1,2}|_{1,2})?\s*[:\-].*$/gmi;
-  clean = clean.replace(metadataLinePattern, '');
-
-  // Collapse 3+ consecutive newlines into double newlines
-  clean = clean.replace(/\n{3,}/g, '\n\n');
-
   return clean.trim();
 }
 
-function toTitleCase(str) {
-  if (!str) return '';
-  return stripEmojis(str)
-    .replace(/[_-]+/g, ' ')
-    .trim()
-    .split(/\s+/)
-    .map((word) => word.charAt(0).toUpperCase() + word.slice(1).toLowerCase())
-    .join(' ');
+/** Monochrome-safe range position bar for paper (prints with print-color-adjust: exact). */
+function PrintRangeBar({ row }) {
+  const g = rangeGeometry(row);
+  if (!g) return <span style={{ color: '#9ca3af' }}>—</span>;
+  return (
+    <span className="print-bar-track" style={{ position: 'relative', display: 'inline-block', width: '64pt', height: '5pt', borderRadius: '3pt', background: '#e5e7eb', verticalAlign: 'middle' }}>
+      <span className="print-bar-band" style={{ position: 'absolute', top: 0, bottom: 0, left: `${g.lowPct}%`, width: `${Math.max(1, g.highPct - g.lowPct)}%`, background: '#a7f3d0' }} />
+      <span className="print-bar-marker" style={{ position: 'absolute', top: '-1.5pt', width: '3pt', height: '8pt', left: `calc(${g.valuePct}% - 1.5pt)`, background: g.side === 'inside' ? '#065f46' : '#b91c1c', borderRadius: '1pt' }} />
+    </span>
+  );
+}
+
+function formatPrintDelta(m) {
+  const d = deltaPct(m);
+  if (d === null) return m.delta_abs || '—';
+  const arrow = d < 0 ? '↓' : d > 0 ? '↑' : '→';
+  return `${arrow} ${formatDeltaPct(Math.abs(d)).replace('+', '')}${m.delta_abs ? ` (${m.delta_abs})` : ''}`;
 }
 
 export default function PrintableSummary({ user, document, summary, metrics, specialists, abnormalMetrics }) {
@@ -67,18 +62,6 @@ export default function PrintableSummary({ user, document, summary, metrics, spe
 
   const docName = stripEmojis(document?.title || document?.name || document?.filename || 'Diagnostic Laboratory Report');
   const collectionDate = document?.collected_at || document?.created_at?.slice(0, 10) || 'Not specified';
-
-  // Compute BMI: (weight_kg / ((height_cm / 100) ** 2)).toFixed(1)
-  const weightVal = parseFloat(user?.weight_kg || user?.weight);
-  const heightVal = parseFloat(user?.height_cm || user?.height);
-  const computedBmi = (weightVal > 0 && heightVal > 0)
-    ? (weightVal / ((heightVal / 100) ** 2)).toFixed(1)
-    : (user?.bmi ? String(user.bmi) : '—');
-
-  // Format Lifestyle as Title Case with a bullet: e.g. Vegetarian • Very Active
-  const dietTitle = user?.diet_type ? toTitleCase(user.diet_type) : 'Standard';
-  const activityTitle = user?.activity_level ? toTitleCase(user.activity_level) : 'Moderate';
-  const lifestyleText = `${dietTitle} • ${activityTitle}`;
 
   // Table 1: Flagged & Notable Delta Biomarkers (Abnormal or >=10% delta shift)
   const allMetricsList = metrics || [];
@@ -148,8 +131,8 @@ export default function PrintableSummary({ user, document, summary, metrics, spe
           <div style={{ fontSize: '9pt', lineHeight: '1.4' }}>
             <div><strong>Patient Name:</strong> {patientName}{user?.relationship ? ` (${stripEmojis(user.relationship)})` : ''}</div>
             <div><strong>DOB / Age:</strong> {patientDob}{patientAge ? ` (${patientAge})` : ''} • <strong>Sex:</strong> {user?.biological_sex || 'Unspecified'}</div>
-            <div><strong>Blood Type:</strong> {user?.blood_type || 'Unknown'} • <strong>BMI:</strong> {computedBmi}</div>
-            <div><strong>Lifestyle:</strong> {lifestyleText}</div>
+            <div><strong>Blood Type:</strong> {user?.blood_type || 'Unknown'} • <strong>BMI:</strong> {user?.bmi || (user?.height_cm && user?.weight_kg ? (user.weight_kg / ((user.height_cm / 100) ** 2)).toFixed(1) : '—')}</div>
+            <div><strong>Lifestyle:</strong> {user?.diet_type ? stripEmojis(user.diet_type).replace('_', ' ') : 'Standard'} • {user?.activity_level ? stripEmojis(user.activity_level).replace('_', ' ') : 'Moderate'}</div>
           </div>
         </div>
 
@@ -161,7 +144,7 @@ export default function PrintableSummary({ user, document, summary, metrics, spe
           <div style={{ fontSize: '9pt', lineHeight: '1.4' }}>
             <div><strong>Report Name:</strong> {docName}</div>
             <div><strong>Specimen Collected:</strong> <span style={{ fontWeight: 600 }}>{collectionDate}</span></div>
-            <div><strong>Fasting Status:</strong> {document?.fasting_status || 'Fasting 10–12h Verified'}</div>
+            <div><strong>Fasting Status:</strong> {document?.fasting_status || 'Not recorded'}</div>
             <div><strong>Report Processed:</strong> {generatedAt}</div>
           </div>
         </div>
@@ -172,7 +155,7 @@ export default function PrintableSummary({ user, document, summary, metrics, spe
             Known Allergies &amp; Contraindications
           </div>
           <div style={{ fontSize: '8.5pt', color: '#991b1b', lineHeight: '1.35', fontWeight: 600 }}>
-            {user?.known_allergies ? stripEmojis(user.known_allergies) : 'No known drug or environmental allergies reported'}
+            {user?.known_allergies ? stripEmojis(user.known_allergies) : 'Not recorded'}
           </div>
         </div>
 
@@ -255,6 +238,7 @@ export default function PrintableSummary({ user, document, summary, metrics, spe
                 <th style={{ padding: '4pt 6pt', fontWeight: 700, fontVariantNumeric: 'tabular-nums' }}>Prior Baseline</th>
                 <th style={{ padding: '4pt 6pt', fontWeight: 700, fontVariantNumeric: 'tabular-nums' }}>Change (Δ %)</th>
                 <th style={{ padding: '4pt 6pt', fontWeight: 700, fontVariantNumeric: 'tabular-nums' }}>Reference Interval</th>
+                <th style={{ padding: '4pt 6pt', fontWeight: 700 }}>Position</th>
                 <th style={{ padding: '4pt 6pt', fontWeight: 700 }}>Clinical Flag</th>
               </tr>
             </thead>
@@ -275,11 +259,14 @@ export default function PrintableSummary({ user, document, summary, metrics, spe
                     <td style={{ padding: '4pt 6pt', fontVariantNumeric: 'tabular-nums', color: '#4b5563' }}>
                       {m.previous_value ? `${stripEmojis(m.previous_value)}${m.previous_date ? ` (${m.previous_date})` : ''}` : '—'}
                     </td>
-                    <td style={{ padding: '4pt 6pt', fontVariantNumeric: 'tabular-nums', fontWeight: 600 }}>
-                      {m.delta_pct || m.delta_abs || '—'}
+                    <td style={{ padding: '4pt 6pt', fontVariantNumeric: 'tabular-nums', fontWeight: 600, whiteSpace: 'nowrap' }}>
+                      {formatPrintDelta(m)}
                     </td>
                     <td style={{ padding: '4pt 6pt', fontVariantNumeric: 'tabular-nums', color: '#4b5563' }}>
                       {stripEmojis(m.reference_range || m.range || '—')}
+                    </td>
+                    <td style={{ padding: '4pt 6pt' }}>
+                      <PrintRangeBar row={m} />
                     </td>
                     <td style={{ padding: '4pt 6pt' }}>
                       <span

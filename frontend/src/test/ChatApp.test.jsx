@@ -367,7 +367,7 @@ describe('ChatApp — deletion and rename persistence', () => {
     expect(await screen.findByText('Original Title')).toBeInTheDocument();
   });
 
-  it('detaching an attached report chip calls deleteDocument with documentId', async () => {
+  it('detaching an attached report chip detaches locally without calling deleteDocument', async () => {
     const docChat = {
       id: SERVER_DOC_ID,
       document_id: SERVER_DOC_ID,
@@ -391,8 +391,9 @@ describe('ChatApp — deletion and rename persistence', () => {
     fireEvent.click(detachBtn);
 
     await waitFor(() => {
-      expect(api.deleteDocument).toHaveBeenCalledWith(SERVER_DOC_ID);
+      expect(screen.queryByLabelText('Detach lab.pdf')).not.toBeInTheDocument();
     });
+    expect(api.deleteDocument).not.toHaveBeenCalled();
   });
 
   it('calls getDocumentSummary and triggers print flow when Export Summary is clicked', async () => {

@@ -1,12 +1,23 @@
-import React, { useState, useEffect, useCallback, useRef } from 'react';
+import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
+import { useTranslation } from 'react-i18next';
 import Sidebar from './Sidebar';
-import ChatWindow from './ChatWindow';
-import ChatInput from './ChatInput';
 import DocumentModal from './DocumentModal';
 import SettingsModal from './SettingsModal';
 import Profile from './Profile';
 import MemoryConsentModal from './MemoryConsentModal';
 import ExportModal from './ExportModal';
+import Workbench from './workbench/Workbench';
+import NavRail from './workbench/NavRail';
+import CommandPalette from './workbench/CommandPalette';
+import MemoryVault from './workbench/MemoryVault';
+import { buildPatients, isSelfSelected } from './workbench/PatientSwitcher';
+import useViewport from '../hooks/useViewport';
+import useHotkeys from '../hooks/useHotkeys';
+import useLabMetrics from '../hooks/useLabMetrics';
+import useTrendData from '../hooks/useTrendData';
+import { STORAGE_KEYS, readStorage, writeStorage } from '../lib/storageKeys';
+import { metricKey, metricName } from '../lib/clinical';
+import { cn } from '../lib/cn';
 import {
   uploadPdfReport,
   getUploadStatus,
@@ -25,7 +36,6 @@ import {
   deleteAccount,
   updateProfile,
   getDocumentSummary,
-  fetchLabMetrics,
 } from '../services/api';
 import { useNavigate } from 'react-router-dom';
 import { logger } from '../services/logger';
@@ -127,8 +137,9 @@ export default function ChatApp() {
   const setThemePreference = useCallback(() => {}, []);
   const [language, setLanguage] = useState('English');
 
+  // Desktop (≥1024): open unless the user collapsed it. Tablet/phone: closed drawer.
   const [sidebarOpen, setSidebarOpen] = useState(() => {
-    if (typeof window !== 'undefined' && window.innerWidth < 768) {
+    if (typeof window !== 'undefined' && window.innerWidth < 1024) {
       return false;
     }
     return localStorage.getItem('mediskye_sidebar_open') !== 'false';
@@ -157,6 +168,10 @@ export default function ChatApp() {
     setSidebarOpen(next);
     localStorage.setItem('mediskye_sidebar_open', String(next));
   };
+
+  const closeSidebarOnSmallScreens = () => {
+    if (typeof window !== 'undefined' && window.innerWidth < 1024) setSidebarOpen(false);
+  };
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [isProfileOpen, setIsProfileOpen] = useState(false);
   const [isExportOpen, setIsExportOpen] = useState(false);
@@ -168,10 +183,16 @@ export default function ChatApp() {
   const [isExportingSummary, setIsExportingSummary] = useState(false);
   const [printSummaryText, setPrintSummaryText] = useState('');
   const [uploadProgress, setUploadProgress] = useState(null);
+  // Structured pipeline state for the two-phase UploadStepper
+  const [uploadState, setUploadState] = useState(null);
+  const uploadTimersRef = useRef([]);
+  const clearUploadTimers = () => {
+    uploadTimersRef.current.forEach((id) => clearTimeout(id));
+    uploadTimersRef.current = [];
+  };
+  useEffect(() => () => clearUploadTimers(), []);
   const [uploadError, setUploadError] = useState(null);
   const abortControllerRef = useRef(null);
-  const [metricsByDocId, setMetricsByDocId] = useState({});
-  const metricsAbortControllerRef = useRef(null);
   const isSubmittingRef = useRef(false);
   const isMountedRef = useRef(true);
   const chatInputRef = useRef(null);
@@ -184,10 +205,6 @@ export default function ChatApp() {
       if (abortControllerRef.current) {
         abortControllerRef.current.abort();
         abortControllerRef.current = null;
-      }
-      if (metricsAbortControllerRef.current) {
-        metricsAbortControllerRef.current.abort();
-        metricsAbortControllerRef.current = null;
       }
     };
   }, []);
@@ -437,33 +454,12 @@ export default function ChatApp() {
         return allConvs;
       });
 
-      const targetDocId = activeDocId || effectiveDocs[0]?.id;
-      if (targetDocId && effectiveDocs.length > 0) {
-        const targetDoc = effectiveDocs.find((d) => d.id === targetDocId) || effectiveDocs[0];
-        const pdfMeta = {
-          id: targetDoc.id,
-          name: targetDoc.filename,
-          filename: targetDoc.filename,
-          title: targetDoc.title,
-          collected_at: targetDoc.collected_at,
-          is_future_collection_date: targetDoc.is_future_collection_date,
-          size: 8192,
-        };
-        setActivePdf(pdfMeta);
-        setSessionId(targetDoc.id);
-
-        await loadChatHistory(targetDoc.id, targetDoc.id);
-      } else {
-        setActivePdf(null);
-        await loadChatHistory(null, sessionIdRef.current);
-      }
-
       return docs;
     } catch (err) {
       logger.error('Failed to refresh documents:', err);
       return [];
     }
-  }, [loadChatHistory]);
+  }, []);
 
   // Synchronize with server truth on account load / refresh (Neon DB single source of truth)
   useEffect(() => {
@@ -472,7 +468,24 @@ export default function ChatApp() {
       userLoadedRef.current = currentUser.id;
 
       refreshDocuments().then((docs) => {
-        if (!docs || docs.length === 0) {
+        if (docs && docs.length > 0) {
+          const targetDoc = docs[0];
+          const pdfMeta = {
+            id: targetDoc.id,
+            name: targetDoc.filename,
+            filename: targetDoc.filename,
+            title: targetDoc.title,
+            collected_at: targetDoc.collected_at,
+            is_future_collection_date: targetDoc.is_future_collection_date,
+            size: 8192,
+          };
+          setActivePdf(pdfMeta);
+          setSessionId(targetDoc.id);
+          if (targetDoc.patient_id) {
+            setSelectedPatientId(targetDoc.patient_id);
+          }
+          loadChatHistory(targetDoc.id, targetDoc.id);
+        } else {
           setActivePdf(null);
           loadChatHistory(null, sessionIdRef.current);
         }
@@ -547,8 +560,25 @@ export default function ChatApp() {
     stopSpeaking();
     setIsGenerating(false);
     isSubmittingRef.current = false;
-    setSelectedPatientId(patientId);
-    localStorage.setItem('mediskye_patient_id', patientId);
+    const targetPatientId = patientId || 'self';
+    setSelectedPatientId(targetPatientId);
+    localStorage.setItem('mediskye_patient_id', targetPatientId);
+
+    // Create a new bound chat strictly tied to this patient
+    const newId = generateSessionId();
+    setSessionId(newId);
+    setActivePdf(null);
+    setViewMode('chat');
+    setIsProfileOpen(false);
+    setConversations((prev) => {
+      const cleaned = prev.filter(
+        (c) => (c.messages && c.messages.length > 0) || c.pdf || c.document_id
+      );
+      return [
+        { id: newId, title: 'New Conversation', messages: [], pdf: null, patient_id: targetPatientId },
+        ...cleaned,
+      ];
+    });
   };
 
   const handleOpenDependents = () => {
@@ -587,6 +617,9 @@ export default function ChatApp() {
 
     setUploadError(null);
     setIsGenerating(true);
+    clearUploadTimers();
+    const uploadStartedAt = Date.now();
+    setUploadState({ phase: 'uploading', fileName: file.name, startedAt: uploadStartedAt, warming: false });
 
     try {
       if (typeof performance !== 'undefined' && performance.mark) {
@@ -660,6 +693,7 @@ export default function ChatApp() {
             logger.warn(`Upload status poll failed (${consecutiveFailures}/${MAX_CONSECUTIVE_FAILURES}):`, err);
 
             if (consecutiveFailures >= MAX_CONSECUTIVE_FAILURES) {
+              setUploadState((prev) => ({ ...(prev || {}), phase: 'error', finishedAt: Date.now(), error: 'We lost contact with the processing service. If the report finishes, it will appear in your history.' }));
               await refreshDocuments();
               console.error('Upload Status Lost: Could not confirm upload status.');
               return null;
@@ -689,9 +723,19 @@ export default function ChatApp() {
           }
 
           setUploadProgress('Processing report...');
+          {
+            // Prefer an explicit backend stage when present; otherwise infer from poll cadence.
+            const stage = String(status.stage || status.phase || '').toLowerCase();
+            let phase = pollIndex <= 1 ? 'extracting' : 'indexing';
+            if (/extract|ocr|pars|text/.test(stage)) phase = 'extracting';
+            else if (/index|embed|faiss|bm25|vector/.test(stage) || status.index_status) phase = 'indexing';
+            else if (/valid|queue|pending/.test(stage)) phase = 'uploading';
+            setUploadState((prev) => (prev ? { ...prev, phase } : prev));
+          }
         }
 
         if (!newDocId) {
+          setUploadState((prev) => ({ ...(prev || {}), phase: 'error', finishedAt: Date.now(), error: 'This report is taking longer than expected. It will appear in your history as soon as processing finishes.' }));
           await refreshDocuments();
           console.warn('Upload Taking Longer Than Expected: polling deadline expired.');
           return null;
@@ -703,6 +747,12 @@ export default function ChatApp() {
       }
 
       const pdfMeta = { id: newDocId, name: file.name, filename: file.name, size: file.size };
+      // Step A complete → ready for Q&A; Step B (summary/metrics cache warming) continues server-side.
+      setUploadState((prev) => ({ ...(prev || { fileName: file.name, startedAt: uploadStartedAt }), phase: 'ready', finishedAt: Date.now(), warming: true }));
+      uploadTimersRef.current.push(
+        setTimeout(() => setUploadState((prev) => (prev && prev.phase === 'ready' ? { ...prev, warming: false } : prev)), 6000),
+        setTimeout(() => setUploadState((prev) => (prev && prev.phase === 'ready' ? null : prev)), 9000)
+      );
       // Unlock the UI the moment the job is COMPLETED — the document list sync
       // below is a background reconciliation and must not keep the spinner up.
       setUploadProgress(null);
@@ -775,6 +825,7 @@ export default function ChatApp() {
       return newDocId;
     } catch (err) {
       logger.error('Upload Failed:', err);
+      setUploadState((prev) => ({ ...(prev || { fileName: file.name }), phase: 'error', finishedAt: Date.now(), error: err?.message || 'Upload failed. Please try again.' }));
       return null;
     } finally {
       setUploadProgress(null);
@@ -782,9 +833,8 @@ export default function ChatApp() {
     }
   };
 
-  const handleDetachDocument = async (docId) => {
+  const handleDetachDocument = (docId) => {
     try {
-      await deleteDocument(docId).catch(() => {});
       const current = conversations.find((c) => c.id === sessionId);
       const remainingDocs = (current?.documents || []).filter((d) => d.id !== docId);
       const nextActivePdf = remainingDocs.length > 0 ? remainingDocs[0] : null;
@@ -1007,8 +1057,10 @@ export default function ChatApp() {
             return { ...c, messages: updatedMsgs };
           });
         });
-        setIsGenerating(false);
+      }
+      if (abortControllerRef.current === controller) {
         abortControllerRef.current = null;
+        setIsGenerating(false);
       }
       isSubmittingRef.current = false;
     }
@@ -1132,48 +1184,10 @@ export default function ChatApp() {
     }
   };
 
-  const handleLoadMetrics = useCallback(async (docId, forceRefresh = false, externalSignal = null) => {
-    if (!docId) return [];
-    if (metricsAbortControllerRef.current) {
-      metricsAbortControllerRef.current.abort();
-      metricsAbortControllerRef.current = null;
-    }
-    const controller = new AbortController();
-    metricsAbortControllerRef.current = controller;
-
-    if (externalSignal) {
-      externalSignal.addEventListener('abort', () => controller.abort());
-    }
-
-    try {
-      const list = await fetchLabMetrics(docId, forceRefresh, controller.signal);
-      if (!controller.signal.aborted) {
-        setMetricsByDocId((prev) => ({
-          ...prev,
-          [docId]: list,
-        }));
-      }
-      return list;
-    } catch (err) {
-      if (err.name !== 'AbortError') {
-        logger.error('Failed to load metrics:', err);
-      }
-      return [];
-    } finally {
-      if (metricsAbortControllerRef.current === controller) {
-        metricsAbortControllerRef.current = null;
-      }
-    }
-  }, []);
-
   const handleSelectChat = async (id) => {
     if (abortControllerRef.current) {
       abortControllerRef.current.abort();
       abortControllerRef.current = null;
-    }
-    if (metricsAbortControllerRef.current) {
-      metricsAbortControllerRef.current.abort();
-      metricsAbortControllerRef.current = null;
     }
     stopSpeaking();
     setIsGenerating(false);
@@ -1189,12 +1203,14 @@ export default function ChatApp() {
     const chat = conversations.find((c) => c.id === id);
     if (chat) {
       setActivePdf(chat.pdf || null);
-      if (chat.patient_id) {
-        setSelectedPatientId(chat.patient_id);
-      }
+      const pId = chat.patient_id || 'self';
+      setSelectedPatientId(pId);
+      localStorage.setItem('mediskye_patient_id', pId);
       const targetDocId = chat.document_id || (chat.pdf ? id : null);
       await loadChatHistory(targetDocId, id);
     } else {
+      setSelectedPatientId('self');
+      localStorage.setItem('mediskye_patient_id', 'self');
       await loadChatHistory(null, id);
     }
     setIsProfileOpen(false);
@@ -1312,38 +1328,227 @@ export default function ChatApp() {
     }
   };
 
+  // ══════════════════════════════════════════════════════════════════════
+  //  Workbench state (presentation layer — no backend contract changes)
+  // ══════════════════════════════════════════════════════════════════════
+  const { i18n } = useTranslation();
+  const viewport = useViewport();
+  const { isDesktop, isMobile } = viewport;
+
+  const [inspectorOpen, setInspectorOpen] = useState(() => {
+    const stored = readStorage(STORAGE_KEYS.inspectorOpen, null);
+    if (stored !== null) return stored === 'true';
+    // Wide screens open the split view by default; narrower desktops opt in.
+    return typeof window !== 'undefined' && window.innerWidth >= 1280;
+  });
+  const [inspectorTab, setInspectorTabState] = useState(() => {
+    const stored = readStorage(STORAGE_KEYS.inspectorTab, 'overview');
+    return ['overview', 'metrics', 'trends', 'report'].includes(stored) ? stored : 'overview';
+  });
+  const [metricsFilter, setMetricsFilter] = useState('all');
+  const [metricsSearch, setMetricsSearch] = useState('');
+  const [highlightKey, setHighlightKey] = useState(null);
+  const [paletteOpen, setPaletteOpen] = useState(false);
+  const [memoryOpen, setMemoryOpen] = useState(false);
+  const [printSignal, setPrintSignal] = useState(0);
+  const uiLanguage = (i18n?.language || 'en').startsWith('hi') ? 'hi' : 'en';
+
+  const setInspectorTab = useCallback((tab) => {
+    setInspectorTabState(tab);
+    writeStorage(STORAGE_KEYS.inspectorTab, tab);
+  }, []);
+
+  const handleToggleInspector = useCallback(
+    (tab = null, force = undefined) => {
+      if (!isDesktop) {
+        // On phones/tablets the inspector is a full-screen view
+        if (force === false) {
+          setViewMode('chat');
+          return;
+        }
+        if (tab) setInspectorTab(tab);
+        setViewMode(tab === 'overview' || tab === 'trends' ? 'analytics' : 'metrics');
+        return;
+      }
+      let next;
+      if (force !== undefined) next = force;
+      else if (inspectorOpen && tab && tab !== inspectorTab) next = true;
+      else next = !inspectorOpen;
+      setInspectorOpen(next);
+      writeStorage(STORAGE_KEYS.inspectorOpen, next);
+      // Below 1280px three columns don't fit: fold the history into the rail
+      // (transient — the persisted sidebar preference is untouched).
+      if (next && !inspectorOpen && sidebarOpen && typeof window !== 'undefined' && window.innerWidth < 1280) {
+        setSidebarOpen(false);
+      }
+      if (tab) setInspectorTab(tab);
+    },
+    [isDesktop, inspectorOpen, inspectorTab, setInspectorTab, sidebarOpen]
+  );
+
+  const activeDocId = currentChat.document_id || activePdf?.id || null;
+  const inspectorVisible = isDesktop && inspectorOpen && Boolean(activePdf);
+  const analyticsVisible = !isDesktop && Boolean(activePdf) && viewMode !== 'chat';
+
+  const labMetrics = useLabMetrics(activeDocId, {
+    enabled: Boolean(activeDocId) && (inspectorVisible || analyticsVisible || paletteOpen),
+  });
+
+  // Reset metric focus when switching reports
+  useEffect(() => {
+    setHighlightKey(null);
+    setMetricsSearch('');
+    setMetricsFilter('all');
+  }, [activeDocId]);
+
+  // Patient-scoped report list feeds the longitudinal trend builder
+  const patientReports = useMemo(() => {
+    const target = isSelfSelected(selectedPatientId, currentUser) ? 'self' : String(selectedPatientId);
+    return conversations
+      .filter((c) => c.document_id || c.pdf)
+      .filter((c) => String(c.patient_id || 'self') === target)
+      .map((c) => ({
+        id: c.document_id || c.id,
+        title: c.title,
+        filename: c.pdf?.filename || c.pdf?.name,
+        collected_at: c.collected_at || c.pdf?.collected_at,
+        created_at: c.created_at,
+      }));
+  }, [conversations, selectedPatientId, currentUser]);
+
+  const trends = useTrendData({
+    patientId: selectedPatientId,
+    reports: patientReports,
+    enabled: Boolean(activeDocId) && inspectorTab === 'trends' && (inspectorVisible || analyticsVisible),
+  });
+
+  const reportCounts = useMemo(() => {
+    const counts = {};
+    conversations.forEach((c) => {
+      if (!(c.document_id || c.pdf)) return;
+      const k = String(c.patient_id || 'self');
+      counts[k] = (counts[k] || 0) + 1;
+    });
+    if (currentUser?.id && counts[String(currentUser.id)]) {
+      counts.self = (counts.self || 0) + counts[String(currentUser.id)];
+    }
+    return counts;
+  }, [conversations, currentUser]);
+
+  const activePatient = useMemo(() => {
+    if (isSelfSelected(selectedPatientId, currentUser)) return currentUser;
+    return dependents?.find((d) => String(d.id) === String(selectedPatientId)) || currentUser;
+  }, [selectedPatientId, currentUser, dependents]);
+
+  const patientName = useMemo(() => {
+    const p = buildPatients(currentUser, dependents);
+    if (isSelfSelected(selectedPatientId, currentUser)) return p[0]?.name;
+    return p.find((x) => String(x.id) === String(selectedPatientId))?.name || p[0]?.name;
+  }, [currentUser, dependents, selectedPatientId]);
+
+  const handleFocusMetric = useCallback(
+    (row) => {
+      const key = metricKey(row);
+      setHighlightKey(key);
+      setMetricsFilter('all');
+      setMetricsSearch(metricName(row));
+      handleToggleInspector('metrics', true);
+    },
+    [handleToggleInspector]
+  );
+
+  const handleAskAbout = (row) => {
+    const name = metricName(row);
+    const prev = row.previous_value ? ` It was ${row.previous_value} previously.` : '';
+    const q = `Explain my ${name} result of ${row.value}${row.unit ? ` ${row.unit}` : ''} (reference ${row.range || row.reference_range || 'not stated'}).${prev} What does it mean and what should I ask my doctor?`;
+    if (!isDesktop) setViewMode('chat');
+    handleSendMessage(q);
+  };
+
+  const handleSetUiLanguage = (lang) => {
+    try {
+      i18n?.changeLanguage?.(lang);
+      localStorage.setItem(STORAGE_KEYS.uiLang, lang);
+    } catch (e) {
+      logger.warn('Failed to switch UI language:', e);
+    }
+  };
+
+  const openUpload = () => chatInputRef.current?.openFileUpload();
+  const requestPrint = () => {
+    if (activePdf) setPrintSignal((n) => n + 1);
+  };
+
+  useHotkeys([
+    { combo: 'mod+k', handler: () => setPaletteOpen((o) => !o), allowInInput: true },
+    { combo: 'mod+b', handler: toggleSidebar, allowInInput: true },
+    { combo: 'mod+\\', handler: () => handleToggleInspector(), allowInInput: true, enabled: Boolean(activePdf) },
+    { combo: 'mod+u', handler: openUpload, allowInInput: true },
+    { combo: 'mod+shift+o', handler: handleNewChat, allowInInput: true },
+    { combo: 'mod+shift+p', handler: requestPrint, allowInInput: true, enabled: Boolean(activePdf) },
+    { combo: 'mod+shift+m', handler: () => setMemoryOpen(true), allowInInput: true },
+    { combo: 'mod+,', handler: () => setIsSettingsOpen(true), allowInInput: true },
+    { combo: 'alt+1', handler: () => handleToggleInspector('overview', true), enabled: Boolean(activePdf) },
+    { combo: 'alt+2', handler: () => handleToggleInspector('metrics', true), enabled: Boolean(activePdf) },
+    { combo: 'alt+3', handler: () => handleToggleInspector('trends', true), enabled: Boolean(activePdf) },
+    { combo: 'alt+4', handler: () => handleToggleInspector('report', true), enabled: Boolean(activePdf) },
+    { combo: '/', handler: () => chatInputRef.current?.focus?.() },
+  ]);
+
+  const attachedDocuments =
+    Array.isArray(currentChat.documents) && currentChat.documents.length > 0
+      ? currentChat.documents
+      : activePdf
+        ? [{ id: currentChat.document_id || 'doc-1', name: activePdf.name, filename: activePdf.name }]
+        : [];
+
+  const composerDocuments =
+    Array.isArray(currentChat.documents) && currentChat.documents.length > 1
+      ? currentChat.documents
+      : messages.length === 0 && activePdf
+        ? [{ id: currentChat.document_id || activePdf.id || 'doc-1', name: activePdf.name, filename: activePdf.name }]
+        : [];
+
+  const sidebarPushes = isDesktop && sidebarOpen;
+
   return (
-    <div className={`relative flex h-dvh w-screen overflow-hidden transition-colors duration-200 ${
-      darkMode ? 'bg-[#07090e] text-slate-100' : 'bg-zinc-50 text-zinc-900'
-    }`}>
-      {/* Mobile overlay backdrop when open on < 768px */}
-      {sidebarOpen && (
+    <div className="relative flex h-app w-screen overflow-hidden bg-obsidian text-ink">
+      {/* Drawer backdrop on tablet / phone */}
+      {sidebarOpen && !isDesktop && (
         <div
           data-testid="sidebar-backdrop"
-          className="fixed inset-0 bg-black/60 backdrop-blur-xs z-30 md:hidden"
+          className="fixed inset-0 bg-black/60 backdrop-blur-[2px] z-30 lg:hidden animate-backdrop-in"
           onClick={toggleSidebar}
         />
       )}
 
-      {/* Sidebar container with DeepSeek-style GPU-accelerated slide */}
       <div
         data-testid="sidebar-wrapper"
-        className={`fixed inset-y-0 left-0 z-40 w-72 md:w-64 flex-shrink-0 transition-transform duration-250 ease-in-out ${
+        className={`fixed inset-y-0 left-0 z-40 w-[min(300px,86vw)] lg:w-[272px] flex-shrink-0 transition-transform ease-out ${
           sidebarOpen ? 'translate-x-0' : '-translate-x-full'
         }`}
-        style={{ transitionDuration: '250ms' }}
+        style={{ transitionDuration: '260ms' }}
+        aria-hidden={!sidebarOpen}
       >
         <Sidebar
           isOpen={sidebarOpen}
           onToggle={toggleSidebar}
           conversations={conversations}
           activeSessionId={sessionId}
-          onSelectChat={handleSelectChat}
+          onSelectChat={(id) => {
+            closeSidebarOnSmallScreens();
+            return handleSelectChat(id);
+          }}
           onDeleteChat={handleDeleteChat}
           onRenameChat={handleRenameChat}
-          onNewChat={handleNewChat}
+          onNewChat={() => {
+            closeSidebarOnSmallScreens();
+            handleNewChat();
+          }}
           onOpenSettings={() => setIsSettingsOpen(true)}
           onOpenProfile={handleOpenProfile}
+          onOpenMemory={() => setMemoryOpen(true)}
+          onOpenPalette={() => setPaletteOpen(true)}
           darkMode={darkMode}
           setDarkMode={handleSetDarkMode}
           activePdf={activePdf}
@@ -1351,110 +1556,144 @@ export default function ChatApp() {
           setLanguage={setLanguage}
           onLogout={handleLogout}
           currentUser={currentUser}
+          dependents={dependents}
         />
       </div>
 
+      {isDesktop && !sidebarOpen && (
+        <NavRail
+          onExpand={toggleSidebar}
+          onNewChat={handleNewChat}
+          onOpenPalette={() => setPaletteOpen(true)}
+          onUpload={openUpload}
+          onOpenMemory={() => setMemoryOpen(true)}
+          onOpenCaregivers={handleOpenDependents}
+          onOpenSettings={() => setIsSettingsOpen(true)}
+          currentUser={currentUser}
+        />
+      )}
+
       <main
-        className={`flex-1 flex flex-col h-full overflow-hidden relative transition-all duration-250 ease-in-out ${
-          sidebarOpen ? 'md:ml-64' : 'md:ml-0'
-        } ${darkMode ? 'bg-[#07090e]' : 'bg-zinc-50'}`}
-        style={{ transitionDuration: '250ms' }}
+        className={cn(
+          'flex-1 min-w-0 flex flex-col h-full overflow-hidden relative bg-ambient transition-[margin] ease-out',
+          sidebarPushes ? 'lg:ml-[272px]' : isDesktop ? 'lg:ml-14' : 'ml-0'
+        )}
+        style={{ transitionDuration: '260ms' }}
       >
-        <ChatWindow
-          sidebarOpen={sidebarOpen}
+        <Workbench
+          isDesktop={isDesktop}
+          isMobile={isMobile}
           toggleSidebar={toggleSidebar}
-          viewMode={viewMode}
-          onViewModeChange={setViewMode}
-          messages={messages}
-          isGenerating={isGenerating}
-          loadingHistory={loadingHistory}
-          onRegenerate={handleRegenerate}
-          onSelectSampleQuery={handleSendMessage}
-          onTrySampleReport={handleSampleReportClick}
-          onAttachFile={handleAttachFile}
-          activePdf={activePdf}
-          attachedDocuments={Array.isArray(currentChat.documents) && currentChat.documents.length > 0
-            ? currentChat.documents
-            : (activePdf ? [{ id: currentChat.document_id || 'doc-1', name: activePdf.name, filename: activePdf.name }] : [])}
-          onDetachDocument={handleDetachDocument}
-          onOpenUpload={() => {
-            if (chatInputRef.current) chatInputRef.current.openFileUpload();
-          }}
-          documentId={currentChat.document_id}
-          metricsByDocId={metricsByDocId}
-          onLoadMetrics={handleLoadMetrics}
-          darkMode={darkMode}
-          setDarkMode={handleSetDarkMode}
           currentUser={currentUser}
           dependents={dependents}
           selectedPatientId={selectedPatientId}
           onSelectPatient={handlePatientSelect}
           onOpenDependents={handleOpenDependents}
+          activePatient={activePatient}
+          patientName={patientName}
+          reportCounts={reportCounts}
+          messages={messages}
+          isGenerating={isGenerating}
+          loadingHistory={loadingHistory}
+          onRegenerate={handleRegenerate}
+          onSendMessage={handleSendMessage}
+          onTrySampleReport={handleSampleReportClick}
+          onAttachFile={handleAttachFile}
+          onStopGeneration={handleStopGeneration}
+          chatInputRef={chatInputRef}
+          composerDocuments={composerDocuments}
+          onDetachDocument={handleDetachDocument}
+          onRemoveFile={handleRemoveFile}
+          activePdf={activePdf}
+          documentId={currentChat.document_id}
+          attachedDocuments={attachedDocuments}
+          metrics={labMetrics.metrics}
+          metricsLoading={labMetrics.loading}
+          onReloadMetrics={labMetrics.reload}
+          ensureMetrics={labMetrics.ensure}
+          trends={trends}
+          inspectorOpen={inspectorOpen}
+          onToggleInspector={handleToggleInspector}
+          inspectorTab={inspectorTab}
+          onInspectorTabChange={setInspectorTab}
+          metricsFilter={metricsFilter}
+          onMetricsFilterChange={setMetricsFilter}
+          metricsSearch={metricsSearch}
+          onMetricsSearchChange={(v) => {
+            setMetricsSearch(v);
+            if (!v) setHighlightKey(null);
+          }}
+          highlightKey={highlightKey}
+          onFocusMetric={handleFocusMetric}
+          onAskAbout={handleAskAbout}
+          viewMode={viewMode}
+          onViewModeChange={setViewMode}
+          uploadState={uploadState}
+          onDismissUpload={() => {
+            clearUploadTimers();
+            setUploadState(null);
+          }}
+          uploadError={uploadError}
+          onDismissUploadError={() => setUploadError(null)}
           isExportingSummary={isExportingSummary}
           printSummaryText={printSummaryText}
           onExportSummary={handleExportSummary}
           onOpenExport={() => setIsExportOpen(true)}
+          onOpenPalette={() => setPaletteOpen(true)}
+          onOpenSettings={() => setIsSettingsOpen(true)}
+          onOpenMemory={() => setMemoryOpen(true)}
+          onOpenProfile={handleOpenProfile}
+          uiLanguage={uiLanguage}
+          onSetUiLanguage={handleSetUiLanguage}
+          printSignal={printSignal}
         />
-
-        {uploadError && (
-          <div className="max-w-3xl w-full mx-auto px-4 mb-2 animate-fade-in">
-            <div
-              role="alert"
-              className="flex items-center justify-between gap-2.5 px-3.5 py-2 rounded-xl text-xs font-medium bg-red-500/10 border border-red-500/30 text-red-300"
-            >
-              <span>{uploadError}</span>
-              <button
-                type="button"
-                onClick={() => setUploadError(null)}
-                aria-label="Dismiss upload error"
-                className="text-red-300 hover:text-white px-1"
-              >
-                ×
-              </button>
-            </div>
-          </div>
-        )}
-
-        {uploadProgress && (
-          <div className="max-w-3xl w-full mx-auto px-4 mb-2 animate-fade-in" data-testid="upload-progress-banner">
-            <div className={`flex items-center gap-2.5 px-3.5 py-2 rounded-xl text-xs font-medium border shadow-sm ${
-              darkMode ? 'bg-[#0e131b] border-white/[0.08] text-slate-300' : 'bg-blue-50/80 border-blue-200 text-blue-800'
-            }`}>
-              <span className="relative flex h-2 w-2">
-                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-cyan-400 opacity-75" />
-                <span className="relative inline-flex rounded-full h-2 w-2 bg-cyan-500" />
-              </span>
-              <span>{uploadProgress}</span>
-            </div>
-          </div>
-        )}
-
-        {viewMode !== 'metrics' && (
-          <ChatInput
-            ref={chatInputRef}
-            onSendMessage={handleSendMessage}
-            onAttachFile={handleAttachFile}
-            activeFile={activePdf}
-            attachedDocuments={
-              Array.isArray(currentChat.documents) && currentChat.documents.length > 1
-                ? currentChat.documents
-                : (messages.length === 0 && activePdf
-                    ? [{ id: currentChat.document_id || activePdf.id || 'doc-1', name: activePdf.name, filename: activePdf.name }]
-                    : [])
-            }
-            onDetachDocument={handleDetachDocument}
-            onRemoveFile={handleRemoveFile}
-            isGenerating={isGenerating}
-            onStopGeneration={handleStopGeneration}
-            darkMode={darkMode}
-            currentUser={currentUser}
-            dependents={dependents}
-            selectedPatientId={selectedPatientId}
-            onSelectPatient={handlePatientSelect}
-            onOpenDependents={handleOpenDependents}
-          />
-        )}
       </main>
+
+      {paletteOpen && (
+        <CommandPalette
+          open={paletteOpen}
+          onOpenChange={setPaletteOpen}
+          conversations={conversations}
+          activeSessionId={sessionId}
+          metrics={labMetrics.metrics}
+          currentUser={currentUser}
+          dependents={dependents}
+          selectedPatientId={selectedPatientId}
+          uiLanguage={uiLanguage}
+          hasActiveReport={Boolean(activePdf)}
+          actions={{
+            ask: (q) => {
+              if (!isDesktop) setViewMode('chat');
+              handleSendMessage(q);
+            },
+            newChat: handleNewChat,
+            upload: openUpload,
+            printSummary: requestPrint,
+            exportChat: () => setIsExportOpen(true),
+            openInspector: (tab) => handleToggleInspector(tab, true),
+            toggleInspector: isDesktop && activePdf ? () => handleToggleInspector() : null,
+            toggleSidebar,
+            openMemory: () => setMemoryOpen(true),
+            openCaregivers: handleOpenDependents,
+            openSettings: () => setIsSettingsOpen(true),
+            setUiLanguage: handleSetUiLanguage,
+            selectPatient: handlePatientSelect,
+            selectChat: handleSelectChat,
+            focusMetric: handleFocusMetric,
+            logout: handleLogout,
+          }}
+        />
+      )}
+
+      <MemoryVault
+        open={memoryOpen}
+        onOpenChange={setMemoryOpen}
+        selectedPatientId={selectedPatientId}
+        patientName={patientName}
+        currentUser={currentUser}
+        documents={patientReports}
+        onConsentChanged={(next) => setCurrentUser((u) => (u ? { ...u, memory_consent_granted: next } : u))}
+      />
 
       <DocumentModal source={selectedSource} onClose={() => setSelectedSource(null)} />
 
@@ -1465,7 +1704,7 @@ export default function ChatApp() {
         documentId={currentChat.document_id || null}
         documentTitle={currentChat.title || (activePdf ? activePdf.name : null)}
         messages={messages}
-        user={currentUser}
+        user={activePatient}
       />
 
       <SettingsModal
@@ -1494,6 +1733,7 @@ export default function ChatApp() {
           onProfileUpdated={refreshPatientContext}
           profile={currentUser}
           dependents={dependents}
+          selectedDependentId={selectedPatientId !== 'self' ? selectedPatientId : null}
         />
       )}
 

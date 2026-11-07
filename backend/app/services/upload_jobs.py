@@ -19,12 +19,25 @@ class UploadStatus(str, Enum):
     FAILED = "failed"
 
 
+_job_stages: dict[str, str] = {}
+
+
 def _job_to_dict(job: UploadJob) -> dict:
+    stage = _job_stages.get(str(job.id))
+    if not stage:
+        if job.status == UploadStatus.COMPLETED.value:
+            stage = "ready"
+        elif job.status == UploadStatus.PROCESSING.value:
+            stage = "extracting"
+        else:
+            stage = "validating"
+
     return {
         "id": str(job.id),
         "job_id": str(job.id),
         "user_id": str(job.user_id),
         "status": job.status,
+        "stage": stage,
         "document_id": str(job.document_id) if job.document_id else None,
         "error": job.error,
         "created_at": job.created_at.isoformat() if job.created_at else None,
@@ -35,6 +48,7 @@ def _job_to_dict(job: UploadJob) -> dict:
 async def create_job(user_id: str | uuid.UUID, session: Optional[AsyncSession] = None) -> str:
     """Persist a new upload job in PostgreSQL/Neon and return the unique job_id."""
     job_id = str(uuid.uuid4())
+    _job_stages[job_id] = "validating"
     user_uuid = uuid.UUID(str(user_id)) if not isinstance(user_id, uuid.UUID) else user_id
 
     async def _insert(s: AsyncSession):
@@ -73,6 +87,8 @@ async def update_job(
         if "status" in kwargs:
             val = kwargs["status"]
             job.status = val.value if isinstance(val, UploadStatus) else str(val)
+        if "stage" in kwargs:
+            _job_stages[job_id] = str(kwargs["stage"])
         if "document_id" in kwargs:
             val = kwargs["document_id"]
             job.document_id = str(val) if val is not None else None

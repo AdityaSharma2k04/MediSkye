@@ -20,6 +20,7 @@
   main,
   .chat-container,
   div[class*="h-screen"],
+  div[class*="h-app"],
   div[class*="h-full"],
   div[class*="min-h-0"],
   div[class*="overflow-"] {
@@ -66,6 +67,17 @@
     box-shadow: none !important;
     font-family: Inter, system-ui, -apple-system, sans-serif !important;
   }
+
+  /* Range-position bars keep their fills on paper */
+  #print-summary .print-bar-track,
+  #print-summary .print-bar-band,
+  #print-summary .print-bar-marker {
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+  }
+  #print-summary .print-bar-track { background: #e5e7eb !important; }
+  #print-summary .print-bar-band { background: #a7f3d0 !important; }
+  #print-summary .print-bar-marker { background: #111827 !important; }
 
   /* Clean pagination breaks */
   table {

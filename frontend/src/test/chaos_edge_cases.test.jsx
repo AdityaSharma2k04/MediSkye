@@ -11,6 +11,7 @@ vi.mock('../services/firebase', () => ({
     currentUser: null,
   },
   signOut: vi.fn(),
+  onAuthStateChanged: vi.fn(),
   getFirebaseErrorMessage: vi.fn((err) => err?.message || 'Auth error'),
 }));
 

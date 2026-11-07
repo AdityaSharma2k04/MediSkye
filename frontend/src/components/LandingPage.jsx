@@ -2,15 +2,10 @@ import React, { lazy, Suspense, useEffect, useRef, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { Trans, useTranslation } from 'react-i18next';
 import useIntersectionObserver from '../hooks/useIntersectionObserver';
-import {
-  C,
-  SERIF,
-  SANS,
-  fit,
-  ActivityIcon,
-  SparklesIcon,
-  SendIcon,
-} from './landing/shared';
+import { BrandLockup, BrandMark } from './workbench/Brand';
+import RangeBar from './clinical/RangeBar';
+import StatusPill from './clinical/StatusPill';
+import DeltaIndicator from './clinical/DeltaIndicator';
 function createLazySection(importFn) {
   let cached = null;
   let promise = null;
@@ -195,71 +190,42 @@ export default function LandingPage() {
     }
   }, []);
 
+  const navLink = (id, label) => (
+    <a
+      href={`#${id}`}
+      onClick={(e) => handleNavClick(e, id)}
+      className={`landing-link text-[14px] text-ink-mute hover:text-white transition-colors pb-1 border-b-2 border-transparent ${
+        activeSection === id ? 'landing-link-active' : ''
+      }`}
+      aria-current={activeSection === id ? 'page' : undefined}
+    >
+      {label}
+    </a>
+  );
+
   return (
-    <div style={styles.page} className="landing bg-zinc-950 text-zinc-50">
+    <div className="landing min-h-app bg-obsidian text-ink font-sans overflow-x-clip">
       {/* ━━━━━━━━━━ NAVBAR ━━━━━━━━━━ */}
-      <nav style={styles.nav} id="landing-nav" aria-label="Main Navigation">
-        <div style={styles.navInner}>
-          <Link to="/" style={styles.navBrand} aria-label="MediSkye Home">
-            <div style={styles.logoBox}>
-              <ActivityIcon size={18} />
-            </div>
-            <span style={styles.navLogoText}>MediSkye</span>
+      <nav id="landing-nav" aria-label="Main Navigation" className="sticky top-0 z-50 bg-obsidian/80 backdrop-blur-xl border-b border-white/[0.06] pt-safe">
+        <div className="max-w-[1200px] mx-auto h-16 px-5 sm:px-6 flex items-center justify-between gap-4">
+          <Link to="/" aria-label="MediSkye Home" className="shrink-0">
+            <BrandLockup size={30} />
           </Link>
 
-          <div style={styles.navLinks} className="landing-nav-links">
-            <a
-              href="#features"
-              onClick={(e) => handleNavClick(e, 'features')}
-              style={{
-                ...styles.navLink,
-                ...(activeSection === 'features' ? styles.navLinkActive : {}),
-              }}
-              className={`landing-link ${activeSection === 'features' ? 'landing-link-active' : ''}`}
-              aria-current={activeSection === 'features' ? 'page' : undefined}
-            >
-              {t('landing.nav_features', 'Features')}
-            </a>
-            <a
-              href="#how-it-works"
-              onClick={(e) => handleNavClick(e, 'how-it-works')}
-              style={{
-                ...styles.navLink,
-                ...(activeSection === 'how-it-works' ? styles.navLinkActive : {}),
-              }}
-              className={`landing-link ${activeSection === 'how-it-works' ? 'landing-link-active' : ''}`}
-              aria-current={activeSection === 'how-it-works' ? 'page' : undefined}
-            >
-              {t('landing.nav_how_it_works', 'How it works')}
-            </a>
-            <a
-              href="#safety"
-              onClick={(e) => handleNavClick(e, 'safety')}
-              style={{
-                ...styles.navLink,
-                ...(activeSection === 'safety' ? styles.navLinkActive : {}),
-              }}
-              className={`landing-link ${activeSection === 'safety' ? 'landing-link-active' : ''}`}
-              aria-current={activeSection === 'safety' ? 'page' : undefined}
-            >
-              {t('landing.nav_safety', 'Safety')}
-            </a>
+          <div className="landing-nav-links hidden md:flex items-center gap-8">
+            {navLink('features', t('landing.nav_features', 'Features'))}
+            {navLink('how-it-works', t('landing.nav_how_it_works', 'How it works'))}
+            {navLink('safety', t('landing.nav_safety', 'Safety'))}
           </div>
 
-          <div style={styles.navActions}>
-            <Link
-              to="/login"
-              style={styles.navBtnGhost}
-              className="landing-link"
-              id="landing-login-btn"
-            >
+          <div className="flex items-center gap-1.5 sm:gap-2">
+            <Link to="/login" id="landing-login-btn" className="landing-link ms-tap inline-flex items-center h-10 px-3.5 rounded-xl text-[14px] font-medium text-ink-soft hover:text-white transition">
               {t('landing.nav_sign_in', 'Sign in')}
             </Link>
             <Link
               to="/register"
-              style={styles.btnPrimary}
-              className="landing-btn-primary"
               id="landing-register-btn"
+              className="landing-btn-primary ms-tap inline-flex items-center h-10 px-4 rounded-xl text-[14px] font-semibold bg-clinical-cyan text-slate-950 hover:bg-cyan-300 transition"
             >
               {t('landing.nav_get_started', 'Get started')}
             </Link>
@@ -268,82 +234,83 @@ export default function LandingPage() {
       </nav>
 
       {/* ━━━━━━━━━━ HERO ━━━━━━━━━━ */}
-      <section style={styles.hero} ref={heroRef} id="hero">
-        <div style={styles.heroContent}>
-          <div style={styles.heroBadge}>
-            <SparklesIcon size={14} />
-            <span>{t('landing.hero_badge', 'Clinical AI Interpretation')}</span>
+      <section ref={heroRef} id="hero" className="relative">
+        <div className="pointer-events-none absolute inset-0 bg-ambient opacity-90" aria-hidden="true" />
+        <div className="relative max-w-[1200px] mx-auto px-5 sm:px-6 pt-14 sm:pt-20 pb-20 sm:pb-24 grid lg:grid-cols-[minmax(0,1fr)_minmax(0,1.02fr)] gap-12 lg:gap-16 items-center">
+          <div className="landing-hero-copy">
+            <p className="inline-flex items-center gap-2 text-[13px] text-cyan-200 mb-6">
+              <span className="w-1.5 h-1.5 rounded-full bg-clinical-cyan" aria-hidden="true" />
+              {t('landing.hero_badge', 'Clinical AI Interpretation')}
+            </p>
+
+            <h1 className="ms-display text-[44px] sm:text-[60px] lg:text-[68px] leading-[1.02] text-white mb-6 max-w-[14ch]">
+              <Trans
+                i18nKey="landing.hero_title_accent"
+                defaults="Understand your medical reports <accent>in seconds.</accent>"
+                components={{ accent: <span /> }}
+              />
+            </h1>
+
+            <p className="text-[17px] sm:text-lg leading-relaxed text-ink-mute max-w-[52ch] mb-9">
+              {t(
+                'landing.hero_subtitle',
+                'Upload any lab report or medical document. MediSkye reads it, extracts the key metrics, and explains everything in plain language, so you walk into every doctor visit fully informed.'
+              )}
+            </p>
+
+            <div className="flex flex-wrap gap-3">
+              <Link
+                to="/register"
+                id="hero-cta-primary"
+                className="landing-btn-primary ms-tap inline-flex items-center justify-center h-12 px-6 rounded-xl text-[15px] font-semibold bg-clinical-cyan text-slate-950 hover:bg-cyan-300 transition shadow-[0_12px_32px_-12px_rgba(6,182,212,0.8)]"
+              >
+                {t('landing.start_free', 'Start for free')}
+              </Link>
+              <a
+                href="#how-it-works"
+                onClick={(e) => handleNavClick(e, 'how-it-works')}
+                className="landing-btn-secondary ms-tap inline-flex items-center justify-center h-12 px-6 rounded-xl text-[15px] font-medium text-ink-soft border border-white/[0.12] hover:border-white/[0.24] hover:text-white transition"
+              >
+                {t('landing.see_how_it_works', 'See how it works')}
+              </a>
+            </div>
+
+            <dl className="mt-12 grid grid-cols-3 gap-6 max-w-md text-[13px]">
+              <div>
+                <dt className="text-ink-faint">Biomarkers mapped</dt>
+                <dd className="mt-1 text-white">Range, Δ and trend</dd>
+              </div>
+              <div>
+                <dt className="text-ink-faint">Family profiles</dt>
+                <dd className="mt-1 text-white">Self + dependents</dd>
+              </div>
+              <div>
+                <dt className="text-ink-faint">Languages</dt>
+                <dd className="mt-1 text-white">English, हिंदी</dd>
+              </div>
+            </dl>
           </div>
 
-          <h1 style={styles.heroTitle}>
-            <Trans
-              i18nKey="landing.hero_title_accent"
-              defaults="Understand your medical reports <accent>in seconds.</accent>"
-              components={{ accent: <em style={styles.heroTitleAccent} /> }}
-            />
-          </h1>
-
-          <p style={styles.heroSubtitle}>
-            {t(
-              'landing.hero_subtitle',
-              'Upload any lab report or medical document. MediSkye reads it, extracts the key metrics, and explains everything in plain language, so you walk into every doctor visit fully informed.'
-            )}
-          </p>
-
-          <div style={styles.heroButtons}>
-            <Link
-              to="/register"
-              style={styles.btnPrimary}
-              className="landing-btn-primary"
-              id="hero-cta-primary"
-            >
-              {t('landing.start_free', 'Start for free')}
-            </Link>
-            <a
-              href="#how-it-works"
-              onClick={(e) => handleNavClick(e, 'how-it-works')}
-              style={styles.btnSecondary}
-              className="landing-btn-secondary"
-            >
-              {t('landing.see_how_it_works', 'See how it works')}
-            </a>
-          </div>
+          <WorkbenchPreview />
         </div>
-
-        <ChatMockup />
       </section>
 
       {/* ━━━━━━━━━━ FEATURES ━━━━━━━━━━ */}
-      <DeferredSection
-        id="features"
-        minHeight={560}
-        className="scroll-mt-24 md:scroll-mt-32"
-        forceVisible={Boolean(forcedSections['features'])}
-      >
+      <DeferredSection id="features" minHeight={560} className="scroll-mt-24 md:scroll-mt-32" forceVisible={Boolean(forcedSections['features'])}>
         <Suspense fallback={<div style={{ minHeight: 560 }} aria-hidden="true" />}>
           <FeaturesSection />
         </Suspense>
       </DeferredSection>
 
       {/* ━━━━━━━━━━ HOW IT WORKS ━━━━━━━━━━ */}
-      <DeferredSection
-        id="how-it-works"
-        minHeight={780}
-        className="scroll-mt-24 md:scroll-mt-32"
-        forceVisible={Boolean(forcedSections['how-it-works'])}
-      >
+      <DeferredSection id="how-it-works" minHeight={780} className="scroll-mt-24 md:scroll-mt-32" forceVisible={Boolean(forcedSections['how-it-works'])}>
         <Suspense fallback={<div style={{ minHeight: 780 }} aria-hidden="true" />}>
           <HowItWorksSection />
         </Suspense>
       </DeferredSection>
 
       {/* ━━━━━━━━━━ SAFETY ━━━━━━━━━━ */}
-      <DeferredSection
-        id="safety"
-        minHeight={620}
-        className="scroll-mt-24 md:scroll-mt-32"
-        forceVisible={Boolean(forcedSections['safety'])}
-      >
+      <DeferredSection id="safety" minHeight={620} className="scroll-mt-24 md:scroll-mt-32" forceVisible={Boolean(forcedSections['safety'])}>
         <Suspense fallback={<div style={{ minHeight: 620 }} aria-hidden="true" />}>
           <SafetySection />
         </Suspense>
@@ -363,7 +330,6 @@ export default function LandingPage() {
         </Suspense>
       </DeferredSection>
 
-      {/* Inline CSS: fonts, keyframes, hover/focus, responsive */}
       <style>{css}</style>
     </div>
   );
@@ -390,135 +356,89 @@ function DeferredSection({ children, id, minHeight, className = '', forceVisible
   );
 }
 
-/* ─── Hero chat mockup (mirrors the real app UI) ─── */
-function ChatMockup() {
+/* ─── Hero: live workbench preview (static data, mirrors the real inspector) ─── */
+const PREVIEW_ROWS = [
+  { test: 'Vitamin D (25-OH)', value: '24.0', unit: 'ng/mL', range: '30–100', status: 'Low', previous_value: '44.0', delta_pct: -45.5 },
+  { test: 'Hemoglobin', value: '11.6', unit: 'g/dL', range: '12.0–15.5', status: 'Low', previous_value: '13.1', delta_pct: -11.5 },
+  { test: 'Ferritin', value: '238', unit: 'pg/mL', range: '200–900', status: 'Normal', previous_value: '310', delta_pct: -23.2 },
+  { test: 'HbA1c', value: '5.4', unit: '%', range: '4.0–5.6', status: 'Normal' },
+  { test: 'LDL Cholesterol', value: '162', unit: 'mg/dL', range: '<100', status: 'High', previous_value: '148', delta_pct: 9.5 },
+];
+
+function WorkbenchPreview() {
   return (
-    <div style={styles.mockupWrapper}>
-      <div style={styles.mockupCard} className="landing-mockup">
-        <div style={styles.mockupHeader}>
-          <div style={styles.mockupDots}>
-            <span style={{ ...styles.mockupDot, background: '#ef4444' }} />
-            <span style={{ ...styles.mockupDot, background: '#f59e0b' }} />
-            <span style={{ ...styles.mockupDot, background: '#22c55e' }} />
+    <div className="relative" aria-hidden="true">
+      <div className="absolute -inset-6 rounded-[40px] bg-[radial-gradient(closest-side,rgba(6,182,212,0.14),transparent)] blur-2xl" />
+      <div className="relative rounded-[28px] ms-glass overflow-hidden">
+        <div className="flex items-center justify-between gap-3 px-5 h-12 border-b border-white/[0.07]">
+          <div className="flex items-center gap-2.5 min-w-0">
+            <BrandMark size={22} />
+            <span className="text-[13px] font-medium text-white truncate">Follow-up panel</span>
+            <span className="ms-num text-[11px] text-ink-faint shrink-0">04 Nov 2026</span>
           </div>
-          <span style={styles.mockupHeaderTitle}>MediSkye AI Chat</span>
-          <div style={{ width: 46 }} />
+          <span className="text-[11px] px-2 py-0.5 rounded-full bg-amber-500/10 border border-amber-500/25 text-amber-200 shrink-0">3 need attention</span>
         </div>
 
-        <div style={styles.mockupBody}>
-          {/* User message */}
-          <div style={styles.msgUserRow}>
-            <div style={styles.bubbleUser}>
-              What does my Hemoglobin level mean? The report says 11.2 g/dL.
-            </div>
-          </div>
-
-          {/* AI response */}
-          <div style={styles.msgAiRow}>
-            <div style={styles.aiAvatar}>
-              <ActivityIcon size={14} />
-            </div>
-            <div style={styles.bubbleAi}>
-              <div style={styles.aiLabel}>MediSkye AI</div>
-              <div>
-                Your Hemoglobin is <strong style={{ color: C.amber }}>11.2 g/dL</strong>, which is
-                slightly below the normal range (12.0–16.0 g/dL for women). This may indicate mild{' '}
-                <strong style={{ color: C.heading }}>anemia</strong>. Common causes include iron
-                deficiency, vitamin B12 deficiency, or chronic conditions.
+        <ul className="px-5 py-4 space-y-4">
+          {PREVIEW_ROWS.map((row, i) => (
+            <li key={row.test} className="landing-preview-row" style={{ animationDelay: `${120 + i * 90}ms` }}>
+              <div className="flex items-center justify-between gap-3 mb-1">
+                <span className="text-[13px] text-ink-soft truncate">{row.test}</span>
+                <span className="flex items-center gap-2 shrink-0">
+                  {row.previous_value && <DeltaIndicator row={row} compact showValues={false} />}
+                  <StatusPill row={row} size="sm" />
+                </span>
               </div>
-              <div style={styles.metricChip}>
-                <span style={styles.chipDot} />
-                Hemoglobin: 11.2 g/dL — Borderline Low
+              <div className="flex items-center gap-4">
+                <span className="ms-num text-[15px] text-white w-[92px] shrink-0">
+                  {row.value} <span className="text-[11px] text-ink-faint">{row.unit}</span>
+                </span>
+                <RangeBar row={row} size="sm" className="flex-1" />
               </div>
-            </div>
-          </div>
+            </li>
+          ))}
+        </ul>
 
-          {/* Typing indicator */}
-          <div style={{ ...styles.msgAiRow, alignItems: 'center' }}>
-            <div style={styles.aiAvatar}>
-              <ActivityIcon size={14} />
-            </div>
-            <div style={styles.typing} aria-hidden="true">
-              <span style={styles.typingDot(0)} />
-              <span style={styles.typingDot(0.2)} />
-              <span style={styles.typingDot(0.4)} />
-            </div>
+        <div className="mx-5 mb-5 rounded-2xl bg-white/[0.03] border border-white/[0.07] p-4">
+          <div className="flex items-center gap-2 mb-1.5 text-xs">
+            <span className="font-semibold text-ink-soft">MediSkye AI</span>
+            <span className="text-ink-faint">explains</span>
           </div>
-        </div>
-
-        {/* Decorative input bar */}
-        <div style={styles.mockupInputBar} aria-hidden="true">
-          <div style={styles.mockupInput}>Ask about your report...</div>
-          <div style={styles.mockupSendBtn}>
-            <SendIcon size={16} />
-          </div>
+          <p className="text-[13.5px] leading-relaxed text-ink-soft">
+            Your vitamin D fell from <span className="ms-num text-white">44.0</span> to <span className="ms-num text-amber-200">24.0 ng/mL</span> and is now below range. With hemoglobin also slightly low, it is worth asking your doctor whether an iron study and a supplement review make sense.
+          </p>
         </div>
       </div>
     </div>
   );
 }
 
-/* ─── CSS: fonts, keyframes, hover/focus, responsive ─── */
+/* ─── CSS: interaction states, responsive, reduced motion ─── */
 const css = `
-  @import url('https://fonts.googleapis.com/css2?family=Figtree:wght@400;500;600&family=Newsreader:ital,opsz,wght@0,6..72,500;1,6..72,500&display=swap');
-
   html { scroll-padding-top: 96px; }
 
-  @keyframes landing-float {
-    0%, 100% { transform: translateY(0); }
-    50% { transform: translateY(-8px); }
-  }
-  @keyframes landing-typing {
-    0%, 80%, 100% { opacity: 0.3; transform: scale(0.8); }
-    40% { opacity: 1; transform: scale(1); }
-  }
-  @keyframes landing-fade-up {
-    from { opacity: 0; transform: translateY(20px); }
+  @keyframes landing-row-in {
+    from { opacity: 0; transform: translateY(6px); }
     to { opacity: 1; transform: translateY(0); }
   }
+  .landing-preview-row { animation: landing-row-in 0.5s cubic-bezier(0.22, 1, 0.36, 1) both; }
 
-  /* Fade-in on scroll */
   .fade-in-section {
     opacity: 0;
     transform: translateY(20px);
     transition: opacity 0.6s cubic-bezier(0.16, 1, 0.3, 1), transform 0.6s cubic-bezier(0.16, 1, 0.3, 1);
     will-change: opacity, transform;
   }
-  .fade-in-section.is-visible {
-    opacity: 1;
-    transform: translateY(0);
-  }
+  .fade-in-section.is-visible { opacity: 1; transform: translateY(0); }
 
-  img {
-    content-visibility: auto;
-  }
-
-  .landing-mockup { animation: landing-float 6s ease-in-out infinite; }
-
-  .landing-link:hover { color: #fafafa !important; }
   .landing-link-active {
     color: #ffffff !important;
-    border-bottom: 2px solid #06b6d4 !important;
-    font-weight: 600 !important;
+    border-bottom-color: #06b6d4 !important;
   }
-  .landing-btn-primary { transition: transform 0.15s ease, box-shadow 0.15s ease, background-color 0.15s ease; }
-  .landing-btn-primary:hover {
-    transform: translateY(-1px);
-    box-shadow: 0 8px 24px rgba(6, 182, 212, 0.28);
-  }
-  .landing-btn-secondary { transition: border-color 0.15s ease, color 0.15s ease, background-color 0.15s ease; }
-  .landing-btn-secondary:hover { border-color: #52525b !important; color: #fafafa !important; background-color: rgba(255, 255, 255, 0.03); }
-
-
-
   .landing a:focus-visible {
     outline: 2px solid #22d3ee;
     outline-offset: 3px;
-    border-radius: 6px;
-  }
-
-  @media (max-width: 760px) {
-    .landing-nav-links { display: none !important; }
+    border-radius: 8px;
   }
 
   @media (prefers-reduced-motion: reduce) {
@@ -529,302 +449,3 @@ const css = `
     html { scroll-behavior: auto; }
   }
 `;
-
-/* ─── Styles (inline object) ─── */
-const styles = {
-  // ── Page ──
-  page: {
-    minHeight: '100vh',
-    background: C.obsidian,
-    color: '#fafafa',
-    fontFamily: SANS,
-    lineHeight: 1.6,
-    overflowX: 'clip',
-  },
-
-  // ── Shared ──
-  eyebrow: {
-    fontSize: 13,
-    fontWeight: 600,
-    letterSpacing: '0.08em',
-    textTransform: 'uppercase',
-    color: C.cyanText,
-    margin: '0 0 16px',
-  },
-  sectionTitle: {
-    fontFamily: SERIF,
-    fontSize: 'clamp(30px, 3.6vw, 44px)',
-    fontWeight: 500,
-    letterSpacing: '-0.01em',
-    lineHeight: 1.15,
-    color: C.heading,
-    margin: '0 0 16px',
-  },
-  sectionSubtitle: {
-    fontSize: 17,
-    lineHeight: 1.65,
-    color: C.muted,
-    margin: 0,
-  },
-  btnPrimary: {
-    display: 'inline-flex',
-    alignItems: 'center',
-    justifyContent: 'center',
-    minHeight: 46,
-    padding: '0 24px',
-    borderRadius: 12,
-    background: C.cyan,
-    color: C.obsidian,
-    fontSize: 15,
-    fontWeight: 600,
-    textDecoration: 'none',
-  },
-  btnSecondary: {
-    display: 'inline-flex',
-    alignItems: 'center',
-    justifyContent: 'center',
-    minHeight: 46,
-    padding: '0 22px',
-    borderRadius: 12,
-    border: `1px solid ${C.borderStrong}`,
-    color: '#e4e4e7',
-    fontSize: 15,
-    fontWeight: 500,
-    textDecoration: 'none',
-  },
-  logoBox: {
-    width: 32,
-    height: 32,
-    borderRadius: 8,
-    background: '#fafafa',
-    color: C.obsidian,
-    display: 'flex',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-
-  // ── Navbar ──
-  nav: {
-    position: 'sticky',
-    top: 0,
-    zIndex: 50,
-    background: 'rgba(9, 9, 11, 0.88)',
-    backdropFilter: 'blur(12px)',
-    WebkitBackdropFilter: 'blur(12px)',
-    borderBottom: `1px solid ${C.border}`,
-  },
-  navInner: {
-    maxWidth: 1200,
-    margin: '0 auto',
-    padding: '12px 24px',
-    display: 'flex',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    gap: 16,
-    flexWrap: 'wrap',
-  },
-  navBrand: {
-    display: 'flex',
-    alignItems: 'center',
-    gap: 10,
-    textDecoration: 'none',
-    color: C.heading,
-  },
-  navLogoText: { fontSize: 17, fontWeight: 600 },
-  navLinks: { display: 'flex', gap: 32 },
-  navLink: {
-    fontSize: 15,
-    color: C.muted,
-    textDecoration: 'none',
-    transition: 'color 0.15s, border-color 0.15s',
-    paddingBottom: 4,
-    borderBottom: '2px solid transparent',
-  },
-  navLinkActive: {
-    color: '#ffffff',
-    fontWeight: 600,
-    borderBottom: `2px solid ${C.cyan}`,
-  },
-  navActions: { display: 'flex', alignItems: 'center', gap: 8 },
-  navBtnGhost: {
-    fontSize: 15,
-    fontWeight: 500,
-    color: '#e4e4e7',
-    textDecoration: 'none',
-    padding: '12px 14px',
-  },
-
-  // ── Hero ──
-  hero: {
-    maxWidth: 1200,
-    margin: '0 auto',
-    padding: '72px 24px 88px',
-    display: 'grid',
-    gridTemplateColumns: fit(340),
-    gap: 56,
-    alignItems: 'center',
-  },
-  heroContent: {
-    animation: 'landing-fade-up 0.6s ease-out',
-  },
-  heroBadge: {
-    display: 'inline-flex',
-    alignItems: 'center',
-    gap: 8,
-    padding: '6px 14px',
-    borderRadius: 100,
-    border: '1px solid rgba(6, 182, 212, 0.3)',
-    background: 'rgba(6, 182, 212, 0.08)',
-    color: C.cyanText,
-    fontSize: 13,
-    fontWeight: 500,
-    marginBottom: 24,
-  },
-  heroTitle: {
-    fontFamily: SERIF,
-    fontSize: 'clamp(40px, 5.2vw, 68px)',
-    fontWeight: 500,
-    lineHeight: 1.04,
-    letterSpacing: '-0.02em',
-    color: C.heading,
-    margin: '0 0 24px',
-  },
-  heroTitleAccent: { color: C.cyanText, fontStyle: 'italic' },
-  heroSubtitle: {
-    fontSize: 18,
-    color: C.muted,
-    maxWidth: 520,
-    margin: '0 0 32px',
-  },
-  heroButtons: { display: 'flex', flexWrap: 'wrap', gap: 12 },
-
-  // ── Chat mockup ──
-  mockupWrapper: {
-    animation: 'landing-fade-up 0.8s ease-out 0.15s both',
-  },
-  mockupCard: {
-    borderRadius: 16,
-    border: `1px solid ${C.border}`,
-    background: C.obsidian,
-    overflow: 'hidden',
-    boxShadow: '0 24px 64px rgba(0, 0, 0, 0.6)',
-  },
-  mockupHeader: {
-    display: 'flex',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    padding: '12px 16px',
-    borderBottom: `1px solid ${C.border}`,
-    background: C.panel,
-  },
-  mockupDots: { display: 'flex', gap: 6 },
-  mockupDot: { display: 'inline-block', width: 10, height: 10, borderRadius: '50%' },
-  mockupHeaderTitle: { fontSize: 12, fontWeight: 500, color: C.muted },
-  mockupBody: {
-    padding: '20px 16px',
-    display: 'flex',
-    flexDirection: 'column',
-    gap: 16,
-  },
-  msgUserRow: { display: 'flex', justifyContent: 'flex-end' },
-  bubbleUser: {
-    maxWidth: '80%',
-    padding: '12px 16px',
-    borderRadius: '14px 14px 4px 14px',
-    background: 'rgba(6, 182, 212, 0.12)',
-    border: '1px solid rgba(6, 182, 212, 0.25)',
-    color: '#e4e4e7',
-    fontSize: 14,
-  },
-  msgAiRow: { display: 'flex', gap: 10, alignItems: 'flex-start' },
-  aiAvatar: {
-    width: 28,
-    height: 28,
-    borderRadius: 8,
-    background: '#fafafa',
-    color: C.obsidian,
-    display: 'flex',
-    alignItems: 'center',
-    justifyContent: 'center',
-    flexShrink: 0,
-    marginTop: 2,
-  },
-  bubbleAi: {
-    maxWidth: '92%',
-    padding: '12px 16px',
-    borderRadius: '14px 14px 14px 4px',
-    background: C.obsidianLight,
-    border: `1px solid ${C.border}`,
-    color: C.body,
-    fontSize: 14,
-  },
-  aiLabel: { fontSize: 12, fontWeight: 600, color: C.cyanText, marginBottom: 4 },
-  metricChip: {
-    display: 'flex',
-    alignItems: 'center',
-    gap: 8,
-    width: 'fit-content',
-    maxWidth: '100%',
-    marginTop: 12,
-    padding: '6px 12px',
-    borderRadius: 8,
-    background: 'rgba(245, 158, 11, 0.1)',
-    border: '1px solid rgba(245, 158, 11, 0.25)',
-    fontSize: 12,
-    fontWeight: 500,
-    color: C.amber,
-  },
-  chipDot: {
-    width: 6,
-    height: 6,
-    borderRadius: '50%',
-    background: '#f59e0b',
-    flexShrink: 0,
-  },
-  typing: {
-    display: 'flex',
-    gap: 4,
-    padding: '12px 16px',
-    borderRadius: '14px 14px 14px 4px',
-    background: C.obsidianLight,
-    border: `1px solid ${C.border}`,
-  },
-  typingDot: (delay) => ({
-    display: 'inline-block',
-    width: 6,
-    height: 6,
-    borderRadius: '50%',
-    background: '#71717a',
-    animation: `landing-typing 1.4s infinite ${delay}s`,
-  }),
-  mockupInputBar: {
-    display: 'flex',
-    alignItems: 'center',
-    gap: 8,
-    padding: '12px 16px',
-    borderTop: `1px solid ${C.border}`,
-    background: C.panel,
-  },
-  mockupInput: {
-    flex: 1,
-    minWidth: 0,
-    boxSizing: 'border-box',
-    padding: '12px 14px',
-    borderRadius: 10,
-    background: C.obsidianLight,
-    border: `1px solid ${C.border}`,
-    color: C.muted,
-    fontSize: 14,
-  },
-  mockupSendBtn: {
-    width: 44,
-    height: 44,
-    borderRadius: 10,
-    background: C.cyan,
-    color: C.obsidian,
-    display: 'flex',
-    alignItems: 'center',
-    justifyContent: 'center',
-    flexShrink: 0,
-  },
-};

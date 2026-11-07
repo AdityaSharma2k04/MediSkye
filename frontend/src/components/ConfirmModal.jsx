@@ -55,14 +55,14 @@ export default function ConfirmModal({
 
   return (
     <div
-      className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-backdrop-in"
+      className="fixed inset-0 z-[80] flex items-end sm:items-center justify-center p-0 sm:p-4 bg-black/60 backdrop-blur-sm animate-backdrop-in"
       onMouseDown={handleBackdrop}
     >
       <div
         ref={modalRef}
-        className={`relative rounded-2xl shadow-2xl max-w-sm w-full border overflow-hidden animate-modal-in ${
+        className={`relative rounded-t-[28px] sm:rounded-2xl shadow-float w-full sm:max-w-sm border overflow-hidden ms-sheet-mobile sm:animate-modal-in pb-[env(safe-area-inset-bottom)] sm:pb-0 ${
           darkMode
-            ? 'bg-zinc-900 border-zinc-800'
+            ? 'bg-graphite border-white/[0.07]'
             : 'bg-white border-zinc-200'
         }`}
         onMouseDown={(e) => e.stopPropagation()}
@@ -71,10 +71,10 @@ export default function ConfirmModal({
         aria-labelledby="confirm-modal-title"
       >
         {/* Header */}
-        <div className={`flex items-center justify-between px-5 py-4 border-b ${darkMode ? 'border-zinc-800' : 'border-zinc-100'}`}>
+        <div className={`flex items-center justify-between px-5 py-4 border-b ${darkMode ? 'border-white/[0.07]' : 'border-zinc-100'}`}>
           <div className="flex items-center gap-2.5">
             <AlertTriangle className="w-4 h-4 text-red-500 shrink-0" />
-            <h3 id="confirm-modal-title" className={`font-semibold text-sm ${darkMode ? 'text-zinc-100' : 'text-zinc-900'}`}>
+            <h3 id="confirm-modal-title" className={`font-semibold text-sm ${darkMode ? 'text-ink' : 'text-zinc-900'}`}>
               {title}
             </h3>
           </div>
@@ -82,7 +82,7 @@ export default function ConfirmModal({
             <button
               onClick={onClose}
               aria-label="Close dialog"
-              className={`p-1 rounded-lg transition-colors ${darkMode ? 'text-zinc-500 hover:text-zinc-200 hover:bg-zinc-800' : 'text-zinc-400 hover:text-zinc-700 hover:bg-zinc-100'}`}
+              className={`p-1 rounded-lg transition-colors ${darkMode ? 'text-ink-faint hover:text-ink hover:bg-slate2' : 'text-ink-mute hover:text-zinc-700 hover:bg-zinc-100'}`}
             >
               <X className="w-4 h-4" />
             </button>
@@ -91,14 +91,14 @@ export default function ConfirmModal({
 
         {/* Body */}
         <div className="px-5 py-4">
-          <p className={`text-sm leading-relaxed ${darkMode ? 'text-zinc-300' : 'text-zinc-600'}`}>
+          <p className={`text-sm leading-relaxed ${darkMode ? 'text-ink-soft' : 'text-zinc-600'}`}>
             {body || message}
           </p>
 
           {requireTyping && (
             <div className="mt-4">
-              <label className={`block text-xs font-medium mb-1.5 ${darkMode ? 'text-zinc-400' : 'text-zinc-500'}`}>
-                Type <span className={`font-mono font-bold ${darkMode ? 'text-zinc-100' : 'text-zinc-900'}`}>{requireTyping}</span> to confirm
+              <label className={`block text-xs font-medium mb-1.5 ${darkMode ? 'text-ink-mute' : 'text-ink-faint'}`}>
+                Type <span className={`font-mono font-bold ${darkMode ? 'text-ink' : 'text-zinc-900'}`}>{requireTyping}</span> to confirm
               </label>
               <input
                 ref={inputRef}
@@ -108,7 +108,7 @@ export default function ConfirmModal({
                 placeholder={requireTyping}
                 className={`w-full px-3 py-2 text-sm rounded-xl border focus:outline-none transition-colors ${
                   darkMode
-                    ? 'bg-zinc-950 border-zinc-700 text-white placeholder-zinc-600 focus:border-zinc-500'
+                    ? 'bg-obsidian border-white/[0.12] text-white placeholder:text-ink-faint focus:border-zinc-500'
                     : 'bg-zinc-50 border-zinc-300 text-zinc-900 placeholder-zinc-400 focus:border-zinc-500'
                 }`}
               />
@@ -117,13 +117,13 @@ export default function ConfirmModal({
         </div>
 
         {/* Footer */}
-        <div className={`px-5 py-4 flex items-center justify-end gap-2 border-t ${darkMode ? 'border-zinc-800 bg-zinc-950' : 'border-zinc-100 bg-zinc-50'}`}>
+        <div className={`px-5 py-4 flex items-center justify-end gap-2 border-t ${darkMode ? 'border-white/[0.07] bg-obsidian' : 'border-zinc-100 bg-zinc-50'}`}>
           <button
             ref={firstBtnRef}
             onClick={onClose}
-            className={`px-4 py-2 text-xs font-medium rounded-xl transition-colors border ${
+            className={`ms-tap px-4 h-10 text-xs font-medium rounded-xl transition-colors border ${
               darkMode
-                ? 'border-zinc-700 text-zinc-300 hover:bg-zinc-800 hover:text-white'
+                ? 'border-white/[0.12] text-ink-soft hover:bg-slate2 hover:text-white'
                 : 'border-zinc-200 text-zinc-600 hover:bg-zinc-100 hover:text-zinc-900'
             }`}
           >
@@ -132,10 +132,10 @@ export default function ConfirmModal({
           <button
             onClick={() => { if (canConfirm) { onConfirm(); onClose(); } }}
             disabled={!canConfirm}
-            className={`px-4 py-2 text-xs font-medium rounded-xl transition-colors text-white ${
+            className={`ms-tap px-4 h-10 text-xs font-semibold rounded-xl transition-colors text-white ${
               canConfirm
-                ? 'bg-red-500 hover:bg-red-600 cursor-pointer'
-                : 'bg-red-500/40 cursor-not-allowed opacity-50'
+                ? 'bg-rose-600 hover:bg-rose-500 cursor-pointer'
+                : 'bg-rose-600/40 cursor-not-allowed opacity-50'
             }`}
           >
             {confirmLabel}

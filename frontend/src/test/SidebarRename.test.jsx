@@ -91,12 +91,12 @@ describe('Sidebar inline chat rename', () => {
     // Auto-focus is applied when edit mode is entered.
     expect(input).toHaveFocus();
 
-    // Explicit dark-theme styling required by the fix (visible bg + border, flex-1).
-    ['flex-1', 'bg-gray-800', 'text-white', 'px-2', 'py-1', 'rounded', 'border', 'border-gray-600'].forEach(
+    // Explicit dark-theme styling (visible surface + accent border, flex-1).
+    // Redesign: design-system tokens replace the old gray/blue utilities.
+    ['flex-1', 'bg-graphite', 'text-white', 'px-2.5', 'rounded-lg', 'border', 'border-cyan-500/40'].forEach(
       (cls) => expect(input.className).toContain(cls)
     );
     expect(input.className).toContain('focus:outline-none');
-    expect(input.className).toContain('focus:border-blue-500');
 
     // The edit row lives inside the chat item and the sibling item is untouched
     // (no push-down / overlap / removal).

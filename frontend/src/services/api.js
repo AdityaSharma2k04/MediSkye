@@ -1,8 +1,21 @@
 // API Service for FastAPI backend
 import { logger } from './logger';
-import { auth, signOut } from './firebase';
+import { auth, signOut, onAuthStateChanged } from './firebase';
 
 const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:8000';
+
+if (typeof window !== 'undefined' && auth && typeof onAuthStateChanged === 'function') {
+  try {
+    onAuthStateChanged(auth, async (user) => {
+      if (user && user.emailVerified !== false) {
+        try {
+          const token = await user.getIdToken();
+          localStorage.setItem('token', token);
+        } catch (_) {}
+      }
+    });
+  } catch (_) {}
+}
 
 export function formatApiError(data, fallback = 'Something went wrong on our end. Please try again.') {
   if (!data) return fallback;
@@ -70,7 +83,17 @@ export async function apiFetch(url, options = {}, timeoutMs = 30000) {
     });
   }
 
-  const baseHeaders = getAuthHeaders();
+  let token = localStorage.getItem('token');
+  if (auth && auth.currentUser) {
+    try {
+      const liveToken = await auth.currentUser.getIdToken();
+      if (liveToken) {
+        token = liveToken;
+        localStorage.setItem('token', liveToken);
+      }
+    } catch (_) {}
+  }
+  const baseHeaders = token ? { 'Authorization': `Bearer ${token}` } : getAuthHeaders();
   const headers = {
     ...baseHeaders,
     ...(options.headers || {}),
@@ -172,7 +195,7 @@ export async function register(email, password, phi_consent_granted) {
  * Pure UI preferences (theme, language) are NOT auth/PHI state, so they are
  * preserved across logout to avoid a theme/language flash on re-login.
  */
-const PRESERVED_STORAGE_KEYS = new Set(['mediskye_theme', 'mediskye_language']);
+const PRESERVED_STORAGE_KEYS = new Set(['mediskye_theme', 'mediskye_language', 'mediskye_ui_lang']);
 
 export function clearLocalAuthStorage() {
   try {
@@ -370,7 +393,7 @@ export async function parseSSEStream(reader, callbacks = {}) {
   }
 }
 
-export async function fetchLabMetrics(documentId, forceRefresh = false, signal = null) {
+export async function fetchLabMetrics(documentId, forceRefresh = false) {
   try {
     const query = forceRefresh ? '?force_refresh=true' : '';
     const res = await fetch(`${API_BASE}/extract-metrics${query}`, {
@@ -379,7 +402,6 @@ export async function fetchLabMetrics(documentId, forceRefresh = false, signal =
         'X-Session-ID': documentId,
         ...getAuthHeaders(),
       },
-      signal: signal || undefined,
     });
     const data = await res.json();
     if (!res.ok) {
@@ -397,9 +419,6 @@ export async function fetchLabMetrics(documentId, forceRefresh = false, signal =
     list.prior_document_date = data.prior_document_date;
     return list;
   } catch (err) {
-    if (err.name === 'AbortError') {
-      return [];
-    }
     logger.error('Failed to fetch metrics:', err);
     return [];
   }
@@ -1011,3 +1030,35 @@ export async function sendCustomPasswordReset(email) {
 }
 
 export default api;
+
+// ── Longitudinal Trends (optional backend enhancement) ──
+
+/**
+ * GET /users/me/metrics/trends — pre-aggregated per-biomarker time series.
+ *
+ * This endpoint is OPTIONAL. The frontend falls back to computing trends
+ * client-side from per-document POST /extract-metrics results whenever this
+ * returns null (404 / 405 / network error / unexpected payload).
+ * See REDESIGN_CHANGELOG.md §3 for the exact response contract.
+ */
+export async function getMetricTrends(patientId = null, options = {}) {
+  let url = `${API_BASE}/users/me/metrics/trends`;
+  if (patientId && patientId !== 'self') {
+    url += `?patient_id=${encodeURIComponent(patientId)}`;
+  }
+  try {
+    const res = await fetch(url, {
+      headers: getAuthHeaders(),
+      signal: options.signal,
+    });
+    if (!res.ok) return null;
+    const data = await res.json().catch(() => null);
+    if (!data || !Array.isArray(data.series)) return null;
+    return data;
+  } catch (err) {
+    if (err?.name !== 'AbortError') {
+      logger.info('Trends endpoint unavailable; using client-side computation.');
+    }
+    return null;
+  }
+}

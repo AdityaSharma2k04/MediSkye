@@ -200,7 +200,6 @@ describe('TEST SUITE 2: Frontend E2E UI Journeys', () => {
           'patient@example.com',
           'SecretPassword123!'
         );
-        expect(localStorage.getItem('token')).toBe('jwt_email_token_123');
         expect(mockNavigate).toHaveBeenCalledWith('/chat');
       });
     });
@@ -234,7 +233,6 @@ describe('TEST SUITE 2: Frontend E2E UI Journeys', () => {
 
       await waitFor(() => {
         expect(mockSignInWithPopup).toHaveBeenCalled();
-        expect(localStorage.getItem('token')).toBe('jwt_google_token_789');
         expect(localStorage.getItem('mediskye_user_email')).toBe('google_patient@example.com');
         expect(mockNavigate).toHaveBeenCalledWith('/chat');
       });

@@ -2,24 +2,24 @@ import React from 'react';
 
 /* ─── Palette (mirrors tailwind.config: obsidian + medical) ─── */
 export const C = {
-  obsidian: '#09090b',
-  obsidianLight: '#18181b',
-  panel: '#111113',
-  border: '#27272a',
-  borderStrong: '#3f3f46',
+  obsidian: '#05070b',
+  obsidianLight: '#0f1623',
+  panel: '#0a0e17',
+  border: 'rgba(255,255,255,0.08)',
+  borderStrong: 'rgba(255,255,255,0.16)',
   cyan: '#06b6d4', // medical.cyan
   cyanDark: '#0891b2', // medical.dark
   cyanText: '#22d3ee', // cyan tint for text on dark (AA contrast)
-  heading: '#fafafa',
-  body: '#d4d4d8',
-  muted: '#a1a1aa',
+  heading: '#ffffff',
+  body: '#c3cedb',
+  muted: '#8a97a8',
   amber: '#fbbf24',
   green: '#34d399',
   red: '#f87171',
 };
 
-export const SERIF = "'Newsreader', Georgia, serif";
-export const SANS = "'Figtree', system-ui, -apple-system, sans-serif";
+export const SERIF = "'Fraunces Variable', Fraunces, Georgia, serif";
+export const SANS = "'Inter Variable', Inter, system-ui, -apple-system, 'Segoe UI', sans-serif";
 
 // Auto-fit grid that never overflows narrow phones
 export const fit = (min) => `repeat(auto-fit, minmax(min(100%, ${min}px), 1fr))`;
@@ -100,19 +100,17 @@ export const SendIcon = (p) => (
 
 export const sharedStyles = {
   eyebrow: {
-    fontSize: 13,
-    fontWeight: 600,
-    letterSpacing: '0.08em',
-    textTransform: 'uppercase',
+    fontSize: 14,
+    fontWeight: 500,
     color: C.cyanText,
-    margin: '0 0 16px',
+    margin: '0 0 14px',
   },
   sectionTitle: {
     fontFamily: SERIF,
     fontSize: 'clamp(30px, 3.6vw, 44px)',
-    fontWeight: 500,
-    letterSpacing: '-0.01em',
-    lineHeight: 1.15,
+    fontWeight: 450,
+    letterSpacing: '-0.02em',
+    lineHeight: 1.1,
     color: C.heading,
     margin: '0 0 16px',
   },
@@ -138,9 +136,9 @@ export const sharedStyles = {
   logoBox: {
     width: 32,
     height: 32,
-    borderRadius: 8,
-    background: '#fafafa',
-    color: C.obsidian,
+    borderRadius: 9,
+    background: 'linear-gradient(150deg, #0e7490 0%, #06b6d4 70%)',
+    color: '#031016',
     display: 'flex',
     alignItems: 'center',
     justifyContent: 'center',

@@ -212,7 +212,29 @@ async def test_metrics_chronology_and_collision():
                 assert m["delta_pct"] is None
                 assert m["delta_alert"] is None
 
-    # ── 3. DB Persistence Verification: DB column must ONLY contain raw extracted arrays ──
+            # ── 3. Verify GET /users/me/metrics/trends ──
+            trends_res = await ac.get("/users/me/metrics/trends", headers=headers)
+            assert trends_res.status_code == 200
+            trends_data = trends_res.json()
+            assert trends_data["patient_id"] == "self"
+            assert "reports" in trends_data
+            assert len(trends_data["reports"]) == 2
+            # Chronologically sorted oldest (Oct 2026) to newest (Apr 2027)
+            assert trends_data["reports"][0]["document_id"] == str(doc1_id)
+            assert trends_data["reports"][1]["document_id"] == str(doc2_id)
+
+            assert "series" in trends_data
+            series_by_key = {s["key"]: s for s in trends_data["series"]}
+            assert "hemoglobin" in series_by_key
+            hb_series = series_by_key["hemoglobin"]
+            assert len(hb_series["points"]) == 2
+            assert hb_series["points"][0]["value"] == 15.4
+            assert hb_series["points"][1]["value"] == 13.6
+
+            assert "fasting_glucose" in series_by_key or "glucose" in series_by_key
+            assert "ast" in series_by_key
+
+    # ── 4. DB Persistence Verification: DB column must ONLY contain raw extracted arrays ──
     async with AsyncSessionLocal() as check_session:
         from sqlalchemy.future import select
 
@@ -235,4 +257,83 @@ async def test_metrics_chronology_and_collision():
                 assert "value" in item
                 assert "unit" in item
                 assert "status" in item
+
+
+@pytest.mark.asyncio
+async def test_upload_status_stage_and_fact_attribution():
+    """Verify upload status returns stage and memory facts resolve source_document_id."""
+    from app.services.upload_jobs import create_job, update_job, UploadStatus
+    from app.db.models import PatientFact, Chat
+
+    email = f"user_b_{uuid.uuid4().hex[:8]}@test.com"
+    async with AsyncSessionLocal() as session:
+        user = User(
+            email=email,
+            hashed_password=get_password_hash(TEST_PASSWORD),
+            phi_consent_granted=True,
+            memory_consent_granted=True,
+        )
+        session.add(user)
+        await session.commit()
+        await session.refresh(user)
+        user_id = user.id
+
+        doc = Document(
+            user_id=user_id,
+            filename="source_report.pdf",
+            title="Source Lab Report",
+            index_status="local_ready",
+        )
+        session.add(doc)
+        await session.commit()
+        await session.refresh(doc)
+        doc_id = doc.id
+
+        chat = Chat(
+            user_id=user_id,
+            document_id=doc_id,
+            role="user",
+            message="What is my hemoglobin?",
+        )
+        session.add(chat)
+        await session.commit()
+        await session.refresh(chat)
+        chat_id = chat.id
+
+        fact = PatientFact(
+            user_id=user_id,
+            fact_type="condition",
+            fact_text="Mild anemia observed",
+            source_type="chat",
+            source_id=str(chat_id),
+            is_active=True,
+        )
+        session.add(fact)
+        await session.commit()
+
+        job_id = await create_job(user_id, session=session)
+        await update_job(job_id, status=UploadStatus.PROCESSING, stage="extracting", session=session)
+
+    with patch("firebase_admin.auth.verify_id_token", side_effect=Exception("Local JWT")):
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as ac:
+            login_res = await ac.post("/login", data={"username": email, "password": TEST_PASSWORD})
+            assert login_res.status_code == 200
+            token = login_res.json()["access_token"]
+            headers = {"Authorization": f"Bearer {token}"}
+
+            # 1. Verify GET /upload/status/{job_id} includes stage
+            status_res = await ac.get(f"/upload/status/{job_id}", headers=headers)
+            assert status_res.status_code == 200
+            s_data = status_res.json()
+            assert s_data["job_id"] == job_id
+            assert s_data["stage"] == "extracting"
+
+            # 2. Verify GET /users/me/memory/facts includes source_document_id
+            facts_res = await ac.get("/users/me/memory/facts", headers=headers)
+            assert facts_res.status_code == 200
+            facts_data = facts_res.json()
+            assert len(facts_data) >= 1
+            matched_fact = next(f for f in facts_data if f["fact_text"] == "Mild anemia observed")
+            assert matched_fact["source_document_id"] == str(doc_id)
+
 

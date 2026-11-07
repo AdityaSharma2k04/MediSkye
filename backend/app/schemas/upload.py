@@ -16,6 +16,8 @@ class UploadJobResponse(BaseModel):
 class UploadStatusResponse(BaseModel):
     job_id: str
     status: str
+    stage: Optional[str] = None
+    index_status: Optional[str] = None
     document_id: Optional[str] = None
     error: Optional[str] = None
 

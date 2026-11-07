@@ -17,14 +17,14 @@ const CANNOT = [
 function ListCard({ title, color, items, isAllowed }) {
   return (
     <div
-      className="landing-list-card group transform-gpu will-change-transform bg-[#0f1115] border border-white/10 rounded-2xl p-6 transition-all duration-300 ease-in-out hover:-translate-y-1.5 hover:scale-[1.02] hover:shadow-xl hover:shadow-cyan-500/10 hover:border-cyan-500/30 cursor-default"
+      className="landing-list-card group transform-gpu will-change-transform bg-carbon border border-white/10 rounded-2xl p-6 transition-all duration-300 ease-in-out hover:-translate-y-1.5 hover:scale-[1.02] hover:shadow-xl hover:shadow-cyan-500/10 hover:border-cyan-500/30 cursor-default"
     >
       <h3 style={{ ...styles.listCardTitle, color }} className="transition-colors duration-300">
         {title}
       </h3>
       <ul style={styles.list}>
         {items.map((item) => (
-          <li key={item} style={styles.listItem} className="transition-colors duration-200 group-hover:text-zinc-100">
+          <li key={item} style={styles.listItem} className="transition-colors duration-200 group-hover:text-white">
             <span
               style={{ color, marginRight: 10, fontWeight: 700, display: 'inline-block' }}
               className="transition-transform duration-200 group-hover:scale-110"

@@ -30,7 +30,7 @@ export default function PrivacyPolicy() {
   const backLabel = hasToken ? 'Back to App' : 'Back to Home';
 
   return (
-    <div className="min-h-screen bg-[#07090e] text-slate-100 font-sans selection:bg-cyan-500/25 selection:text-cyan-200 relative overflow-x-hidden">
+    <div className="min-h-screen bg-obsidian text-slate-100 font-sans selection:bg-cyan-500/25 selection:text-cyan-200 relative overflow-x-hidden">
       {/* Background radial glows */}
       <div
         className="pointer-events-none fixed top-0 left-1/2 -translate-x-1/2 w-[1000px] h-[500px] bg-gradient-to-b from-cyan-500/10 via-blue-500/5 to-transparent blur-[140px] opacity-75"
@@ -42,7 +42,7 @@ export default function PrivacyPolicy() {
       />
 
       {/* Top Navigation */}
-      <header className="sticky top-0 z-40 bg-[#07090e]/85 backdrop-blur-md border-b border-white/[0.08] px-4 sm:px-8 py-3.5 flex items-center justify-between">
+      <header className="sticky top-0 z-40 bg-obsidian/85 backdrop-blur-md border-b border-white/[0.08] px-4 sm:px-8 py-3.5 flex items-center justify-between">
         <div className="flex items-center gap-3">
           <Link
             to={backDestination}
@@ -99,7 +99,7 @@ export default function PrivacyPolicy() {
 
         {/* 3 Core Guarantees Cards */}
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4 my-10">
-          <div className="p-5 rounded-2xl bg-[#0e131b] border border-white/[0.08] space-y-2">
+          <div className="p-5 rounded-2xl bg-carbon border border-white/[0.08] space-y-2">
             <div className="w-9 h-9 rounded-xl bg-cyan-500/10 text-cyan-400 flex items-center justify-center border border-cyan-500/20">
               <Cpu className="w-4 h-4" />
             </div>
@@ -109,7 +109,7 @@ export default function PrivacyPolicy() {
             </p>
           </div>
 
-          <div className="p-5 rounded-2xl bg-[#0e131b] border border-white/[0.08] space-y-2">
+          <div className="p-5 rounded-2xl bg-carbon border border-white/[0.08] space-y-2">
             <div className="w-9 h-9 rounded-xl bg-emerald-500/10 text-emerald-400 flex items-center justify-center border border-emerald-500/20">
               <Lock className="w-4 h-4" />
             </div>
@@ -119,7 +119,7 @@ export default function PrivacyPolicy() {
             </p>
           </div>
 
-          <div className="p-5 rounded-2xl bg-[#0e131b] border border-white/[0.08] space-y-2">
+          <div className="p-5 rounded-2xl bg-carbon border border-white/[0.08] space-y-2">
             <div className="w-9 h-9 rounded-xl bg-purple-500/10 text-purple-400 flex items-center justify-center border border-purple-500/20">
               <UserCheck className="w-4 h-4" />
             </div>
@@ -174,7 +174,7 @@ export default function PrivacyPolicy() {
               We implement industry-standard cryptographic primitives to ensure confidentiality, integrity, and privacy of your records:
             </p>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              <div className="p-4 rounded-xl bg-[#0e131b] border border-white/[0.08] space-y-1.5">
+              <div className="p-4 rounded-xl bg-carbon border border-white/[0.08] space-y-1.5">
                 <div className="text-xs font-semibold text-white flex items-center gap-2">
                   <Database className="w-4 h-4 text-emerald-400" />
                   Fernet Encryption at Rest
@@ -184,7 +184,7 @@ export default function PrivacyPolicy() {
                 </p>
               </div>
 
-              <div className="p-4 rounded-xl bg-[#0e131b] border border-white/[0.08] space-y-1.5">
+              <div className="p-4 rounded-xl bg-carbon border border-white/[0.08] space-y-1.5">
                 <div className="text-xs font-semibold text-white flex items-center gap-2">
                   <Lock className="w-4 h-4 text-cyan-400" />
                   Secure SHA-256 Token Caching
@@ -231,7 +231,7 @@ export default function PrivacyPolicy() {
               You maintain total control over your medical records and conversation history:
             </p>
             <div className="space-y-3">
-              <div className="p-3.5 rounded-xl border border-white/[0.08] bg-[#0e131b] flex items-start gap-3">
+              <div className="p-3.5 rounded-xl border border-white/[0.08] bg-carbon flex items-start gap-3">
                 <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0 mt-0.5" />
                 <div>
                   <strong className="text-white text-xs block">Export Clinical Data:</strong>
@@ -241,7 +241,7 @@ export default function PrivacyPolicy() {
                 </div>
               </div>
 
-              <div className="p-3.5 rounded-xl border border-white/[0.08] bg-[#0e131b] flex items-start gap-3">
+              <div className="p-3.5 rounded-xl border border-white/[0.08] bg-carbon flex items-start gap-3">
                 <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0 mt-0.5" />
                 <div>
                   <strong className="text-white text-xs block">Clear Remembered Facts:</strong>
@@ -251,7 +251,7 @@ export default function PrivacyPolicy() {
                 </div>
               </div>
 
-              <div className="p-3.5 rounded-xl border border-white/[0.08] bg-[#0e131b] flex items-start gap-3">
+              <div className="p-3.5 rounded-xl border border-white/[0.08] bg-carbon flex items-start gap-3">
                 <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0 mt-0.5" />
                 <div>
                   <strong className="text-white text-xs block">Permanent Account &amp; Data Deletion:</strong>
@@ -283,7 +283,7 @@ export default function PrivacyPolicy() {
             <p>
               If you have any questions, concerns, or requests regarding this Privacy Policy or how your clinical health data is handled, please contact our team:
             </p>
-            <div className="p-4 rounded-xl bg-[#0e131b] border border-white/[0.08] space-y-2 text-xs">
+            <div className="p-4 rounded-xl bg-carbon border border-white/[0.08] space-y-2 text-xs">
               <div>
                 <span className="text-slate-400">Privacy &amp; Data Protection Officer: </span>
                 <a href="mailto:privacy@mediskye.com" className="text-cyan-400 hover:underline">

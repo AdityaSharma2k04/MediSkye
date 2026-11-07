@@ -142,7 +142,7 @@ export default function AuthAction() {
   const isVerifyingEmail = mode === 'verifyEmail';
 
   return (
-    <main className="login-page min-h-screen bg-[#07090e] text-slate-100 flex flex-col items-center justify-center px-4 py-10 relative overflow-hidden">
+    <main className="login-page min-h-screen bg-obsidian text-slate-100 flex flex-col items-center justify-center px-4 py-10 relative overflow-hidden">
       <div
         className="login-bg-glow pointer-events-none absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[480px] h-[480px] rounded-full bg-cyan-500/10 blur-[130px]"
         aria-hidden="true"
