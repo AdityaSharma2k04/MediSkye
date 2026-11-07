@@ -22,18 +22,22 @@
 
 ## ✨ Key Engineering Highlights
 
+* **🧪 Clinical Obsidian Workbench Architecture:** Redesigned responsive split-pane clinical workspace featuring the `InspectorPanel` biomarker drawer, interactive SVG `RangeBar` references, `DeltaIndicator` longitudinal deltas, `CommandPalette` (Cmd+K) navigation, and clean physician-ready `PrintableSummary` export.
+* **🛡️ Patient Profile Scoping & Dependent Isolation:** Strict `dependent_id` validation and physical query scoping across chats, documents, and memory facts (`e1a2b3c4d5e6_add_dependent_id_to_chats`), preventing cross-dependent data contamination.
+* **🔬 Deterministic Biomarker Canonical Matching:** Order-dependent whole-word regex matching via `canonical_biomarker_key` eliminates substring collisions (e.g. `Hemoglobin` never collides with `HbA1c`, and `fasting` never collides with `AST`).
 * **⚡ Two-Phase Asynchronous Upload Pipeline:** Decouples critical-path vector indexing (**Step A: ~3–5s**) from background LLM pre-warming and cloud storage syncing (**Step B**), unblocking the user interface immediately while warming caches behind the scenes.
 * **🔍 Hybrid RAG Retrieval (FAISS + BM25):** Combines dense semantic vector embeddings (`models/gemini-embedding-2` batched in slices of 100) with lexical BM25 keyword scoring so exact clinical acronyms (`HbA1c`, `TSH`, `eGFR`, `hs-CRP`) never get lost in vector space.
 * **📈 Longitudinal Multi-Report Comparison (`<prior_lab_reports_history>`) & Source-Attributed Memory:** Cross-chat memory queries prior reports' `cached_metrics` directly from Neon DB and injects them alongside semantic memory chunks, enabling full-panel biomarker tracking (e.g., Ferritin, Hemoglobin, AST, Uric Acid) across follow-up visits with exact source PDF attribution (`(From prior report: "filename.pdf" / YYYY-MM-DD)`).
-* **🧠 0ms Deterministic Intent Router:** Fast-path routing intercepts `EMERGENCY` red-flag symptoms, `CASUAL` greetings, and document-bound `DOCUMENT_QA` queries in **0ms** without burning an extra LLM classification round-trip.
+* **🧠 0ms Deterministic Intent Router & Safety Triage:** Fast-path routing intercepts `EMERGENCY` red-flag symptoms, `CASUAL` greetings, and document-bound `DOCUMENT_QA` queries in **0ms** without burning an extra LLM classification round-trip, backed by negation-aware emergency triage.
 * **🗄️ 3-Tier Index & Database Caching:**
   * **Vector Index Tier:** In-Memory LRU Cache (`maxsize=10`) $\rightarrow$ Local Ephemeral `/tmp` Disk $\rightarrow$ Google Cloud Storage (`GCS`) fallback with `425/503 Retry-After` multi-instance protection.
   * **Clinical Artifact Tier:** Extracted biomarkers (`cached_metrics`) and printable clinical reports (`cached_summary`) are pre-warmed asynchronously upon upload and persisted in **Neon PostgreSQL**; the latest logged cached summary E2E p50 is **411.5 ms**.
 * **🔐 HIPAA-Aligned Security & Auth Hot-Path Optimization:**
   * Unified **Firebase Authentication** (Google OAuth 2.0 + NIST SP 800-63B Email/Password with email verification enforcement).
   * **Fernet Symmetric Encryption** at rest for patient health profiles (`health_profile`), extracted memory facts (`patient_facts.fact_text`), and chat messages (`chats.message`) with strict SQLAlchemy `lazy="raise"` guards and lightweight Pydantic DTO separation (`get_current_user` vs. `get_current_user_full`) so encrypted PHI is never unnecessarily decrypted on standard API calls.
-  * **60s SHA-256 Token TTL Cache** with instant eviction on profile updates or account deletion (`DELETE /users/me`).
-* **📱 Mobile-First & Accessible UI:** Responsive drawer navigation for `375px` viewports, iOS Safari auto-zoom prevention, horizontal scroll wrappers for clinical tables, full keyboard focus trapping (`useFocusTrap`) across all modals, and multi-language (`i18n`) support.
+  * **60s SHA-256 Token TTL Cache** with instant eviction on profile updates, password changes, logout, or account deletion (`DELETE /users/me`).
+* **🛡️ Upload Hardening, Body Limits & Stream Resilience:** Pure-ASGI byte-counting body size limits (1MB JSON, 51MB upload), magic byte and dimension verification for PNG/JPEG/PDF, self-healing 120s monotonic session locking, and terminal `[DONE]` event detection guarding against interrupted SSE streams.
+* **📱 Mobile-First & Accessible UI:** Responsive drawer navigation for `375px` viewports, iOS Safari auto-zoom prevention, horizontal scroll wrappers for clinical tables, full keyboard focus trapping (`useFocusTrap`) across all modals, WCAG AA `#7b8798` ink contrast, and multi-language (`i18n`) support.
 
 ---
 
@@ -160,13 +164,11 @@ Project directory overview based on the local workspace. Important files are ann
 
 ```text
 MediSkye/
-├── .amazonq/
-│   └── rules/memory-bank/
 ├── .github/
 │   └── workflows/tests.yml  # CI test workflow
 ├── backend/
 │   ├── alembic/
-│   │   ├── versions/  # Database migrations
+│   │   ├── versions/  # Database migrations (including e1a2b3c4d5e6 dependent_id)
 │   │   ├── env.py
 │   │   └── script.py.mako
 │   ├── app/
@@ -185,22 +187,22 @@ MediSkye/
 │   │   │   ├── config.py  # Backend settings and environment variables
 │   │   │   ├── limiter.py
 │   │   │   ├── observability.py
+│   │   │   ├── redis_client.py  # TTL-aware bounded MockRedis
 │   │   │   └── security.py
 │   │   ├── db/  # Database access, encryption, and ORM models
 │   │   ├── llm/  # Gemini and embedding clients
-│   │   ├── middleware/
+│   │   ├── middleware/  # BodySizeLimitMiddleware, SecurityHeaders, etc.
 │   │   ├── rag/  # Retrieval, indexing, prompts, and safety
 │   │   ├── schemas/
-│   │   ├── services/
+│   │   ├── services/  # Clinical units, PDF inspection, upload jobs
 │   │   └── main.py
-│   ├── scripts/
-│   │   ├── api_benchmark.py
-│   │   ├── latency_profiler.py
-│   │   └── run_prompt_eval.py
 │   ├── tests/
 │   │   ├── eval/
 │   │   ├── fixtures/test_report.pdf
 │   │   ├── conftest.py  # Shared pytest fixtures
+│   │   ├── test_patient_scoping.py
+│   │   ├── test_upload_hardening.py
+│   │   ├── test_export_data.py
 │   │   ├── test_chaos_edge_cases.py
 │   │   ├── test_e2e_flows.py
 │   │   ├── test_gemini_client.py
@@ -211,7 +213,6 @@ MediSkye/
 │   ├── .dockerignore
 │   ├── .env  # Local config; contents omitted
 │   ├── .env.example
-│   ├── README.md
 │   ├── alembic.ini
 │   ├── docker-compose.yml
 │   ├── Dockerfile  # Backend container image
@@ -219,10 +220,9 @@ MediSkye/
 │   ├── requirements-dev.txt
 │   ├── requirements.txt
 │   └── start.sh
-├── docs/
-│   ├── analyze/comprehensive-project-report.md
-│   └── archive/  # Historical reports and planning documents
 ├── frontend/
+│   ├── public/
+│   │   └── samples/  # Sample reports for 1-click mobile demo
 │   ├── src/
 │   │   ├── components/
 │   │   │   ├── landing/
@@ -232,7 +232,14 @@ MediSkye/
 │   │   │   │   ├── HowItWorksSection.jsx
 │   │   │   │   ├── SafetySection.jsx
 │   │   │   │   └── shared.jsx
-│   │   │   ├── ChatApp.jsx  # Main chat and upload interface
+│   │   │   ├── workbench/  # Clinical Obsidian Workbench
+│   │   │   │   ├── Workbench.jsx
+│   │   │   │   ├── InspectorPanel.jsx
+│   │   │   │   ├── CommandPalette.jsx
+│   │   │   │   ├── RangeBar.jsx
+│   │   │   │   ├── DeltaIndicator.jsx
+│   │   │   │   └── UploadStepper.jsx
+│   │   │   ├── ChatApp.jsx  # Main chat and workbench coordinator
 │   │   │   ├── ChatInput.jsx
 │   │   │   ├── ChatMessage.jsx
 │   │   │   ├── ChatWindow.jsx
@@ -246,12 +253,13 @@ MediSkye/
 │   │   │   ├── Register.jsx
 │   │   │   └── Sidebar.jsx
 │   │   ├── hooks/
+│   │   ├── lib/clinical.js  # Clinical parsing, unit normalization & delta calculation
 │   │   ├── locales/  # English and Hindi translations
 │   │   ├── services/
-│   │   │   ├── api.js  # Backend API client
+│   │   │   ├── api.js  # Backend API client with interrupted stream handling
 │   │   │   └── firebase.js  # Firebase authentication client
 │   │   ├── styles/print.css
-│   │   ├── test/  # Vitest component and service tests
+│   │   ├── test/  # Vitest component and service tests (27 files, 199 tests)
 │   │   ├── App.jsx
 │   │   ├── i18n.js
 │   │   ├── index.css
@@ -259,7 +267,6 @@ MediSkye/
 │   │   └── main.jsx
 │   ├── .env  # Local config; contents omitted
 │   ├── .env.example
-│   ├── DEPLOY.md
 │   ├── index.html
 │   ├── package-lock.json
 │   ├── package.json  # Frontend scripts and dependencies
@@ -267,7 +274,6 @@ MediSkye/
 │   ├── tailwind.config.js
 │   ├── vite.config.js
 │   └── vitest.config.js
-├── .DS_Store
 ├── .env  # Local config; contents omitted
 ├── .gitignore
 ├── Makefile
@@ -279,8 +285,7 @@ MediSkye/
 
 ## 📊 Production Latency Benchmarks
 
-Latest live production benchmark snapshot: **2026-11-06** (Direct API: **09:30:29**; intensive browser E2E: **09:34:04**). Direct API measurements use **N=10 warm runs**; browser latency profiling uses **N=5 runs**. The detailed timestamped logs and intensive E2E report are in [`testing_log`](./testing_log).
-Latest live production benchmark snapshot: **2026-11-06 19:05:00** (Master Final Sign-off Audit; direct API & intensive browser E2E). Direct API measurements use **N=10 warm runs**; browser latency profiling uses **N=5 runs**. The complete audit report is available in [`FINAL_QA_AUDIT_REPORT.md`](./FINAL_QA_AUDIT_REPORT.md) and detailed timestamped logs in [`testing_log`](./testing_log).
+Latest production benchmark snapshot (Direct API & intensive browser E2E, N=10 warm runs):
 
 ### Direct Cloud Run API (N=10 warm runs)
 
@@ -464,7 +469,7 @@ npm run dev
 
 ## 🧪 Running the Test & Benchmark Suites
 
-The test suites pass **286 backend pytest tests** and **178 frontend Vitest tests** (**464 total**). The backend count uses the same `not integration` marker exclusion as CI. The frontend production build completes with zero warnings; all building-index and live Neon cascade-deletion verifications pass with 100% success.
+The test suites pass **312 backend pytest tests** and **199 frontend Vitest tests** (**511 total**). The backend count uses the same `not integration` marker exclusion as CI. The frontend production build completes with zero warnings; all building-index, SRE hardening, and live Neon cascade-deletion verifications pass with 100% success.
 
 ### 1. Backend Unit, E2E, Chaos & Penetration Tests (`pytest`)
 ```bash
@@ -473,24 +478,16 @@ pytest tests -v -m "not integration"
 # Run specific suites:
 pytest tests/test_e2e_flows.py -v
 pytest tests/test_chaos_edge_cases.py -v
-pytest tests/test_penetration.py -v
+pytest tests/test_patient_scoping.py -v
+pytest tests/test_upload_hardening.py -v
 ```
 
 ### 2. Frontend UI, E2E & Accessibility Tests (`Vitest`)
 ```bash
 cd frontend
-npm test
+npm test -- --run
+npm run build
 ```
-
-### 3. Live Production Latency Profiler & Statistical API Benchmark
-```bash
-# Direct Cloud Run API Benchmark (N=10 p50/p95 + X-Process-Time-Ms decomposition)
-python backend/scripts/api_benchmark.py
-
-# Headless Chromium Browser E2E Waterfall Profiler
-python backend/scripts/latency_profiler.py --url https://mediskye.pages.dev
-```
-Live benchmark runs clean up their temporary test accounts (`DELETE /users/me`) and write millisecond reports to `./testing_log` (the scripts create the file if it is absent).
 
 ---
 
