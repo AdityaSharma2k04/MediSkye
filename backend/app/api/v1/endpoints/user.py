@@ -91,12 +91,15 @@ async def change_password(
     DEPRECATED: Password changes are now managed directly via Firebase Auth.
     Change the current user's password after verifying their existing password.
     """
-    if not verify_password(body.current_password, current_user.hashed_password):
+    valid = await asyncio.to_thread(verify_password, body.current_password, current_user.hashed_password)
+    if not valid:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Current password is incorrect",
         )
-    current_user.hashed_password = get_password_hash(body.new_password)
+    current_user.hashed_password = await asyncio.to_thread(get_password_hash, body.new_password)
+    current_user.token_invalid_before = datetime.now(UTC)
+    db.add(current_user)
     await db.commit()
     evict_token_cache_for_user(current_user.id)
     await log_audit(db, "PASSWORD_CHANGED", current_user.id, "change_password", request.client.host if request.client else "unknown")

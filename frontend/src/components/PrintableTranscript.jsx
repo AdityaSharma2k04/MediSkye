@@ -1,4 +1,6 @@
 import React from 'react';
+import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
 import { stripAbnormalFlags } from './ChatMessage';
 
 /**
@@ -53,7 +55,7 @@ export default function PrintableTranscript({ document: doc, messages = [], metr
           return (
             <div key={m.id || idx} className={`ts-msg ${isUser ? 'ts-msg-user' : 'ts-msg-ai'}`}>
               <div className="ts-msg-meta">{isUser ? 'You' : 'MediSkye AI'}{m.timestamp ? ` · ${m.timestamp}` : ''}</div>
-              <div className="ts-msg-body">{text}</div>
+              <div className="ts-msg-body"><ReactMarkdown remarkPlugins={[remarkGfm]}>{text}</ReactMarkdown></div>
             </div>
           );
         })

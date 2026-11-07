@@ -13,6 +13,7 @@ import {
   AlertTriangle,
 } from 'lucide-react';
 import { speakText, stopSpeaking } from '../services/speech';
+import { stripOuterQuotes } from '../lib/clinical';
 import { cn } from '../lib/cn';
 import { BrandMark } from './workbench/Brand';
 
@@ -156,7 +157,7 @@ export default function ChatMessage({ message, onRegenerate }) {
   };
 
   if (isUser) {
-    const cleanUserText = (message?.text || message?.message || '').replace(/^["'“”‘’]+|["'“”‘’]+$/g, '').trim();
+    const cleanUserText = stripOuterQuotes(message?.text || message?.message || '');
     return (
       <div className="flex justify-end mb-5 animate-bubble-in">
         <div className="max-w-[85%] sm:max-w-[78%] rounded-[20px] rounded-br-md px-4 py-2.5 text-[15px] sm:text-[14.5px] leading-relaxed text-ink bg-slate2 border border-white/[0.07] shadow-specular whitespace-pre-wrap break-words">

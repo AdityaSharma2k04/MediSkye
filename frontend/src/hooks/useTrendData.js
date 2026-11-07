@@ -77,7 +77,7 @@ export default function useTrendData({ patientId, reports, enabled }) {
     if (state.key === signature && !state.loading) return undefined;
     const reqId = ++reqRef.current;
     const controller = typeof AbortController !== 'undefined' ? new AbortController() : null;
-    setState((s) => ({ ...s, key: signature, loading: true }));
+    setState({ key: signature, series: new Map(), loading: true, source: null, reportCount: 0 });
 
     (async () => {
       let server = null;

@@ -1,12 +1,12 @@
 import React from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
-import { rangeGeometry, deltaPct, formatDeltaPct } from '../lib/clinical';
+import { rangeGeometry, deltaPct, formatDeltaPct, parseNumeric } from '../lib/clinical';
 
 // ── Sanitize emojis from text and data ─────────────────────────────────────────
 function stripEmojis(text) {
-  if (!text || typeof text !== 'string') return '';
-  return text
+  if (text === null || text === undefined) return '';
+  return String(text)
     .replace(/[\u{1F600}-\u{1F64F}\u{1F300}-\u{1F5FF}\u{1F680}-\u{1F6FF}\u{1F700}-\u{1F77F}\u{1F780}-\u{1F7FF}\u{1F800}-\u{1F8FF}\u{1F900}-\u{1F9FF}\u{1FA00}-\u{1FA6F}\u{1FA70}-\u{1FAFF}\u{2600}-\u{26FF}\u{2700}-\u{27BF}\u{2300}-\u{23FF}\u{2B50}\u{200D}\u{FE0F}]/gu, '')
     .trim();
 }
@@ -78,6 +78,13 @@ export default function PrintableSummary({ user, document, summary, metrics, spe
     return !isOut && !hasDeltaAlert;
   });
 
+  const calcWeight = user?.weight_kg || parseNumeric(user?.weight);
+  const calcHeight = user?.height_cm || parseNumeric(user?.height);
+  const bmiDisplay = user?.bmi || (calcHeight && calcWeight ? (calcWeight / ((calcHeight / 100) ** 2)).toFixed(1) : '—');
+  const lifestyleDisplay = (!user?.diet_type && !user?.activity_level)
+    ? 'Not recorded'
+    : `${user?.diet_type ? stripEmojis(user.diet_type).replace('_', ' ') : 'Standard'} • ${user?.activity_level ? stripEmojis(user.activity_level).replace('_', ' ') : 'Moderate'}`;
+
   return (
     <div
       id="print-summary"
@@ -131,8 +138,8 @@ export default function PrintableSummary({ user, document, summary, metrics, spe
           <div style={{ fontSize: '9pt', lineHeight: '1.4' }}>
             <div><strong>Patient Name:</strong> {patientName}{user?.relationship ? ` (${stripEmojis(user.relationship)})` : ''}</div>
             <div><strong>DOB / Age:</strong> {patientDob}{patientAge ? ` (${patientAge})` : ''} • <strong>Sex:</strong> {user?.biological_sex || 'Unspecified'}</div>
-            <div><strong>Blood Type:</strong> {user?.blood_type || 'Unknown'} • <strong>BMI:</strong> {user?.bmi || (user?.height_cm && user?.weight_kg ? (user.weight_kg / ((user.height_cm / 100) ** 2)).toFixed(1) : '—')}</div>
-            <div><strong>Lifestyle:</strong> {user?.diet_type ? stripEmojis(user.diet_type).replace('_', ' ') : 'Standard'} • {user?.activity_level ? stripEmojis(user.activity_level).replace('_', ' ') : 'Moderate'}</div>
+            <div><strong>Blood Type:</strong> {user?.blood_type || 'Unknown'} • <strong>BMI:</strong> {bmiDisplay}</div>
+            <div><strong>Lifestyle:</strong> {lifestyleDisplay}</div>
           </div>
         </div>
 
@@ -173,7 +180,7 @@ export default function PrintableSummary({ user, document, summary, metrics, spe
 
       {/* ── Clinical Summary (Narrative Findings) ── */}
       {summary && (
-        <div className="finding-block" style={{ marginBottom: '12pt', pageBreakInside: 'avoid', breakInside: 'avoid' }}>
+        <div className="finding-block" style={{ marginBottom: '12pt' }}>
           <h2
             className="section-heading"
             style={{
@@ -205,7 +212,7 @@ export default function PrintableSummary({ user, document, summary, metrics, spe
 
       {/* ── Table 1: Flagged & Notable Delta Biomarkers (Abnormal Values) ── */}
       {flaggedMetrics.length > 0 && (
-        <div className="finding-block" style={{ marginBottom: '12pt', pageBreakInside: 'avoid', breakInside: 'avoid' }}>
+        <div className="finding-block" style={{ marginBottom: '12pt' }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: '4pt' }}>
             <h2
               className="section-heading"
@@ -244,11 +251,11 @@ export default function PrintableSummary({ user, document, summary, metrics, spe
             </thead>
             <tbody>
               {flaggedMetrics.map((m, i) => {
-                const isHigh = m.status?.toLowerCase() === 'high';
-                const isLow = m.status?.toLowerCase() === 'low';
-                const isNotable = Boolean(m.delta_alert);
-                const flagColor = isHigh ? '#b91c1c' : (isLow ? '#d97706' : '#d97706');
-                const flagBg = isHigh ? '#fee2e2' : '#fef3c7';
+                const statusLower = (m.status || '').toLowerCase();
+                const isHighOrCritical = statusLower === 'high' || statusLower.includes('critical') || statusLower.includes('panic');
+                const isLow = statusLower === 'low' || statusLower.startsWith('low');
+                const flagColor = isHighOrCritical ? '#b91c1c' : (isLow ? '#d97706' : '#d97706');
+                const flagBg = isHighOrCritical ? '#fee2e2' : '#fef3c7';
 
                 return (
                   <tr key={i} style={{ borderBottom: '1px solid #e5e7eb', breakInside: 'avoid', pageBreakInside: 'avoid' }}>
@@ -294,8 +301,8 @@ export default function PrintableSummary({ user, document, summary, metrics, spe
       )}
 
       {/* ── Table 2: In-Range Biomarkers (All Lab Results) ── */}
-      {allMetricsList.length > 0 && (
-        <div className="finding-block" style={{ marginBottom: '12pt', pageBreakInside: 'avoid', breakInside: 'avoid' }}>
+      {inRangeMetrics.length > 0 && (
+        <div className="finding-block" style={{ marginBottom: '12pt' }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: '4pt' }}>
             <h2
               className="section-heading"
@@ -331,7 +338,7 @@ export default function PrintableSummary({ user, document, summary, metrics, spe
               </tr>
             </thead>
             <tbody>
-              {(inRangeMetrics.length > 0 ? inRangeMetrics : allMetricsList).map((m, i) => (
+              {inRangeMetrics.map((m, i) => (
                 <tr key={i} style={{ borderBottom: '1px solid #e5e7eb', breakInside: 'avoid', pageBreakInside: 'avoid' }}>
                   <td style={{ padding: '3pt 5pt', fontWeight: 500 }}>{stripEmojis(m.name || m.test)}</td>
                   <td style={{ padding: '3pt 5pt', fontVariantNumeric: 'tabular-nums' }}>{stripEmojis(m.value)}</td>
@@ -351,7 +358,7 @@ export default function PrintableSummary({ user, document, summary, metrics, spe
 
       {/* ── Specialists to Consider ── */}
       {specialists && specialists.length > 0 && (
-        <div className="specialists" style={{ marginBottom: '12pt', pageBreakInside: 'avoid', breakInside: 'avoid' }}>
+        <div className="specialists" style={{ marginBottom: '12pt' }}>
           <h2
             className="section-heading"
             style={{

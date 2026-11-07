@@ -1,0 +1,1932 @@
+===== BUNDLE: 04_frontend_workbench_layout.txt =====
+
+
+### FILE: frontend/src/components/workbench/Workbench.jsx
+```jsx
+import React, { useEffect, useRef, useState } from 'react';
+import {
+  Menu,
+  Printer,
+  Download,
+  FlaskConical,
+  Search,
+  MoreHorizontal,
+  MessageSquare,
+  Activity,
+  FileText,
+  Brain,
+  Users,
+  Settings,
+  Languages,
+  UploadCloud,
+  X,
+} from 'lucide-react';
+import { useTranslation } from 'react-i18next';
+import { cn } from '../../lib/cn';
+import ChatWindow from '../ChatWindow';
+import ChatInput from '../ChatInput';
+import PrintableSummary from '../PrintableSummary';
+import InspectorPanel, { INSPECTOR_TABS } from './InspectorPanel';
+import PatientSwitcher from './PatientSwitcher';
+import UploadStepper from './UploadStepper';
+import { BrandMark } from './Brand';
+import SegmentedControl from '../ui/SegmentedControl';
+import IconButton from '../ui/IconButton';
+import Kbd from '../ui/Kbd';
+import Sheet from '../ui/Sheet';
+import useResizablePane from '../../hooks/useResizablePane';
+import { MOD_LABEL } from '../../hooks/useHotkeys';
+import { STORAGE_KEYS } from '../../lib/storageKeys';
+import { getProfile } from '../../services/api';
+import { reportDateLabel } from '../../lib/clinical';
+
+const MOBILE_VIEW_TABS = {
+  metrics: INSPECTOR_TABS.filter((t) => t.value === 'metrics' || t.value === 'report'),
+  analytics: INSPECTOR_TABS.filter((t) => t.value === 'overview' || t.value === 'trends'),
+};
+
+/**
+ * The clinical workbench: header + conversation column + (desktop) resizable
+ * inspector pane, or (mobile/tablet) a single view switched by a segmented
+ * control with the composer hidden on analytic views.
+ */
+export default function Workbench(props) {
+  const {
+    isDesktop,
+    isMobile,
+    toggleSidebar,
+    currentUser,
+    dependents,
+    selectedPatientId,
+    onSelectPatient,
+    onOpenDependents,
+    activePatient,
+    patientName,
+    reportCounts,
+    messages,
+    isGenerating,
+    loadingHistory,
+    onRegenerate,
+    onSendMessage,
+    onTrySampleReport,
+    onAttachFile,
+    onStopGeneration,
+    chatInputRef,
+    composerDocuments,
+    onDetachDocument,
+    onRemoveFile,
+    activePdf,
+    documentId,
+    attachedDocuments,
+    metrics,
+    metricsLoading,
+    onReloadMetrics,
+    ensureMetrics,
+    trends,
+    inspectorOpen,
+    onToggleInspector,
+    inspectorTab,
+    onInspectorTabChange,
+    metricsFilter,
+    onMetricsFilterChange,
+    metricsSearch,
+    onMetricsSearchChange,
+    highlightKey,
+    onFocusMetric,
+    onAskAbout,
+    viewMode,
+    onViewModeChange,
+    uploadState,
+    onDismissUpload,
+    uploadError,
+    onDismissUploadError,
+    isExportingSummary,
+    printSummaryText,
+    onExportSummary,
+    onOpenExport,
+    onOpenPalette,
+    onOpenSettings,
+    onOpenMemory,
+    onOpenProfile,
+    uiLanguage,
+    onSetUiLanguage,
+    printSignal,
+  } = props;
+
+  const { t } = useTranslation();
+  const containerRef = useRef(null);
+  const inspectorVisible = isDesktop && inspectorOpen && Boolean(activePdf);
+  const pane = useResizablePane({ storageKey: STORAGE_KEYS.inspectorWidth, defaultWidth: 440, min: 340, max: 760, containerRef, active: inspectorVisible });
+  const [showPrintSummary, setShowPrintSummary] = useState(false);
+  const [printMetrics, setPrintMetrics] = useState(null);
+  const [printUser, setPrintUser] = useState(null);
+  const [moreOpen, setMoreOpen] = useState(false);
+  const [dragActive, setDragActive] = useState(false);
+  const dragDepth = useRef(0);
+
+  const mobileAnalytic = !isDesktop && activePdf && (viewMode === 'metrics' || viewMode === 'analytics');
+
+  // When the active report goes away, return mobile users to the conversation
+  useEffect(() => {
+    if (!activePdf && viewMode !== 'chat') onViewModeChange('chat');
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activePdf]);
+
+  // Keep the mobile tab inside the subset that the current view offers
+  useEffect(() => {
+    if (!mobileAnalytic) return;
+    const allowed = MOBILE_VIEW_TABS[viewMode].map((x) => x.value);
+    if (!allowed.includes(inspectorTab)) onInspectorTabChange(allowed[0]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [mobileAnalytic, viewMode]);
+
+  // ── 1-click physician summary (A4 print) ──
+  const handlePrintDoctorSummary = async () => {
+    if (isExportingSummary) return;
+
+    let resolvedUser = activePatient || currentUser;
+    if (!resolvedUser) {
+      try {
+        resolvedUser = await getProfile();
+      } catch (_) {
+        resolvedUser = null;
+      }
+    }
+    setPrintUser(resolvedUser);
+
+    let m = metrics;
+    if (documentId && (!Array.isArray(m) || m.length === 0) && ensureMetrics) {
+      try {
+        m = await ensureMetrics();
+      } catch (_) {
+        m = [];
+      }
+    }
+    setPrintMetrics(Array.isArray(m) ? m : []);
+
+    if (onExportSummary) await onExportSummary();
+
+    setShowPrintSummary(true);
+    setTimeout(() => {
+      const origTitle = document.title;
+      const name = resolvedUser?.full_name || resolvedUser?.name || (resolvedUser?.email ? resolvedUser.email.split('@')[0] : 'Patient');
+      const docTitle = activePdf?.title || activePdf?.name || activePdf?.filename || 'Lab Report';
+      document.title = `${name} - ${docTitle} - Clinical Summary`;
+      const cleanup = () => {
+        document.title = origTitle;
+        setShowPrintSummary(false);
+        window.removeEventListener('afterprint', cleanup);
+      };
+      window.addEventListener('afterprint', cleanup);
+      window.print();
+    }, 150);
+  };
+
+  // Command palette / keyboard shortcut trigger
+  const lastSignal = useRef(printSignal);
+  useEffect(() => {
+    if (printSignal !== lastSignal.current) {
+      lastSignal.current = printSignal;
+      if (activePdf) handlePrintDoctorSummary();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [printSignal]);
+
+  // ── Drag & drop upload on the conversation column ──
+  const hasFiles = (e) => Array.from(e.dataTransfer?.types || []).includes('Files');
+  const onDragEnter = (e) => {
+    if (!hasFiles(e)) return;
+    e.preventDefault();
+    dragDepth.current += 1;
+    setDragActive(true);
+  };
+  const onDragOver = (e) => {
+    if (hasFiles(e)) e.preventDefault();
+  };
+  const onDragLeave = (e) => {
+    if (!hasFiles(e)) return;
+    dragDepth.current = Math.max(0, dragDepth.current - 1);
+    if (dragDepth.current === 0) setDragActive(false);
+  };
+  const onDrop = (e) => {
+    if (!hasFiles(e)) return;
+    e.preventDefault();
+    dragDepth.current = 0;
+    setDragActive(false);
+    const file = e.dataTransfer.files?.[0];
+    if (file) onAttachFile(file);
+  };
+
+  const openUpload = () => chatInputRef.current?.openFileUpload();
+
+  const inspectorShared = {
+    metrics,
+    metricsLoading,
+    onReloadMetrics,
+    trends,
+    activePdf,
+    attachedDocuments,
+    metricsFilter,
+    onMetricsFilterChange,
+    metricsSearch,
+    onMetricsSearchChange,
+    highlightKey,
+    onFocusMetric,
+    onAskAbout,
+    onPrintSummary: handlePrintDoctorSummary,
+    isExporting: isExportingSummary,
+    onExportChat: onOpenExport,
+    onUpload: openUpload,
+  };
+
+  const reportDate = reportDateLabel(activePdf);
+
+  return (
+    <div className="flex-1 min-h-0 flex flex-col h-full">
+      {/* ━━━ Header ━━━ */}
+      <header data-testid="workbench-header" className="shrink-0 z-20 border-b border-white/[0.06] bg-obsidian/85 backdrop-blur-xl pt-safe">
+        <div className="h-14 px-2 sm:px-3 flex items-center gap-1.5 sm:gap-2">
+          <IconButton label="Toggle sidebar" onClick={toggleSidebar} className="shrink-0">
+            <Menu className="w-[18px] h-[18px]" />
+          </IconButton>
+
+          {!isDesktop && <BrandMark size={26} className="shrink-0 mr-0.5" />}
+
+          {currentUser && (
+            <PatientSwitcher
+              currentUser={currentUser}
+              dependents={dependents}
+              selectedPatientId={selectedPatientId}
+              onSelectPatient={onSelectPatient}
+              onOpenDependents={onOpenDependents}
+              reportCounts={reportCounts}
+            />
+          )}
+
+          {isDesktop && activePdf && (
+            <div className="hidden xl:flex items-center gap-2 min-w-0 pl-2 ml-1 border-l border-white/[0.07]">
+              <FileText className="w-3.5 h-3.5 text-cyan-300 shrink-0" />
+              <span className="text-xs text-ink-soft truncate max-w-[240px]">{`${activePdf.filename || activePdf.name || 'Lab report'}`}</span>
+              {reportDate && <span className="ms-num text-[11px] text-ink-faint shrink-0">{`Collected ${reportDate}`}</span>}
+            </div>
+          )}
+
+          <div className="ml-auto flex items-center gap-1 sm:gap-1.5 shrink-0">
+            {isDesktop ? (
+              <button
+                type="button"
+                onClick={onOpenPalette}
+                aria-label="Open command palette"
+                className="ms-tap inline-flex items-center gap-2 h-9 pl-3 pr-1.5 rounded-xl bg-white/[0.03] border border-white/[0.08] text-xs text-ink-mute hover:text-white hover:border-white/[0.14] transition"
+              >
+                <Search className="w-3.5 h-3.5" />
+                <span className="mr-6 hidden xl:inline">{t('workbench.search_or_jump', 'Search or jump to…')}</span>
+                <Kbd>{MOD_LABEL} K</Kbd>
+              </button>
+            ) : (
+              <IconButton label="Open command palette" onClick={onOpenPalette}>
+                <Search className="w-[18px] h-[18px]" />
+              </IconButton>
+            )}
+
+            {isDesktop && activePdf && (
+              <button
+                type="button"
+                onClick={() => onToggleInspector('metrics')}
+                aria-label="View extracted lab metrics table"
+                aria-pressed={inspectorVisible}
+                title={`Clinical inspector (${MOD_LABEL}+\\)`}
+                className={cn(
+                  'ms-tap inline-flex items-center gap-1.5 h-9 px-3 rounded-xl border text-xs font-medium transition',
+                  inspectorVisible ? 'bg-cyan-500/15 border-cyan-500/35 text-cyan-100' : 'bg-white/[0.03] border-white/[0.08] text-ink-soft hover:text-white'
+                )}
+              >
+                <FlaskConical className="w-3.5 h-3.5" />
+                <span className="hidden xl:inline">{t('chat.lab_metrics', 'Lab Metrics')}</span>
+              </button>
+            )}
+
+            {isDesktop && activePdf && (
+              <IconButton
+                tone="outline"
+                onClick={handlePrintDoctorSummary}
+                disabled={isExportingSummary}
+                label="Export Summary"
+                title={isExportingSummary ? t('chat.preparing_summary', 'Preparing Summary...') : 'Print a 2-page A4 physician summary'}
+              >
+                <Printer className={cn('w-4 h-4', isExportingSummary && 'animate-pulse')} />
+              </IconButton>
+            )}
+
+            {isDesktop && onOpenExport && (
+              <IconButton tone="outline" onClick={onOpenExport} label="Export chat data" title="Export full chat transcript and lab metrics (PDF or JSON)">
+                <Download className="w-4 h-4" />
+              </IconButton>
+            )}
+
+            {!isDesktop && (
+              <IconButton label={t('workbench.more_actions', 'More actions')} onClick={() => setMoreOpen(true)}>
+                <MoreHorizontal className="w-[18px] h-[18px]" />
+              </IconButton>
+            )}
+          </div>
+        </div>
+
+        {!isDesktop && activePdf && (
+          <div className="px-3 pb-2.5" data-testid="mobile-view-switcher">
+            <SegmentedControl
+              fullWidth
+              size="sm"
+              layoutId="mobile-view"
+              value={viewMode}
+              onChange={onViewModeChange}
+              options={[
+                { value: 'chat', label: t('chat.view_chat', 'Chat'), icon: MessageSquare, ariaLabel: 'Switch to chat view' },
+                { value: 'metrics', label: t('chat.lab_metrics', 'Lab Metrics'), icon: FlaskConical, ariaLabel: 'View extracted lab metrics table' },
+                { value: 'analytics', label: t('workbench.insights', 'Insights'), icon: Activity, ariaLabel: 'View clinical insights and trends' },
+              ]}
+            />
+          </div>
+        )}
+      </header>
+
+      {/* ━━━ Body ━━━ */}
+      <div ref={containerRef} className="flex-1 min-h-0 flex relative">
+        <section
+          data-testid="conversation-pane"
+          aria-label="Conversation"
+          className={cn('relative flex-1 min-w-0 flex flex-col', mobileAnalytic && 'hidden')}
+          onDragEnter={onDragEnter}
+          onDragOver={onDragOver}
+          onDragLeave={onDragLeave}
+          onDrop={onDrop}
+        >
+          <ChatWindow
+            messages={messages}
+            isGenerating={isGenerating}
+            loadingHistory={loadingHistory}
+            onRegenerate={onRegenerate}
+            onSelectSampleQuery={onSendMessage}
+            onTrySampleReport={onTrySampleReport}
+            activePdf={activePdf}
+            currentUser={currentUser}
+            patientName={patientName}
+            metrics={metrics}
+          />
+
+          {(uploadError || uploadState) && (
+            <div className="w-full max-w-3xl mx-auto px-3 sm:px-6 pb-1.5 space-y-2">
+              {uploadError && (
+                <div role="alert" className="flex items-center justify-between gap-2.5 px-3.5 py-2.5 rounded-2xl text-xs font-medium bg-rose-500/10 border border-rose-500/25 text-rose-200 animate-fade-in">
+                  <span>{uploadError}</span>
+                  <button type="button" onClick={onDismissUploadError} aria-label="Dismiss upload error" className="w-7 h-7 rounded-lg flex items-center justify-center text-rose-200 hover:text-white hover:bg-white/[0.06]">
+                    <X className="w-3.5 h-3.5" />
+                  </button>
+                </div>
+              )}
+              {uploadState && <UploadStepper upload={uploadState} onDismiss={onDismissUpload} />}
+            </div>
+          )}
+
+          {/* Composer: always mounted (its file input is the upload entry point); hidden on mobile analytic views */}
+          <div className="shrink-0">
+            <ChatInput
+              ref={chatInputRef}
+              onSendMessage={onSendMessage}
+              onAttachFile={onAttachFile}
+              activeFile={activePdf}
+              attachedDocuments={composerDocuments}
+              onDetachDocument={onDetachDocument}
+              onRemoveFile={onRemoveFile}
+              isGenerating={isGenerating}
+              onStopGeneration={onStopGeneration}
+            />
+          </div>
+
+          {dragActive && (
+            <div className="absolute inset-3 z-30 rounded-3xl border-2 border-dashed border-cyan-400/60 bg-cyan-500/[0.07] backdrop-blur-sm flex flex-col items-center justify-center text-center pointer-events-none animate-fade-in">
+              <UploadCloud className="w-8 h-8 text-cyan-300 mb-2" />
+              <div className="ms-display text-xl text-white">{t('workbench.drop_to_analyze', 'Drop to analyze')}</div>
+              <div className="text-xs text-ink-mute mt-1">{t('workbench.drop_hint', 'PDF, JPG or PNG up to 50 MB')}</div>
+            </div>
+          )}
+        </section>
+
+        {mobileAnalytic && (
+          <section data-testid="mobile-insights-view" aria-label="Clinical insights" className="flex-1 min-w-0 flex flex-col">
+            <InspectorPanel
+              {...inspectorShared}
+              variant="screen"
+              layout={isMobile ? 'auto' : 'table'}
+              tabs={MOBILE_VIEW_TABS[viewMode]}
+              tab={MOBILE_VIEW_TABS[viewMode].some((x) => x.value === inspectorTab) ? inspectorTab : MOBILE_VIEW_TABS[viewMode][0].value}
+              onTabChange={onInspectorTabChange}
+            />
+          </section>
+        )}
+
+        {inspectorVisible && (
+          <>
+            <div
+              {...pane.handleProps}
+              data-testid="inspector-resize-handle"
+              className={cn(
+                'group relative w-[9px] -mx-1 z-10 shrink-0 cursor-col-resize flex items-stretch justify-center outline-none',
+                'focus-visible:[&>span]:bg-cyan-400'
+              )}
+            >
+              <span className={cn('w-px h-full transition-colors', pane.isDragging ? 'bg-cyan-400' : 'bg-white/[0.07] group-hover:bg-cyan-500/60')} />
+            </div>
+            <aside data-testid="inspector-pane" aria-label="Clinical inspector" style={{ width: pane.width }} className="shrink-0 min-h-0 flex flex-col animate-fade-in">
+              <InspectorPanel
+                {...inspectorShared}
+                variant="pane"
+                layout={pane.width >= 640 ? 'table' : 'list'}
+                compactTabs={pane.width < 420}
+                tab={inspectorTab}
+                onTabChange={onInspectorTabChange}
+                onClose={() => onToggleInspector(null, false)}
+              />
+            </aside>
+          </>
+        )}
+      </div>
+
+      {/* Mobile overflow actions */}
+      {!isDesktop && (
+        <Sheet open={moreOpen} onOpenChange={setMoreOpen} title="Actions" icon={MoreHorizontal} variant="center" width={420}>
+          <div className="p-3 space-y-1">
+            {activePdf && (
+              <SheetAction
+                icon={Printer}
+                label={isExportingSummary ? t('chat.preparing_summary', 'Preparing Summary...') : t('workbench.print_physician', 'Print physician summary')}
+                onClick={() => {
+                  setMoreOpen(false);
+                  setTimeout(handlePrintDoctorSummary, 250);
+                }}
+              />
+            )}
+            {onOpenExport && <SheetAction icon={Download} label={t('workbench.export_transcript', 'Export chat transcript')} onClick={() => { setMoreOpen(false); onOpenExport(); }} />}
+            <SheetAction icon={Brain} label={t('workbench.memory_vault', 'Memory vault')} onClick={() => { setMoreOpen(false); onOpenMemory?.(); }} />
+            <SheetAction icon={Users} label={t('workbench.caregiver_hub', 'Profile & caregivers')} onClick={() => { setMoreOpen(false); onOpenProfile?.(); }} />
+            <SheetAction
+              icon={Languages}
+              label={uiLanguage === 'hi' ? 'Switch to English' : 'हिंदी में बदलें (Hindi)'}
+              onClick={() => onSetUiLanguage?.(uiLanguage === 'hi' ? 'en' : 'hi')}
+            />
+            <SheetAction icon={Settings} label={t('sidebar.settings', 'Settings')} onClick={() => { setMoreOpen(false); onOpenSettings?.(); }} />
+          </div>
+        </Sheet>
+      )}
+
+      {/* PrintableSummary — mounted only while printing */}
+      {showPrintSummary && (
+        <PrintableSummary
+          user={printUser || activePatient || currentUser}
+          document={{ ...activePdf, collected_at: activePdf?.collected_at || printMetrics?.collected_at }}
+          summary={printSummaryText || messages.filter((m) => m.sender === 'assistant').map((m) => m.text).join('\n\n')}
+          metrics={printMetrics || metrics}
+          specialists={messages.flatMap((m) => m.specialists || [])}
+        />
+      )}
+    </div>
+  );
+}
+
+function SheetAction({ icon: Icon, label, onClick }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className="ms-tap w-full flex items-center gap-3 px-3 h-12 rounded-xl text-left text-sm text-ink-soft hover:bg-white/[0.05] hover:text-white transition"
+    >
+      <Icon className="w-4 h-4 text-ink-mute" />
+      {label}
+    </button>
+  );
+}
+
+```
+
+
+### FILE: frontend/src/components/workbench/NavRail.jsx
+```jsx
+import React from 'react';
+import { Plus, Search, Brain, Users, Settings, PanelLeftOpen, Upload } from 'lucide-react';
+import { cn } from '../../lib/cn';
+import { BrandMark } from './Brand';
+import { PatientAvatar } from './PatientSwitcher';
+
+/**
+ * Slim 56px desktop rail shown while the history sidebar is collapsed.
+ * Keeps the most frequent destinations one click away.
+ */
+export default function NavRail({ onExpand, onNewChat, onOpenPalette, onUpload, onOpenMemory, onOpenCaregivers, onOpenSettings, currentUser }) {
+  const item = 'ms-tap w-10 h-10 rounded-xl flex items-center justify-center text-ink-mute hover:text-white hover:bg-white/[0.06] transition';
+  return (
+    <nav
+      data-testid="nav-rail"
+      aria-label="Quick navigation"
+      className="hidden lg:flex fixed inset-y-0 left-0 z-30 w-14 flex-col items-center py-3 gap-1 border-r border-white/[0.06] bg-obsidian"
+    >
+      <div className="mb-2">
+        <BrandMark size={32} />
+      </div>
+      <button type="button" onClick={onExpand} className={item} aria-label="Expand sidebar" title="Expand history">
+        <PanelLeftOpen className="w-[18px] h-[18px]" />
+      </button>
+      <button type="button" onClick={onNewChat} className={cn(item, 'text-cyan-300 hover:text-cyan-200')} aria-label="Start a new chat" title="New conversation">
+        <Plus className="w-[18px] h-[18px]" />
+      </button>
+      <button type="button" onClick={onUpload} className={item} aria-label="Upload a lab report" title="Upload a lab report">
+        <Upload className="w-[18px] h-[18px]" />
+      </button>
+      <button type="button" onClick={onOpenPalette} className={item} aria-label="Open command palette" title="Search and commands (Ctrl K)">
+        <Search className="w-[18px] h-[18px]" />
+      </button>
+      <div className="w-6 h-px bg-white/[0.07] my-2" />
+      <button type="button" onClick={onOpenMemory} className={item} aria-label="Open memory vault" title="Memory vault">
+        <Brain className="w-[18px] h-[18px]" />
+      </button>
+      <button type="button" onClick={onOpenCaregivers} className={item} aria-label="Open caregiver hub" title="Caregiver hub">
+        <Users className="w-[18px] h-[18px]" />
+      </button>
+      <div className="mt-auto flex flex-col items-center gap-1">
+        <button type="button" onClick={onOpenSettings} className={item} aria-label="Open settings" title="Settings">
+          <Settings className="w-[18px] h-[18px]" />
+        </button>
+        <span title={currentUser?.email || ''} className="mt-1">
+          <PatientAvatar name={currentUser?.full_name || currentUser?.email || 'U'} size="md" />
+        </span>
+      </div>
+    </nav>
+  );
+}
+
+```
+
+
+### FILE: frontend/src/components/Sidebar.jsx
+```jsx
+import React, { useState, useRef, useEffect, useMemo } from 'react';
+import {
+  Plus,
+  Search,
+  MessageSquare,
+  FileText,
+  Settings,
+  ShieldCheck,
+  Users,
+  Trash2,
+  MoreHorizontal,
+  Pencil,
+  Check,
+  X,
+  LogOut,
+  Brain,
+  PanelLeftClose,
+} from 'lucide-react';
+import { useTranslation } from 'react-i18next';
+import ConfirmModal from './ConfirmModal';
+import { cn } from '../lib/cn';
+import { BrandLockup } from './workbench/Brand';
+import { PatientAvatar } from './workbench/PatientSwitcher';
+import Kbd from './ui/Kbd';
+import { MOD_LABEL } from '../hooks/useHotkeys';
+
+function formatRelativeTime(ts) {
+  if (!ts) return '';
+  const date = typeof ts === 'string' ? new Date(ts) : ts;
+  if (isNaN(date)) return '';
+  const diff = Date.now() - date.getTime();
+  const mins = Math.floor(diff / 60000);
+  if (mins < 1) return 'just now';
+  if (mins < 60) return `${mins}m ago`;
+  const hrs = Math.floor(mins / 60);
+  if (hrs < 24) return `${hrs}h ago`;
+  const days = Math.floor(hrs / 24);
+  if (days < 7) return `${days}d ago`;
+  return date.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+}
+
+export default function Sidebar({
+  isOpen,
+  onToggle,
+  conversations,
+  activeSessionId,
+  onSelectChat,
+  onNewChat,
+  onOpenSettings,
+  onOpenProfile,
+  onOpenMemory,
+  onOpenPalette,
+  activePdf, // eslint-disable-line no-unused-vars
+  onLogout,
+  onDeleteChat,
+  onRenameChat,
+  currentUser,
+  dependents = [],
+}) {
+  const { t } = useTranslation();
+  const [searchQuery, setSearchQuery] = useState('');
+  const [pendingDeleteId, setPendingDeleteId] = useState(null);
+  const [pendingLogout, setPendingLogout] = useState(false);
+  const [openMenuId, setOpenMenuId] = useState(null);
+  const [renamingId, setRenamingId] = useState(null);
+  const [renameValue, setRenameValue] = useState('');
+  const renameInputRef = useRef(null);
+  const menuRefs = useRef({});
+
+  // Guarantee menu is closed on every mount (guards against StrictMode double-invoke)
+  useEffect(() => {
+    setOpenMenuId(null);
+  }, []);
+
+  const dependentIndex = useMemo(() => {
+    const m = new Map();
+    (dependents || []).forEach((d, i) => m.set(String(d.id), { name: d.full_name, index: i + 1 }));
+    return m;
+  }, [dependents]);
+
+  // Omit empty untitled placeholder chats from history if they are inactive
+  const filteredChats = (conversations || [])
+    .filter((c) => {
+      const isBlankPlaceholder =
+        (c.title === 'New Conversation' || c.title === 'New chat') &&
+        Array.isArray(c.messages) &&
+        c.messages.length === 0 &&
+        !c.pdf &&
+        !c.document_id &&
+        c.id !== activeSessionId;
+      return !isBlankPlaceholder;
+    })
+    .filter((c) => (c.title || 'New Conversation').toLowerCase().includes(searchQuery.toLowerCase()));
+
+  const reportChats = filteredChats.filter((c) => c.pdf || c.document_id);
+  const plainChats = filteredChats.filter((c) => !(c.pdf || c.document_id));
+
+  // Close menu when clicking outside or pressing Escape
+  useEffect(() => {
+    if (!openMenuId) return undefined;
+    const handleMouseDown = (e) => {
+      const ref = menuRefs.current[openMenuId];
+      if (ref && !ref.contains(e.target)) setOpenMenuId(null);
+    };
+    const handleKeyDown = (e) => {
+      if (e.key === 'Escape') setOpenMenuId(null);
+    };
+    document.addEventListener('mousedown', handleMouseDown);
+    document.addEventListener('keydown', handleKeyDown);
+    return () => {
+      document.removeEventListener('mousedown', handleMouseDown);
+      document.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [openMenuId]);
+
+  useEffect(() => {
+    if (renamingId && renameInputRef.current) {
+      renameInputRef.current.focus();
+      renameInputRef.current.select();
+    }
+  }, [renamingId]);
+
+  const handleDeleteConfirmed = () => {
+    if (pendingDeleteId && onDeleteChat) onDeleteChat(pendingDeleteId, /* skipConfirm */ true);
+    setPendingDeleteId(null);
+  };
+
+  const startRename = (chat) => {
+    setOpenMenuId(null);
+    setRenamingId(chat.id);
+    setRenameValue(chat.title || 'New Conversation');
+  };
+
+  const commitRename = (id) => {
+    if (renameValue.trim() && onRenameChat) onRenameChat(id, renameValue.trim());
+    setRenamingId(null);
+  };
+
+  const cancelRename = () => {
+    setRenamingId(null);
+    setRenameValue('');
+  };
+
+  const renderChat = (chat, index) => {
+    const isActive = Boolean(chat.id) && chat.id === activeSessionId;
+    const isRenaming = Boolean(renamingId) && renamingId === chat.id;
+    const isMenuOpen = Boolean(openMenuId) && openMenuId === chat.id;
+    const displayTitle = chat.title || 'New Conversation';
+    const isReport = Boolean(chat.pdf || chat.document_id);
+    const dep = chat.patient_id && chat.patient_id !== 'self' ? dependentIndex.get(String(chat.patient_id)) : null;
+
+    return (
+      <div key={chat.id || `chat-${index}`} className="relative group flex items-center w-full min-w-0">
+        {isRenaming ? (
+          <div className="flex-1 flex items-center gap-1 min-w-0 px-1 py-1">
+            <input
+              ref={renameInputRef}
+              type="text"
+              value={renameValue}
+              onChange={(e) => setRenameValue(e.target.value.slice(0, 60))}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') commitRename(chat.id);
+                if (e.key === 'Escape') cancelRename();
+              }}
+              maxLength={60}
+              aria-label="Rename chat"
+              className="flex-1 min-w-0 h-9 text-[13px] px-2.5 rounded-lg bg-graphite text-white border border-cyan-500/40 focus:outline-none"
+            />
+            <button
+              type="button"
+              onClick={() => commitRename(chat.id)}
+              aria-label="Confirm rename"
+              className="ms-tap shrink-0 w-8 h-8 rounded-lg flex items-center justify-center text-emerald-300 hover:bg-white/[0.06]"
+            >
+              <Check className="w-3.5 h-3.5" />
+            </button>
+            <button
+              type="button"
+              onClick={cancelRename}
+              aria-label="Cancel rename"
+              className="ms-tap shrink-0 w-8 h-8 rounded-lg flex items-center justify-center text-ink-mute hover:text-white hover:bg-white/[0.06]"
+            >
+              <X className="w-3.5 h-3.5" />
+            </button>
+          </div>
+        ) : (
+          <>
+            <button
+              type="button"
+              onClick={() => onSelectChat(chat.id)}
+              aria-current={isActive ? 'page' : undefined}
+              className={cn(
+                'relative flex-1 min-w-0 text-left pl-2.5 pr-9 py-2 rounded-xl text-[13px] flex items-start gap-2.5 transition-colors',
+                isActive ? 'bg-white/[0.07] text-white' : 'text-ink-mute hover:bg-white/[0.035] hover:text-ink'
+              )}
+            >
+              {isActive && <span className="absolute left-0 top-2 bottom-2 w-[2px] rounded-full bg-clinical-cyan" aria-hidden="true" />}
+              {isReport ? (
+                <FileText className={cn('w-4 h-4 mt-px shrink-0', isActive ? 'text-cyan-300' : 'text-ink-faint')} />
+              ) : (
+                <MessageSquare className={cn('w-4 h-4 mt-px shrink-0', isActive ? 'text-ink-soft' : 'text-ink-faint')} />
+              )}
+              <span className="min-w-0 flex-1">
+                <span className="block truncate font-medium">{displayTitle}</span>
+                {(chat.collected_at || chat.created_at || dep) && (
+                  <span className="flex items-center gap-1.5 mt-1">
+                    {dep && <PatientAvatar name={dep.name} index={dep.index} size="sm" className="!w-4 !h-4 !text-[8px]" />}
+                    {chat.collected_at ? (
+                      <span className="text-[10px] ms-num px-1.5 py-px rounded-md bg-cyan-500/10 text-cyan-200/90 border border-cyan-500/15">{chat.collected_at}</span>
+                    ) : null}
+                    {chat.created_at && <span className="text-[10px] text-ink-faint">{formatRelativeTime(chat.created_at)}</span>}
+                  </span>
+                )}
+              </span>
+            </button>
+
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                if (!chat.id) return;
+                setOpenMenuId((prev) => (prev === chat.id ? null : chat.id));
+              }}
+              aria-label="Chat options"
+              aria-haspopup="menu"
+              aria-expanded={isMenuOpen}
+              className={cn(
+                'absolute right-1 top-1.5 w-7 h-7 rounded-lg flex items-center justify-center text-ink-mute hover:text-white hover:bg-white/[0.08] transition-opacity',
+                'opacity-0 group-hover:opacity-100 focus:opacity-100 [@media(pointer:coarse)]:opacity-100',
+                isMenuOpen && '!opacity-100'
+              )}
+            >
+              <MoreHorizontal className="w-4 h-4" />
+            </button>
+
+            {isMenuOpen && (
+              <div
+                ref={(el) => {
+                  if (chat.id) menuRefs.current[chat.id] = el;
+                }}
+                role="menu"
+                className="absolute right-0 top-9 z-50 w-40 rounded-xl ms-glass overflow-hidden text-[13px] p-1 animate-slide-in"
+              >
+                <button
+                  type="button"
+                  onClick={() => startRename(chat)}
+                  className="w-full flex items-center gap-2 px-2.5 h-9 rounded-lg text-ink-soft hover:bg-white/[0.06] hover:text-white transition-colors"
+                >
+                  <Pencil className="w-3.5 h-3.5" />
+                  <span>{t('sidebar.rename', 'Rename')}</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setOpenMenuId(null);
+                    setPendingDeleteId(chat.id);
+                  }}
+                  className="w-full flex items-center gap-2 px-2.5 h-9 rounded-lg text-rose-300 hover:bg-rose-500/10 transition-colors"
+                >
+                  <Trash2 className="w-3.5 h-3.5" />
+                  <span>{t('sidebar.delete', 'Delete')}</span>
+                </button>
+              </div>
+            )}
+          </>
+        )}
+      </div>
+    );
+  };
+
+  const footerBtn = 'ms-tap w-full flex items-center gap-2.5 px-2.5 h-9 rounded-xl text-[13px] text-ink-mute hover:bg-white/[0.04] hover:text-white transition-colors';
+  const identity = currentUser?.full_name || (currentUser?.email ? currentUser.email.split('@')[0] : 'Patient Session');
+
+  return (
+    <>
+      <aside className="w-full h-full flex flex-col border-r border-white/[0.06] bg-obsidian pt-safe">
+        <div className="h-14 px-3.5 flex items-center justify-between shrink-0">
+          <BrandLockup size={28} subtitle={t('sidebar.medical_assistant', 'Medical Assistant')} />
+          {isOpen && onToggle && (
+            <button
+              type="button"
+              onClick={onToggle}
+              aria-label="Collapse sidebar"
+              title="Collapse sidebar"
+              className="ms-tap w-8 h-8 rounded-lg flex items-center justify-center text-ink-faint hover:text-white hover:bg-white/[0.06] transition"
+            >
+              <PanelLeftClose className="w-4 h-4" />
+            </button>
+          )}
+        </div>
+
+        {isOpen && (
+          <div className="flex-1 min-h-0 flex flex-col px-2.5 pb-2.5 gap-3">
+            <div className="flex items-center gap-2 px-0.5">
+              <button
+                type="button"
+                onClick={onNewChat}
+                className="ms-tap flex-1 flex items-center justify-center gap-2 h-10 px-3 rounded-xl font-semibold text-[13px] bg-clinical-cyan hover:bg-cyan-300 text-slate-950 shadow-[0_8px_24px_-12px_rgba(6,182,212,0.9)] transition active:scale-[0.98]"
+              >
+                <Plus className="w-4 h-4" />
+                <span>{t('sidebar.new_consultation', 'New Conversation')}</span>
+              </button>
+              {onOpenPalette && (
+                <button
+                  type="button"
+                  onClick={onOpenPalette}
+                  aria-label="Open command palette"
+                  title={`Search everything (${MOD_LABEL}+K)`}
+                  className="ms-tap w-10 h-10 rounded-xl flex items-center justify-center bg-white/[0.03] border border-white/[0.08] text-ink-mute hover:text-white hover:bg-white/[0.06] transition"
+                >
+                  <Search className="w-4 h-4" />
+                </button>
+              )}
+            </div>
+
+            <div className="relative px-0.5">
+              <Search className="w-3.5 h-3.5 absolute left-3.5 top-1/2 -translate-y-1/2 text-ink-faint" />
+              <input
+                type="text"
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                placeholder={t('sidebar.search', 'Search chats...')}
+                aria-label="Search chat history"
+                className="w-full h-9 pl-8 pr-12 text-[13px] rounded-xl bg-white/[0.03] text-white placeholder:text-ink-faint border border-white/[0.06] focus:outline-none focus:border-white/[0.16] transition"
+              />
+              <span className="absolute right-2.5 top-1/2 -translate-y-1/2 hidden lg:inline-flex">
+                <Kbd>{`${MOD_LABEL} K`}</Kbd>
+              </span>
+            </div>
+
+            <div className="flex-1 min-h-0 overflow-y-auto -mx-1 px-1 space-y-4">
+              {filteredChats.length === 0 ? (
+                (conversations || []).length === 0 ? (
+                  <div className="flex flex-col items-center text-center py-10 px-3 animate-fade-in">
+                    <div className="w-10 h-10 rounded-2xl flex items-center justify-center mb-3 bg-white/[0.04] text-ink-mute">
+                      <MessageSquare className="w-5 h-5" />
+                    </div>
+                    <div className="text-xs font-semibold mb-1 text-ink-soft">{t('sidebar.no_conversations_title', 'No conversations yet')}</div>
+                    <div className="text-[11px] leading-relaxed mb-4 text-ink-faint">
+                      {t('sidebar.no_conversations_subtitle', 'Upload a medical report or start a new conversation to see it here.')}
+                    </div>
+                    <button
+                      type="button"
+                      onClick={onNewChat}
+                      className="px-3 h-8 rounded-lg text-[11px] font-medium border border-white/[0.1] text-ink-soft hover:bg-white/[0.05] hover:text-white transition"
+                    >
+                      {t('sidebar.new_consultation', 'New Conversation')}
+                    </button>
+                  </div>
+                ) : (
+                  <div className="flex flex-col items-center text-center py-10 px-3 animate-fade-in">
+                    <Search className="w-5 h-5 mb-2 text-ink-faint" />
+                    <div className="text-xs text-ink-faint">{t('sidebar.no_chats', 'No chats found')}</div>
+                  </div>
+                )
+              ) : (
+                <>
+                  {reportChats.length > 0 && (
+                    <section aria-label="Lab reports">
+                      <h3 className="px-2.5 pb-1 text-[11px] font-semibold text-ink-faint">Lab reports</h3>
+                      <div className="space-y-0.5">{reportChats.map(renderChat)}</div>
+                    </section>
+                  )}
+                  {plainChats.length > 0 && (
+                    <section aria-label={t('sidebar.history', 'History')}>
+                      <h3 className="px-2.5 pb-1 text-[11px] font-semibold text-ink-faint">{t('sidebar.history', 'History')}</h3>
+                      <div className="space-y-0.5">{plainChats.map(renderChat)}</div>
+                    </section>
+                  )}
+                </>
+              )}
+            </div>
+
+            <div className="pt-2 border-t border-white/[0.06] space-y-0.5">
+              {onOpenMemory && (
+                <button type="button" onClick={onOpenMemory} className={footerBtn}>
+                  <Brain className="w-4 h-4 text-violet-300" />
+                  <span>Memory vault</span>
+                </button>
+              )}
+              <button type="button" onClick={onOpenProfile} className={footerBtn}>
+                <Users className="w-4 h-4 text-cyan-300" />
+                <span>{t('sidebar.profile', 'Profile & Caregiver Hub')}</span>
+              </button>
+              <button type="button" onClick={onOpenSettings} className={footerBtn}>
+                <Settings className="w-4 h-4" />
+                <span>{t('sidebar.settings', 'Settings')}</span>
+              </button>
+              <button type="button" onClick={() => setPendingLogout(true)} className={footerBtn}>
+                <LogOut className="w-4 h-4 text-rose-400" />
+                <span>{t('sidebar.logout', 'Log out')}</span>
+              </button>
+
+              <div className="mt-1.5 flex items-center gap-2.5 px-2 py-2 rounded-xl bg-white/[0.02] border border-white/[0.05]">
+                <PatientAvatar name={identity} size="md" />
+                <div className="min-w-0 text-[11px]">
+                  <div className="font-medium truncate text-ink">{identity}</div>
+                  <div className="flex items-center gap-1 text-[10px] truncate text-ink-faint">
+                    <ShieldCheck className="w-3 h-3 shrink-0 text-emerald-400/80" />
+                    <span className="truncate">{t('sidebar.encrypted', 'Encrypted at rest (Fernet) • TLS 1.3 in transit')}</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+      </aside>
+
+      <ConfirmModal
+        isOpen={!!pendingDeleteId}
+        onClose={() => setPendingDeleteId(null)}
+        onConfirm={handleDeleteConfirmed}
+        title="Delete this conversation?"
+        body="This will permanently delete the chat history and any patient context linked to this session. This action cannot be undone."
+        confirmLabel="Delete"
+        requireTyping={null}
+        closeable={true}
+        darkMode
+      />
+
+      <ConfirmModal
+        isOpen={pendingLogout}
+        onClose={() => setPendingLogout(false)}
+        onConfirm={() => {
+          setPendingLogout(false);
+          if (onLogout) onLogout();
+        }}
+        title="Log out of MediSkye?"
+        body="You will be returned to the login screen and any locally cached health data on this device will be cleared."
+        confirmLabel="Log out"
+        requireTyping={null}
+        closeable={true}
+        darkMode
+      />
+    </>
+  );
+}
+
+```
+
+
+### FILE: frontend/src/components/workbench/PatientSwitcher.jsx
+```jsx
+import React, { useEffect, useRef, useState } from 'react';
+import { AnimatePresence, motion } from 'framer-motion';
+import { Check, ChevronDown, Plus, Users } from 'lucide-react';
+import { useTranslation } from 'react-i18next';
+import { cn } from '../../lib/cn';
+import useViewport from '../../hooks/useViewport';
+import Sheet from '../ui/Sheet';
+
+const AVATAR_TONES = [
+  'from-cyan-500/30 to-cyan-700/30 text-cyan-100 ring-cyan-400/30',
+  'from-emerald-500/30 to-emerald-700/30 text-emerald-100 ring-emerald-400/30',
+  'from-violet-500/30 to-violet-700/30 text-violet-100 ring-violet-400/30',
+  'from-amber-500/30 to-amber-700/30 text-amber-100 ring-amber-400/30',
+  'from-rose-500/30 to-rose-700/30 text-rose-100 ring-rose-400/30',
+];
+
+export function initialsOf(name = '', fallback = 'U') {
+  const parts = String(name).trim().split(/\s+/).filter(Boolean);
+  if (!parts.length) return fallback;
+  return (parts[0][0] + (parts.length > 1 ? parts[parts.length - 1][0] : '')).toUpperCase();
+}
+
+export function PatientAvatar({ name, index = 0, size = 'md', className }) {
+  const sizes = { sm: 'w-6 h-6 text-[10px]', md: 'w-8 h-8 text-xs', lg: 'w-11 h-11 text-sm' };
+  return (
+    <span className={cn('inline-flex items-center justify-center rounded-full bg-gradient-to-br ring-1 font-semibold shrink-0', AVATAR_TONES[index % AVATAR_TONES.length], sizes[size], className)}>
+      {initialsOf(name)}
+    </span>
+  );
+}
+
+/** Builds the list of selectable patients (Self first). */
+export function buildPatients(currentUser, dependents = []) {
+  const selfName = currentUser?.full_name || (currentUser?.email ? currentUser.email.split('@')[0] : 'My profile');
+  return [
+    {
+      id: 'self',
+      name: selfName,
+      relationship: 'Self',
+      meta: [currentUser?.calculated_age ? `${currentUser.calculated_age} yrs` : null, currentUser?.biological_sex].filter(Boolean).join(', '),
+    },
+    ...(Array.isArray(dependents) ? dependents : []).map((d) => ({
+      id: d.id,
+      name: d.full_name || 'Dependent',
+      relationship: d.relationship || 'Dependent',
+      meta: [d.calculated_age !== null && d.calculated_age !== undefined ? `${d.calculated_age} yrs` : null, d.biological_sex].filter(Boolean).join(', '),
+    })),
+  ];
+}
+
+export function isSelfSelected(selectedPatientId, currentUser) {
+  return !selectedPatientId || selectedPatientId === 'self' || (currentUser && String(selectedPatientId) === String(currentUser.id));
+}
+
+/**
+ * Caregiver patient switcher.
+ * Desktop: anchored popover. Mobile: bottom sheet with large touch cards.
+ */
+export default function PatientSwitcher({ currentUser, dependents = [], selectedPatientId, onSelectPatient, onOpenDependents, reportCounts = {}, compact = false }) {
+  const { t } = useTranslation();
+  const [open, setOpen] = useState(false);
+  const { isMobile } = useViewport();
+  const ref = useRef(null);
+
+  const patients = buildPatients(currentUser, dependents);
+  const selfSelected = isSelfSelected(selectedPatientId, currentUser);
+  const activeIdx = selfSelected ? 0 : Math.max(0, patients.findIndex((p) => String(p.id) === String(selectedPatientId)));
+  const active = patients[activeIdx] || patients[0];
+
+  useEffect(() => {
+    if (!open || isMobile) return undefined;
+    const onDown = (e) => {
+      if (ref.current && !ref.current.contains(e.target)) setOpen(false);
+    };
+    const onKey = (e) => e.key === 'Escape' && setOpen(false);
+    document.addEventListener('mousedown', onDown);
+    document.addEventListener('keydown', onKey);
+    return () => {
+      document.removeEventListener('mousedown', onDown);
+      document.removeEventListener('keydown', onKey);
+    };
+  }, [open, isMobile]);
+
+  const choose = (id) => {
+    onSelectPatient?.(id);
+    setOpen(false);
+  };
+
+  const list = (
+    <div className="p-1.5 space-y-1">
+      {patients.map((p, i) => {
+        const isActive = i === activeIdx;
+        const count = reportCounts[String(p.id)] || 0;
+        return (
+          <button
+            key={p.id}
+            type="button"
+            onClick={() => choose(p.id)}
+            className={cn(
+              'w-full flex items-center gap-3 rounded-2xl px-2.5 text-left transition border',
+              isMobile ? 'py-3' : 'py-2',
+              isActive ? 'bg-white/[0.06] border-white/[0.1]' : 'border-transparent hover:bg-white/[0.04]'
+            )}
+          >
+            <PatientAvatar name={p.name} index={i} size={isMobile ? 'lg' : 'md'} />
+            <span className="min-w-0 flex-1">
+              <span className="flex items-center gap-1.5">
+                <span className="text-[13px] font-medium text-white truncate">{p.name}</span>
+                <span className="text-[10px] px-1.5 py-px rounded-full bg-white/[0.06] text-ink-mute shrink-0">{p.relationship}</span>
+              </span>
+              <span className="block text-[11px] text-ink-faint mt-0.5 truncate">
+                {[p.meta, count ? `${count} report${count === 1 ? '' : 's'}` : 'No reports yet'].filter(Boolean).join(', ')}
+              </span>
+            </span>
+            {isActive && <Check className="w-4 h-4 text-emerald-400 shrink-0" />}
+          </button>
+        );
+      })}
+    </div>
+  );
+
+  const manage = (
+    <button
+      type="button"
+      onClick={() => {
+        setOpen(false);
+        onOpenDependents?.();
+      }}
+      className="ms-tap w-full flex items-center justify-center gap-2 h-10 rounded-xl text-xs font-medium text-ink-soft hover:text-white bg-white/[0.03] hover:bg-white/[0.06] border border-white/[0.07] transition"
+    >
+      <Plus className="w-3.5 h-3.5" /> {t('workbench.manage_dependents', 'Manage / Add Dependents')}
+    </button>
+  );
+
+  return (
+    <div className="relative min-w-0" ref={ref}>
+      <button
+        type="button"
+        onClick={() => setOpen((o) => !o)}
+        aria-label="Select patient context"
+        data-testid="patient-switcher-trigger"
+        aria-haspopup="dialog"
+        aria-expanded={open}
+        className={cn(
+          'ms-tap min-w-0 max-w-[220px] flex items-center gap-2 rounded-full pl-1 pr-2.5 h-9 border transition',
+          'bg-white/[0.03] border-white/[0.08] hover:bg-white/[0.06] hover:border-white/[0.14]',
+          !selfSelected && 'border-violet-400/30 bg-violet-500/[0.06]'
+        )}
+      >
+        <PatientAvatar name={active?.name} index={activeIdx} size="sm" />
+        {!compact && <span className="truncate text-xs font-medium text-ink">{active?.name}</span>}
+        {!compact && <span className="hidden sm:inline text-[10px] text-ink-faint shrink-0">{active?.relationship}</span>}
+        <ChevronDown className={cn('w-3.5 h-3.5 text-ink-mute shrink-0 transition-transform', open && 'rotate-180')} />
+      </button>
+
+      {isMobile ? (
+        <Sheet
+          open={open}
+          onOpenChange={setOpen}
+          title={t('workbench.patient_lens_title', 'Whose health are we reviewing?')}
+          description={t('workbench.patient_lens_desc', 'Reports, chat answers and remembered facts follow the selected person.')}
+          icon={Users}
+          footer={manage}
+        >
+          {list}
+        </Sheet>
+      ) : (
+        <AnimatePresence>
+          {open && (
+            <motion.div
+              role="dialog"
+              aria-label="Patient context"
+              initial={{ opacity: 0, y: -6, scale: 0.98 }}
+              animate={{ opacity: 1, y: 0, scale: 1 }}
+              exit={{ opacity: 0, y: -4, scale: 0.98 }}
+              transition={{ duration: 0.16, ease: [0.22, 1, 0.36, 1] }}
+              className="absolute left-0 top-full mt-2 w-80 rounded-2xl ms-glass z-50 overflow-hidden"
+            >
+              <div className="px-3.5 pt-3 pb-1 text-[11px] font-semibold text-ink-mute">Clinical analysis lens</div>
+              {list}
+              <div className="p-2 border-t border-white/[0.06]">{manage}</div>
+            </motion.div>
+          )}
+        </AnimatePresence>
+      )}
+    </div>
+  );
+}
+
+```
+
+
+### FILE: frontend/src/components/workbench/CommandPalette.jsx
+```jsx
+import React, { useEffect, useMemo, useState } from 'react';
+import { Command } from 'cmdk';
+import * as Dialog from '@radix-ui/react-dialog';
+import {
+  Search,
+  Plus,
+  Upload,
+  FileText,
+  MessageSquare,
+  Printer,
+  Download,
+  PanelRight,
+  PanelLeft,
+  Brain,
+  Settings,
+  Users,
+  Languages,
+  LogOut,
+  FlaskConical,
+  Sparkles,
+  CornerDownLeft,
+  LineChart,
+} from 'lucide-react';
+import { useTranslation } from 'react-i18next';
+import { cn } from '../../lib/cn';
+import Kbd from '../ui/Kbd';
+import { MOD_LABEL } from '../../hooks/useHotkeys';
+import { metricName, metricKey, statusTone, TONE, reportLabel, reportDateLabel } from '../../lib/clinical';
+import { PatientAvatar, buildPatients, isSelfSelected } from './PatientSwitcher';
+
+/**
+ * Ctrl/⌘ + K command palette.
+ * Everything a power user needs without leaving the keyboard: jump to a
+ * report or conversation, switch patient, find a biomarker, change
+ * language, export, or just type a question and send it.
+ */
+export default function CommandPalette({
+  open,
+  onOpenChange,
+  conversations = [],
+  activeSessionId,
+  metrics = [],
+  currentUser,
+  dependents = [],
+  selectedPatientId,
+  uiLanguage = 'en',
+  hasActiveReport = false,
+  actions = {},
+}) {
+  const { t } = useTranslation();
+  const [query, setQuery] = useState('');
+
+  useEffect(() => {
+    if (!open) setQuery('');
+  }, [open]);
+
+  const run = (fn) => () => {
+    onOpenChange(false);
+    // Let the dialog unmount before focusing whatever the action opens
+    setTimeout(() => fn?.(), 0);
+  };
+
+  const reports = useMemo(() => conversations.filter((c) => c.document_id || c.pdf), [conversations]);
+  const chats = useMemo(
+    () => conversations.filter((c) => !c.document_id && !c.pdf && Array.isArray(c.messages) && c.messages.length > 0),
+    [conversations]
+  );
+  const patients = buildPatients(currentUser, dependents);
+  const selfSelected = isSelfSelected(selectedPatientId, currentUser);
+
+  const item = 'flex items-center gap-3 px-3 h-10 mx-1.5 rounded-xl text-[13px] text-ink-soft';
+  const iconCls = 'w-4 h-4 text-ink-mute shrink-0';
+
+  return (
+    <Dialog.Root open={open} onOpenChange={onOpenChange}>
+      <Dialog.Portal>
+        <Dialog.Overlay className="fixed inset-0 z-[70] bg-black/55 backdrop-blur-[3px] animate-backdrop-in" />
+        <Dialog.Content
+          data-testid="command-palette"
+          className="fixed z-[71] left-1/2 top-[12dvh] -translate-x-1/2 w-[min(640px,calc(100vw-24px))] rounded-3xl ms-glass overflow-hidden animate-modal-in outline-none"
+          aria-describedby={undefined}
+        >
+          <Dialog.Title className="sr-only">Command palette</Dialog.Title>
+          <Command label="Command palette" loop className="flex flex-col max-h-[min(560px,72dvh)]">
+            <div className="flex items-center gap-3 px-4 h-14 border-b border-white/[0.07] shrink-0">
+              <Search className="w-4 h-4 text-ink-mute" />
+              <Command.Input
+                autoFocus
+                value={query}
+                onValueChange={setQuery}
+                placeholder={t('workbench.palette_placeholder', 'Search reports, biomarkers, patients, or type a question…')}
+                className="flex-1 bg-transparent text-[15px] text-white placeholder:text-ink-faint outline-none border-0 focus:ring-0"
+              />
+              <Kbd>Esc</Kbd>
+            </div>
+
+            <Command.List className="overflow-y-auto overscroll-contain py-1.5">
+              <Command.Empty className="py-10 text-center text-sm text-ink-mute">No matches. Press Enter to ask MediSkye instead.</Command.Empty>
+
+              {query.trim().length > 2 && actions.ask && (
+                <Command.Group heading="Ask">
+                  <Command.Item value={`ask ${query}`} onSelect={run(() => actions.ask(query.trim()))} className={item}>
+                    <Sparkles className="w-4 h-4 text-cyan-300 shrink-0" />
+                    <span className="truncate">
+                      Ask MediSkye: <span className="text-white">{query.trim()}</span>
+                    </span>
+                    <CornerDownLeft className="ml-auto w-3.5 h-3.5 text-ink-faint" />
+                  </Command.Item>
+                </Command.Group>
+              )}
+
+              <Command.Group heading="Actions">
+                <Command.Item value="new conversation chat" onSelect={run(actions.newChat)} className={item}>
+                  <Plus className={iconCls} /> New conversation <Shortcut keys={[MOD_LABEL, 'Shift', 'O']} />
+                </Command.Item>
+                <Command.Item value="upload lab report pdf" onSelect={run(actions.upload)} className={item}>
+                  <Upload className={iconCls} /> Upload a lab report <Shortcut keys={[MOD_LABEL, 'U']} />
+                </Command.Item>
+                {hasActiveReport && (
+                  <>
+                    <Command.Item value="print physician summary pdf export doctor" onSelect={run(actions.printSummary)} className={item}>
+                      <Printer className={iconCls} /> Print physician summary <Shortcut keys={[MOD_LABEL, 'Shift', 'P']} />
+                    </Command.Item>
+                    <Command.Item value="open lab metrics table inspector" onSelect={run(() => actions.openInspector?.('metrics'))} className={item}>
+                      <FlaskConical className={iconCls} /> Open lab metrics
+                    </Command.Item>
+                    <Command.Item value="open trends longitudinal chart" onSelect={run(() => actions.openInspector?.('trends'))} className={item}>
+                      <LineChart className={iconCls} /> Open longitudinal trends
+                    </Command.Item>
+                  </>
+                )}
+                <Command.Item value="export chat transcript json pdf download" onSelect={run(actions.exportChat)} className={item}>
+                  <Download className={iconCls} /> Export chat transcript
+                </Command.Item>
+                {actions.toggleInspector && (
+                  <Command.Item value="toggle inspector panel split view" onSelect={run(actions.toggleInspector)} className={item}>
+                    <PanelRight className={iconCls} /> Toggle clinical inspector <Shortcut keys={[MOD_LABEL, '\\']} />
+                  </Command.Item>
+                )}
+                <Command.Item value="toggle sidebar history navigation" onSelect={run(actions.toggleSidebar)} className={item}>
+                  <PanelLeft className={iconCls} /> Toggle history sidebar <Shortcut keys={[MOD_LABEL, 'B']} />
+                </Command.Item>
+                <Command.Item value="memory vault remembered facts" onSelect={run(actions.openMemory)} className={item}>
+                  <Brain className={iconCls} /> Open memory vault <Shortcut keys={[MOD_LABEL, 'Shift', 'M']} />
+                </Command.Item>
+                <Command.Item value="caregiver hub dependents family profile" onSelect={run(actions.openCaregivers)} className={item}>
+                  <Users className={iconCls} /> Caregiver hub & profiles
+                </Command.Item>
+                <Command.Item value="settings preferences" onSelect={run(actions.openSettings)} className={item}>
+                  <Settings className={iconCls} /> Settings <Shortcut keys={[MOD_LABEL, ',']} />
+                </Command.Item>
+                <Command.Item
+                  value="language english hindi हिंदी toggle"
+                  onSelect={run(() => actions.setUiLanguage?.(uiLanguage === 'hi' ? 'en' : 'hi'))}
+                  className={item}
+                >
+                  <Languages className={iconCls} />
+                  {uiLanguage === 'hi' ? 'Switch interface to English' : 'Switch interface to हिंदी (Hindi)'}
+                  <span className="ml-auto ms-num text-[10px] text-ink-faint">{uiLanguage.toUpperCase()}</span>
+                </Command.Item>
+              </Command.Group>
+
+              {patients.length > 1 && (
+                <Command.Group heading="Patients">
+                  {patients.map((p, i) => {
+                    const isActive = i === 0 ? selfSelected : !selfSelected && String(p.id) === String(selectedPatientId);
+                    return (
+                      <Command.Item key={p.id} value={`patient ${p.name} ${p.relationship}`} onSelect={run(() => actions.selectPatient?.(p.id))} className={item}>
+                        <PatientAvatar name={p.name} index={i} size="sm" />
+                        <span className="truncate">{p.name}</span>
+                        <span className="text-[11px] text-ink-faint">{p.relationship}</span>
+                        {isActive && <span className="ml-auto text-[10px] text-emerald-300">Active</span>}
+                      </Command.Item>
+                    );
+                  })}
+                </Command.Group>
+              )}
+
+              {metrics.length > 0 && (
+                <Command.Group heading="Biomarkers in this report">
+                  {metrics.map((m, i) => {
+                    const tone = TONE[statusTone(m)];
+                    return (
+                      <Command.Item
+                        key={`${metricKey(m)}-${i}`}
+                        value={`biomarker ${metricName(m)} ${m.status || ''}`}
+                        onSelect={run(() => actions.focusMetric?.(m))}
+                        className={item}
+                      >
+                        <span className={cn('w-2 h-2 rounded-full shrink-0', tone.dot)} />
+                        <span className="truncate">{metricName(m)}</span>
+                        <span className={cn('ml-auto ms-num text-xs', tone.text)}>
+                          {m.value} <span className="text-ink-faint">{m.unit}</span>
+                        </span>
+                      </Command.Item>
+                    );
+                  })}
+                </Command.Group>
+              )}
+
+              {reports.length > 0 && (
+                <Command.Group heading="Lab reports">
+                  {reports.map((c) => (
+                    <Command.Item key={c.id} value={`report ${c.title || ''} ${c.pdf?.filename || ''} ${c.id}`} onSelect={run(() => actions.selectChat?.(c.id))} className={item}>
+                      <FileText className={iconCls} />
+                      <span className="truncate">{reportLabel({ title: c.title, filename: c.pdf?.filename })}</span>
+                      <span className="ml-auto text-[11px] text-ink-faint shrink-0">
+                        {c.id === activeSessionId ? 'Open now' : reportDateLabel({ collected_at: c.collected_at, created_at: c.created_at })}
+                      </span>
+                    </Command.Item>
+                  ))}
+                </Command.Group>
+              )}
+
+              {chats.length > 0 && (
+                <Command.Group heading="Conversations">
+                  {chats.map((c) => (
+                    <Command.Item key={c.id} value={`conversation ${c.title || ''} ${c.id}`} onSelect={run(() => actions.selectChat?.(c.id))} className={item}>
+                      <MessageSquare className={iconCls} />
+                      <span className="truncate">{c.title || 'Conversation'}</span>
+                    </Command.Item>
+                  ))}
+                </Command.Group>
+              )}
+
+              {actions.logout && (
+                <Command.Group heading="Account">
+                  <Command.Item value="log out sign out" onSelect={run(actions.logout)} className={cn(item, 'text-rose-300')}>
+                    <LogOut className="w-4 h-4 text-rose-400 shrink-0" /> Sign out of MediSkye
+                  </Command.Item>
+                </Command.Group>
+              )}
+            </Command.List>
+
+            <div className="hidden sm:flex items-center gap-4 px-4 h-10 border-t border-white/[0.07] text-[11px] text-ink-faint shrink-0">
+              <span className="inline-flex items-center gap-1.5"><Kbd>↑</Kbd><Kbd>↓</Kbd> navigate</span>
+              <span className="inline-flex items-center gap-1.5"><Kbd>↵</Kbd> open</span>
+              <span className="ml-auto inline-flex items-center gap-1.5"><Kbd>{MOD_LABEL}</Kbd><Kbd>K</Kbd> toggle</span>
+            </div>
+          </Command>
+        </Dialog.Content>
+      </Dialog.Portal>
+    </Dialog.Root>
+  );
+}
+
+function Shortcut({ keys }) {
+  return (
+    <span className="ml-auto hidden sm:inline-flex items-center gap-1">
+      {keys.map((k) => (
+        <Kbd key={k}>{k}</Kbd>
+      ))}
+    </span>
+  );
+}
+
+```
+
+
+### FILE: frontend/src/components/workbench/MemoryVault.jsx
+```jsx
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import { Brain, Search, Trash2, FileText, MessageSquare, Loader2, ShieldCheck, X } from 'lucide-react';
+import { useTranslation } from 'react-i18next';
+import { cn } from '../../lib/cn';
+import Sheet from '../ui/Sheet';
+import { getFacts, deleteFact, clearAllMemoryFacts, updateMemoryConsent, updateProfile } from '../../services/api';
+import { logger } from '../../services/logger';
+import { reportLabel } from '../../lib/clinical';
+
+const CATEGORY_STYLES = {
+  condition: 'bg-rose-500/10 text-rose-200 border-rose-500/25',
+  medication: 'bg-sky-500/10 text-sky-200 border-sky-500/25',
+  allergy: 'bg-amber-500/10 text-amber-200 border-amber-500/25',
+  measurement: 'bg-cyan-500/10 text-cyan-200 border-cyan-500/25',
+  lab_trend: 'bg-cyan-500/10 text-cyan-200 border-cyan-500/25',
+  weight: 'bg-emerald-500/10 text-emerald-200 border-emerald-500/25',
+  lifestyle: 'bg-violet-500/10 text-violet-200 border-violet-500/25',
+  sport_hobby: 'bg-violet-500/10 text-violet-200 border-violet-500/25',
+};
+
+const categoryOf = (f) => String(f?.fact_type || f?.category || 'other').toLowerCase();
+const prettyCategory = (c) => c.replace(/_/g, ' ').replace(/\b\w/g, (m) => m.toUpperCase());
+
+function monthKey(ts) {
+  const d = ts ? new Date(ts) : null;
+  if (!d || Number.isNaN(d.getTime())) return 'Undated';
+  return d.toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
+}
+
+/**
+ * Patient Memory Vault — a searchable timeline of every fact MediSkye
+ * remembers for the active patient, with the report or chat it came from.
+ * Deletions take effect immediately (server is the source of truth).
+ */
+export default function MemoryVault({ open, onOpenChange, selectedPatientId = 'self', patientName, currentUser, onConsentChanged, documents = [] }) {
+  const { t } = useTranslation();
+  const [facts, setFacts] = useState([]);
+  const [loading, setLoading] = useState(false);
+  const [query, setQuery] = useState('');
+  const [category, setCategory] = useState('all');
+  const [deletingId, setDeletingId] = useState(null);
+  const [confirmClear, setConfirmClear] = useState(false);
+  const [confirmText, setConfirmText] = useState('');
+  const [error, setError] = useState('');
+  const [consent, setConsent] = useState(Boolean(currentUser?.memory_consent_granted));
+
+  useEffect(() => {
+    setConsent(Boolean(currentUser?.memory_consent_granted));
+  }, [currentUser?.memory_consent_granted]);
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    setError('');
+    try {
+      const list = await getFacts(selectedPatientId);
+      setFacts(Array.isArray(list) ? list : []);
+    } catch (err) {
+      logger.warn('Failed to load memory facts:', err);
+      setFacts([]);
+    } finally {
+      setLoading(false);
+    }
+  }, [selectedPatientId]);
+
+  useEffect(() => {
+    if (open) load();
+    if (!open) {
+      setConfirmClear(false);
+      setConfirmText('');
+    }
+  }, [open, load]);
+
+  const docTitleById = useMemo(() => {
+    const m = new Map();
+    documents.forEach((d) => d?.id && m.set(String(d.id), reportLabel(d)));
+    return m;
+  }, [documents]);
+
+  const categories = useMemo(() => {
+    const counts = new Map();
+    facts.forEach((f) => counts.set(categoryOf(f), (counts.get(categoryOf(f)) || 0) + 1));
+    return [...counts.entries()].sort((a, b) => b[1] - a[1]);
+  }, [facts]);
+
+  const filtered = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    return facts
+      .filter((f) => category === 'all' || categoryOf(f) === category)
+      .filter((f) => !q || String(f.fact_text || f.fact_value || '').toLowerCase().includes(q) || categoryOf(f).includes(q))
+      .sort((a, b) => new Date(b.created_at || 0) - new Date(a.created_at || 0));
+  }, [facts, query, category]);
+
+  const timeline = useMemo(() => {
+    const groups = new Map();
+    filtered.forEach((f) => {
+      const k = monthKey(f.created_at);
+      if (!groups.has(k)) groups.set(k, []);
+      groups.get(k).push(f);
+    });
+    return [...groups.entries()];
+  }, [filtered]);
+
+  const handleDelete = async (id) => {
+    setDeletingId(id);
+    setError('');
+    try {
+      await deleteFact(id);
+      setFacts((prev) => prev.filter((f) => f.id !== id));
+    } catch (err) {
+      setError(err?.message || 'That fact could not be deleted. Try again.');
+    } finally {
+      setDeletingId(null);
+    }
+  };
+
+  const handleClearAll = async () => {
+    setError('');
+    try {
+      await clearAllMemoryFacts(selectedPatientId);
+      setFacts([]);
+      setConfirmClear(false);
+      setConfirmText('');
+    } catch (err) {
+      setError(err?.message || 'Memory could not be cleared. Try again.');
+    }
+  };
+
+  const toggleConsent = async () => {
+    const next = !consent;
+    setConsent(next);
+    try {
+      try {
+        await updateMemoryConsent(next);
+      } catch {
+        await updateProfile({ memory_consent_granted: next });
+      }
+      onConsentChanged?.(next);
+    } catch (err) {
+      setConsent(!next);
+      setError(err?.message || 'Memory setting could not be updated.');
+    }
+  };
+
+  const sourceBadge = (f) => {
+    const docId = f.source_document_id || f.document_id;
+    const title = docId ? docTitleById.get(String(docId)) : null;
+    const src = String(f.source_type || '').toLowerCase();
+    if (title || src.includes('report') || src.includes('document') || src.includes('upload')) {
+      return (
+        <span className="inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded-md bg-white/[0.04] border border-white/[0.07] text-ink-mute max-w-[180px]">
+          <FileText className="w-3 h-3 shrink-0" />
+          <span className="truncate">{title || 'From a lab report'}</span>
+        </span>
+      );
+    }
+    if (src) {
+      return (
+        <span className="inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded-md bg-white/[0.04] border border-white/[0.07] text-ink-mute">
+          <MessageSquare className="w-3 h-3" />
+          {src.includes('chat') ? 'From a conversation' : prettyCategory(src)}
+        </span>
+      );
+    }
+    return null;
+  };
+
+  return (
+    <>
+      <Sheet
+        open={open}
+        onOpenChange={onOpenChange}
+        title={t('workbench.memory_vault', 'Memory vault')}
+        description={`What MediSkye remembers about ${patientName || 'this patient'} across conversations. Remove anything that is wrong or outdated.`}
+        icon={Brain}
+        width={520}
+        footer={
+          facts.length > 0 ? (
+            confirmClear ? (
+              <div className="space-y-2">
+                <label htmlFor="vault-clear-confirm" className="block text-[11px] text-ink-mute">
+                  Type <span className="ms-num text-rose-300">CLEAR</span> to permanently delete {facts.length} remembered fact{facts.length === 1 ? '' : 's'}.
+                </label>
+                <div className="flex gap-2">
+                  <input
+                    id="vault-clear-confirm"
+                    value={confirmText}
+                    onChange={(e) => setConfirmText(e.target.value)}
+                    autoComplete="off"
+                    className="flex-1 min-w-0 h-10 px-3 rounded-xl bg-graphite border border-white/[0.1] text-sm text-white ms-num focus:outline-none focus:border-rose-500/50"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setConfirmClear(false);
+                      setConfirmText('');
+                    }}
+                    className="ms-tap h-10 px-3 rounded-xl text-xs text-ink-soft border border-white/[0.1] hover:bg-white/[0.05]"
+                  >
+                    Keep
+                  </button>
+                  <button
+                    type="button"
+                    disabled={confirmText.trim() !== 'CLEAR'}
+                    onClick={handleClearAll}
+                    className="ms-tap h-10 px-3 rounded-xl text-xs font-semibold text-white bg-rose-600 hover:bg-rose-500 disabled:opacity-40 disabled:pointer-events-none"
+                  >
+                    Clear memory
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <button
+                type="button"
+                onClick={() => setConfirmClear(true)}
+                className="ms-tap w-full h-10 rounded-xl text-xs font-medium text-rose-300 border border-rose-500/25 hover:bg-rose-500/10 transition"
+              >
+                Clear all remembered facts
+              </button>
+            )
+          ) : null
+        }
+      >
+        <div className="px-5 py-4 space-y-4" data-testid="memory-vault">
+          <div className="flex items-center justify-between gap-3 p-3.5 rounded-2xl ms-raised">
+            <div className="flex items-start gap-2.5 min-w-0">
+              <ShieldCheck className={cn('w-4 h-4 mt-0.5 shrink-0', consent ? 'text-emerald-400' : 'text-ink-faint')} />
+              <div className="min-w-0">
+                <div className="text-xs font-semibold text-white">Cross-session memory {consent ? 'on' : 'off'}</div>
+                <p className="text-[11px] text-ink-mute mt-0.5 leading-relaxed">
+                  {consent ? 'New conditions, medications and lab trends are remembered.' : 'Nothing new will be remembered until you turn this on.'}
+                </p>
+              </div>
+            </div>
+            <button
+              type="button"
+              role="switch"
+              aria-checked={consent}
+              aria-label="Memory vault consent"
+              onClick={toggleConsent}
+              className={cn('relative inline-flex h-6 w-11 shrink-0 rounded-full transition-colors', consent ? 'bg-emerald-500' : 'bg-white/[0.12]')}
+            >
+              <span className={cn('absolute top-0.5 left-0.5 h-5 w-5 rounded-full bg-white shadow transition-transform', consent && 'translate-x-5')} />
+            </button>
+          </div>
+
+          {error && (
+            <div role="alert" className="text-xs text-rose-200 bg-rose-500/10 border border-rose-500/25 rounded-xl px-3 py-2">
+              {error}
+            </div>
+          )}
+
+          <div className="relative">
+            <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-ink-faint" />
+            <input
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              placeholder="Search remembered facts"
+              aria-label="Search remembered facts"
+              className="w-full h-10 pl-9 pr-9 rounded-xl bg-graphite border border-white/[0.08] text-sm text-white placeholder:text-ink-faint focus:outline-none focus:border-cyan-500/45"
+            />
+            {query && (
+              <button type="button" onClick={() => setQuery('')} aria-label="Clear fact search" className="absolute right-1.5 top-1/2 -translate-y-1/2 w-8 h-8 rounded-lg flex items-center justify-center text-ink-mute hover:text-white">
+                <X className="w-3.5 h-3.5" />
+              </button>
+            )}
+          </div>
+
+          {categories.length > 1 && (
+            <div className="flex gap-1.5 overflow-x-auto no-scrollbar -mx-1 px-1">
+              {[['all', facts.length], ...categories].map(([c, n]) => (
+                <button
+                  key={c}
+                  type="button"
+                  aria-pressed={category === c}
+                  onClick={() => setCategory(c)}
+                  className={cn(
+                    'ms-tap shrink-0 h-8 px-3 rounded-full text-xs border transition inline-flex items-center gap-1.5',
+                    category === c ? 'bg-white/[0.09] border-white/[0.16] text-white' : 'bg-white/[0.02] border-white/[0.07] text-ink-mute hover:text-white'
+                  )}
+                >
+                  {c === 'all' ? 'Everything' : prettyCategory(c)}
+                  <span className="ms-num text-[10px] text-ink-faint">{n}</span>
+                </button>
+              ))}
+            </div>
+          )}
+
+          {loading ? (
+            <div className="py-12 flex items-center justify-center gap-2 text-xs text-ink-mute" role="status">
+              <Loader2 className="w-4 h-4 animate-spin" /> Loading remembered facts...
+            </div>
+          ) : facts.length === 0 ? (
+            <div className="py-10 text-center">
+              <div className="w-11 h-11 mx-auto mb-3 rounded-2xl flex items-center justify-center bg-white/[0.04] text-ink-mute">
+                <Brain className="w-5 h-5" />
+              </div>
+              <div className="text-sm font-semibold text-white">Nothing remembered yet</div>
+              <p className="text-xs text-ink-mute mt-1 max-w-xs mx-auto">
+                {consent
+                  ? 'Key findings from reports and conversations will appear here as a timeline.'
+                  : 'Turn on cross-session memory to let MediSkye keep clinical context between chats.'}
+              </p>
+            </div>
+          ) : filtered.length === 0 ? (
+            <p className="py-8 text-center text-xs text-ink-mute">No facts match that search.</p>
+          ) : (
+            <ol className="relative space-y-5">
+              {timeline.map(([month, items]) => (
+                <li key={month}>
+                  <h3 className="text-[11px] font-semibold text-ink-mute mb-2 px-0.5">{month}</h3>
+                  <ul className="relative border-l border-white/[0.08] ml-1.5 space-y-2">
+                    {items.map((f) => {
+                      const c = categoryOf(f);
+                      const date = f.created_at ? new Date(f.created_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) : null;
+                      return (
+                        <li key={f.id} className="relative pl-4">
+                          <span className="absolute -left-[4.5px] top-3.5 w-2 h-2 rounded-full bg-carbon border border-white/30" aria-hidden="true" />
+                          <div className="group p-3 rounded-xl ms-surface flex items-start gap-3">
+                            <div className="min-w-0 flex-1 space-y-1.5">
+                              <p className="text-[13px] text-ink leading-snug break-words">{f.fact_text || f.fact_value}</p>
+                              <div className="flex flex-wrap items-center gap-1.5">
+                                <span className={cn('text-[10px] font-medium px-1.5 py-0.5 rounded-md border', CATEGORY_STYLES[c] || 'bg-white/[0.04] text-ink-mute border-white/[0.08]')}>
+                                  {prettyCategory(c)}
+                                </span>
+                                {sourceBadge(f)}
+                                {date && <span className="ms-num text-[10px] text-ink-faint">{date}</span>}
+                              </div>
+                            </div>
+                            <button
+                              type="button"
+                              onClick={() => handleDelete(f.id)}
+                              disabled={deletingId === f.id}
+                              aria-label={`Forget: ${String(f.fact_text || f.fact_value || 'fact').slice(0, 40)}`}
+                              title="Forget this fact"
+                              className="ms-tap w-8 h-8 rounded-lg flex items-center justify-center text-ink-faint hover:text-rose-300 hover:bg-rose-500/10 transition shrink-0 disabled:opacity-40"
+                            >
+                              {deletingId === f.id ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Trash2 className="w-3.5 h-3.5" />}
+                            </button>
+                          </div>
+                        </li>
+                      );
+                    })}
+                  </ul>
+                </li>
+              ))}
+            </ol>
+          )}
+        </div>
+      </Sheet>
+
+    </>
+  );
+}
+
+```
+
+
+### FILE: frontend/src/components/workbench/UploadStepper.jsx
+```jsx
+import React, { useEffect, useState } from 'react';
+import { Check, FileSearch, Loader2, X, Flame, AlertTriangle, ScanText, DatabaseZap, MessageSquareText } from 'lucide-react';
+import { useTranslation } from 'react-i18next';
+import { cn } from '../../lib/cn';
+
+/**
+ * Visualizes MediSkye's real two-phase ingestion pipeline:
+ *   Step A (blocking):   validate → extract text → build FAISS + BM25 index → ready
+ *   Step B (background): summary + metrics cache warming
+ *
+ * `upload` shape (owned by ChatApp):
+ *   { phase: 'validating'|'uploading'|'extracting'|'indexing'|'ready'|'error',
+ *     fileName, startedAt, warming, error }
+ */
+export const UPLOAD_STEPS = [
+  { key: 'validate', i18n: 'workbench.upload_validating', label: 'Validating PDF', icon: FileSearch, phases: ['validating', 'uploading'] },
+  { key: 'extract', i18n: 'workbench.upload_extracting', label: 'Extracting clinical text', icon: ScanText, phases: ['extracting'] },
+  { key: 'index', i18n: 'workbench.upload_indexing', i18nShort: 'workbench.upload_indexing_short', label: 'Building hybrid FAISS + BM25 index', short: 'Building search index', icon: DatabaseZap, phases: ['indexing'] },
+  { key: 'ready', i18n: 'workbench.upload_ready', label: 'Ready for Q&A', icon: MessageSquareText, phases: ['ready'] },
+];
+
+function stepIndex(phase) {
+  const i = UPLOAD_STEPS.findIndex((s) => s.phases.includes(phase));
+  return i === -1 ? 0 : i;
+}
+
+export default function UploadStepper({ upload, onDismiss, className }) {
+  const { t } = useTranslation();
+  const [now, setNow] = useState(Date.now());
+  const active = upload && upload.phase !== 'ready' && upload.phase !== 'error';
+
+  useEffect(() => {
+    if (!active) return undefined;
+    const id = setInterval(() => setNow(Date.now()), 500);
+    return () => clearInterval(id);
+  }, [active]);
+
+  if (!upload) return null;
+  const current = stepIndex(upload.phase);
+  const isError = upload.phase === 'error';
+  const isReady = upload.phase === 'ready';
+  const elapsed = upload.startedAt ? Math.max(0, Math.round(((upload.finishedAt || now) - upload.startedAt) / 100) / 10) : null;
+
+  return (
+    <div
+      data-testid="upload-progress-banner"
+      role="status"
+      aria-live="polite"
+      className={cn('rounded-2xl ms-raised px-3.5 py-3 animate-fade-in', isError && 'border-rose-500/30', className)}
+    >
+      <div className="flex items-center gap-2.5 mb-2.5">
+        <span className="relative flex h-2 w-2 shrink-0">
+          {active && <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-cyan-400 opacity-70" />}
+          <span className={cn('relative inline-flex rounded-full h-2 w-2', isError ? 'bg-rose-500' : isReady ? 'bg-emerald-500' : 'bg-cyan-500')} />
+        </span>
+        <span className="text-xs font-medium text-white truncate min-w-0 flex-1">
+          {isError ? t('workbench.upload_failed', 'Upload failed') : isReady ? t('workbench.upload_report_ready', 'Report ready') : t('workbench.upload_processing', 'Processing report...')}
+          {upload.fileName ? <span className="text-ink-mute font-normal"> {upload.fileName}</span> : null}
+        </span>
+        {elapsed !== null && <span className="ms-num text-[11px] text-ink-faint shrink-0">{elapsed.toFixed(1)}s</span>}
+        {upload.warming && isReady && (
+          <span className="inline-flex items-center gap-1 text-[10px] font-medium px-2 py-0.5 rounded-full bg-amber-500/10 text-amber-200 border border-amber-500/20 shrink-0">
+            <Flame className="w-3 h-3" /> {t('workbench.warming_cache', 'Warming summary cache')}
+          </span>
+        )}
+        {(isReady || isError) && onDismiss && (
+          <button type="button" onClick={onDismiss} aria-label="Dismiss upload status" className="w-7 h-7 -mr-1 rounded-lg flex items-center justify-center text-ink-mute hover:text-white hover:bg-white/[0.06]">
+            <X className="w-3.5 h-3.5" />
+          </button>
+        )}
+      </div>
+
+      {isError ? (
+        <div className="flex items-start gap-2 text-xs text-rose-200">
+          <AlertTriangle className="w-3.5 h-3.5 mt-0.5 shrink-0" />
+          <span>{upload.error || 'The report could not be processed. Check that it is a text-based PDF under 50 MB and try again.'}</span>
+        </div>
+      ) : (
+        <ol className="grid grid-cols-4 gap-1.5">
+          {UPLOAD_STEPS.map((step, i) => {
+            const done = i < current || isReady;
+            const running = i === current && !isReady;
+            const Icon = step.icon;
+            return (
+              <li key={step.key} className="min-w-0">
+                <div className="relative h-1 rounded-full bg-white/[0.07] overflow-hidden">
+                  {done && <div className="absolute inset-0 bg-emerald-500/80" />}
+                  {running && <div className="absolute inset-0 bg-cyan-400/80 animate-stage-sweep" />}
+                </div>
+                <div className={cn('mt-1.5 flex items-center gap-1 text-[10px] sm:text-[11px] leading-tight', done ? 'text-emerald-200' : running ? 'text-white' : 'text-ink-faint')}>
+                  {done ? <Check className="w-3 h-3 shrink-0" /> : running ? <Loader2 className="w-3 h-3 shrink-0 animate-spin" /> : <Icon className="w-3 h-3 shrink-0" />}
+                  <span className="truncate hidden sm:inline" title={t(step.i18n, step.label)}>{t(step.i18n, step.label)}</span>
+                  <span className="truncate sm:hidden">{step.i18nShort ? t(step.i18nShort, step.short) : t(step.i18n, step.label)}</span>
+                </div>
+              </li>
+            );
+          })}
+        </ol>
+      )}
+    </div>
+  );
+}
+
+```

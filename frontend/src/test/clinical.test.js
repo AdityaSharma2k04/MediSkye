@@ -15,6 +15,7 @@ import {
   filterMetrics,
   buildTrendSeries,
   parseClinicalDate,
+  stripOuterQuotes,
 } from '../lib/clinical';
 
 describe('clinical parsing', () => {
@@ -22,6 +23,7 @@ describe('clinical parsing', () => {
     expect(parseNumeric('14.2')).toBe(14.2);
     expect(parseNumeric('1,234 cells')).toBe(1234);
     expect(parseNumeric('<5')).toBe(5);
+    expect(parseNumeric('1:160')).toBeNull();
     expect(parseNumeric('n/a')).toBeNull();
   });
 
@@ -31,11 +33,16 @@ describe('clinical parsing', () => {
     expect(parseRange('<100')).toEqual({ low: null, high: 100, kind: 'upper' });
     expect(parseRange('≥ 60')).toEqual({ low: 60, high: null, kind: 'lower' });
     expect(parseRange('—')).toBeNull();
+    expect(parseRange('Male: 13-17, Female: 12-15')).toBeNull();
+    expect(parseRange('10-20 to 30-40')).toBeNull();
   });
 
   it('parses common report date formats', () => {
     expect(parseClinicalDate('24 Oct 2026')).toBe(new Date('24 Oct 2026').getTime());
     expect(new Date(parseClinicalDate('24/10/2026')).getMonth()).toBe(9);
+    expect(new Date(parseClinicalDate('10/24/2026')).getMonth()).toBe(9);
+    expect(new Date(parseClinicalDate('10/24/2026')).getDate()).toBe(24);
+    expect(parseClinicalDate('31/02/2026')).toBeNull();
     expect(parseClinicalDate('')).toBeNull();
   });
 });
@@ -112,5 +119,21 @@ describe('grouping, triage and trends', () => {
     const hb = series.get('hemoglobin');
     expect(hb.points.map((p) => p.value)).toEqual([13.1, 11.6]);
     expect(hb.change).toBe(-11.5);
+  });
+
+  it('keeps synthetic baseline point when previous_date is missing', () => {
+    const series = buildTrendSeries([
+      { docId: 'a', date: '2026-11-04', metrics: [{ test: 'Vitamin D', value: '30.0', previous_value: '22.0' }] },
+    ]);
+    const vitD = series.get('vitamind');
+    expect(vitD.points.map((p) => p.value)).toEqual([22.0, 30.0]);
+  });
+
+  it('strips outer quotes only when both start and end are quotes', () => {
+    expect(stripOuterQuotes('"Explain "HbA1c""')).toBe('Explain "HbA1c"');
+    expect(stripOuterQuotes('Explain "HbA1c"')).toBe('Explain "HbA1c"');
+    expect(stripOuterQuotes('"What does this mean?"')).toBe('What does this mean?');
+    expect(stripOuterQuotes("'What does this mean?'")).toBe('What does this mean?');
+    expect(stripOuterQuotes('“What does this mean?”')).toBe('What does this mean?');
   });
 });

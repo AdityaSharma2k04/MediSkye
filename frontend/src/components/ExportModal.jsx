@@ -1,4 +1,4 @@
-import React, { useRef, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { X, FileJson, FileText, Download } from 'lucide-react';
 import { exportDocumentData } from '../services/api';
 import { logger } from '../services/logger';
@@ -32,7 +32,17 @@ export default function ExportModal({
   user,
 }) {
   const modalRef = useRef(null);
+  const fallbackTimerRef = useRef(null);
   const [busy, setBusy] = useState(null); // null | 'json' | 'pdf'
+
+  useEffect(() => {
+    return () => {
+      if (fallbackTimerRef.current) {
+        clearTimeout(fallbackTimerRef.current);
+        fallbackTimerRef.current = null;
+      }
+    };
+  }, []);
   const [printData, setPrintData] = useState(null);
   const [exportError, setExportError] = useState(null);
 
@@ -113,6 +123,10 @@ export default function ExportModal({
           document.title = `${patientName} - ${docTitle} - Clinical Summary`;
 
           const cleanup = () => {
+            if (fallbackTimerRef.current) {
+              clearTimeout(fallbackTimerRef.current);
+              fallbackTimerRef.current = null;
+            }
             document.title = origTitle;
             setPrintData(null);
             setBusy(null);
@@ -121,12 +135,7 @@ export default function ExportModal({
           window.addEventListener('afterprint', cleanup);
           window.print();
           // Fallback for browsers that never fire afterprint.
-          setTimeout(() => {
-            document.title = origTitle;
-            setPrintData(null);
-            setBusy(null);
-            window.removeEventListener('afterprint', cleanup);
-          }, 60000);
+          fallbackTimerRef.current = setTimeout(cleanup, 60000);
         }, 150);
       })
       .catch((err) => {

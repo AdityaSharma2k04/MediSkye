@@ -3,6 +3,7 @@ import { Paperclip, ArrowUp, Mic, MicOff, Square, X, FileText } from 'lucide-rea
 import { useTranslation } from 'react-i18next';
 import { startSpeechRecognition } from '../services/speech';
 import { cn } from '../lib/cn';
+import { stripOuterQuotes } from '../lib/clinical';
 
 const ChatInput = forwardRef(
   (
@@ -72,7 +73,7 @@ const ChatInput = forwardRef(
       if (!trimmed || isSubmittingRef.current || isGenerating || disabled) return;
 
       // Strip outer quotation marks if the user pasted a quoted question
-      const cleanText = trimmed.replace(/^["'“”‘’]+|["'“”‘’]+$/g, '').trim();
+      const cleanText = stripOuterQuotes(trimmed);
       if (!cleanText) return;
 
       isSubmittingRef.current = true;

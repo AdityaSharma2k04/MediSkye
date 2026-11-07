@@ -19,6 +19,7 @@ from typing import Optional, Any
 from app.core.config import settings
 from app.core.security import escape_xml_content
 from app.llm.gemini_client import call_gemini_with_retry
+from app.rag.safety import detect_emergency
 
 logger = logging.getLogger(__name__)
 
@@ -131,11 +132,9 @@ EMERGENCY_FAST_PATH_PHRASES = [
 def is_emergency_query_fast_path(query: str) -> bool:
     """
     Deterministic 0ms check for high-risk emergency symptoms.
+    Delegates directly to detect_emergency in app.rag.safety.
     """
-    if not query:
-        return False
-    lowered = query.lower()
-    return any(phrase in lowered for phrase in EMERGENCY_FAST_PATH_PHRASES)
+    return detect_emergency(query) is not None
 
 
 async def classify_intent(

@@ -6,7 +6,7 @@ from httpx import AsyncClient, ASGITransport
 from app.main import app
 from app.core.auth import get_password_hash, create_access_token
 from app.db.database import AsyncSessionLocal
-from app.db.models import User, Document, Chat, ChatDocument, ChatChunk, PatientFact, DependentProfile
+from app.db.models import User, Document, Chat, ChatDocument, ChatChunk, PatientFact, DependentProfile, AuditLog
 from tests.conftest import TEST_PASSWORD
 
 
@@ -149,4 +149,42 @@ async def test_token_revocation_and_relogin():
 
         res_relogin = await ac.get("/users/me", headers=headers_2)
         assert res_relogin.status_code == 200
+
+        # Old token remains revoked even after re-login (not revived!)
+        res_old_token_revoked = await ac.get("/users/me", headers=headers_1)
+        assert res_old_token_revoked.status_code == 401
+
+
+@pytest.mark.asyncio
+async def test_unauthenticated_logout_fails():
+    """Verify POST /logout rejects forged or unverified tokens with HTTP 401."""
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as ac:
+        # Invalid / garbage token
+        res_garbage = await ac.post("/logout", headers={"Authorization": "Bearer invalid.garbage.token"})
+        assert res_garbage.status_code == 401
+
+        # Missing token
+        res_missing = await ac.post("/logout")
+        assert res_missing.status_code == 401
+
+
+@pytest.mark.asyncio
+async def test_failed_login_audit_logs_hash_not_plaintext():
+    """Verify failed login audit logs record a SHA-256 hash instead of plain email."""
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as ac:
+        email = f"failed_user_{uuid.uuid4().hex[:8]}@test.com"
+        res = await ac.post("/login", data={"username": email, "password": "WrongPassword123!"})
+        assert res.status_code == 401
+
+        async with AsyncSessionLocal() as s:
+            from sqlalchemy.future import select
+            log_res = await s.execute(
+                select(AuditLog).filter(AuditLog.action_type == "FAILED_LOGIN").order_by(AuditLog.timestamp.desc()).limit(1)
+            )
+            audit_entry = log_res.scalars().first()
+            assert audit_entry is not None
+            assert email not in (audit_entry.resource or "")
+            assert "user_hash:" in (audit_entry.resource or "")
 

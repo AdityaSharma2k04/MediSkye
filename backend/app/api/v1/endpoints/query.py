@@ -27,9 +27,9 @@ from app.rag.prompt_builder import build_prompt, build_general_health_prompt, bu
 from app.rag.prompt_builder import build_prompt, build_general_health_prompt, build_casual_prompt, build_document_summary_prompt
 from app.services.clinical_units import parse_report_chronology
 from app.rag.intent_router import classify_intent, QueryIntent
-from app.rag.safety import append_disclaimer, get_emergency_response, is_emergency_query
+from app.rag.safety import append_disclaimer, get_emergency_response, is_emergency_query, detect_emergency, EmergencyKind
 from app.rag.retriever import load_hybrid_index, retrieve_relevant_docs, dynamic_retrieval_k, get_cached_hybrid_index
-from app.rag.output_filter import scan_output
+from app.rag.output_filter import scan_output, SAFE_FALLBACK
 from app.services.patient_service import calculate_age
 from app.services.patient_memory import get_active_facts, get_relevant_past_chunks, get_chat_documents
 from app.services.memory_formatter import format_facts_for_prompt, format_past_chats_for_prompt
@@ -262,11 +262,19 @@ async def query_bot(
         current_session_title = updated_chat_title or generate_title_from_query(body.query, max_words=5, max_len=60)
 
     # ── Emergency keyword gate ──
-    if is_emergency_query(body.query):
+    emergency_kind = detect_emergency(body.query)
+    emergency_banner: Optional[str] = None
+
+    if emergency_kind == EmergencyKind.SELF_HARM or (
+        emergency_kind == EmergencyKind.MEDICAL
+        and not has_document
+        and not getattr(body, "document_id", None)
+        and not raw_doc_ids
+    ):
         if needs_doc_title_update and primary_doc and updated_chat_title:
             primary_doc.title = updated_chat_title
             db.add(primary_doc)
-        ai_msg = get_emergency_response()
+        ai_msg = get_emergency_response(emergency_kind)
         user_chat = Chat(
             user_id=current_user.id,
             document_id=primary_doc.id if primary_doc else None,
@@ -294,6 +302,9 @@ async def query_bot(
             yield f'data: [DONE]\n\n'
 
         return StreamingResponse(emergency_stream(), media_type="text/event-stream")
+
+    if emergency_kind == EmergencyKind.MEDICAL:
+        emergency_banner = get_emergency_response(EmergencyKind.MEDICAL)
 
     session_lock_key = f"{current_user.id}:{effective_session_id or 'general'}"
     if session_lock_key in _active_query_sessions:
@@ -347,7 +358,12 @@ async def query_bot(
         has_document=has_document,
         document_id=doc_id_param,
     )
-    if intent == QueryIntent.DOCUMENT_QA and not has_document:
+    if intent == QueryIntent.EMERGENCY:
+        emergency_banner = get_emergency_response(EmergencyKind.MEDICAL)
+        intent = QueryIntent.DOCUMENT_QA if has_document else QueryIntent.GENERAL_HEALTH
+    elif emergency_banner and intent != QueryIntent.DOCUMENT_QA:
+        intent = QueryIntent.GENERAL_HEALTH
+    elif intent == QueryIntent.DOCUMENT_QA and not has_document:
         intent = QueryIntent.GENERAL_HEALTH
 
     # ── Profile & PHI Context Resolution ──
@@ -410,6 +426,11 @@ async def query_bot(
             title_to_emit = updated_chat_title or current_session_title
             if title_to_emit:
                 yield f'data: {json.dumps({"title": title_to_emit, "document_id": str(primary_doc.id) if primary_doc else None, "session_id": effective_session_id})}\n\n'
+
+            if emergency_banner:
+                banner_chunk = emergency_banner + "\n\n"
+                visible_text += banner_chunk
+                yield f'data: {json.dumps({"chunk": banner_chunk})}\n\n'
 
             # ── Stage 1: Analyzing ──
             if intent == QueryIntent.CASUAL:
@@ -846,6 +867,23 @@ async def query_bot(
             raise
         except GeminiUnavailableError:
             logger.warning("All Gemini models unavailable during streaming", exc_info=True)
+            if emergency_banner and visible_text.strip():
+                try:
+                    async with AsyncSessionLocal() as banner_session:
+                        ai_chat = Chat(
+                            user_id=current_user.id,
+                            document_id=primary_doc.id if primary_doc else None,
+                            session_id=effective_session_id,
+                            session_title=current_session_title,
+                            role="ai",
+                            message=visible_text.strip(),
+                        )
+                        banner_session.add(ai_chat)
+                        await banner_session.commit()
+                except Exception as db_err:
+                    logger.warning("Failed saving emergency banner turn on Gemini error: %s", db_err)
+                yield "data: [DONE]\n\n"
+                return
             try:
                 fallback_msg = "The AI service is temporarily busy due to high demand. Please try again in 1-2 minutes."
                 async with AsyncSessionLocal() as err_session:
@@ -866,6 +904,23 @@ async def query_bot(
             return
         except Exception as e:
             logger.error("Error during streaming query response: %s", e, exc_info=True)
+            if emergency_banner and visible_text.strip():
+                try:
+                    async with AsyncSessionLocal() as banner_session:
+                        ai_chat = Chat(
+                            user_id=current_user.id,
+                            document_id=primary_doc.id if primary_doc else None,
+                            session_id=effective_session_id,
+                            session_title=current_session_title,
+                            role="ai",
+                            message=visible_text.strip(),
+                        )
+                        banner_session.add(ai_chat)
+                        await banner_session.commit()
+                except Exception as db_err:
+                    logger.warning("Failed saving emergency banner turn on unexpected error: %s", db_err)
+                yield "data: [DONE]\n\n"
+                return
             try:
                 fallback_msg = "An unexpected error occurred while generating the response."
                 async with AsyncSessionLocal() as err_session:
@@ -889,14 +944,14 @@ async def query_bot(
             if stream_task and not stream_task.done():
                 stream_task.cancel()
 
-        # ── Output filter scan (monitoring only) ──
+        # ── Output filter scan ──
         is_safe, reason = scan_output(visible_text)
         if not is_safe:
-            logger.warning(
-                "Output filter triggered (monitoring only): %s | user_id=%s",
-                reason,
-                current_user.id,
-            )
+            logger.warning("Output filter blocked response: %s | user_id=%s", reason, current_user.id)
+            visible_text = SAFE_FALLBACK
+            if intent != QueryIntent.CASUAL:
+                visible_text = append_disclaimer(visible_text, intent=intent.value if hasattr(intent, "value") else str(intent))
+            yield f'data: {json.dumps({"replace": visible_text})}\n\n'
 
         # ── Record AI response in database ──
         async with AsyncSessionLocal() as persist_session:

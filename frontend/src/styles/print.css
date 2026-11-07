@@ -5,10 +5,12 @@
   }
 
   /* Unblock multi-page flow: reset root containers to visible block flow */
-  html, body, #root {
+  html, body, #root, .h-app, .min-h-app, main, [data-testid="conversation-pane"] {
     height: auto !important;
     min-height: 0 !important;
+    max-height: none !important;
     overflow: visible !important;
+    position: static !important;
     background: #ffffff !important;
     color: #000000 !important;
   }
@@ -116,9 +118,7 @@
 
   /* Finding blocks and cards */
   .clinical-card,
-  .finding-block,
-  .patient-context-box,
-  .specialists {
+  .patient-context-box {
     page-break-inside: avoid !important;
     break-inside: avoid !important;
   }

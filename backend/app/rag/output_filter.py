@@ -7,8 +7,12 @@ import logging
 
 logger = logging.getLogger(__name__)
 
+SAFE_FALLBACK = (
+    "I can't give a reliable answer to that. Please discuss this with your doctor or pharmacist, "
+    "and don't change any medication without their advice."
+)
+
 PERSONA_BREAK_PATTERNS = [
-    r"\bi am not a medical\b",
     r"\bas an ai language model\b",
     r"\bi'?m just an ai\b",
     r"\bdan mode\b",
@@ -21,8 +25,8 @@ PERSONA_BREAK_PATTERNS = [
 ]
 
 DANGEROUS_ADVICE_PATTERNS = [
-    r"(?:double|triple|quadruple|10x|increase)\s+(?:your|the|their)\s+(?:dose|dosage|insulin|medication)",
-    r"stop\s+(?:all|taking|your)\s+(?:medications?|medicine|treatment)",
+    r"(?<!not )(?<!never )(?<!don't )(?<!do not )(?:double|triple|quadruple|10x|increase)\s+(?:your|the|their)\s+(?:dose|dosage|insulin|medication)",
+    r"(?<!not )(?<!never )(?<!don't )(?<!do not )stop\s+(?:all\s+|taking\s+|your\s+)*(?:medications?|medicine|treatment)",
     r"(?:inject|take|consume)\s+\d{3,}\s*(?:mg|ml|units)",
 ]
 

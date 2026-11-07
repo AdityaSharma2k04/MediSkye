@@ -186,6 +186,9 @@ export default function MemoryVault({ open, onOpenChange, selectedPatientId = 's
                     value={confirmText}
                     onChange={(e) => setConfirmText(e.target.value)}
                     autoComplete="off"
+                    autoCapitalize="off"
+                    autoCorrect="off"
+                    spellCheck={false}
                     className="flex-1 min-w-0 h-10 px-3 rounded-xl bg-graphite border border-white/[0.1] text-sm text-white ms-num focus:outline-none focus:border-rose-500/50"
                   />
                   <button

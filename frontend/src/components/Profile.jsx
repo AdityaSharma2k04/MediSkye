@@ -112,6 +112,7 @@ export default function Profile({
 }) {
   const navigate = useNavigate();
   const modalRef = useRef(null);
+  const initialWeightRef = useRef('');
   useFocusTrap(modalRef, true, onClose);
   const [activeTab, setActiveTab] = useState(initialTab); // 'profile' or 'dependents'
   const [loading, setLoading] = useState(!profile);
@@ -199,13 +200,16 @@ export default function Profile({
 
         let initialWeight = '';
         if (Array.isArray(factsData)) {
-          const weightFacts = factsData.filter(f => (f.fact_type || f.category) === 'weight');
+          const weightFacts = factsData
+            .filter(f => (f.fact_type || f.category) === 'weight')
+            .sort((a, b) => new Date(b.created_at || 0) - new Date(a.created_at || 0));
           if (weightFacts.length > 0) {
             const rawVal = weightFacts[0].fact_text || weightFacts[0].fact_value || '';
             const match = rawVal.match(/([\d.]+)/);
             if (match) initialWeight = match[1];
           }
         }
+        initialWeightRef.current = initialWeight ? parseWeightToKgString(initialWeight) : '';
 
         if (profileData) {
           setFormData((prev) => ({
@@ -267,16 +271,16 @@ export default function Profile({
         try {
           const rawWeight = String(formData.weight).trim();
           const converted = parseWeightToKgString(rawWeight);
-          const factPayload = {
-            fact_type: 'weight',
-            fact_text: converted,
-            confidence: 1.0,
-            source_type: 'user_edit',
-          };
-          if (selectedDependentId && selectedDependentId !== 'self') {
-            factPayload.dependent_id = selectedDependentId;
+          if (converted && converted !== initialWeightRef.current) {
+            const factPayload = {
+              fact_type: 'weight',
+              fact_text: converted,
+              confidence: 1.0,
+              source_type: 'user_edit',
+            };
+            await createMemoryFact(factPayload);
+            initialWeightRef.current = converted;
           }
-          await createMemoryFact(factPayload);
         } catch (e) {
           logger.warn('Could not record weight fact:', e);
         }
@@ -341,7 +345,9 @@ export default function Profile({
     let depWeight = '';
     try {
       const depFacts = await getMemoryFacts(dep.id);
-      const weightFacts = depFacts.filter(f => (f.fact_type || f.category) === 'weight');
+      const weightFacts = (Array.isArray(depFacts) ? depFacts : [])
+        .filter(f => (f.fact_type || f.category) === 'weight')
+        .sort((a, b) => new Date(b.created_at || 0) - new Date(a.created_at || 0));
       if (weightFacts.length > 0) {
         const rawVal = weightFacts[0].fact_text || weightFacts[0].fact_value || '';
         const match = rawVal.match(/([\d.]+)/);
@@ -680,7 +686,7 @@ export default function Profile({
                   <h3 className={`font-medium text-sm ${textPrimary}`}>Clinical PHI & Context</h3>
                 </div>
                 <p className={`text-xs mb-4 ${textSecondary}`}>
-                  Encrypted at rest using Fernet 256-bit encryption. MediSkye uses these variables to calibrate normal/abnormal report thresholds.
+                  Encrypted at rest using Fernet (AES-128-CBC + HMAC-SHA256) encryption. MediSkye uses these variables to calibrate normal/abnormal report thresholds.
                 </p>
 
                 <div className="space-y-3">
@@ -830,7 +836,7 @@ export default function Profile({
                       name="full_name"
                       value={dependentForm.full_name}
                       onChange={handleDependentFormChange}
-                      placeholder="e.g. Trivendra (Father)"
+                      placeholder="e.g. Aarav Verma"
                       darkMode={darkMode}
                       required
                     />

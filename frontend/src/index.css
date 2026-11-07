@@ -406,6 +406,14 @@
 
 /* Print Styles for 1-Click Doctor Consultation Summary Export */
 @media print {
+  html, body, #root, .h-app, .min-h-app, main, [data-testid="conversation-pane"] {
+    height: auto !important;
+    min-height: 0 !important;
+    max-height: none !important;
+    overflow: visible !important;
+    position: static !important;
+  }
+
   body * {
     visibility: hidden;
   }
@@ -417,13 +425,13 @@
   }
   #print-summary,
   #print-transcript {
-    position: absolute;
-    left: 0;
-    top: 0;
+    position: static !important;
+    left: auto;
+    top: auto;
     width: 100%;
     background: white !important;
     color: black !important;
-    padding: 20px;
+    padding: 0;
   }
 
   body {

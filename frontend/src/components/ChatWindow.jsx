@@ -3,7 +3,7 @@ import { ArrowDown, FileText, Sparkles, ShieldCheck, Activity, HelpCircle, Steth
 import { useTranslation } from 'react-i18next';
 import ChatMessage from './ChatMessage';
 import { cn } from '../lib/cn';
-import { summarizeTriage, metricName, classifyStatus, isNotableDrop, reportDateLabel } from '../lib/clinical';
+import { summarizeTriage, metricName, classifyStatus, isNotableDrop, reportDateLabel, rangeGeometry } from '../lib/clinical';
 
 const GENERAL_SUGGESTIONS = [
   { title: 'Explain Hemoglobin levels', query: 'Explain Hemoglobin levels and what they indicate about health.', icon: Activity },
@@ -27,8 +27,20 @@ function buildReportSuggestions(metrics) {
   const out = [];
   if (flagged[0]) {
     const c = classifyStatus(flagged[0]);
+    const geom = rangeGeometry(flagged[0]);
+    const side = geom?.side;
+    let direction = 'outside the reference range';
+    if (side === 'below' || c === 'low') {
+      direction = 'low';
+    } else if (side === 'above' || c === 'high') {
+      direction = 'high';
+    }
     const name = metricName(flagged[0]);
-    out.push({ title: `Why is my ${name} ${c === 'low' ? 'low' : 'high'}?`, query: `Why is my ${name} ${c === 'low' ? 'low' : 'high'} at ${flagged[0].value} ${flagged[0].unit || ''}, and what can cause it?`, icon: FlaskConical });
+    out.push({
+      title: `Why is my ${name} ${direction}?`,
+      query: `Why is my ${name} ${direction} at ${flagged[0].value} ${flagged[0].unit || ''}, and what can cause it?`,
+      icon: FlaskConical,
+    });
   }
   if (drops[0]) {
     const name = metricName(drops[0]);
@@ -144,7 +156,7 @@ export default function ChatWindow({
                     <button
                       key={item.title}
                       type="button"
-                      onClick={() => onSelectSampleQuery(item.query)}
+                      onClick={() => onSelectSampleQuery?.(item.query)}
                       className="group ms-tap w-full flex items-center gap-3.5 py-3 px-3 rounded-2xl text-left text-[15px] text-ink-soft hover:text-white hover:bg-white/[0.04] active:bg-white/[0.07] transition"
                     >
                       <span className="w-8 h-8 rounded-xl bg-white/[0.03] border border-white/[0.06] flex items-center justify-center shrink-0 group-hover:border-white/[0.12]">
@@ -160,7 +172,7 @@ export default function ChatWindow({
                     type="button"
                     onClick={() => {
                       if (onTrySampleReport) onTrySampleReport();
-                      else if (onSelectSampleQuery) onSelectSampleQuery('Can you summarize the abnormal findings in this report?');
+                      else if (onSelectSampleQuery) onSelectSampleQuery?.('Can you summarize the abnormal findings in this report?');
                     }}
                     className="group ms-tap w-full flex items-center gap-3.5 py-3 px-3 rounded-2xl text-left text-[15px] text-cyan-200 hover:bg-cyan-500/[0.08] font-medium transition"
                   >

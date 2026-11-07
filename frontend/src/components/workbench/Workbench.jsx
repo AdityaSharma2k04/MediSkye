@@ -167,13 +167,16 @@ export default function Workbench(props) {
       const name = resolvedUser?.full_name || resolvedUser?.name || (resolvedUser?.email ? resolvedUser.email.split('@')[0] : 'Patient');
       const docTitle = activePdf?.title || activePdf?.name || activePdf?.filename || 'Lab Report';
       document.title = `${name} - ${docTitle} - Clinical Summary`;
+      let fallbackTimer = null;
       const cleanup = () => {
+        if (fallbackTimer) clearTimeout(fallbackTimer);
         document.title = origTitle;
         setShowPrintSummary(false);
         window.removeEventListener('afterprint', cleanup);
       };
       window.addEventListener('afterprint', cleanup);
       window.print();
+      fallbackTimer = setTimeout(cleanup, 60000);
     }, 150);
   };
 

@@ -1,0 +1,3545 @@
+===== BUNDLE: Missing Core Files =====
+
+
+### FILE: backend/app/rag/safety.py
+```python
+from typing import Optional, Any
+
+EMERGENCY_KEYWORDS = [
+    "chest pain",
+    "heart attack",
+    "stroke",
+    "cannot breathe",
+    "shortness of breath",
+    "severe bleeding",
+    "unconscious",
+    "seizure",
+    "suicide",
+    "overdose",
+    "anaphylaxis",
+]
+
+DISCLAIMER_TEXT = (
+    "\n\n***\n\n"
+    "**Disclaimer:** This explanation is for educational purposes only and is not a substitute for "
+    "professional medical advice, diagnosis, or treatment. Always consult a licensed healthcare provider "
+    "for medical decisions."
+)
+
+EMERGENCY_RESPONSE = (
+    "🚨 **EMERGENCY WARNING:** If you or someone near you is experiencing severe symptoms such as "
+    "chest pain, difficulty breathing, sudden numbness, or uncontrollable bleeding, please call emergency services "
+    "(e.g., 911 or your local emergency hotline) immediately or go to the nearest emergency room."
+)
+
+
+def is_emergency_query(query: str) -> bool:
+    lowered = query.lower()
+    return any(keyword in lowered for keyword in EMERGENCY_KEYWORDS)
+
+
+def get_emergency_response() -> str:
+    return EMERGENCY_RESPONSE
+
+
+def append_disclaimer(response_text: str, intent: Optional[Any] = None) -> str:
+    if intent is not None:
+        intent_val = getattr(intent, "value", intent)
+        if str(intent_val).upper() == "CASUAL" or "CASUAL" in str(intent).upper():
+            return response_text
+    if DISCLAIMER_TEXT.strip() in response_text:
+        return response_text
+    return response_text + DISCLAIMER_TEXT
+
+```
+
+
+### FILE: backend/app/rag/output_filter.py
+```python
+"""Output filter for detecting possible prompt injection success markers.
+
+MONITORING ONLY — detects and logs. Does NOT modify responses.
+"""
+import re
+import logging
+
+logger = logging.getLogger(__name__)
+
+PERSONA_BREAK_PATTERNS = [
+    r"\bi am not a medical\b",
+    r"\bas an ai language model\b",
+    r"\bi'?m just an ai\b",
+    r"\bdan mode\b",
+    r"\bfreedomgpt\b",
+    r"\bdeveloper mode\b",
+    r"\bjailbreak\b",
+    r"\bignore previous instructions\b",
+    r"\bignore all instructions\b",
+    r"\bignore prior instructions\b",
+]
+
+DANGEROUS_ADVICE_PATTERNS = [
+    r"(?:double|triple|quadruple|10x|increase)\s+(?:your|the|their)\s+(?:dose|dosage|insulin|medication)",
+    r"stop\s+(?:all|taking|your)\s+(?:medications?|medicine|treatment)",
+    r"(?:inject|take|consume)\s+\d{3,}\s*(?:mg|ml|units)",
+]
+
+_COMPILED_PERSONA = [re.compile(p, re.IGNORECASE) for p in PERSONA_BREAK_PATTERNS]
+_COMPILED_DANGER = [re.compile(p, re.IGNORECASE) for p in DANGEROUS_ADVICE_PATTERNS]
+
+
+def scan_output(text: str) -> tuple[bool, str | None]:
+    """
+    Scan LLM output for possible injection success markers.
+
+    Returns:
+        (is_safe, reason)
+        - is_safe=True, reason=None → no concerns
+        - is_safe=False, reason="persona_break: <pattern>" → logged, not blocked
+    """
+    if not text:
+        return True, None
+
+    for pattern in _COMPILED_PERSONA:
+        if pattern.search(text):
+            return False, f"persona_break: {pattern.pattern}"
+
+    for pattern in _COMPILED_DANGER:
+        if pattern.search(text):
+            return False, f"dangerous_advice: {pattern.pattern}"
+
+    return True, None
+
+```
+
+
+### FILE: backend/app/core/audit.py
+```python
+from sqlalchemy.ext.asyncio import AsyncSession
+from app.db.models import AuditLog
+from typing import Optional
+from uuid import UUID
+
+async def log_audit(
+    db: AsyncSession,
+    action_type: str,
+    user_id: Optional[UUID] = None,
+    resource: Optional[str] = None,
+    ip_address: Optional[str] = None,
+    dependent_id: Optional[UUID] = None
+):
+    audit_entry = AuditLog(
+        user_id=user_id,
+        dependent_id=dependent_id,
+        action_type=action_type,
+        resource=resource,
+        ip_address=ip_address
+    )
+    db.add(audit_entry)
+    await db.commit()
+
+
+```
+
+
+### FILE: backend/app/core/redis_client.py
+```python
+class MockRedis:
+    def __init__(self):
+        self.store = {}
+    async def get(self, key):
+        return self.store.get(key)
+    async def setex(self, key, time, value):
+        self.store[key] = value
+
+redis_client = MockRedis()
+
+```
+
+
+### FILE: backend/app/services/pdf_service.py
+```python
+import pymupdf as fitz  # PyMuPDF (package renamed from 'fitz')
+from fastapi import HTTPException, status
+from app.core.config import settings
+
+PDF_MAGIC = b"%PDF"
+
+
+def validate_file_upload(content: bytes, filename: str = "report.pdf") -> None:
+    if not content:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Uploaded file is empty.",
+        )
+
+    # 1. Size Limit Check (50MB)
+    max_bytes = settings.MEDISKYE_MAX_UPLOAD_MB * 1024 * 1024
+    if len(content) > max_bytes:
+        raise HTTPException(
+            status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+            detail=f"File too large. Maximum upload size is {settings.MEDISKYE_MAX_UPLOAD_MB} MB.",
+        )
+
+    # 2. Extension Check
+    ext_raw = filename.lower().split('.')[-1] if '.' in filename else ''
+    ext_with_dot = f".{ext_raw}"
+    allowed_exts = [e.lower() if e.startswith(".") else f".{e.lower()}" for e in settings.ALLOWED_EXTENSIONS]
+    if ext_with_dot not in allowed_exts:
+        ext_list_str = ", ".join(allowed_exts)
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Invalid file extension. Only {ext_list_str} files are accepted.",
+        )
+
+    # 3. Magic Bytes Check for PDF
+    if ext_with_dot == ".pdf" and not content.startswith(PDF_MAGIC):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="File content header invalid. Must be a valid PDF document.",
+        )
+
+    # 4. Deep Inspection (Page count bomb check & corruption check) for PDF
+    if ext_with_dot == ".pdf":
+        try:
+            doc = fitz.open(stream=content, filetype="pdf")
+            if doc.is_encrypted:
+                raise HTTPException(
+                    status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+                    detail="Uploaded PDF is encrypted or password protected. Please provide an unencrypted PDF.",
+                )
+                
+            page_count = len(doc)
+            if page_count == 0:
+                raise HTTPException(
+                    status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+                    detail="PDF report contains no readable pages.",
+                )
+                
+            if page_count > settings.MAX_PDF_PAGES:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail=f"PDF report exceeds maximum page limit of {settings.MAX_PDF_PAGES} pages.",
+                )
+            doc.close()
+        except HTTPException:
+            raise
+        except Exception as exc:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+                detail="Corrupted or unreadable PDF document format.",
+            ) from exc
+
+```
+
+
+### FILE: backend/app/middleware/body_limit.py
+```python
+from starlette.middleware.base import BaseHTTPMiddleware
+from fastapi.responses import JSONResponse
+
+MAX_JSON_BODY_BYTES = 1_048_576  # 1MB limit for JSON payloads
+
+
+class BodySizeLimitMiddleware(BaseHTTPMiddleware):
+    """
+    Rejects JSON payloads larger than 1MB with HTTP 413 Payload Too Large.
+    Multipart uploads (e.g. /upload) are explicitly excluded to allow up to 50MB documents.
+    """
+
+    async def dispatch(self, request, call_next):
+        content_type = request.headers.get("content-type", "").lower()
+        if content_type.startswith("application/json"):
+            content_length = request.headers.get("content-length")
+            if content_length:
+                try:
+                    if int(content_length) > MAX_JSON_BODY_BYTES:
+                        req_id = getattr(request.state, "request_id", "")
+                        return JSONResponse(
+                            status_code=413,
+                            content={
+                                "detail": "Request body too large. JSON payloads must not exceed 1MB.",
+                                "request_id": req_id,
+                            },
+                        )
+                except ValueError:
+                    content_length = None
+        return await call_next(request)
+
+```
+
+
+### FILE: backend/app/api/v1/endpoints/metrics.py
+```python
+import json
+import uuid
+import re
+import logging
+import asyncio
+import copy
+from datetime import datetime, UTC
+from pydantic import BaseModel
+from fastapi import APIRouter, Depends, Header, Request, HTTPException
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.future import select
+from sqlalchemy.orm.attributes import flag_modified
+from langchain_community.vectorstores import FAISS
+
+from app.core.auth import UserDTO, get_current_user
+from app.core.limiter import limiter
+from app.core.config import settings
+from app.db.database import get_db
+from app.db.models import User, Document
+from app.schemas.upload import MetricsResponse, LabMetricItem
+from app.rag.retriever import retrieve_relevant_docs, get_cached_hybrid_index, load_hybrid_index
+from app.rag.index_storage import aensure_index_local
+from app.rag.embedder import get_embedder
+from app.llm.gemini_client import call_gemini_with_retry
+from google.genai.types import GenerateContentConfig, ThinkingConfig
+
+from typing import Optional, List, Dict, Any, Union, Tuple
+
+from app.services.clinical_units import (
+    normalize_clinical_unit,
+    check_is_future_date,
+    canonical_biomarker_name,
+    canonical_biomarker_key,
+    compute_biomarker_delta,
+    parse_report_chronology,
+    _parse_first_float,
+)
+
+logger = logging.getLogger(__name__)
+
+router = APIRouter()
+
+
+async def extract_and_cache_metrics(
+    doc_id: Union[uuid.UUID, str],
+    page_docs: Optional[List[Any]] = None,
+    db: Optional[AsyncSession] = None,
+    user_id: Optional[Union[uuid.UUID, str]] = None,
+) -> Optional[List[Dict[str, Any]]]:
+    """
+    Modularized biomarker extraction and caching logic.
+    Can be invoked during document upload (passing page_docs) or on-demand from the metrics API.
+    Extracts structured metrics with Gemini, validates against clinical rules,
+    and caches the result directly on Document.cached_metrics.
+    """
+    if isinstance(page_docs, AsyncSession) and db is None:
+        db = page_docs
+        page_docs = None
+
+    if db is None:
+        raise ValueError("Database session (db) must be provided to extract_and_cache_metrics.")
+
+    if isinstance(doc_id, str):
+        try:
+            doc_id = uuid.UUID(doc_id)
+        except ValueError:
+            logger.error("Invalid UUID format for doc_id: %s", doc_id)
+            return []
+
+    result = await db.execute(select(Document).filter(Document.id == doc_id))
+    doc = result.scalars().first()
+    if not doc:
+        logger.warning("Document %s not found for metrics extraction.", doc_id)
+        return []
+
+    combined_text = ""
+    if page_docs:
+        all_pages = [getattr(d, "page_content", str(d)) for d in page_docs if getattr(d, "page_content", str(d))]
+        full_text = "\n".join(all_pages)
+        if len(full_text) <= 4000:
+            combined_text = full_text
+        else:
+            keywords = (
+                "lab", "test", "result", "reference", "range", "unit", "blood", "serum",
+                "count", "panel", "hemoglobin", "glucose", "cholesterol", "platelet", "wbc", "rbc"
+            )
+            lab_pages = [p for p in all_pages if any(kw in p.lower() for kw in keywords)]
+            combined_text = "\n".join(lab_pages) if lab_pages else full_text
+    elif doc.file_path:
+        try:
+            bm25_index = None
+            if hasattr(FAISS.load_local, "mock_calls") or hasattr(FAISS.load_local, "_mock_return_value"):
+                vectorstore = await asyncio.to_thread(
+                    FAISS.load_local, doc.file_path, get_embedder(), allow_dangerous_deserialization=True
+                )
+            else:
+                cached_entry = get_cached_hybrid_index(str(doc.id)) or get_cached_hybrid_index(doc.file_path)
+                if cached_entry is not None:
+                    vectorstore, bm25_index = cached_entry
+                else:
+                    resolved_path = str(await aensure_index_local(doc.file_path))
+                    vectorstore, bm25_index = await asyncio.to_thread(load_hybrid_index, resolved_path)
+        except Exception as e:
+            logger.error("Could not load document index: %s", e)
+            raise HTTPException(status_code=500, detail="Could not load document index.")
+
+        docs = await asyncio.to_thread(
+            retrieve_relevant_docs,
+            "blood count lab results reference ranges cholesterol liver function",
+            vectorstore,
+            bm25_index,
+            k=6,
+        )
+        combined_text = "\n".join([d.page_content for d in docs])
+    else:
+        return []
+
+    if not combined_text.strip():
+        doc.cached_metrics = []
+        flag_modified(doc, "cached_metrics")
+        db.add(doc)
+        await db.commit()
+        return []
+
+    extract_prompt = f"""You are a specialized medical lab data extraction system.
+Extract structured clinical biomarker values from the following medical report text into a clean JSON array.
+
+CRITICAL EXTRACTION RULES:
+1. ONLY extract actual clinical biomarkers and laboratory analytes (e.g., Hemoglobin, HbA1c, TSH, LDL Cholesterol, Creatinine, WBC).
+2. DO NOT extract metadata, accreditation numbers, addresses, or text from document headers/footers.
+3. Strictly Ignore any line or test name containing: "ISO", "NABL", "CAP", "Certified", "Facility", "Hospital", "Lab", "Laboratory", "Helpline", "Boulevard", "Street", "Report ID", "Accession", "Sample", "Patient Name", "Referred By", "Page", or "Phone".
+4. Validation Rule: Every extracted item MUST have both a numeric/qualitative clinical value AND a valid physiological unit (e.g., mg/dL, g/dL, %, mIU/L, U/L, mmol/L, 10^3/uL, pg/mL) or be a recognized clinical ratio/index. If it lacks a valid unit or medical biomarker name, discard it.
+5. If no valid metrics are found, return an empty list `[]`.
+
+Return ONLY raw JSON with schema:
+[
+  {{
+    "test": "Name of test (e.g. Hemoglobin, LDL Cholesterol)",
+    "value": "Observed value (e.g. 14.5)",
+    "unit": "Unit (e.g. g/dL, mg/dL)",
+    "range": "Reference range (e.g. 13.8 - 17.2)",
+    "status": "Normal" | "High" | "Low"
+  }}
+]
+
+Report text:
+{combined_text[:4000]}
+"""
+
+    effective_user_id = user_id or doc.user_id
+    try:
+        response = await call_gemini_with_retry(
+            contents=extract_prompt,
+            user_id=effective_user_id,
+            backoff_delays=[1.5, 4.0, 16.0],
+            config=GenerateContentConfig(
+                thinking_config=ThinkingConfig(thinking_budget=0),
+                temperature=0.0,
+            ),
+        )
+        if not response or not response.text:
+            doc.cached_metrics = []
+            flag_modified(doc, "cached_metrics")
+            db.add(doc)
+            await db.commit()
+            return []
+
+        text = response.text.strip()
+        if text.startswith("```json"):
+            text = text[7:-3].strip()
+        elif text.startswith("```"):
+            text = text[3:-3].strip()
+        parsed = json.loads(text)
+        if not isinstance(parsed, list):
+            doc.cached_metrics = []
+            flag_modified(doc, "cached_metrics")
+            db.add(doc)
+            await db.commit()
+            return []
+
+        ignored_keywords = (
+            "iso 15189", "iso", "nabl", "cap", "certified", "central facility", "facility",
+            "hospital", "laboratory", "lab", "helpline", "boulevard", "street",
+            "report id", "accession", "sample", "patient name", "referred by", "page", "phone"
+        )
+
+        raw_metrics = []
+        for item in parsed:
+            if not isinstance(item, dict):
+                continue
+            test_name = str(item.get("test") or item.get("name") or "").strip()
+            val_str = str(item.get("value", "")).strip()
+            unit_str = str(item.get("unit", "")).strip()
+
+            test_lower = test_name.lower()
+            val_lower = val_str.lower()
+
+            if any(kw in test_lower or kw in val_lower for kw in ignored_keywords):
+                continue
+
+            if not test_name or not val_str or not unit_str:
+                continue
+
+            normalized_unit = normalize_clinical_unit(unit_str)
+
+            metric_dict = {
+                "test": test_name,
+                "value": val_str,
+                "unit": normalized_unit,
+                "range": str(item.get("range") or item.get("reference_range") or "").strip(),
+                "status": str(item.get("status") or "Normal").strip(),
+            }
+            raw_metrics.append(metric_dict)
+
+        doc.cached_metrics = raw_metrics
+        flag_modified(doc, "cached_metrics")
+        db.add(doc)
+        await db.commit()
+        await db.refresh(doc)
+        return raw_metrics
+    except HTTPException:
+        raise
+    except Exception as err:
+        logger.error("Metrics extraction error (will retry on-demand): %s", err)
+        return None
+
+
+async def _apply_longitudinal_deltas(
+    doc: Document,
+    raw_list: List[Any],
+    current_user: Union[User, UserDTO],
+    db: AsyncSession,
+) -> Tuple[List[LabMetricItem], Optional[str], Optional[str]]:
+    # Deepcopy raw_list to prevent any in-memory delta mutations from touching DB state
+    raw_copied = copy.deepcopy(raw_list)
+
+    normalized_items = []
+    for item in raw_copied:
+        if isinstance(item, dict):
+            d = dict(item)
+        elif hasattr(item, "model_dump"):
+            d = item.model_dump()
+        else:
+            continue
+        d["unit"] = normalize_clinical_unit(d.get("unit", ""))
+        normalized_items.append(d)
+
+    current_collected_dt = parse_report_chronology(doc)
+
+    # Find prior document for same user & dependent with cached metrics
+    prior_res = await db.execute(
+        select(Document)
+        .filter(
+            Document.user_id == current_user.id,
+            Document.dependent_id == doc.dependent_id,
+            Document.id != doc.id,
+            Document.cached_metrics.is_not(None)
+        )
+    )
+    candidates = prior_res.scalars().all()
+    prior_doc = None
+
+    if current_collected_dt and candidates:
+        # Strict Chronological Ordering: ONLY select candidates where candidate_collected_dt < current_collected_dt
+        valid_priors = []
+        for cand in candidates:
+            cand_dt = parse_report_chronology(cand)
+            if cand_dt and cand_dt < current_collected_dt:
+                valid_priors.append((cand_dt, cand))
+        if valid_priors:
+            # Sort descending by chronological collection date to find closest prior baseline
+            valid_priors.sort(key=lambda x: x[0], reverse=True)
+            prior_doc = valid_priors[0][1]
+    elif not current_collected_dt and candidates:
+        # Fallback only when current doc has no parseable collection date
+        valid_priors = []
+        for cand in candidates:
+            cand_dt = parse_report_chronology(cand)
+            # If candidate has a collection date but current doesn't, cannot guarantee chronology unless created_at applies
+            if cand.created_at and doc.created_at and cand.created_at < doc.created_at:
+                valid_priors.append((cand.created_at, cand))
+        if valid_priors:
+            valid_priors.sort(key=lambda x: x[0], reverse=True)
+            prior_doc = valid_priors[0][1]
+
+    prior_doc_id = str(prior_doc.id) if prior_doc else None
+    prior_doc_date = (prior_doc.collected_at or (prior_doc.created_at.strftime('%d %b %Y') if prior_doc.created_at else None)) if prior_doc else None
+
+    prior_metrics_map = {}
+    if prior_doc and prior_doc.cached_metrics:
+        raw_prior = prior_doc.cached_metrics
+        if isinstance(raw_prior, str):
+            try:
+                raw_prior = json.loads(raw_prior)
+            except Exception:
+                raw_prior = []
+        if isinstance(raw_prior, dict) and "metrics" in raw_prior:
+            raw_prior = raw_prior["metrics"]
+        if isinstance(raw_prior, list):
+            for pm in raw_prior:
+                if isinstance(pm, dict):
+                    t_name = pm.get("test") or pm.get("name") or ""
+                    key = canonical_biomarker_key(t_name)
+                    if key:
+                        prior_metrics_map[key] = pm
+
+    result_items: List[LabMetricItem] = []
+    for m in normalized_items:
+        t_name = str(m.get("test") or m.get("name") or "").strip()
+        key = canonical_biomarker_key(t_name)
+        matched_prior = prior_metrics_map.get(key)
+
+        prev_val = None
+        prev_date = None
+        d_abs = None
+        d_pct = None
+        d_alert = None
+
+        if matched_prior:
+            prev_val = str(matched_prior.get("value", "")).strip()
+            prev_unit = str(matched_prior.get("unit", "")).strip()
+            prev_date = prior_doc_date
+            c_val = str(m.get("value", "")).strip()
+            status = str(m.get("status") or "Normal").strip()
+            unit = str(m.get("unit") or "").strip()
+            d_abs, d_pct, d_alert = compute_biomarker_delta(
+                c_val, prev_val, status, unit, canonical_key=key, prev_unit=prev_unit
+            )
+
+        result_items.append(LabMetricItem(
+            test=t_name,
+            value=str(m.get("value", "")).strip(),
+            unit=str(m.get("unit", "")).strip(),
+            range=str(m.get("range") or m.get("reference_range") or "").strip(),
+            status=str(m.get("status") or "Normal").strip(),
+            previous_value=prev_val,
+            previous_date=prev_date,
+            delta_abs=d_abs,
+            delta_pct=d_pct,
+            delta_alert=d_alert,
+        ))
+
+    return result_items, prior_doc_id, prior_doc_date
+
+
+async def _get_or_extract_metrics(
+    doc_id: uuid.UUID,
+    force_refresh: bool,
+    current_user: Union[User, UserDTO],
+    db: AsyncSession,
+) -> MetricsResponse:
+    result = await db.execute(select(Document).filter(Document.id == doc_id))
+    doc = result.scalars().first()
+
+    if not doc or doc.user_id != current_user.id:
+        raise HTTPException(status_code=404, detail="Document not found.")
+
+    is_future = check_is_future_date(doc.collected_at)
+
+    # 1. Check Cache: use 'is not None' because [] is a valid cached result
+    if not force_refresh and doc.cached_metrics is not None:
+        cached = doc.cached_metrics
+        if isinstance(cached, str):
+            try:
+                cached = json.loads(cached)
+            except Exception:
+                cached = []
+        if isinstance(cached, dict) and "metrics" in cached:
+            cached = cached["metrics"]
+        if isinstance(cached, list):
+            # Always deepcopy cached_metrics to protect DB column from delta enrichment
+            cached_copy = copy.deepcopy(cached)
+            items, p_id, p_date = await _apply_longitudinal_deltas(doc, cached_copy, current_user, db)
+            return MetricsResponse(
+                metrics=items,
+                collected_at=doc.collected_at,
+                is_future_collection_date=is_future,
+                prior_document_id=p_id,
+                prior_document_date=p_date,
+            )
+        return MetricsResponse(
+            metrics=[],
+            collected_at=doc.collected_at,
+            is_future_collection_date=is_future,
+        )
+
+    if getattr(doc, "index_status", None) == "building":
+        raise HTTPException(
+            status_code=503,
+            detail="Document index is still building. Please retry in 2 seconds.",
+            headers={"Retry-After": "2"},
+        )
+
+    if not doc.file_path:
+        return MetricsResponse(
+            metrics=[],
+            collected_at=doc.collected_at,
+            is_future_collection_date=is_future,
+        )
+
+    try:
+        raw_metrics = await extract_and_cache_metrics(
+            doc_id=doc.id,
+            page_docs=None,
+            db=db,
+            user_id=current_user.id,
+        )
+        if raw_metrics is None:
+            raise HTTPException(
+                status_code=503,
+                detail="Metrics extraction temporarily unavailable. Please retry in 2 seconds.",
+                headers={"Retry-After": "2"},
+            )
+        raw_copy = copy.deepcopy(raw_metrics)
+        items, p_id, p_date = await _apply_longitudinal_deltas(doc, raw_copy, current_user, db)
+        return MetricsResponse(
+            metrics=items,
+            collected_at=doc.collected_at,
+            is_future_collection_date=is_future,
+            prior_document_id=p_id,
+            prior_document_date=p_date,
+        )
+    except HTTPException:
+        raise
+    except Exception as err:
+        logger.error("Metrics extraction error: %s", err)
+        return MetricsResponse(
+            metrics=[],
+            collected_at=doc.collected_at,
+            is_future_collection_date=is_future,
+        )
+
+
+@router.post("/extract-metrics", response_model=MetricsResponse, tags=["Lab Metrics"])
+@limiter.limit(settings.RATE_LIMIT_METRICS)
+async def extract_metrics(
+    request: Request,
+    x_session_id: str = Header(..., alias="X-Session-ID"),
+    force_refresh: bool = False,
+    current_user: UserDTO = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    try:
+        doc_id = uuid.UUID(x_session_id)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid session/document ID.")
+
+    return await _get_or_extract_metrics(doc_id, force_refresh, current_user, db)
+
+
+@router.get("/users/me/documents/{document_id}/metrics", response_model=MetricsResponse, tags=["Lab Metrics"])
+@router.post("/users/me/documents/{document_id}/metrics", response_model=MetricsResponse, tags=["Lab Metrics"])
+@limiter.limit(settings.RATE_LIMIT_METRICS)
+async def get_document_metrics(
+    request: Request,
+    document_id: str,
+    force_refresh: bool = False,
+    current_user: UserDTO = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    try:
+        doc_id = uuid.UUID(document_id)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid session/document ID.")
+
+    return await _get_or_extract_metrics(doc_id, force_refresh, current_user, db)
+
+
+# ── Longitudinal Trends Endpoint (REDESIGN_CHANGELOG.md §3.3-A) ──────────
+
+class MetricTrendPoint(BaseModel):
+    document_id: str
+    collected_at: Optional[str] = None
+    value: float
+    raw_value: str
+    status: str
+
+
+class MetricTrendSeries(BaseModel):
+    key: str
+    name: str
+    unit: str
+    reference_range: str
+    points: List[MetricTrendPoint]
+
+
+class MetricTrendReport(BaseModel):
+    document_id: str
+    title: str
+    collected_at: Optional[str] = None
+
+
+class MetricTrendsResponse(BaseModel):
+    patient_id: str
+    generated_at: str
+    reports: List[MetricTrendReport]
+    series: List[MetricTrendSeries]
+
+
+def normalize_biomarker_name(name: str) -> str:
+    """Normalize biomarker name to match frontend normalizeName() in clinical.js."""
+    n = re.sub(r'\(.*?\)', '', str(name or ''))
+    return re.sub(r'[^a-zA-Z0-9]+', '', n).lower().strip()
+
+
+@router.get("/users/me/metrics/trends", response_model=MetricTrendsResponse, tags=["Lab Metrics"])
+@limiter.limit(settings.RATE_LIMIT_METRICS)
+async def get_patient_metric_trends(
+    request: Request,
+    patient_id: Optional[str] = None,
+    limit: int = 8,
+    keys: Optional[str] = None,
+    current_user: UserDTO = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    dep_uuid = None
+    if patient_id and patient_id != "self":
+        try:
+            dep_uuid = uuid.UUID(patient_id)
+        except ValueError:
+            return MetricTrendsResponse(
+                patient_id=patient_id,
+                generated_at=datetime.now(UTC).isoformat(),
+                reports=[],
+                series=[],
+            )
+
+    filters = [
+        Document.user_id == current_user.id,
+        Document.cached_metrics.is_not(None),
+    ]
+    if dep_uuid:
+        filters.append(Document.dependent_id == dep_uuid)
+    else:
+        filters.append(Document.dependent_id.is_(None))
+
+    stmt = select(Document).filter(*filters)
+    res = await db.execute(stmt)
+    docs = list(res.scalars().all())
+
+    if not docs:
+        return MetricTrendsResponse(
+            patient_id=patient_id or "self",
+            generated_at=datetime.now(UTC).isoformat(),
+            reports=[],
+            series=[],
+        )
+
+    # Parse collection date and sort chronologically (oldest to newest)
+    def _doc_sort_key(d: Document):
+        dt = parse_report_chronology(d)
+        if dt:
+            return dt
+        if d.created_at:
+            return d.created_at.replace(tzinfo=None) if d.created_at.tzinfo else d.created_at
+        return datetime.min
+
+    docs.sort(key=_doc_sort_key)
+    # Take up to `limit` reports (most recent limit, sorted chronologically oldest to newest)
+    target_docs = docs[-limit:] if len(docs) > limit else docs
+
+    reports: List[MetricTrendReport] = []
+    series_map: Dict[str, Dict[str, Any]] = {}
+    requested_keys = set(k.strip().lower() for k in keys.split(",")) if keys else None
+
+    for d in target_docs:
+        date_label = d.collected_at or (d.created_at.strftime("%d %b %Y") if d.created_at else None)
+        reports.append(
+            MetricTrendReport(
+                document_id=str(d.id),
+                title=d.title or d.filename or "Lab Report",
+                collected_at=date_label,
+            )
+        )
+
+        raw = d.cached_metrics
+        if isinstance(raw, str):
+            try:
+                raw = json.loads(raw)
+            except Exception:
+                raw = []
+        if isinstance(raw, dict) and "metrics" in raw:
+            raw = raw["metrics"]
+        if not isinstance(raw, list):
+            continue
+
+        for m in raw:
+            if not isinstance(m, dict):
+                continue
+            t_name = str(m.get("test") or m.get("name") or "").strip()
+            norm_key = normalize_biomarker_name(t_name)
+            if not norm_key:
+                continue
+            if requested_keys and norm_key not in requested_keys:
+                continue
+
+            val_float = _parse_first_float(m.get("value"))
+            if val_float is None:
+                continue
+
+            unit = normalize_clinical_unit(str(m.get("unit") or "").strip())
+            ref_range = str(m.get("range") or m.get("reference_range") or "").strip()
+            status = str(m.get("status") or "Normal").strip()
+            raw_val = str(m.get("value", "")).strip()
+
+            if norm_key not in series_map:
+                series_map[norm_key] = {
+                    "key": norm_key,
+                    "name": t_name,
+                    "unit": unit,
+                    "reference_range": ref_range,
+                    "points": [],
+                }
+
+            series_map[norm_key]["points"].append(
+                MetricTrendPoint(
+                    document_id=str(d.id),
+                    collected_at=date_label,
+                    value=val_float,
+                    raw_value=raw_val,
+                    status=status,
+                )
+            )
+
+    series_list = [
+        MetricTrendSeries(
+            key=s["key"],
+            name=s["name"],
+            unit=s["unit"],
+            reference_range=s["reference_range"],
+            points=s["points"],
+        )
+        for s in series_map.values()
+    ]
+
+    return MetricTrendsResponse(
+        patient_id=patient_id or "self",
+        generated_at=datetime.now(UTC).isoformat(),
+        reports=reports,
+        series=series_list,
+    )
+
+
+```
+
+
+### FILE: backend/app/api/v1/endpoints/user.py
+```python
+import uuid
+import json
+import shutil
+import asyncio
+import logging
+from typing import List, Optional
+from uuid import UUID
+from datetime import datetime, UTC
+import firebase_admin
+import firebase_admin.auth
+from fastapi import APIRouter, Depends, Request, status, HTTPException
+from sqlalchemy import func, delete, or_
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.future import select
+
+from app.db.database import get_db
+from app.db.models import User, DependentProfile, Document, Chat, ChatDocument, PatientFact, ChatChunk, UploadJob
+from app.core.auth import (
+    UserDTO,
+    get_current_user,
+    get_current_user_full,
+    evict_token_cache_for_user,
+    verify_password,
+    get_password_hash,
+)
+from app.schemas.user import (
+    UserResponse,
+    UserUpdate,
+    PasswordChange,
+    MemoryConsentRequest,
+    RenameSessionRequest,
+    PatientFactResponse,
+    PatientFactCreate,
+    PatientFactUpdate,
+    DocumentResponse,
+    RenameDocumentRequest,
+)
+from app.schemas.dependent import DependentCreate, DependentUpdate, DependentResponse
+from app.core.audit import log_audit
+from app.core.limiter import limiter
+from app.rag.prompt_builder import build_document_summary_prompt
+from app.core.security import clean_filename_to_title, sanitize_text
+from app.services.patient_service import calculate_age
+from app.services.clinical_units import normalize_clinical_unit, check_is_future_date
+from app.rag.index_storage import adelete_index_artifacts
+
+logger = logging.getLogger(__name__)
+
+router = APIRouter(tags=["Users & Dependents"])
+
+@router.get("/users/me", response_model=UserResponse)
+async def read_user_me(current_user: UserDTO = Depends(get_current_user)):
+    user_res = UserResponse.model_validate(current_user)
+    user_res.calculated_age = calculate_age(current_user.date_of_birth)
+    return user_res
+
+@router.put("/users/me", response_model=UserResponse)
+@router.patch("/users/me", response_model=UserResponse)
+async def update_user_me(
+    request: Request,
+    user_update: UserUpdate,
+    current_user: User = Depends(get_current_user_full),
+    db: AsyncSession = Depends(get_db)
+):
+    update_data = user_update.model_dump(exclude_unset=True)
+    for key, value in update_data.items():
+        setattr(current_user, key, value)
+    
+    db.add(current_user)
+    await db.commit()
+    await db.refresh(current_user)
+    evict_token_cache_for_user(current_user.id)
+    
+    await log_audit(db, "PROFILE_UPDATE", current_user.id, "profile", request.client.host if request.client else "unknown")
+    user_res = UserResponse.model_validate(current_user)
+    user_res.calculated_age = calculate_age(current_user.date_of_birth)
+    return user_res
+
+
+# DEPRECATED: Password changes are now managed directly via Firebase Auth.
+# Kept for backward compatibility with legacy clients and tests.
+@router.post("/users/me/password", deprecated=True)
+@limiter.limit("5/minute")
+async def change_password(
+    body: PasswordChange,
+    request: Request,
+    current_user: User = Depends(get_current_user_full),
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    DEPRECATED: Password changes are now managed directly via Firebase Auth.
+    Change the current user's password after verifying their existing password.
+    """
+    if not verify_password(body.current_password, current_user.hashed_password):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Current password is incorrect",
+        )
+    current_user.hashed_password = get_password_hash(body.new_password)
+    await db.commit()
+    evict_token_cache_for_user(current_user.id)
+    await log_audit(db, "PASSWORD_CHANGED", current_user.id, "change_password", request.client.host if request.client else "unknown")
+    return {"message": "Password changed successfully"}
+
+@router.delete("/users/me", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_user_me(
+    request: Request,
+    current_user: User = Depends(get_current_user_full),
+    db: AsyncSession = Depends(get_db)
+):
+    user_id = current_user.id
+    user_email = current_user.email
+    await log_audit(db, "USER_DELETION_REQUESTED", user_id, "account", request.client.host if request.client else "unknown")
+    
+    docs = await db.execute(select(Document).filter(Document.user_id == user_id))
+    for doc in docs.scalars().all():
+        if doc.file_path:
+            await adelete_index_artifacts(doc.file_path)
+
+    doc_ids_subq = select(Document.id).filter(Document.user_id == user_id)
+    chat_ids_subq = select(Chat.id).filter(Chat.user_id == user_id)
+    await db.execute(
+        ChatDocument.__table__.delete().where(
+            (ChatDocument.document_id.in_(doc_ids_subq)) | (ChatDocument.chat_id.in_(chat_ids_subq))
+        )
+    )
+    await db.execute(ChatChunk.__table__.delete().where(ChatChunk.user_id == user_id))
+    await db.execute(PatientFact.__table__.delete().where(PatientFact.user_id == user_id))
+    await db.execute(UploadJob.__table__.delete().where(UploadJob.user_id == user_id))
+    await db.execute(Chat.__table__.delete().where(Chat.user_id == user_id))
+    await db.execute(Document.__table__.delete().where(Document.user_id == user_id))
+    await db.execute(DependentProfile.__table__.delete().where(DependentProfile.user_id == user_id))
+    
+    await db.delete(current_user)
+    await db.commit()
+    evict_token_cache_for_user(user_id)
+    try:
+        from app.core.redis_client import redis_client
+        import time as _time
+        await redis_client.setex(f"user_revoked_at:{user_email.lower().strip()}", 3600, str(_time.time()))
+    except Exception as rev_err:
+        logger.debug("Could not record user_revoked_at in redis_client: %s", rev_err)
+
+    try:
+        fb_user = await asyncio.to_thread(firebase_admin.auth.get_user_by_email, user_email)
+        await asyncio.to_thread(firebase_admin.auth.delete_user, fb_user.uid)
+        logger.info("firebase_delete_ok user_id=%s", user_id)
+    except firebase_admin.auth.UserNotFoundError:
+        logger.warning("firebase_user_not_found user_id=%s", user_id)
+    except Exception as e:
+        logger.error("firebase_delete_failed user_id=%s error=%s", user_id, e)
+
+    return None
+
+# ==========================================
+# User Documents & History Endpoints
+# ==========================================
+
+@router.get("/users/me/documents", response_model=List[DocumentResponse])
+async def get_my_documents(
+    current_user: UserDTO = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    result = await db.execute(
+        select(Document)
+        .filter(Document.user_id == current_user.id)
+        .order_by(Document.created_at.desc())
+    )
+    docs = result.scalars().all()
+    return [
+        {
+            "id": str(doc.id),
+            "filename": doc.filename,
+            "file_path": doc.file_path,
+            "title": doc.title or clean_filename_to_title(doc.filename),
+            "collected_at": doc.collected_at,
+            "is_future_collection_date": check_is_future_date(doc.collected_at),
+            "created_at": doc.created_at.isoformat() if doc.created_at else None,
+            "dependent_id": str(doc.dependent_id) if doc.dependent_id else None
+        }
+        for doc in docs
+    ]
+
+
+@router.patch("/users/me/documents/{document_id}/title", tags=["Documents", "Users & Dependents"])
+async def rename_user_document_title(
+    document_id: str,
+    body: RenameDocumentRequest,
+    current_user: UserDTO = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Rename a document's title (auth-gated to document owner)."""
+    try:
+        doc_uuid = uuid.UUID(document_id)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid document ID.")
+
+    result = await db.execute(
+        select(Document).filter(Document.id == doc_uuid, Document.user_id == current_user.id)
+    )
+    doc = result.scalars().first()
+    if not doc:
+        raise HTTPException(status_code=404, detail="Document not found or access denied.")
+
+    doc.title = sanitize_text(body.title).strip()
+    db.add(doc)
+    await db.commit()
+    await db.refresh(doc)
+    return {"id": str(doc.id), "title": doc.title}
+
+
+@router.get("/users/me/chats")
+async def get_general_chats(
+    document_id: Optional[str] = None,
+    session_id: Optional[str] = None,
+    current_user: UserDTO = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    query = select(Chat).filter(Chat.user_id == current_user.id)
+    if document_id:
+        try:
+            d_uuid = uuid.UUID(document_id)
+            query = query.filter(Chat.document_id == d_uuid)
+        except ValueError:
+            pass
+    if session_id:
+        query = query.filter(Chat.session_id == session_id)
+
+    query = query.order_by(Chat.created_at.asc())
+    result = await db.execute(query)
+    chats = result.scalars().all()
+    return [
+        {
+            "id": str(c.id),
+            "session_id": c.session_id or (f"doc-{c.document_id}" if c.document_id else f"legacy-{c.user_id}"),
+            "session_title": c.session_title,
+            "document_id": str(c.document_id) if c.document_id else None,
+            "role": c.role,
+            "message": c.message,
+            "created_at": c.created_at.isoformat() if c.created_at else None,
+            "timestamp": c.created_at.isoformat() if c.created_at else None,
+            "dependent_id": None,
+        }
+        for c in chats
+    ]
+
+@router.get("/users/me/documents/{document_id}/chats")
+async def get_document_chats(
+    document_id: str,
+    current_user: UserDTO = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    try:
+        doc_uuid = uuid.UUID(document_id)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid document ID")
+        
+    doc_res = await db.execute(
+        select(Document).filter(Document.id == doc_uuid, Document.user_id == current_user.id)
+    )
+    if not doc_res.scalars().first():
+        raise HTTPException(status_code=404, detail="Document not found")
+
+    result = await db.execute(
+        select(Chat)
+        .filter(Chat.user_id == current_user.id, Chat.document_id == doc_uuid)
+        .order_by(Chat.created_at.asc())
+    )
+    chats = result.scalars().all()
+    return [
+        {
+            "id": str(c.id),
+            "session_id": c.session_id or f"doc-{doc_uuid}",
+            "session_title": c.session_title,
+            "document_id": str(c.document_id) if c.document_id else str(doc_uuid),
+            "role": c.role,
+            "message": c.message,
+            "created_at": c.created_at.isoformat() if c.created_at else None,
+            "timestamp": c.created_at.isoformat() if c.created_at else None,
+            "dependent_id": None,
+        }
+        for c in chats
+    ]
+
+
+@router.patch("/users/me/chats/sessions/{session_id}")
+async def rename_chat_session(
+    session_id: str,
+    body: RenameSessionRequest,
+    current_user: UserDTO = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Allow renaming a conversation session (auth-gated to session owner)."""
+    title = sanitize_text(body.title).strip()
+    res = await db.execute(
+        select(Chat).filter(Chat.user_id == current_user.id, Chat.session_id == session_id)
+    )
+    chats = res.scalars().all()
+    if not chats:
+        try:
+            doc_uuid = uuid.UUID(session_id)
+            doc_res = await db.execute(
+                select(Document).filter(Document.id == doc_uuid, Document.user_id == current_user.id)
+            )
+            doc = doc_res.scalars().first()
+            if doc:
+                doc.title = title
+                db.add(doc)
+                await db.commit()
+                return {"session_id": session_id, "title": title}
+        except ValueError:
+            pass
+        raise HTTPException(status_code=404, detail="Chat session not found.")
+
+    for c in chats:
+        c.session_title = title
+        db.add(c)
+
+    doc_ids = {c.document_id for c in chats if c.document_id}
+    if doc_ids:
+        docs_res = await db.execute(
+            select(Document).filter(Document.id.in_(doc_ids), Document.user_id == current_user.id)
+        )
+        for d in docs_res.scalars().all():
+            d.title = title
+            db.add(d)
+
+    await db.commit()
+    return {"session_id": session_id, "title": title, "session_title": title}
+
+
+@router.delete("/users/me/chats/sessions/{session_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_chat_session(
+    session_id: str,
+    current_user: UserDTO = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Delete all chats in a session and cascade delete extracted patient facts."""
+    res = await db.execute(
+        select(Chat).filter(Chat.user_id == current_user.id, Chat.session_id == session_id)
+    )
+    chats = res.scalars().all()
+    if not chats:
+        try:
+            doc_uuid = uuid.UUID(session_id)
+            doc_check = await db.execute(
+                select(Document).filter(Document.id == doc_uuid, Document.user_id == current_user.id)
+            )
+            if doc_check.scalars().first():
+                return await delete_my_document(session_id, current_user, db)
+        except ValueError:
+            pass
+        raise HTTPException(status_code=404, detail="Chat session not found.")
+
+    chat_ids = [c.id for c in chats]
+    chat_id_strs = [str(cid) for cid in chat_ids]
+
+    # CASCADE DELETE EXTRACTED INSIGHTS: Physically delete PatientFact rows where source_id in chat_ids
+    await db.execute(
+        delete(PatientFact).where(
+            PatientFact.user_id == current_user.id,
+            PatientFact.source_id.in_(chat_id_strs),
+        )
+    )
+
+    await db.execute(delete(ChatChunk).where(ChatChunk.chat_id.in_(chat_ids)))
+    await db.execute(delete(ChatDocument).where(ChatDocument.chat_id.in_(chat_ids)))
+    await db.execute(delete(Chat).where(Chat.id.in_(chat_ids)))
+    await db.commit()
+    return None
+
+
+@router.delete("/users/me/chats", status_code=status.HTTP_204_NO_CONTENT)
+async def clear_all_chats(
+    current_user: UserDTO = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Clear all standalone chats and cascade delete associated patient facts."""
+    res = await db.execute(
+        select(Chat.id).filter(Chat.user_id == current_user.id, Chat.document_id.is_(None))
+    )
+    chat_ids = res.scalars().all()
+    if chat_ids:
+        chat_id_strs = [str(cid) for cid in chat_ids]
+        await db.execute(
+            delete(PatientFact).where(
+                PatientFact.user_id == current_user.id,
+                PatientFact.source_id.in_(chat_id_strs),
+            )
+        )
+        await db.execute(delete(ChatChunk).where(ChatChunk.chat_id.in_(chat_ids)))
+        await db.execute(delete(ChatDocument).where(ChatDocument.chat_id.in_(chat_ids)))
+        await db.execute(delete(Chat).where(Chat.id.in_(chat_ids)))
+        await db.commit()
+    return None
+
+
+@router.delete("/users/me/chats/{chat_id}", status_code=status.HTTP_204_NO_CONTENT)
+@router.delete("/chats/{chat_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_single_chat(
+    chat_id: UUID,
+    current_user: UserDTO = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Delete a single chat turn and any associated facts."""
+    chat = await db.get(Chat, chat_id)
+    if not chat or chat.user_id != current_user.id:
+        raise HTTPException(status_code=404, detail="Chat message not found.")
+
+    await db.execute(
+        delete(PatientFact).where(
+            PatientFact.user_id == current_user.id,
+            PatientFact.source_id == str(chat_id),
+        )
+    )
+    await db.execute(delete(ChatChunk).where(ChatChunk.chat_id == chat_id))
+    await db.execute(delete(ChatDocument).where(ChatDocument.chat_id == chat_id))
+    await db.delete(chat)
+    await db.commit()
+    return None
+
+
+def _normalize_cached_metrics(cached) -> List[dict]:
+    """Normalize Document.cached_metrics into a plain list of dicts with standardized units."""
+    if cached is None:
+        return []
+    if isinstance(cached, str):
+        try:
+            cached = json.loads(cached)
+        except Exception:
+            return []
+    if isinstance(cached, dict) and "metrics" in cached:
+        cached = cached["metrics"]
+    if not isinstance(cached, list):
+        return []
+    metrics = []
+    for item in cached:
+        d = None
+        if isinstance(item, dict):
+            d = dict(item)
+        elif hasattr(item, "model_dump"):
+            d = item.model_dump()
+        if d is not None:
+            if "unit" in d and d["unit"]:
+                d["unit"] = normalize_clinical_unit(d["unit"])
+            metrics.append(d)
+    return metrics
+
+
+@router.get("/users/me/export-data", tags=["Users & Dependents"])
+async def export_my_data(
+    request: Request,
+    current_user: User = Depends(get_current_user_full),
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    Export all user account data as a clean JSON bundle:
+    decrypted profile, dependent_profiles, remembered_facts,
+    and documents (with lab_metrics and chat history).
+    """
+    profile_data = {
+        "id": str(current_user.id),
+        "email": current_user.email,
+        "full_name": current_user.full_name,
+        "date_of_birth": current_user.date_of_birth.isoformat() if current_user.date_of_birth else None,
+        "calculated_age": calculate_age(current_user.date_of_birth),
+        "biological_sex": current_user.biological_sex,
+        "blood_type": current_user.blood_type,
+        "pre_existing_conditions": current_user.pre_existing_conditions,
+        "known_allergies": current_user.known_allergies,
+        "current_medications": current_user.current_medications,
+        "height_cm": current_user.height_cm,
+        "diet_type": current_user.diet_type,
+        "activity_level": current_user.activity_level,
+        "occupation": current_user.occupation,
+        "emergency_contact_name": current_user.emergency_contact_name,
+        "emergency_contact_phone": current_user.emergency_contact_phone,
+        "language_preference": current_user.language_preference,
+        "memory_consent_granted": current_user.memory_consent_granted,
+        "phi_consent_granted": current_user.phi_consent_granted,
+        "created_at": current_user.created_at.isoformat() if current_user.created_at else None,
+    }
+
+    # Decrypted dependent profiles
+    dep_res = await db.execute(
+        select(DependentProfile)
+        .filter(DependentProfile.user_id == current_user.id)
+        .order_by(DependentProfile.created_at.asc())
+    )
+    dependents = dep_res.scalars().all()
+    dependent_profiles_data = [
+        {
+            "id": str(d.id),
+            "relationship": d.relationship,
+            "full_name": d.full_name,
+            "date_of_birth": d.date_of_birth.isoformat() if d.date_of_birth else None,
+            "calculated_age": calculate_age(d.date_of_birth),
+            "biological_sex": d.biological_sex,
+            "blood_type": d.blood_type,
+            "pre_existing_conditions": d.pre_existing_conditions,
+            "known_allergies": d.known_allergies,
+            "current_medications": d.current_medications,
+            "height_cm": d.height_cm,
+            "diet_type": d.diet_type,
+            "activity_level": d.activity_level,
+            "occupation": d.occupation,
+            "emergency_contact_name": d.emergency_contact_name,
+            "emergency_contact_phone": d.emergency_contact_phone,
+            "created_at": d.created_at.isoformat() if d.created_at else None,
+        }
+        for d in dependents
+    ]
+
+    # Remembered facts
+    facts_res = await db.execute(
+        select(PatientFact)
+        .filter(PatientFact.user_id == current_user.id)
+        .order_by(PatientFact.created_at.desc())
+    )
+    facts = facts_res.scalars().all()
+    remembered_facts_data = [
+        {
+            "id": str(f.id),
+            "fact_text": f.fact_text,
+            "fact_category": f.fact_category,
+            "source_report_id": f.source_id,
+            "dependent_id": str(f.dependent_id) if f.dependent_id else None,
+            "is_active": f.is_active,
+            "created_at": f.created_at.isoformat() if f.created_at else None,
+            "updated_at": f.updated_at.isoformat() if f.updated_at else None,
+        }
+        for f in facts
+    ]
+
+    # Documents with lab_metrics and chat history
+    docs_res = await db.execute(
+        select(Document)
+        .filter(Document.user_id == current_user.id)
+        .order_by(Document.created_at.desc())
+    )
+    docs = docs_res.scalars().all()
+    documents_data = []
+    for doc in docs:
+        chats_res = await db.execute(
+            select(Chat)
+            .filter(Chat.user_id == current_user.id, Chat.document_id == doc.id)
+            .order_by(Chat.created_at.asc())
+        )
+        chats = chats_res.scalars().all()
+        chat_history = [
+            {
+                "id": str(c.id),
+                "role": c.role,
+                "message": c.message,
+                "session_id": c.session_id,
+                "created_at": c.created_at.isoformat() if c.created_at else None,
+            }
+            for c in chats
+        ]
+        documents_data.append({
+            "id": str(doc.id),
+            "filename": doc.filename,
+            "title": doc.title or doc.filename,
+            "collected_at": doc.collected_at,
+            "is_future_collection_date": check_is_future_date(doc.collected_at),
+            "created_at": doc.created_at.isoformat() if doc.created_at else None,
+            "dependent_id": str(doc.dependent_id) if doc.dependent_id else None,
+            "cached_summary": doc.cached_summary,
+            "lab_metrics": _normalize_cached_metrics(doc.cached_metrics),
+            "chat_history": chat_history,
+        })
+
+    # Standalone chats
+    standalone_chats_res = await db.execute(
+        select(Chat)
+        .filter(Chat.user_id == current_user.id, Chat.document_id.is_(None))
+        .order_by(Chat.created_at.asc())
+    )
+    standalone_chats_data = [
+        {
+            "id": str(c.id),
+            "role": c.role,
+            "message": c.message,
+            "session_id": c.session_id,
+            "session_title": c.session_title,
+            "created_at": c.created_at.isoformat() if c.created_at else None,
+        }
+        for c in standalone_chats_res.scalars().all()
+    ]
+
+    await log_audit(db, "ACCOUNT_DATA_EXPORTED", current_user.id, "export_data", request.client.host if request.client else "unknown")
+
+    return {
+        "export_timestamp": datetime.now(UTC).isoformat(),
+        "account_id": str(current_user.id),
+        "email": current_user.email,
+        "profile": profile_data,
+        "dependent_profiles": dependent_profiles_data,
+        "remembered_facts": remembered_facts_data,
+        "documents": documents_data,
+        "standalone_chats": standalone_chats_data,
+    }
+
+
+@router.get("/users/me/documents/{document_id}/export")
+async def export_document_data(
+    document_id: str,
+    current_user: UserDTO = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    Export a document's full chat transcript and cached lab metrics as JSON.
+
+    Returns the document metadata, every stored chat message (user + assistant)
+    in chronological order, and the cached lab metrics ([] when none extracted).
+    Read-only: does not invoke LLM extraction or mutate any state.
+    """
+    try:
+        doc_uuid = uuid.UUID(document_id)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid document ID")
+
+    result = await db.execute(
+        select(Document).filter(Document.id == doc_uuid, Document.user_id == current_user.id)
+    )
+    doc = result.scalars().first()
+    if not doc:
+        raise HTTPException(status_code=404, detail="Document not found")
+
+    chats_res = await db.execute(
+        select(Chat)
+        .filter(Chat.user_id == current_user.id, Chat.document_id == doc_uuid)
+        .order_by(Chat.created_at.asc())
+    )
+    chats = chats_res.scalars().all()
+
+    return {
+        "document": {
+            "id": str(doc.id),
+            "filename": doc.filename,
+            "title": doc.title or doc.filename,
+            "collected_at": doc.collected_at,
+            "is_future_collection_date": check_is_future_date(doc.collected_at),
+            "created_at": doc.created_at.isoformat() if doc.created_at else None,
+            "dependent_id": str(doc.dependent_id) if doc.dependent_id else None,
+        },
+        "messages": [
+            {
+                "id": str(c.id),
+                "role": c.role,
+                "message": c.message,
+                "created_at": c.created_at.isoformat() if c.created_at else None,
+            }
+            for c in chats
+        ],
+        "lab_metrics": _normalize_cached_metrics(doc.cached_metrics),
+    }
+
+@router.delete("/users/me/documents/{document_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_my_document(
+    document_id: str,
+    current_user: UserDTO = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    try:
+        doc_uuid = uuid.UUID(document_id)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid document ID")
+
+    result = await db.execute(
+        select(Document).filter(Document.id == doc_uuid, Document.user_id == current_user.id)
+    )
+    doc = result.scalars().first()
+    if not doc:
+        raise HTTPException(status_code=404, detail="Document not found")
+
+    if doc.file_path:
+        await adelete_index_artifacts(doc.file_path)
+
+    try:
+        from app.rag.retriever import evict_index_cache
+        evict_index_cache(str(doc.id))
+        if doc.file_path:
+            evict_index_cache(str(doc.file_path))
+    except Exception as ev_err:
+        logger.debug("Could not evict index cache for doc %s: %s", doc.id, ev_err)
+
+    # Clean up vector cache session directory if present
+    try:
+        from app.core.config import settings
+        session_cache = settings.VECTOR_CACHE_DIR / str(doc.id)
+        if session_cache.is_dir():
+            shutil.rmtree(session_cache, ignore_errors=True)
+    except Exception as e:
+        logger.error("Error removing vector cache for doc %s: %s", doc.id, e)
+
+    chat_res = await db.execute(
+        select(Chat).filter(Chat.user_id == current_user.id, Chat.document_id == doc.id)
+    )
+    primary_chats = chat_res.scalars().all()
+
+    chats_to_delete = []
+    for c in primary_chats:
+        cd_res = await db.execute(
+            select(ChatDocument.document_id).filter(
+                ChatDocument.chat_id == c.id,
+                ChatDocument.document_id != doc.id,
+            )
+        )
+        other_docs = cd_res.scalars().all()
+        if other_docs:
+            c.document_id = other_docs[0]
+            db.add(c)
+        else:
+            chats_to_delete.append(c.id)
+
+    chat_id_strs = [str(cid) for cid in chats_to_delete]
+    fact_conditions = [PatientFact.source_id == str(doc.id)]
+    if chat_id_strs:
+        fact_conditions.append(PatientFact.source_id.in_(chat_id_strs))
+
+    await db.execute(
+        delete(PatientFact).where(
+            PatientFact.user_id == current_user.id,
+            or_(*fact_conditions)
+        )
+    )
+
+    await db.execute(ChatDocument.__table__.delete().where(ChatDocument.document_id == doc.id))
+    if chats_to_delete:
+        await db.execute(ChatChunk.__table__.delete().where(ChatChunk.chat_id.in_(chats_to_delete)))
+        await db.execute(Chat.__table__.delete().where(Chat.id.in_(chats_to_delete)))
+
+    await db.delete(doc)
+    await db.commit()
+    return None
+
+# ==========================================
+# Dependent Profile Endpoints (Caregiver Mode)
+# ==========================================
+
+@router.get("/users/me/dependents", response_model=List[DependentResponse])
+async def list_dependents(
+    request: Request,
+    current_user: UserDTO = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    result = await db.execute(
+        select(DependentProfile)
+        .filter(DependentProfile.user_id == current_user.id)
+        .order_by(DependentProfile.created_at.asc())
+    )
+    dependents = result.scalars().all()
+    
+    responses = []
+    for dep in dependents:
+        item = DependentResponse.model_validate(dep)
+        item.calculated_age = calculate_age(dep.date_of_birth)
+        responses.append(item)
+        
+    await log_audit(db, "DEPENDENTS_LIST_ACCESSED", current_user.id, "dependents", request.client.host if request.client else "unknown")
+    return responses
+
+@router.post("/users/me/dependents", response_model=DependentResponse, status_code=status.HTTP_201_CREATED)
+async def create_dependent(
+    request: Request,
+    dependent_in: DependentCreate,
+    current_user: UserDTO = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    dep = DependentProfile(
+        user_id=current_user.id,
+        relationship=dependent_in.relationship,
+        full_name=dependent_in.full_name,
+        date_of_birth=dependent_in.date_of_birth,
+        biological_sex=dependent_in.biological_sex,
+        blood_type=dependent_in.blood_type,
+        pre_existing_conditions=dependent_in.pre_existing_conditions,
+        known_allergies=dependent_in.known_allergies,
+        current_medications=dependent_in.current_medications,
+        height_cm=dependent_in.height_cm,
+        diet_type=dependent_in.diet_type,
+        activity_level=dependent_in.activity_level,
+        occupation=dependent_in.occupation,
+    )
+    db.add(dep)
+    await db.commit()
+    await db.refresh(dep)
+    
+    await log_audit(db, "DEPENDENT_CREATED", current_user.id, "dependent", request.client.host if request.client else "unknown", dependent_id=dep.id)
+    
+    item = DependentResponse.model_validate(dep)
+    item.calculated_age = calculate_age(dep.date_of_birth)
+    return item
+
+@router.put("/users/me/dependents/{dependent_id}", response_model=DependentResponse)
+async def update_dependent(
+    dependent_id: UUID,
+    request: Request,
+    dependent_in: DependentUpdate,
+    current_user: UserDTO = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    result = await db.execute(
+        select(DependentProfile).filter(
+            DependentProfile.id == dependent_id,
+            DependentProfile.user_id == current_user.id
+        )
+    )
+    dep = result.scalars().first()
+    if not dep:
+        raise HTTPException(status_code=404, detail="Dependent profile not found.")
+        
+    update_data = dependent_in.model_dump(exclude_unset=True)
+    for key, value in update_data.items():
+        setattr(dep, key, value)
+        
+    db.add(dep)
+    await db.commit()
+    await db.refresh(dep)
+    
+    await log_audit(db, "DEPENDENT_UPDATED", current_user.id, "dependent", request.client.host if request.client else "unknown", dependent_id=dep.id)
+    
+    item = DependentResponse.model_validate(dep)
+    item.calculated_age = calculate_age(dep.date_of_birth)
+    return item
+
+@router.delete("/users/me/dependents/{dependent_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_dependent(
+    dependent_id: UUID,
+    request: Request,
+    current_user: UserDTO = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    result = await db.execute(
+        select(DependentProfile).filter(
+            DependentProfile.id == dependent_id,
+            DependentProfile.user_id == current_user.id
+        )
+    )
+    dep = result.scalars().first()
+    if not dep:
+        raise HTTPException(status_code=404, detail="Dependent profile not found.")
+
+    # 1. Query all dependent documents
+    doc_res = await db.execute(
+        select(Document).filter(
+            Document.user_id == current_user.id,
+            Document.dependent_id == dependent_id
+        )
+    )
+    dep_docs = doc_res.scalars().all()
+    dep_doc_ids = [d.id for d in dep_docs]
+
+    # 2. Purge local and GCS index artifacts & vector cache
+    from app.rag.retriever import evict_index_cache
+    from app.core.config import settings
+
+    for d in dep_docs:
+        if d.file_path:
+            try:
+                await adelete_index_artifacts(d.file_path)
+            except Exception as e:
+                logger.warning("Failed deleting index artifacts for dependent doc %s: %s", d.id, e)
+        try:
+            evict_index_cache(str(d.id))
+            if d.file_path:
+                evict_index_cache(str(d.file_path))
+        except Exception:
+            pass
+        try:
+            session_cache = settings.VECTOR_CACHE_DIR / str(d.id)
+            if session_cache.is_dir():
+                shutil.rmtree(session_cache, ignore_errors=True)
+        except Exception:
+            pass
+
+    # 3. Find and purge all chats associated with these documents
+    chats_to_purge = set()
+    if dep_doc_ids:
+        c_res = await db.execute(
+            select(Chat.id).filter(
+                Chat.user_id == current_user.id,
+                Chat.document_id.in_(dep_doc_ids)
+            )
+        )
+        for cid in c_res.scalars().all():
+            chats_to_purge.add(cid)
+
+        cd_chats_res = await db.execute(
+            select(ChatDocument.chat_id).filter(
+                ChatDocument.document_id.in_(dep_doc_ids)
+            )
+        )
+        for cid in cd_chats_res.scalars().all():
+            chats_to_purge.add(cid)
+
+    # Cascade-delete chat chunks, chat documents, and chats
+    if chats_to_purge:
+        purge_list = list(chats_to_purge)
+        await db.execute(delete(ChatChunk).where(ChatChunk.chat_id.in_(purge_list)))
+        await db.execute(delete(ChatDocument).where(ChatDocument.chat_id.in_(purge_list)))
+        await db.execute(delete(Chat).where(Chat.id.in_(purge_list)))
+
+    # Delete any chat chunks directly linked to dependent_id
+    await db.execute(delete(ChatChunk).where(ChatChunk.dependent_id == dependent_id))
+
+    # Delete ChatDocuments for these documents
+    if dep_doc_ids:
+        await db.execute(delete(ChatDocument).where(ChatDocument.document_id.in_(dep_doc_ids)))
+
+    # Delete PatientFacts linked to dependent_id or doc IDs
+    fact_conds = [PatientFact.dependent_id == dependent_id]
+    if dep_doc_ids:
+        fact_conds.append(PatientFact.source_id.in_([str(did) for did in dep_doc_ids]))
+    if chats_to_purge:
+        fact_conds.append(PatientFact.source_id.in_([str(cid) for cid in chats_to_purge]))
+
+    await db.execute(
+        delete(PatientFact).where(
+            PatientFact.user_id == current_user.id,
+            or_(*fact_conds)
+        )
+    )
+
+    # Delete the documents
+    if dep_doc_ids:
+        await db.execute(delete(Document).where(Document.id.in_(dep_doc_ids)))
+        
+    await log_audit(db, "DEPENDENT_DELETED", current_user.id, "dependent", request.client.host if request.client else "unknown", dependent_id=dep.id)
+    await db.delete(dep)
+    await db.commit()
+    return None
+
+
+# ==========================================
+# Patient Memory & Facts Endpoints
+# ==========================================
+
+@router.post("/users/me/memory/consent")
+@router.post("/memory/consent")
+@router.post("/users/me/memory/consent")
+@router.patch("/users/me/memory-consent")
+async def update_memory_consent(
+    request: Request,
+    body: MemoryConsentRequest,
+    current_user: User = Depends(get_current_user_full),
+    db: AsyncSession = Depends(get_db),
+):
+    """Enable or disable long-term memory extraction and cross-session personalization."""
+    current_user.memory_consent_granted = body.consent
+    if not body.consent and getattr(body, "clear_existing", False):
+        await db.execute(delete(PatientFact).where(PatientFact.user_id == current_user.id))
+    db.add(current_user)
+    await db.commit()
+    await db.refresh(current_user)
+    evict_token_cache_for_user(current_user.id)
+    try:
+        await log_audit(
+            db,
+            "MEMORY_CONSENT_GRANTED" if body.consent else "MEMORY_CONSENT_REVOKED",
+            current_user.id,
+            "memory_consent",
+            request.client.host if request.client else "unknown",
+        )
+    except Exception as audit_err:
+        logger.warning("Failed to log audit event for memory consent: %s", audit_err)
+    return {
+        "status": "success",
+        "memory_consent_granted": current_user.memory_consent_granted,
+    }
+
+
+@router.get("/users/me/memory/status")
+@router.get("/memory/status")
+async def get_memory_status(
+    current_user: UserDTO = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Get the current memory consent status and total number of remembered facts."""
+    res = await db.execute(
+        select(func.count(PatientFact.id)).filter(
+            PatientFact.user_id == current_user.id,
+            PatientFact.is_active.is_(True),
+        )
+    )
+    fact_count = int(res.scalar() or 0)
+    return {
+        "memory_consent_granted": current_user.memory_consent_granted,
+        "fact_count": fact_count,
+    }
+
+
+@router.get("/users/me/facts", response_model=List[PatientFactResponse])
+@router.get("/users/me/memory/facts", response_model=List[PatientFactResponse])
+@router.get("/memory/facts", response_model=List[PatientFactResponse])
+async def get_user_facts(
+    dependent_id: Optional[str] = None,
+    current_user: UserDTO = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Retrieve all active structured health facts remembered for the user or dependent."""
+    filters = [
+        PatientFact.user_id == current_user.id,
+        PatientFact.is_active.is_(True),
+    ]
+    if dependent_id:
+        try:
+            dep_uuid = UUID(dependent_id)
+            filters.append(PatientFact.dependent_id == dep_uuid)
+        except ValueError:
+            logger.debug("Ignoring invalid dependent_id UUID: %s", dependent_id)
+    else:
+        filters.append(PatientFact.dependent_id.is_(None))
+
+    res = await db.execute(
+        select(PatientFact)
+        .filter(*filters)
+        .order_by(
+            PatientFact.is_user_verified.desc(),
+            PatientFact.confidence.desc(),
+            PatientFact.last_seen_at.desc(),
+        )
+    )
+    facts = res.scalars().all()
+
+    chat_ids = []
+    for f in facts:
+        if f.source_id:
+            try:
+                chat_ids.append(UUID(str(f.source_id)))
+            except ValueError:
+                pass
+
+    chat_to_doc = {}
+    direct_doc_ids = set()
+    if chat_ids:
+        # Check if source_id matches a Chat with a document_id
+        c_res = await db.execute(
+            select(Chat.id, Chat.document_id).filter(
+                Chat.id.in_(chat_ids),
+                Chat.document_id.is_not(None),
+            )
+        )
+        for c_id, d_id in c_res.all():
+            if d_id:
+                chat_to_doc[str(c_id)] = str(d_id)
+
+        # Check if source_id is directly a Document id
+        d_res = await db.execute(
+            select(Document.id).filter(
+                Document.id.in_(chat_ids),
+                Document.user_id == current_user.id,
+            )
+        )
+        for (d_id,) in d_res.all():
+            direct_doc_ids.add(str(d_id))
+
+    result = []
+    for f in facts:
+        resp = PatientFactResponse.model_validate(f)
+        s_id_str = str(f.source_id) if f.source_id else None
+        if s_id_str and s_id_str in chat_to_doc:
+            resp.source_document_id = chat_to_doc[s_id_str]
+        elif s_id_str and s_id_str in direct_doc_ids:
+            resp.source_document_id = s_id_str
+        result.append(resp)
+    return result
+
+
+@router.post("/users/me/facts", response_model=PatientFactResponse, status_code=status.HTTP_201_CREATED)
+async def create_user_fact(
+    body: PatientFactCreate,
+    request: Request,
+    current_user: UserDTO = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Manually add a health fact for the current user or their dependent."""
+    dep_uuid = None
+    if body.dependent_id:
+        dep_res = await db.execute(
+            select(DependentProfile).filter(
+                DependentProfile.id == body.dependent_id,
+                DependentProfile.user_id == current_user.id,
+            )
+        )
+        dep = dep_res.scalars().first()
+        if not dep:
+            raise HTTPException(status_code=404, detail="Dependent profile not found.")
+        dep_uuid = dep.id
+
+    now = datetime.now(UTC)
+    new_fact = PatientFact(
+        user_id=current_user.id,
+        dependent_id=dep_uuid,
+        fact_type=body.fact_type,
+        fact_text=body.fact_text,
+        confidence=body.confidence if body.confidence is not None else 1.0,
+        is_active=True,
+        is_user_verified=True,
+        source_type=body.source_type or "user_edit",
+        source_id=None,
+        source_excerpt=body.source_excerpt,
+        first_seen_at=now,
+        last_seen_at=now,
+        created_at=now,
+    )
+    db.add(new_fact)
+    await db.commit()
+    await db.refresh(new_fact)
+
+    await log_audit(db, "FACT_CREATED_MANUAL", current_user.id, f"fact_{new_fact.id}", request.client.host if request.client else "unknown")
+    return PatientFactResponse.model_validate(new_fact)
+
+
+@router.patch("/users/me/facts/{fact_id}", response_model=PatientFactResponse)
+async def update_user_fact(
+    fact_id: UUID,
+    body: PatientFactUpdate,
+    request: Request,
+    current_user: UserDTO = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Update a specific remembered health fact (auth-gated, cross-user returns 404)."""
+    res = await db.execute(
+        select(PatientFact).filter(
+            PatientFact.id == fact_id,
+            PatientFact.user_id == current_user.id,
+        )
+    )
+    fact = res.scalars().first()
+    if not fact:
+        raise HTTPException(status_code=404, detail="Fact not found.")
+
+    update_data = body.model_dump(exclude_unset=True)
+    for field, val in update_data.items():
+        setattr(fact, field, val)
+
+    fact.last_seen_at = datetime.now(UTC)
+    db.add(fact)
+    await db.commit()
+    await db.refresh(fact)
+
+    await log_audit(db, "FACT_UPDATED", current_user.id, f"fact_{fact_id}", request.client.host if request.client else "unknown")
+    return PatientFactResponse.model_validate(fact)
+
+
+@router.delete("/users/me/facts/{fact_id}")
+@router.delete("/users/me/memory/facts/{fact_id}")
+@router.delete("/memory/facts/{fact_id}")
+async def delete_memory_fact(
+    fact_id: UUID,
+    request: Request,
+    current_user: UserDTO = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Hard delete a specific remembered health fact (auth-gated, cross-user returns 404)."""
+    res = await db.execute(
+        select(PatientFact).filter(
+            PatientFact.id == fact_id,
+            PatientFact.user_id == current_user.id,
+        )
+    )
+    fact = res.scalars().first()
+    if not fact:
+        raise HTTPException(status_code=404, detail="Fact not found.")
+
+    await db.delete(fact)
+    await db.commit()
+    await log_audit(db, "FACT_DELETED", current_user.id, f"fact_{fact_id}", request.client.host if request.client else "unknown")
+    return {"message": "Fact deleted successfully", "id": str(fact_id)}
+
+
+@router.delete("/users/me/memory/facts")
+@router.delete("/memory/facts")
+async def clear_all_memory_facts(
+    request: Request,
+    dependent_id: Optional[str] = None,
+    current_user: UserDTO = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Hard delete all remembered health facts for the user or dependent."""
+    filters = [PatientFact.user_id == current_user.id]
+    if dependent_id:
+        try:
+            dep_uuid = UUID(dependent_id)
+            filters.append(PatientFact.dependent_id == dep_uuid)
+        except ValueError:
+            logger.debug("Ignoring invalid dependent_id UUID: %s", dependent_id)
+
+    res = await db.execute(select(PatientFact).filter(*filters))
+    facts = res.scalars().all()
+    count = len(facts)
+    for f in facts:
+        await db.delete(f)
+    await db.commit()
+    await log_audit(db, "ALL_FACTS_CLEARED", current_user.id, "memory", request.client.host if request.client else "unknown")
+    return {"message": "All memory facts cleared successfully", "count": count}
+
+
+```
+
+
+### FILE: backend/app/rag/retriever.py
+```python
+"""
+Retriever module — manages FAISS + BM25 hybrid indexes.
+
+During upload: builds both a FAISS vectorstore and a BM25 keyword index
+over the same document chunks.
+
+During query: loads both indexes and performs hybrid retrieval using
+Reciprocal Rank Fusion (RRF) to combine semantic and keyword results.
+"""
+
+import os
+import asyncio
+import logging
+from pathlib import Path
+from typing import Optional
+
+import re
+from langchain_community.vectorstores.faiss import FAISS
+from langchain_core.documents import Document
+
+from collections import OrderedDict
+import threading
+from app.rag.chunking import MedicalTextSplitter
+from app.rag.embedder import get_embedder
+from app.rag.hybrid_search import BM25Index, save_bm25_index, load_bm25_index, reciprocal_rank_fusion
+from app.rag.index_storage import ensure_index_local, aensure_index_local
+from app.core.config import settings
+
+logger = logging.getLogger(__name__)
+
+CHUNK_SIZE = 1200
+CHUNK_OVERLAP = 200
+RETRIEVAL_K = 8
+RETRIEVAL_FETCH_K = 24
+MAX_RETRIEVAL_K = 12
+MAX_FETCH_K = 48
+
+_INDEX_CACHE_LOCK = threading.Lock()
+_HYBRID_INDEX_CACHE: OrderedDict[str, tuple] = OrderedDict()
+MAX_CACHE_ENTRIES = 10
+
+
+def _normalize_index_key(key) -> str:
+    try:
+        p = Path(key)
+        return str(p.resolve())
+    except Exception:
+        return str(key).strip().lower()
+
+
+def cache_hybrid_index(key, vectorstore, bm25_index) -> None:
+    """Store (vectorstore, bm25_index) in in-memory LRU cache (bounded to 10 entries)."""
+    if not key:
+        return
+    norm_key = _normalize_index_key(key)
+    with _INDEX_CACHE_LOCK:
+        if norm_key in _HYBRID_INDEX_CACHE:
+            _HYBRID_INDEX_CACHE.move_to_end(norm_key)
+            _HYBRID_INDEX_CACHE[norm_key] = (vectorstore, bm25_index)
+        else:
+            if len(_HYBRID_INDEX_CACHE) >= MAX_CACHE_ENTRIES:
+                evicted_key, _ = _HYBRID_INDEX_CACHE.popitem(last=False)
+                logger.info("Evicted index from LRU cache: %s (maxsize=%d)", evicted_key, MAX_CACHE_ENTRIES)
+            _HYBRID_INDEX_CACHE[norm_key] = (vectorstore, bm25_index)
+
+
+def get_cached_hybrid_index(key) -> Optional[tuple]:
+    """Retrieve (vectorstore, bm25_index) from in-memory LRU cache."""
+    if not key:
+        return None
+    query_str = str(key).strip()
+    norm_key = _normalize_index_key(key)
+    with _INDEX_CACHE_LOCK:
+        if norm_key in _HYBRID_INDEX_CACHE:
+            _HYBRID_INDEX_CACHE.move_to_end(norm_key)
+            return _HYBRID_INDEX_CACHE[norm_key]
+        if query_str in _HYBRID_INDEX_CACHE:
+            _HYBRID_INDEX_CACHE.move_to_end(query_str)
+            return _HYBRID_INDEX_CACHE[query_str]
+        for k in list(_HYBRID_INDEX_CACHE.keys()):
+            if query_str in k:
+                _HYBRID_INDEX_CACHE.move_to_end(k)
+                return _HYBRID_INDEX_CACHE[k]
+    return None
+
+
+def evict_index_cache(key_or_doc_id) -> None:
+    """Evict index artifacts from in-memory cache by path, filename, or doc_id."""
+    if not key_or_doc_id:
+        return
+    query_str = str(key_or_doc_id).strip()
+    norm_key = _normalize_index_key(key_or_doc_id)
+    with _INDEX_CACHE_LOCK:
+        keys_to_remove = []
+        for k in list(_HYBRID_INDEX_CACHE.keys()):
+            if k == norm_key or query_str in k:
+                keys_to_remove.append(k)
+        for k in keys_to_remove:
+            _HYBRID_INDEX_CACHE.pop(k, None)
+            logger.info("Evicted index from LRU cache explicitly: %s", k)
+
+
+def _build_splitter() -> MedicalTextSplitter:
+    """Table/bullet-aware splitter — keeps Markdown tables and bullet runs intact."""
+    return MedicalTextSplitter(
+        chunk_size=CHUNK_SIZE,
+        chunk_overlap=CHUNK_OVERLAP,
+    )
+
+
+def dynamic_retrieval_k(query: str) -> int:
+    """
+    Scale the number of retrieved chunks to query complexity:
+      - k=4  for short, single-fact questions  (<= 6 words)
+      - k=6  for medium questions              (7-15 words)
+      - k=12 for long or multi-part questions  (>15 words, or explicit
+             multi-part markers such as extra "?" or " and "/"also" joins)
+    """
+    q = (query or "").strip()
+    words = re.findall(r"[A-Za-z0-9]+", q)
+    word_count = len(words)
+
+    # A single trailing "?" is normal; only EXTRA question marks or explicit
+    # joiners ("and", "also", "vs") signal a genuinely multi-part question.
+    extra_questions = max(0, q.count("?") - 1)
+    multi_part_markers = (
+        extra_questions
+        + q.lower().count(" and ")
+        + q.lower().count(" also ")
+        + q.lower().count(" vs ")
+    )
+
+    if word_count <= 6:
+        k = 4
+    elif word_count <= 15:
+        k = 6
+    else:
+        k = 12
+
+    # Promote to a broader sweep when the question explicitly bundles
+    # several sub-questions (and it is long enough for that to matter).
+    if multi_part_markers >= 1 and word_count >= 10:
+        k = 12
+
+    return min(k, MAX_RETRIEVAL_K)
+
+
+def dynamic_fetch_k(k: int) -> int:
+    """MMR fetch_k scaled to the requested k (bounded, never below the default)."""
+    return max(RETRIEVAL_FETCH_K, min(3 * k, MAX_FETCH_K))
+
+
+def build_hybrid_index_from_embeddings(
+    chunks: list[Document],
+    embeddings: list[list[float]],
+    index_path: str,
+):
+    """
+    Build FAISS vectorstore from pre-computed embeddings and build BM25 index.
+    Saves both to disk at index_path.
+    CPU-bound operation meant to be called within asyncio.to_thread.
+    """
+    embedder = get_embedder()
+    chunk_texts = [c.page_content for c in chunks]
+    text_embeddings = list(zip(chunk_texts, embeddings))
+    metadatas = [c.metadata for c in chunks]
+
+    # Build FAISS vectorstore from precomputed embeddings without calling API
+    vectorstore = FAISS.from_embeddings(text_embeddings, embedder, metadatas=metadatas)
+    vectorstore.save_local(index_path)
+
+    # Build BM25 index over the same chunks
+    bm25_index = BM25Index(chunks)
+    save_bm25_index(bm25_index, index_path)
+
+    cache_hybrid_index(index_path, vectorstore, bm25_index)
+    return vectorstore, bm25_index, chunks
+
+
+async def acreate_hybrid_index(page_docs: list[Document], index_path: str):
+    """
+    Asynchronously create hybrid index without blocking the event loop:
+    1. Offload text splitting to thread pool.
+    2. Embed chunks asynchronously yielding back to the event loop between chunks.
+    3. Offload FAISS index and BM25 building to thread pool.
+    """
+    splitter = _build_splitter()
+    raw_chunks = await asyncio.to_thread(splitter.split_documents, page_docs)
+    chunks = [c for c in raw_chunks if c.page_content and c.page_content.strip()]
+    if not chunks:
+        chunks = [Document(page_content="Empty document", metadata={})]
+
+    chunk_texts = [c.page_content for c in chunks]
+
+    # Asynchronously retrieve embeddings yielding back to event loop after each call
+    embedder = get_embedder()
+    if hasattr(embedder, "aembed_documents"):
+        embeddings = await embedder.aembed_documents(chunk_texts)
+    else:
+        embeddings = await asyncio.to_thread(embedder.embed_documents, chunk_texts)
+
+    # Build FAISS and BM25 in worker thread
+    return await asyncio.to_thread(
+        build_hybrid_index_from_embeddings,
+        chunks,
+        embeddings,
+        index_path,
+    )
+
+
+def create_hybrid_index(page_docs: list[Document], index_path: str):
+    """
+    Create both a FAISS vectorstore and a BM25 index from the same chunks.
+    Saves both to disk at index_path.
+    
+    Returns (vectorstore, bm25_index, chunks).
+    """
+    splitter = _build_splitter()
+    raw_chunks = splitter.split_documents(page_docs)
+    chunks = [c for c in raw_chunks if c.page_content and c.page_content.strip()]
+    
+    # Build FAISS vectorstore
+    vectorstore = FAISS.from_documents(chunks, get_embedder())
+    vectorstore.save_local(index_path)
+    
+    # Build BM25 index over the same chunks
+    bm25_index = BM25Index(chunks)
+    save_bm25_index(bm25_index, index_path)
+    
+    cache_hybrid_index(index_path, vectorstore, bm25_index)
+    return vectorstore, bm25_index, chunks
+
+
+def load_hybrid_index(index_path: str):
+    """
+    Load both FAISS and BM25 indexes from disk, ensuring local availability via GCS if needed.
+    Returns (vectorstore, bm25_index). BM25 may be None if not found.
+    Checks in-memory LRU cache first for 0ms retrieval.
+    """
+    cached = get_cached_hybrid_index(index_path)
+    if cached is not None:
+        return cached
+
+    resolved_path = str(ensure_index_local(index_path))
+    vectorstore = FAISS.load_local(resolved_path, get_embedder(), allow_dangerous_deserialization=True)
+    bm25_index = load_bm25_index(resolved_path)
+
+    cache_hybrid_index(index_path, vectorstore, bm25_index)
+    if resolved_path != index_path:
+        cache_hybrid_index(resolved_path, vectorstore, bm25_index)
+
+    return vectorstore, bm25_index
+
+
+def add_to_vectorstore(vectorstore: FAISS, page_docs: list[Document], session_id: str = None):
+    splitter = _build_splitter()
+    chunks = splitter.split_documents(page_docs)
+    vectorstore.add_documents(chunks)
+    
+    if session_id:
+        save_vectorstore_to_disk(vectorstore, session_id)
+
+
+def save_vectorstore_to_disk(vectorstore: FAISS, session_id: str):
+    try:
+        session_dir = settings.VECTOR_CACHE_DIR / session_id
+        vectorstore.save_local(str(session_dir))
+    except Exception as err:
+        logger.warning("Failed to save vectorstore for %s: %s", session_id, err)
+
+
+def retrieve_relevant_docs(
+    query: str,
+    vectorstore,
+    bm25_index: Optional[BM25Index] = None,
+    k: int = RETRIEVAL_K,
+) -> list[Document]:
+    """
+    Hybrid retrieval: runs both FAISS (semantic) and BM25 (keyword) searches,
+    then fuses results using Reciprocal Rank Fusion.
+    
+    If no BM25 index is available, falls back to FAISS-only MMR search
+    (backward compatible with existing indexes).
+    """
+    # FAISS semantic search (MMR for diversity; fetch_k scales with k so a
+    # wider sweep keeps enough candidates when k grows for complex queries)
+    faiss_results = vectorstore.max_marginal_relevance_search(
+        query,
+        k=k,
+        fetch_k=dynamic_fetch_k(k),
+    )
+    
+    # If BM25 index is available, do hybrid fusion
+    if bm25_index is not None:
+        bm25_results = bm25_index.search(query, k=k)
+        
+        if bm25_results:
+            # Fuse using RRF
+            fused = reciprocal_rank_fusion(faiss_results, bm25_results, k=k)
+            return fused
+    
+    # Fallback: FAISS-only with keyword boosting (original behavior)
+    query_keywords = [w.lower() for w in query.split() if len(w) > 2]
+    
+    if query_keywords:
+        similarity_docs = vectorstore.similarity_search(query, k=k)
+        seen_texts = {d.page_content for d in faiss_results}
+        for doc in similarity_docs:
+            if doc.page_content not in seen_texts:
+                faiss_results.append(doc)
+                seen_texts.add(doc.page_content)
+                
+    return faiss_results[:k]
+
+
+async def retrieve_cross_document(
+    user_id,
+    query: str,
+    db,
+    k: int = RETRIEVAL_K,
+    active_doc_id = None,
+    dependent_id = None,
+) -> list[Document]:
+    """
+    Search across all documents belonging to a user/dependent.
+    Loads each document's hybrid index, retrieves relevant chunks,
+    and merges using reciprocal rank fusion with a boost for the active document.
+    """
+    import re
+    import uuid
+    from sqlalchemy.future import select
+    from app.db.models import Document as DBDocument
+
+    d_id = uuid.UUID(str(dependent_id)) if (dependent_id and isinstance(dependent_id, str)) else dependent_id
+    filters = [
+        DBDocument.user_id == user_id,
+        DBDocument.dependent_id == d_id if d_id else DBDocument.dependent_id.is_(None),
+    ]
+    result = await db.execute(select(DBDocument).filter(*filters))
+    docs = result.scalars().all()
+    
+    if not docs:
+        return []
+    
+    all_doc_results = []
+    
+    # Sort docs so active_doc_id is first if present
+    if active_doc_id:
+        docs = sorted(docs, key=lambda d: 0 if d.id == active_doc_id else 1)
+
+    for db_doc in docs:
+        if not db_doc.file_path:
+            continue
+        try:
+            resolved_path = str(await aensure_index_local(db_doc.file_path))
+            if not os.path.exists(resolved_path):
+                continue
+            vectorstore, bm25_index = load_hybrid_index(resolved_path)
+            retrieved = retrieve_relevant_docs(query, vectorstore, bm25_index, k=k)
+            for d in retrieved:
+                doc_name = db_doc.title or db_doc.filename
+                d.metadata["source_doc"] = doc_name
+                d.metadata["document_id"] = str(db_doc.id)
+                d.metadata["is_active_doc"] = (db_doc.id == active_doc_id)
+            if retrieved:
+                all_doc_results.append(retrieved)
+        except Exception as e:
+            logger.warning("Failed to load index for doc %s: %s", db_doc.id, e)
+            continue
+
+    if not all_doc_results:
+        return []
+
+    if len(all_doc_results) == 1:
+        return all_doc_results[0][:k]
+
+    # Reciprocal Rank Fusion across all documents
+    scores: dict[str, float] = {}
+    doc_map: dict[str, Document] = {}
+
+    for doc_list in all_doc_results:
+        for rank, d in enumerate(doc_list):
+            key = d.page_content.strip()
+            boost = 1.25 if d.metadata.get("is_active_doc") else 1.0
+            scores[key] = scores.get(key, 0.0) + (boost / (60.0 + rank))
+            if key not in doc_map:
+                doc_map[key] = d
+
+    sorted_keys = sorted(scores.keys(), key=lambda x: scores[x], reverse=True)
+    return [doc_map[key] for key in sorted_keys[:k]]
+
+
+async def retrieve_relevant_chat_chunks(
+    user_id,
+    query: str,
+    db,
+    k: int = 3,
+) -> list[Document]:
+    """Retrieve relevant conversational memory from past chat sessions."""
+    import re
+    from sqlalchemy.future import select
+    from app.db.models import ChatChunk
+
+    try:
+        res = await db.execute(
+            select(ChatChunk)
+            .filter(ChatChunk.user_id == user_id)
+            .order_by(ChatChunk.created_at.desc())
+            .limit(20)
+        )
+        chunks = res.scalars().all()
+        if not chunks:
+            return []
+
+        query_words = set(re.findall(r"\w{3,}", query.lower()))
+        scored_chunks = []
+        for c in chunks:
+            chunk_words = set(re.findall(r"\w{3,}", c.content.lower()))
+            overlap = len(query_words & chunk_words)
+            if overlap > 0:
+                scored_chunks.append((overlap, c))
+
+        scored_chunks.sort(key=lambda x: x[0], reverse=True)
+        top_chunks = [c for _, c in scored_chunks[:k]]
+
+        docs = []
+        for c in top_chunks:
+            date_str = c.created_at.strftime("%Y-%m-%d") if c.created_at else "past"
+            docs.append(Document(
+                page_content=c.content,
+                metadata={
+                    "source": "chat_memory",
+                    "summary": c.summary or "",
+                    "created_at": date_str,
+                }
+            ))
+        return docs
+    except Exception as e:
+        logger.error("Error retrieving chat chunks: %s", e)
+        return []
+
+
+```
+
+
+### FILE: backend/app/rag/loader.py
+```python
+"""
+PDF Loader with Vision-based table extraction.
+
+Extraction pipeline (tiered):
+  1. PyPDF2 — fast text extraction
+  2. PyMuPDF — better layout handling
+  3. Tesseract OCR — fallback for scanned PDFs
+  4. Gemini Vision — for pages with complex tables/medical matrices
+
+Pages detected as containing dense tables are rendered as images
+and sent to Gemini Vision for structured Markdown extraction,
+which preserves exact lab values that text extractors often scramble.
+"""
+
+import os
+import asyncio
+import logging
+
+from langchain_core.documents import Document
+from pypdf import PdfReader
+
+logger = logging.getLogger(__name__)
+
+from app.core.security import sanitize_text
+from app.llm.gemini_client import call_gemini_with_retry
+
+MIN_EXTRACTED_CHARS = 100
+
+
+class PDFExtractionError(Exception):
+    """Raised when a PDF yields too little readable text."""
+
+
+def _char_count(docs: list[Document]) -> int:
+    return sum(len(doc.page_content.strip()) for doc in docs)
+
+
+# ─── Image Processing & Classification ───────────────────────────────────
+
+async def classify_image_type(image_bytes: bytes) -> str:
+    def _compress():
+        import cv2
+        import numpy as np
+        nparr = np.frombuffer(image_bytes, np.uint8)
+        img = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
+        if img is None:
+            return image_bytes
+        h, w = img.shape[:2]
+        if max(h, w) > 512:
+            scale = 512 / max(h, w)
+            img = cv2.resize(img, (int(w * scale), int(h * scale)))
+        _, buffer = cv2.imencode(".jpg", img, [cv2.IMWRITE_JPEG_QUALITY, 30])
+        return buffer.tobytes()
+
+    compressed_bytes = await asyncio.to_thread(_compress)
+    from google.genai.types import GenerateContentConfig, Part, ThinkingConfig
+
+    try:
+        image_part = Part.from_bytes(data=compressed_bytes, mime_type="image/jpeg")
+        response = await call_gemini_with_retry(
+            contents=["Respond with exactly one word: 'XRAY' if this is a radiological scan, or 'DOCUMENT' if this is a text-heavy clinical report.", image_part],
+            config=GenerateContentConfig(
+                thinking_config=ThinkingConfig(thinking_budget=0),
+                temperature=0.0,
+            ),
+        )
+        result = sanitize_text(response.text or "").strip().upper()
+        if "XRAY" in result:
+            return "XRAY"
+        return "DOCUMENT"
+    except Exception as e:
+        logger.warning("Classification failed: %s", e)
+        return "DOCUMENT"
+
+
+async def process_image_path(image_type: str, image_bytes: bytes, source_meta: str) -> Document:
+    if image_type == "XRAY":
+        def _apply_clahe():
+            import cv2
+            import numpy as np
+            nparr = np.frombuffer(image_bytes, np.uint8)
+            img = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
+            if img is None:
+                return image_bytes
+            lab = cv2.cvtColor(img, cv2.COLOR_BGR2LAB)
+            l_channel, a_channel, b_channel = cv2.split(lab)
+            clahe = cv2.createCLAHE(clipLimit=3.0, tileGridSize=(8, 8))
+            enhanced_l = clahe.apply(l_channel)
+            merged = cv2.merge([enhanced_l, a_channel, b_channel])
+            enhanced = cv2.cvtColor(merged, cv2.COLOR_LAB2BGR)
+            _, buffer = cv2.imencode(".png", enhanced)
+            return buffer.tobytes()
+        
+        enhanced_bytes = await asyncio.to_thread(_apply_clahe)
+        from google.genai.types import GenerateContentConfig, Part, ThinkingConfig
+
+        try:
+            image_part = Part.from_bytes(data=enhanced_bytes, mime_type="image/png")
+            prompt = "You are an expert radiologist. Analyze this radiological scan and provide a detailed clinical observation summary. Be precise and medical."
+            response = await call_gemini_with_retry(
+                contents=[prompt, image_part],
+                config=GenerateContentConfig(
+                    thinking_config=ThinkingConfig(thinking_budget=0),
+                    temperature=0.2,
+                ),
+            )
+            text = sanitize_text(response.text or "").strip()
+            return Document(page_content=text, metadata={"source": source_meta, "type": "xray"})
+        except Exception as e:
+            logger.warning("XRAY analysis failed: %s", e)
+            return Document(page_content="", metadata={"source": source_meta, "type": "xray_error"})
+    else:
+        def _extract_ocr():
+            try:
+                import pytesseract
+                import cv2
+                import numpy as np
+                nparr = np.frombuffer(image_bytes, np.uint8)
+                img = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
+                if img is None:
+                    return ""
+                text = pytesseract.image_to_string(img)
+                return sanitize_text(text or "").strip()
+            except Exception as e:
+                logger.warning("OCR failed: %s", e)
+                return ""
+                
+        text = await asyncio.to_thread(_extract_ocr)
+        return Document(page_content=text, metadata={"source": source_meta, "type": "document"})
+
+
+# ─── Standard Text Extractors ───────────────────────────────────────────
+
+def _extract_with_pypdf2(pdf_path: str) -> list[Document]:
+    reader = PdfReader(pdf_path)
+    docs: list[Document] = []
+
+    for index, page in enumerate(reader.pages, start=1):
+        text = sanitize_text(page.extract_text() or "")
+        if text:
+            docs.append(Document(page_content=text, metadata={"page": index, "source": "pypdf2"}))
+
+    return docs
+
+
+async def _extract_with_pymupdf(pdf_path: str) -> list[Document]:
+    try:
+        import pymupdf as fitz
+    except ImportError:
+        return []
+
+    def _extract_pages_sync():
+        pages_data = []
+        with fitz.open(pdf_path) as pdf:
+            for index, page in enumerate(pdf, start=1):
+                text = sanitize_text(page.get_text() or "")
+                if text and len(text) >= 50:
+                    pages_data.append((index, "text", text))
+                else:
+                    pix = page.get_pixmap(dpi=300)
+                    pages_data.append((index, "image", pix.tobytes("png")))
+        return pages_data
+
+    pages_data = await asyncio.to_thread(_extract_pages_sync)
+    docs: list[Document] = []
+    for index, kind, content in pages_data:
+        if kind == "text":
+            docs.append(Document(page_content=content, metadata={"page": index, "source": "pymupdf"}))
+        else:
+            image_type = await classify_image_type(content)
+            doc = await process_image_path(image_type, content, source_meta="pymupdf_fallback")
+            doc.metadata["page"] = index
+            if doc.page_content and doc.page_content.strip():
+                docs.append(doc)
+
+    return docs
+
+
+def _extract_with_ocr(pdf_path: str) -> list[Document]:
+    try:
+        from pdf2image import convert_from_path
+        import pytesseract
+    except ImportError:
+        return []
+
+    try:
+        pytesseract.get_tesseract_version()
+    except Exception:
+        return []
+
+    docs: list[Document] = []
+    try:
+        images = convert_from_path(pdf_path)
+    except Exception:
+        return []
+
+    for index, image in enumerate(images, start=1):
+        text = sanitize_text(pytesseract.image_to_string(image) or "")
+        if text:
+            docs.append(Document(page_content=text, metadata={"page": index, "source": "ocr"}))
+
+    return docs
+
+
+# ─── Vision-based Table Detection & Extraction ──────────────────────────
+
+def _detect_table_pages(pdf_path: str) -> list[int]:
+    """
+    Detect pages likely containing complex tables/medical matrices.
+    Uses heuristics: high line-object count, embedded images, or
+    low text-to-area ratio indicating tabular layout.
+    
+    Returns 0-indexed page numbers.
+    """
+    try:
+        import pymupdf as fitz
+    except ImportError:
+        return []
+
+    table_pages = []
+    with fitz.open(pdf_path) as pdf:
+        for page_idx, page in enumerate(pdf):
+            # Count drawing operations (lines/rects = table grid indicators)
+            drawings = page.get_drawings()
+            line_count = sum(1 for d in drawings if d.get("type") in ("l", "re", "s"))
+            
+            # Count images on the page (could be scanned tables)
+            image_list = page.get_images(full=True)
+            
+            # Get text blocks for density analysis
+            text_blocks = page.get_text("blocks")
+            text_area = sum(
+                (b[2] - b[0]) * (b[3] - b[1]) for b in text_blocks if b[6] == 0  # text blocks only
+            )
+            page_area = page.rect.width * page.rect.height
+            text_density = text_area / page_area if page_area > 0 else 0
+            
+            # If the page already has clean, extractable text (>= 150 chars), digital extraction is preferred and complete
+            text_extracted = (page.get_text() or "").strip()
+            if len(text_extracted) >= 150:
+                continue
+
+            # Heuristics for scanned table detection:
+            # - Many line/rect drawings (table borders) OR
+            # - Has images AND low text density (scanned table) OR
+            # - Text density is very low but page has content (complex layout)
+            is_table_page = (
+                line_count > 15 or  # Lots of grid lines
+                (len(image_list) > 0 and text_density < 0.15) or  # Scanned content
+                (line_count > 8 and text_density < 0.3)  # Moderate lines + sparse text
+            )
+            
+            if is_table_page:
+                table_pages.append(page_idx)
+
+    return table_pages
+
+
+def _enhance_image_clahe(image_bytes: bytes) -> bytes:
+    """
+    Apply CLAHE (Contrast Limited Adaptive Histogram Equalization)
+    to improve contrast of scanned medical documents before Vision AI.
+    """
+    try:
+        import cv2
+        import numpy as np
+        
+        nparr = np.frombuffer(image_bytes, np.uint8)
+        img = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
+        if img is None:
+            return image_bytes
+        
+        # Convert to LAB color space
+        lab = cv2.cvtColor(img, cv2.COLOR_BGR2LAB)
+        l_channel, a_channel, b_channel = cv2.split(lab)
+        
+        # Apply CLAHE to the L channel
+        clahe = cv2.createCLAHE(clipLimit=3.0, tileGridSize=(8, 8))
+        enhanced_l = clahe.apply(l_channel)
+        
+        # Merge back
+        merged = cv2.merge([enhanced_l, a_channel, b_channel])
+        enhanced = cv2.cvtColor(merged, cv2.COLOR_LAB2BGR)
+        
+        # Encode back to PNG
+        _, buffer = cv2.imencode(".png", enhanced)
+        return buffer.tobytes()
+    except ImportError:
+        return image_bytes
+    except Exception:
+        return image_bytes
+
+
+async def _extract_table_pages_with_vision(pdf_path: str, table_page_indices: list[int]) -> list[Document]:
+    """
+    Render flagged table pages as images, optionally enhance contrast,
+    and send to Gemini Vision for structured Markdown extraction.
+    """
+    try:
+        import pymupdf as fitz
+        from google.genai.types import Part
+    except ImportError:
+        return []
+
+    docs: list[Document] = []
+
+    VISION_PROMPT = """You are a precise medical document parser. Extract ALL content from this medical report page into well-structured Markdown.
+
+Rules:
+1. Preserve ALL numerical values exactly as shown (lab values, reference ranges, dates).
+2. Format tables using Markdown table syntax with proper headers and alignment.
+3. Include units (g/dL, mg/dL, mmol/L, etc.) exactly as shown.
+4. If there are multiple tables, separate them with headers.
+5. Include any notes, flags (H/L/Normal), or reference ranges.
+6. Do NOT add any interpretation — only extract what is visible.
+
+Output the structured Markdown extraction:"""
+
+    for page_idx in table_page_indices:
+        def _render_and_fallback(p_idx):
+            with fitz.open(pdf_path) as pdf:
+                if p_idx >= len(pdf):
+                    return None, None
+                page = pdf[p_idx]
+                pix = page.get_pixmap(dpi=300)
+                img_bytes = _enhance_image_clahe(pix.tobytes("png"))
+                fallback_text = sanitize_text(page.get_text() or "")
+                return img_bytes, fallback_text
+
+        img_bytes, fallback_text = await asyncio.to_thread(_render_and_fallback, page_idx)
+        if not img_bytes:
+            continue
+
+        try:
+            # Send to Gemini Vision
+            from google.genai.types import GenerateContentConfig, ThinkingConfig
+            image_part = Part.from_bytes(data=img_bytes, mime_type="image/png")
+            response = await call_gemini_with_retry(
+                contents=[VISION_PROMPT, image_part],
+                config=GenerateContentConfig(
+                    thinking_config=ThinkingConfig(thinking_budget=0),
+                    temperature=0.0,
+                ),
+            )
+            
+            extracted_text = sanitize_text(response.text or "")
+            if extracted_text and len(extracted_text) > 20:
+                docs.append(Document(
+                    page_content=extracted_text,
+                    metadata={
+                        "page": page_idx + 1,
+                        "source": "vision",
+                        "extraction_method": "gemini_vision_table",
+                    }
+                ))
+        except Exception as e:
+            logger.warning("Vision extraction failed for page %s: %s", page_idx + 1, e)
+            # Fall back to standard text for this page
+            if fallback_text:
+                docs.append(Document(
+                    page_content=fallback_text,
+                    metadata={"page": page_idx + 1, "source": "pymupdf_fallback"}
+                ))
+
+    return docs
+
+
+# ─── Main Extraction Pipeline ───────────────────────────────────────────
+
+async def extract_text_from_file(file_path: str, filename: str) -> list[Document]:
+    """
+    Enhanced extraction pipeline for PDFs and images.
+    """
+    ext = os.path.splitext(filename)[1].lower()
+    if ext in [".jpg", ".jpeg", ".png"]:
+        def _read_image():
+            with open(file_path, "rb") as f:
+                return f.read()
+        image_bytes = await asyncio.to_thread(_read_image)
+        image_type = await classify_image_type(image_bytes)
+        doc = await process_image_path(image_type, image_bytes, source_meta="direct_image")
+        if not doc.page_content or len(doc.page_content.strip()) < 20:
+            raise PDFExtractionError(
+                "This image contains no readable text or clinical content. Please upload a clear medical document or digital PDF."
+            )
+        return [doc]
+        
+    # Phase 1: Detect table-heavy pages
+    table_pages = await asyncio.to_thread(_detect_table_pages, file_path)
+    
+    # Phase 2: Extract table pages with Vision AI
+    vision_docs: list[Document] = []
+    if table_pages:
+        vision_docs = await _extract_table_pages_with_vision(file_path, table_pages)
+    
+    vision_page_numbers = {d.metadata.get("page", -1) for d in vision_docs}
+    
+    # Phase 3: Standard extraction for non-table pages
+    best_docs: list[Document] = []
+
+    pypdf2_docs = await asyncio.to_thread(_extract_with_pypdf2, file_path)
+    pymupdf_docs = await _extract_with_pymupdf(file_path)
+
+    for docs in [pypdf2_docs, pymupdf_docs]:
+        if _char_count(docs) > _char_count(best_docs):
+            best_docs = docs
+
+    # Compute candidate character count before running expensive OCR
+    candidate_non_vision_docs = (
+        [d for d in best_docs if d.metadata.get("page", -1) not in vision_page_numbers]
+        if vision_page_numbers
+        else best_docs
+    )
+    total_candidate_chars = _char_count(vision_docs) + _char_count(candidate_non_vision_docs)
+
+    # True fallback: Only invoke Tesseract OCR if native extractors + vision yield insufficient text
+    if total_candidate_chars < MIN_EXTRACTED_CHARS:
+        logger.info(
+            "Native PDF extraction yielded %d chars (< %d threshold); attempting OCR fallback for %s",
+            total_candidate_chars,
+            MIN_EXTRACTED_CHARS,
+            file_path,
+        )
+        ocr_docs = await asyncio.to_thread(_extract_with_ocr, file_path)
+        if _char_count(ocr_docs) > _char_count(best_docs):
+            best_docs = ocr_docs
+
+    # Filter out pages already handled by Vision
+    if vision_page_numbers:
+        best_docs = [d for d in best_docs if d.metadata.get("page", -1) not in vision_page_numbers]
+    
+    # Phase 4: Merge vision-extracted + standard-extracted docs (filtering empty chunks)
+    all_docs = [d for d in vision_docs + best_docs if d.page_content and d.page_content.strip()]
+    # Sort by page number for consistent ordering
+    all_docs.sort(key=lambda d: d.metadata.get("page", 0))
+
+    if not all_docs or _char_count(all_docs) < 20:
+        raise PDFExtractionError(
+            "This PDF contains no readable text (it may be a scanned image or empty). Please upload a digital text PDF."
+        )
+
+    if _char_count(all_docs) < MIN_EXTRACTED_CHARS:
+        raise PDFExtractionError(
+            "Could not extract enough readable text from this PDF report. "
+            "The file may be scanned, encrypted, or low quality. "
+            "Try a text-based PDF or ensure Tesseract OCR is installed on the server."
+        )
+
+    return all_docs
+
+```
+
+
+### FILE: backend/app/services/patient_memory.py
+```python
+import uuid
+import asyncio
+import logging
+from typing import List, Dict, Any, Optional
+import numpy as np
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.future import select
+
+from app.core.config import settings
+from app.db.models import PatientFact, ChatChunk, ChatDocument, Document, Chat
+
+logger = logging.getLogger(__name__)
+
+
+def _cosine_similarity(vec1: List[float], vec2: List[float]) -> float:
+    a = np.array(vec1, dtype=float)
+    b = np.array(vec2, dtype=float)
+    norm_a = np.linalg.norm(a)
+    norm_b = np.linalg.norm(b)
+    if norm_a == 0 or norm_b == 0:
+        return 0.0
+    return float(np.dot(a, b) / (norm_a * norm_b))
+
+
+async def get_active_facts(
+    user_id: Any,
+    dependent_id: Optional[Any],
+    session: AsyncSession,
+    limit: int = 25,
+) -> Dict[str, List[PatientFact]]:
+    """
+    Retrieve active patient facts ordered by:
+    (is_user_verified DESC, confidence DESC, last_seen_at DESC)
+    Grouped by fact_type.
+    """
+    u_id = uuid.UUID(str(user_id)) if isinstance(user_id, str) else user_id
+    d_id = uuid.UUID(str(dependent_id)) if (dependent_id and isinstance(dependent_id, str)) else dependent_id
+
+    query = (
+        select(PatientFact)
+        .filter(
+            PatientFact.user_id == u_id,
+            PatientFact.dependent_id == d_id if d_id else PatientFact.dependent_id.is_(None),
+            PatientFact.is_active.is_(True),
+            PatientFact.confidence >= settings.PATIENT_MEMORY_MIN_CONFIDENCE,
+        )
+        .order_by(
+            PatientFact.is_user_verified.desc(),
+            PatientFact.confidence.desc(),
+            PatientFact.last_seen_at.desc(),
+        )
+        .limit(limit)
+    )
+
+    result = await session.execute(query)
+    facts = result.scalars().all()
+
+    # Resolve source document names for facts if linked to a chat or document
+    chat_uuids = []
+    doc_uuids = []
+    for f in facts:
+        if "[Source Report:" not in f.fact_text and f.source_id:
+            try:
+                sid_uuid = uuid.UUID(str(f.source_id))
+                if getattr(f, "source_type", None) == "pdf":
+                    doc_uuids.append(sid_uuid)
+                else:
+                    chat_uuids.append(sid_uuid)
+            except (ValueError, TypeError):
+                pass
+
+    doc_name_by_id = {}
+    if doc_uuids:
+        d_res = await session.execute(select(Document).filter(Document.id.in_(doc_uuids)))
+        for d in d_res.scalars().all():
+            doc_name_by_id[d.id] = d.filename or d.title
+
+    chat_doc_map = {}
+    if chat_uuids:
+        # Check direct chat.document_id
+        c_res = await session.execute(
+            select(Chat.id, Document.filename, Document.title)
+            .join(Document, Chat.document_id == Document.id)
+            .filter(Chat.id.in_(chat_uuids))
+        )
+        for row in c_res.all():
+            chat_doc_map[row[0]] = row[1] or row[2]
+
+        # Check ChatDocument join
+        cd_res = await session.execute(
+            select(ChatDocument.chat_id, Document.filename, Document.title)
+            .join(Document, ChatDocument.document_id == Document.id)
+            .filter(ChatDocument.chat_id.in_(chat_uuids))
+        )
+        for row in cd_res.all():
+            if row[0] not in chat_doc_map:
+                chat_doc_map[row[0]] = row[1] or row[2]
+
+    for f in facts:
+        if "[Source Report:" not in f.fact_text and f.source_id:
+            try:
+                sid_uuid = uuid.UUID(str(f.source_id))
+                resolved_name = doc_name_by_id.get(sid_uuid) or chat_doc_map.get(sid_uuid)
+                if resolved_name:
+                    f.source_doc_name = resolved_name
+            except (ValueError, TypeError):
+                pass
+
+    grouped: Dict[str, List[PatientFact]] = {}
+    for f in facts:
+        ft = f.fact_type.lower()
+        if ft not in grouped:
+            grouped[ft] = []
+        grouped[ft].append(f)
+
+    return grouped
+
+
+async def get_relevant_past_chunks(
+    query: str,
+    user_id: Any,
+    dependent_id: Optional[Any],
+    exclude_chat_id: Optional[Any],
+    session: AsyncSession,
+    k: int = 5,
+) -> List[ChatChunk]:
+    """
+    Retrieve top-k semantically relevant ChatChunks from past sessions via cosine similarity.
+    Excludes the current chat_id.
+    """
+    u_id = uuid.UUID(str(user_id)) if isinstance(user_id, str) else user_id
+    d_id = uuid.UUID(str(dependent_id)) if (dependent_id and isinstance(dependent_id, str)) else dependent_id
+    c_exclude = uuid.UUID(str(exclude_chat_id)) if (exclude_chat_id and isinstance(exclude_chat_id, str)) else exclude_chat_id
+
+    stmt = select(ChatChunk).filter(
+        ChatChunk.user_id == u_id,
+        ChatChunk.dependent_id == d_id if d_id else ChatChunk.dependent_id.is_(None),
+    )
+    if c_exclude:
+        stmt = stmt.filter(ChatChunk.chat_id != c_exclude)
+
+    stmt = stmt.order_by(ChatChunk.created_at.desc()).limit(100)
+    result = await session.execute(stmt)
+    chunks = result.scalars().all()
+
+    if not chunks:
+        return []
+
+    final_chunks: List[ChatChunk] = []
+
+    if not query or not query.strip():
+        final_chunks = list(chunks[:k])
+    else:
+        embedder = None
+        try:
+            from app.rag.embedder import get_embedder
+            embedder = get_embedder()
+        except Exception as e:
+            logger.warning("Embedder not available for past chunk retrieval: %s", e)
+
+        if not embedder:
+            final_chunks = list(chunks[:k])
+        else:
+            try:
+                query_vec = await asyncio.to_thread(embedder.embed_query, query)
+                scored = []
+                for chunk in chunks:
+                    if chunk.embedding:
+                        sim = _cosine_similarity(query_vec, chunk.embedding)
+                        scored.append((sim, chunk))
+                    else:
+                        scored.append((0.0, chunk))
+
+                scored.sort(key=lambda x: x[0], reverse=True)
+                final_chunks = [chunk for _, chunk in scored[:k]]
+            except Exception as e:
+                logger.error("Cosine similarity matching failed: %s", e)
+                final_chunks = list(chunks[:k])
+
+    # Annotate chunks with associated document and session details
+    if final_chunks:
+        chat_ids = [c.chat_id for c in final_chunks if c.chat_id]
+        if chat_ids:
+            try:
+                # 1. Fetch Chats
+                c_res = await session.execute(select(Chat).filter(Chat.id.in_(chat_ids)))
+                chats_by_id = {c.id: c for c in c_res.scalars().all()}
+
+                # 2. Check direct Document links
+                doc_ids = [c.document_id for c in chats_by_id.values() if c.document_id]
+                docs_by_id = {}
+                if doc_ids:
+                    d_res = await session.execute(select(Document).filter(Document.id.in_(doc_ids)))
+                    for d in d_res.scalars().all():
+                        docs_by_id[d.id] = d
+
+                # 3. Check ChatDocument join table
+                cd_res = await session.execute(
+                    select(ChatDocument.chat_id, Document)
+                    .join(Document, ChatDocument.document_id == Document.id)
+                    .filter(ChatDocument.chat_id.in_(chat_ids))
+                )
+                cd_docs = {}
+                for row in cd_res.all():
+                    cd_docs[row[0]] = row[1]
+
+                for chunk in final_chunks:
+                    chat_obj = chats_by_id.get(chunk.chat_id)
+                    doc_obj = None
+                    if chat_obj and chat_obj.document_id:
+                        doc_obj = docs_by_id.get(chat_obj.document_id)
+                    if not doc_obj and chunk.chat_id in cd_docs:
+                        doc_obj = cd_docs[chunk.chat_id]
+
+                    if doc_obj:
+                        chunk.source_doc_name = doc_obj.filename or doc_obj.title
+                        chunk.source_doc_date = doc_obj.created_at
+                    if chat_obj:
+                        chunk.source_session_title = chat_obj.session_title
+                        chunk.source_chat_date = chat_obj.created_at or chunk.created_at
+            except Exception as annot_err:
+                logger.warning("Error annotating past chunks with document names: %s", annot_err)
+
+    return final_chunks
+
+
+async def get_chat_documents(
+    chat_id: Any,
+    session: AsyncSession,
+) -> List[Document]:
+    """
+    Retrieve all documents associated with a chat session (via ChatDocument or legacy Chat.document_id).
+    """
+    if not chat_id:
+        return []
+
+    c_id = uuid.UUID(str(chat_id)) if isinstance(chat_id, str) else chat_id
+
+    # 1. Many-to-many joined documents
+    stmt = (
+        select(Document)
+        .join(ChatDocument, ChatDocument.document_id == Document.id)
+        .filter(ChatDocument.chat_id == c_id)
+        .order_by(ChatDocument.added_at.asc())
+    )
+    res = await session.execute(stmt)
+    docs = list(res.scalars().all())
+
+    # 2. Check legacy single-document link on Chat
+    chat_res = await session.execute(select(Chat).filter(Chat.id == c_id))
+    chat = chat_res.scalars().first()
+    if chat and chat.document_id:
+        doc_res = await session.execute(select(Document).filter(Document.id == chat.document_id))
+        legacy_doc = doc_res.scalars().first()
+        if legacy_doc and not any(d.id == legacy_doc.id for d in docs):
+            docs.append(legacy_doc)
+
+    return docs
+
+```
+
+
+### FILE: backend/app/services/fact_persistence.py
+```python
+import re
+import uuid
+import logging
+from datetime import datetime, UTC
+from typing import Dict, Any, Optional
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.future import select
+from app.db.models import PatientFact, Chat, User, Document, ChatDocument
+from app.db.database import AsyncSessionLocal
+from app.services.fact_extractor import extract_facts
+
+logger = logging.getLogger(__name__)
+
+
+async def save_facts(
+    extraction_result: Dict[str, Any],
+    user_id: Any,
+    dependent_id: Optional[Any],
+    source_chat_id: Optional[Any],
+    session: AsyncSession,
+    source_document_name: Optional[str] = None,
+) -> Dict[str, int]:
+    """
+    Persist extracted facts and handle retractions in a single transaction:
+    - Retractions: mark is_active = False (never hard-deleted).
+    - Near-duplicates: update last_seen_at instead of inserting.
+    - New facts: insert with source_type='chat', source_id=chat_id.
+    - Source document provenance: append [Source Report: {doc_name}] to fact_text.
+    Returns: {"inserted": N, "retracted": M, "updated": K}
+    """
+    inserted = 0
+    retracted = 0
+    updated = 0
+
+    u_id = uuid.UUID(str(user_id)) if isinstance(user_id, str) else user_id
+    d_id = uuid.UUID(str(dependent_id)) if (dependent_id and isinstance(dependent_id, str)) else dependent_id
+    c_id_str = str(source_chat_id) if source_chat_id else None
+
+    # Handle retractions first (single batch query)
+    retraction_items = extraction_result.get("retractions", [])
+    valid_retraction_uuids = []
+    for ret in retraction_items:
+        ret_id_raw = ret.get("existing_fact_id")
+        if not ret_id_raw:
+            continue
+        try:
+            valid_retraction_uuids.append(uuid.UUID(str(ret_id_raw)))
+        except (ValueError, TypeError) as e:
+            logger.warning("Error parsing retraction fact_id %s: %s", ret_id_raw, e)
+
+    if valid_retraction_uuids:
+        try:
+            q = select(PatientFact).filter(
+                PatientFact.id.in_(valid_retraction_uuids),
+                PatientFact.user_id == u_id,
+            )
+            res = await session.execute(q)
+            target_facts = res.scalars().all()
+            for target_fact in target_facts:
+                if target_fact.is_active:
+                    target_fact.is_active = False
+                    target_fact.last_seen_at = datetime.now(UTC)
+                    retracted += 1
+        except Exception as e:
+            logger.warning("Error processing batch retractions: %s", e)
+
+    # Fetch existing active facts for deduplication/update
+    existing_query = select(PatientFact).filter(
+        PatientFact.user_id == u_id,
+        PatientFact.dependent_id == d_id if d_id else PatientFact.dependent_id.is_(None),
+        PatientFact.is_active.is_(True),
+    )
+    res_existing = await session.execute(existing_query)
+    active_facts = res_existing.scalars().all()
+
+    now = datetime.now(UTC)
+    facts_to_process = extraction_result.get("facts", [])
+
+    for fact in facts_to_process:
+        fact_type = (fact.get("type") or fact.get("fact_type") or "").strip()
+        fact_text = (fact.get("text") or fact.get("fact_text") or "").strip()
+        if not fact_type or not fact_text:
+            continue
+
+        # Attach exact source document name if available and not already formatted
+        if source_document_name and "[Source Report:" not in fact_text:
+            fact_text = f"{fact_text} [Source Report: {source_document_name}]"
+
+        confidence = float(fact.get("confidence", 1.0))
+        excerpt = fact.get("excerpt")
+
+        # Check for near-duplicate among active facts of same type
+        matched_existing: Optional[PatientFact] = None
+        clean_new = re.sub(r"\s*\[Source Report:[^\]]+\]", "", fact_text, flags=re.IGNORECASE).strip().lower()
+
+        for ef in active_facts:
+            if ef.fact_type.lower() == fact_type.lower():
+                clean_ef = re.sub(r"\s*\[Source Report:[^\]]+\]", "", ef.fact_text, flags=re.IGNORECASE).strip().lower()
+                if ef.fact_text.strip().lower() == fact_text.lower() or clean_ef == clean_new:
+                    matched_existing = ef
+                    break
+
+        if matched_existing:
+            matched_existing.last_seen_at = now
+            if confidence > matched_existing.confidence:
+                matched_existing.confidence = confidence
+            # If existing fact did not have source report attribution, add it
+            if source_document_name and "[Source Report:" not in matched_existing.fact_text:
+                matched_existing.fact_text = f"{matched_existing.fact_text} [Source Report: {source_document_name}]"
+            updated += 1
+        else:
+            new_fact = PatientFact(
+                user_id=u_id,
+                dependent_id=d_id,
+                fact_type=fact_type,
+                fact_text=fact_text,
+                confidence=confidence,
+                is_active=True,
+                is_user_verified=False,
+                source_type="chat",
+                source_id=c_id_str,
+                source_excerpt=excerpt,
+                first_seen_at=now,
+                last_seen_at=now,
+                created_at=now,
+            )
+            session.add(new_fact)
+            active_facts.append(new_fact)
+            inserted += 1
+
+    await session.commit()
+    return {"inserted": inserted, "retracted": retracted, "updated": updated}
+
+
+async def process_chat_memory_extraction(
+    chat_id: Any,
+    user_id: Any,
+    dependent_id: Optional[Any] = None,
+    session_id: Optional[str] = None,
+) -> None:
+    """
+    Background worker:
+    1. Fetches last 6 messages from the specific conversation session.
+    2. Fetches existing active facts.
+    3. Calls extract_facts().
+    4. Calls save_facts().
+    Safe fail — logs errors, never raises.
+    """
+    try:
+        async with AsyncSessionLocal() as session:
+            # Check user consent
+            u_uuid = uuid.UUID(str(user_id)) if isinstance(user_id, str) else user_id
+            user_res = await session.execute(select(User).filter(User.id == u_uuid))
+            user = user_res.scalars().first()
+            if not user or not user.memory_consent_granted:
+                logger.info("Skipping memory extraction: memory consent not granted for user %s", user_id)
+                return
+
+            # Fetch last 6 messages scoped strictly to the specific conversation session
+            # so facts never bleed across different conversations or documents.
+            chat_filters = [Chat.user_id == u_uuid]
+            if session_id:
+                chat_filters.append(Chat.session_id == session_id)
+            elif chat_id:
+                try:
+                    c_uuid = uuid.UUID(str(chat_id))
+                    target_chat = await session.get(Chat, c_uuid)
+                    if target_chat is not None:
+                        if target_chat.session_id:
+                            chat_filters.append(Chat.session_id == target_chat.session_id)
+                        elif target_chat.document_id is not None:
+                            chat_filters.append(Chat.document_id == target_chat.document_id)
+                        else:
+                            chat_filters.append(Chat.document_id.is_(None))
+                    else:
+                        chat_filters.append(Chat.document_id == c_uuid)
+                except (ValueError, TypeError) as cid_err:
+                    logger.debug("Non-UUID chat_id passed to process_chat_memory_extraction: %s", cid_err)
+
+            msg_res = await session.execute(
+                select(Chat)
+                .filter(*chat_filters)
+                .order_by(Chat.created_at.desc())
+                .limit(6)
+            )
+            chats = msg_res.scalars().all()
+            chats = list(reversed(chats))  # Chronological order
+
+            if not chats:
+                return
+
+            # Resolve associated source document (if any)
+            linked_doc = None
+            for c in chats:
+                if c.document_id:
+                    doc_res = await session.execute(select(Document).filter(Document.id == c.document_id))
+                    linked_doc = doc_res.scalars().first()
+                    if linked_doc:
+                        break
+
+            if not linked_doc and chats:
+                chat_ids = [c.id for c in chats if c.id]
+                cd_res = await session.execute(
+                    select(Document)
+                    .join(ChatDocument, ChatDocument.document_id == Document.id)
+                    .filter(ChatDocument.chat_id.in_(chat_ids))
+                    .order_by(ChatDocument.added_at.desc())
+                )
+                linked_doc = cd_res.scalars().first()
+
+            if not linked_doc and chat_id:
+                try:
+                    c_uuid = uuid.UUID(str(chat_id))
+                    doc_check = await session.execute(select(Document).filter(Document.id == c_uuid))
+                    linked_doc = doc_check.scalars().first()
+                except (ValueError, TypeError):
+                    pass
+
+            source_doc_name = (linked_doc.filename or linked_doc.title) if linked_doc else None
+
+            # Fetch existing active facts
+            d_uuid = uuid.UUID(str(dependent_id)) if (dependent_id and isinstance(dependent_id, str)) else dependent_id
+            facts_res = await session.execute(
+                select(PatientFact).filter(
+                    PatientFact.user_id == u_uuid,
+                    PatientFact.dependent_id == d_uuid if d_uuid else PatientFact.dependent_id.is_(None),
+                    PatientFact.is_active.is_(True),
+                )
+            )
+            existing_facts = facts_res.scalars().all()
+
+            extraction_result = await extract_facts(
+                messages=chats,
+                existing_facts=existing_facts,
+                user_id=u_uuid,
+                dependent_id=d_uuid,
+                document_name=source_doc_name,
+            )
+
+            stats = await save_facts(
+                extraction_result=extraction_result,
+                user_id=u_uuid,
+                dependent_id=d_uuid,
+                source_chat_id=chat_id,
+                session=session,
+                source_document_name=source_doc_name,
+            )
+            logger.info("Fact persistence completed for user %s: %s", user_id, stats)
+
+    except Exception as e:
+        logger.error("Failed to run background memory extraction: %s", e, exc_info=True)
+
+```

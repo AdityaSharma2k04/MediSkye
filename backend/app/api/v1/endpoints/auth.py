@@ -1,4 +1,5 @@
 import asyncio
+import hashlib
 import html
 from datetime import UTC, datetime
 from typing import Any
@@ -13,7 +14,13 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 
-from app.core.auth import create_access_token, get_password_hash, oauth2_scheme, verify_password
+from app.core.auth import (
+    create_access_token,
+    get_password_hash,
+    oauth2_scheme,
+    verify_password,
+    get_current_user_full,
+)
 from app.core.audit import log_audit
 from app.core.config import settings
 from app.core.logging import logger
@@ -204,13 +211,9 @@ async def login(request: Request, db: AsyncSession = Depends(get_db), form_data:
         if user else False
     )
     if not user or not password_ok:
-        await log_audit(db, "FAILED_LOGIN", None, form_data.username, client_ip)
+        username_hash = hashlib.sha256(normalized_username.encode("utf-8")).hexdigest()[:16]
+        await log_audit(db, "FAILED_LOGIN", None, f"user_hash:{username_hash}", client_ip)
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Incorrect email or password")
-    
-    user.token_invalid_before = None
-    db.add(user)
-    await db.commit()
-    await db.refresh(user)
 
     await log_audit(db, "SUCCESSFUL_LOGIN", user.id, "auth", client_ip)
     access_token = create_access_token(data={"sub": user.email})
@@ -220,12 +223,13 @@ async def login(request: Request, db: AsyncSession = Depends(get_db), form_data:
 @router.post("/logout", status_code=status.HTTP_200_OK)
 async def logout(
     token: str = Depends(oauth2_scheme),
+    user: User = Depends(get_current_user_full),
     db: AsyncSession = Depends(get_db),
 ):
     """
     Logout the user by setting token_invalid_before in the database and adding JWT to the Redis blocklist.
     """
-    import jwt
+    import jwt, time
     from app.core.auth import (
         SECRET_KEY,
         ALGORITHM,
@@ -237,39 +241,20 @@ async def logout(
 
     mark_token_revoked_in_memory(token)
     evict_token_cache_by_token(token)
-    user_email = None
-    jti = None
-    exp = None
     try:
         payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
-        user_email = payload.get("sub")
-        jti = payload.get("jti")
-        exp = payload.get("exp")
+        jti, exp = payload.get("jti"), payload.get("exp")
+        if jti and exp:
+            ttl = int(exp - time.time())
+            if ttl > 0:
+                await redis_client.setex(f"blocked_token:{jti}", ttl, "true")
     except jwt.InvalidTokenError:
-        try:
-            unverified = jwt.decode(token, options={"verify_signature": False})
-            user_email = unverified.get("email") or unverified.get("sub")
-            jti = unverified.get("jti")
-            exp = unverified.get("exp")
-        except Exception:
-            raise HTTPException(status_code=401, detail="Invalid token")
+        pass
 
-    if jti and exp:
-        import time
-        ttl = int(exp - time.time())
-        if ttl > 0:
-            await redis_client.setex(f"blocked_token:{jti}", ttl, "true")
-
-    if user_email:
-        normalized_email = user_email.lower().strip()
-        result = await db.execute(select(User).filter(func.lower(User.email) == normalized_email))
-        user = result.scalars().first()
-        if user:
-            user.token_invalid_before = datetime.now(UTC)
-            db.add(user)
-            await db.commit()
-            evict_token_cache_for_user(user.id)
-
+    user.token_invalid_before = datetime.now(UTC)
+    db.add(user)
+    await db.commit()
+    evict_token_cache_for_user(user.id)
     return {"message": "Successfully logged out"}
 
 

@@ -106,6 +106,9 @@ export default function ConfirmModal({
                 value={typed}
                 onChange={(e) => setTyped(e.target.value)}
                 placeholder={requireTyping}
+                autoCapitalize="off"
+                autoCorrect="off"
+                spellCheck={false}
                 className={`w-full px-3 py-2 text-sm rounded-xl border focus:outline-none transition-colors ${
                   darkMode
                     ? 'bg-obsidian border-white/[0.12] text-white placeholder:text-ink-faint focus:border-zinc-500'

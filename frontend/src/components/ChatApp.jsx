@@ -13,7 +13,7 @@ import MemoryVault from './workbench/MemoryVault';
 import { buildPatients, isSelfSelected } from './workbench/PatientSwitcher';
 import useViewport from '../hooks/useViewport';
 import useHotkeys from '../hooks/useHotkeys';
-import useLabMetrics from '../hooks/useLabMetrics';
+import useLabMetrics, { invalidateMetrics } from '../hooks/useLabMetrics';
 import useTrendData from '../hooks/useTrendData';
 import { STORAGE_KEYS, readStorage, writeStorage } from '../lib/storageKeys';
 import { metricKey, metricName } from '../lib/clinical';
@@ -100,6 +100,7 @@ export default function ChatApp() {
   const handleLogout = async () => {
     // Clear the JWT blocklist server-side, then wipe all local auth/PHI state.
     await logout();
+    invalidateMetrics();
     userLoadedRef.current = null;
     // Reset in-memory global state so a re-mount (or a deferred navigation)
     // cannot render stale patient data from the previous session.
@@ -563,22 +564,43 @@ export default function ChatApp() {
     const targetPatientId = patientId || 'self';
     setSelectedPatientId(targetPatientId);
     localStorage.setItem('mediskye_patient_id', targetPatientId);
-
-    // Create a new bound chat strictly tied to this patient
-    const newId = generateSessionId();
-    setSessionId(newId);
-    setActivePdf(null);
     setViewMode('chat');
     setIsProfileOpen(false);
-    setConversations((prev) => {
-      const cleaned = prev.filter(
-        (c) => (c.messages && c.messages.length > 0) || c.pdf || c.document_id
+
+    // Check if the currently open conversation belongs to a different patient and has content
+    const currentPatient = currentChat.patient_id || 'self';
+    const hasContent = (currentChat.messages && currentChat.messages.length > 0) || currentChat.pdf || currentChat.document_id;
+
+    if (currentPatient !== targetPatientId && hasContent) {
+      const candidate = conversations.find(
+        (c) => (c.patient_id || 'self') === targetPatientId && c.id !== sessionId
       );
-      return [
-        { id: newId, title: 'New Conversation', messages: [], pdf: null, patient_id: targetPatientId },
-        ...cleaned,
-      ];
-    });
+      if (candidate) {
+        setSessionId(candidate.id);
+        setActivePdf(candidate.pdf || null);
+        loadChatHistory(candidate.id);
+        return;
+      }
+      const newId = generateSessionId();
+      setSessionId(newId);
+      setActivePdf(null);
+      setConversations((prev) => {
+        const cleaned = prev.filter(
+          (c) => (c.messages && c.messages.length > 0) || c.pdf || c.document_id
+        );
+        return [
+          { id: newId, title: 'New Conversation', messages: [], pdf: null, patient_id: targetPatientId },
+          ...cleaned,
+        ];
+      });
+      return;
+    }
+
+    if (!currentChat.patient_id || currentChat.patient_id !== targetPatientId) {
+      setConversations((prev) =>
+        prev.map((c) => (c.id === sessionId ? { ...c, patient_id: targetPatientId } : c))
+      );
+    }
   };
 
   const handleOpenDependents = () => {
@@ -959,7 +981,9 @@ export default function ChatApp() {
           return;
         }
 
-        if (chunk.chunk || chunk.token) {
+        if (typeof chunk.replace === 'string') {
+          assistantAccum = chunk.replace;
+        } else if (chunk.chunk || chunk.token) {
           assistantAccum += chunk.chunk || chunk.token || '';
         }
         if (chunk.error) {
@@ -978,7 +1002,10 @@ export default function ChatApp() {
             if (targetIdx === -1) return updatedChat;
 
             const targetMsg = { ...c.messages[targetIdx] };
-            if (chunk.stage && chunk.message) {
+            if (typeof chunk.replace === 'string') {
+              targetMsg.text = chunk.replace;
+              targetMsg.status = null;
+            } else if (chunk.stage && chunk.message) {
               targetMsg.status = chunk.message;
             } else if (chunk.specialists) {
               targetMsg.specialists = chunk.specialists;
@@ -1314,6 +1341,7 @@ export default function ChatApp() {
   const handleDeleteAccount = async () => {
     try {
       await deleteAccount();
+      invalidateMetrics();
       localStorage.removeItem('token');
       localStorage.removeItem('mediskye_session_id');
       localStorage.removeItem('mediskye_patient_id');

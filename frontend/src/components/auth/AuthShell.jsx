@@ -7,7 +7,7 @@ import StatusPill from '../clinical/StatusPill';
 import DeltaIndicator from '../clinical/DeltaIndicator';
 
 const SPECIMEN = [
-  { test: 'Ferritin', value: '238', unit: 'pg/mL', range: '200–900', status: 'Normal' },
+  { test: 'Serum Ferritin', value: '84', unit: 'ng/mL', range: '30–400', status: 'Normal' },
   { test: 'Vitamin D (25-OH)', value: '24.0', unit: 'ng/mL', range: '30–100', status: 'Low', previous_value: '44.0', delta_pct: -45.5 },
   { test: 'LDL Cholesterol', value: '162', unit: 'mg/dL', range: '<100', status: 'High', previous_value: '148', delta_pct: 9.5 },
 ];

@@ -223,9 +223,22 @@ def _user_to_dto(user: User) -> UserDTO:
     )
 
 
+def _token_revoked(iat, cutoff: Optional[datetime]) -> bool:
+    if cutoff is None or iat is None:
+        return False
+    try:
+        iat_f, cut_f = float(iat), cutoff.timestamp()
+    except (TypeError, ValueError):
+        return False
+    return iat_f <= cut_f if isinstance(iat, int) else iat_f < cut_f
+
+
 def verify_password(plain_password: str, hashed_password: str) -> bool:
+    if not hashed_password or str(hashed_password).startswith("!firebase:"):
+        return False
     plain_bytes = plain_password.encode("utf-8")[:72]
     return pwd_context.verify(plain_bytes, hashed_password)
+
 
 def get_password_hash(password: str) -> str:
     """
@@ -242,6 +255,7 @@ def get_password_hash(password: str) -> str:
         password_bytes = password_bytes[:72]
     return pwd_context.hash(password_bytes)
 
+
 def create_access_token(data: dict, expires_delta: Optional[timedelta] = None):
     to_encode = data.copy()
     now = datetime.now(UTC)
@@ -249,7 +263,7 @@ def create_access_token(data: dict, expires_delta: Optional[timedelta] = None):
     expire = now + lifetime
     to_encode.update({
         "exp": expire,
-        "iat": int(now.timestamp()),
+        "iat": now.timestamp(),
         "jti": str(uuid.uuid4()),
     })
     encoded_jwt = jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
@@ -296,6 +310,11 @@ async def _resolve_firebase_user(decoded_token: dict, db: AsyncSession) -> Optio
             result = await db.execute(select(User).filter(func.lower(User.email) == normalized_email))
             user = result.scalars().first()
     else:
+        if not str(user.hashed_password).startswith("!firebase:"):
+            user.hashed_password = f"!firebase:{secrets.token_hex(16)}"
+            user.token_invalid_before = datetime.now(UTC)
+            db.add(user)
+            await db.commit()
         token_name = decoded_token.get("name")
         if token_name and (not user.full_name or user.full_name == normalized_email.split("@")[0]):
             user.full_name = token_name
@@ -305,25 +324,24 @@ async def _resolve_firebase_user(decoded_token: dict, db: AsyncSession) -> Optio
                 await db.rollback()
 
     if user:
-        if user.token_invalid_before is not None:
-            token_iat = decoded_token.get("iat") or decoded_token.get("auth_time")
-            if token_iat is not None:
-                try:
-                    if int(token_iat) <= int(user.token_invalid_before.timestamp()):
-                        logger.info("Firebase token revoked by user.token_invalid_before (iat=%s, cutoff=%s)", token_iat, user.token_invalid_before.timestamp())
-                        raise HTTPException(
-                            status_code=status.HTTP_401_UNAUTHORIZED,
-                            detail="Token has been revoked",
-                            headers={"WWW-Authenticate": "Bearer"},
-                        )
-                except HTTPException:
-                    raise
-                except (ValueError, TypeError):
-                    pass
+        if _token_revoked(decoded_token.get("iat") or decoded_token.get("auth_time"), user.token_invalid_before):
+            logger.info("Firebase token revoked by user.token_invalid_before (cutoff=%s)", user.token_invalid_before.timestamp())
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Token has been revoked",
+                headers={"WWW-Authenticate": "Bearer"},
+            )
         from app.core.logging import user_id_var
         user_id_var.set(str(user.id))
         return user
     return None
+
+
+_JWKS_CLIENT = jwt.PyJWKClient(
+    "https://www.googleapis.com/service_accounts/v1/jwk/securetoken@system.gserviceaccount.com",
+    cache_keys=True,
+    lifespan=3600,
+)
 
 
 async def _resolve_user_full(token: str, db: AsyncSession) -> Optional[User]:
@@ -366,11 +384,7 @@ async def _resolve_user_full(token: str, db: AsyncSession) -> Optional[User]:
             if unverified_header.get("alg") == "RS256":
                 project_id = settings.GOOGLE_CLOUD_PROJECT or "mediskye-backend"
                 try:
-                    jwks_client = jwt.PyJWKClient(
-                        "https://www.googleapis.com/service_accounts/v1/jwk/securetoken@system.gserviceaccount.com",
-                        cache_keys=True,
-                    )
-                    signing_key = jwks_client.get_signing_key_from_jwt(token)
+                    signing_key = await asyncio.to_thread(_JWKS_CLIENT.get_signing_key_from_jwt, token)
                     decoded_token = jwt.decode(
                         token,
                         signing_key.key,
@@ -379,7 +393,7 @@ async def _resolve_user_full(token: str, db: AsyncSession) -> Optional[User]:
                         issuer=f"https://securetoken.google.com/{project_id}",
                     )
                 except Exception as jwks_err:
-                    if settings.DEBUG or settings.ENV == "development":
+                    if settings.ENV in ("development", "test"):
                         unverified = jwt.decode(token, options={"verify_signature": False})
                         if unverified.get("iss") == f"https://securetoken.google.com/{project_id}":
                             decoded_token = unverified
@@ -444,21 +458,13 @@ async def _resolve_user_full(token: str, db: AsyncSession) -> Optional[User]:
         return None
 
     # Multi-instance database-backed token invalidation check
-    if user.token_invalid_before is not None:
-        iat = payload.get("iat")
-        try:
-            cutoff = int(user.token_invalid_before.timestamp())
-            if iat is not None and int(iat) <= cutoff:
-                logger.info("Local JWT revoked by user.token_invalid_before (iat=%s, cutoff=%s)", iat, cutoff)
-                raise HTTPException(
-                    status_code=status.HTTP_401_UNAUTHORIZED,
-                    detail="Token has been revoked",
-                    headers={"WWW-Authenticate": "Bearer"},
-                )
-        except HTTPException:
-            raise
-        except (ValueError, TypeError):
-            pass
+    if _token_revoked(payload.get("iat"), user.token_invalid_before):
+        logger.info("Local JWT revoked by user.token_invalid_before (cutoff=%s)", user.token_invalid_before.timestamp())
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Token has been revoked",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
 
     return user
 
@@ -520,19 +526,13 @@ async def get_current_user_full(
         evict_token_cache_by_token(token)
         raise credentials_exception
 
-    if user.token_invalid_before is not None and token_iat is not None:
-        try:
-            if int(token_iat) <= int(user.token_invalid_before.timestamp()):
-                evict_token_cache_by_token(token)
-                raise HTTPException(
-                    status_code=status.HTTP_401_UNAUTHORIZED,
-                    detail="Token has been revoked",
-                    headers={"WWW-Authenticate": "Bearer"},
-                )
-        except HTTPException:
-            raise
-        except (ValueError, TypeError):
-            pass
+    if _token_revoked(token_iat, user.token_invalid_before):
+        evict_token_cache_by_token(token)
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Token has been revoked",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
 
     logger.info(
         "AUTH CACHE HIT: user %s (full ORM row loaded in %.2fms)",
@@ -570,19 +570,13 @@ async def get_current_user(
 
     cached_dto = get_cached_user_dto(token)
     if cached_dto is not None:
-        if cached_dto.token_invalid_before is not None and token_iat is not None:
-            try:
-                if int(token_iat) <= int(cached_dto.token_invalid_before.timestamp()):
-                    evict_token_cache_by_token(token)
-                    raise HTTPException(
-                        status_code=status.HTTP_401_UNAUTHORIZED,
-                        detail="Token has been revoked",
-                        headers={"WWW-Authenticate": "Bearer"},
-                    )
-            except HTTPException:
-                raise
-            except (ValueError, TypeError):
-                pass
+        if _token_revoked(token_iat, cached_dto.token_invalid_before):
+            evict_token_cache_by_token(token)
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Token has been revoked",
+                headers={"WWW-Authenticate": "Bearer"},
+            )
         logger.info("AUTH CACHE HIT: user %s", cached_dto.id)
         user_id_var.set(str(cached_dto.id))
         return cached_dto
@@ -591,19 +585,13 @@ async def get_current_user(
     async with _single_flight(_hash_token(token)):
         cached_dto = get_cached_user_dto(token)
         if cached_dto is not None:
-            if cached_dto.token_invalid_before is not None and token_iat is not None:
-                try:
-                    if int(token_iat) <= int(cached_dto.token_invalid_before.timestamp()):
-                        evict_token_cache_by_token(token)
-                        raise HTTPException(
-                            status_code=status.HTTP_401_UNAUTHORIZED,
-                            detail="Token has been revoked",
-                            headers={"WWW-Authenticate": "Bearer"},
-                        )
-                except HTTPException:
-                    raise
-                except (ValueError, TypeError):
-                    pass
+            if _token_revoked(token_iat, cached_dto.token_invalid_before):
+                evict_token_cache_by_token(token)
+                raise HTTPException(
+                    status_code=status.HTTP_401_UNAUTHORIZED,
+                    detail="Token has been revoked",
+                    headers={"WWW-Authenticate": "Bearer"},
+                )
             user_id_var.set(str(cached_dto.id))
             return cached_dto
 

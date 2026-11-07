@@ -19,7 +19,9 @@ const NUM_RE = /-?\d[\d,]*\.?\d*|-?\.\d+/;
 export function parseNumeric(value) {
   if (value === null || value === undefined) return null;
   if (typeof value === 'number') return Number.isFinite(value) ? value : null;
-  const match = String(value).replace(/−/g, '-').match(NUM_RE);
+  const s = String(value);
+  if (/^\s*\d+\s*:\s*\d+/.test(s)) return null;
+  const match = s.replace(/−/g, '-').match(NUM_RE);
   if (!match) return null;
   const n = parseFloat(match[0].replace(/,/g, ''));
   return Number.isFinite(n) ? n : null;
@@ -34,6 +36,11 @@ export function parseRange(range) {
   if (range === null || range === undefined) return null;
   const s = String(range).replace(/−/g, '-').replace(/,/g, '').trim();
   if (!s || s === '—' || s === '-') return null;
+
+  // Multi-tier & sex/pregnancy qualifiers guard
+  if (/(\bmale\b|\bfemale\b|\bmen\b|\bwomen\b|pregnan|trimester)/i.test(s)) return null;
+  const intervalMatches = s.match(/-?\d+(?:\.\d+)?\s*(?:-|–|—|\bto\b)\s*-?\d+(?:\.\d+)?/gi);
+  if (intervalMatches && intervalMatches.length > 1) return null;
 
   const between = s.match(/(-?\d*\.?\d+)\s*(?:-|–|—|to)\s*(-?\d*\.?\d+)/i);
   if (between) {
@@ -74,8 +81,27 @@ export function parseClinicalDate(input) {
 
   const dmy = s.match(/^(\d{1,2})[/.-](\d{1,2})[/.-](\d{4})$/);
   if (dmy) {
-    const d = new Date(Number(dmy[3]), Number(dmy[2]) - 1, Number(dmy[1]));
-    return Number.isNaN(d.getTime()) ? null : d.getTime();
+    const p1 = Number(dmy[1]);
+    const p2 = Number(dmy[2]);
+    const year = Number(dmy[3]);
+    let day, month;
+    if (p1 > 12 && p2 <= 12) {
+      day = p1;
+      month = p2;
+    } else if (p2 > 12 && p1 <= 12) {
+      month = p1;
+      day = p2;
+    } else {
+      day = p1;
+      month = p2;
+    }
+    if (month < 1 || month > 12 || day < 1 || day > 31) return null;
+    const d = new Date(year, month - 1, day);
+    if (Number.isNaN(d.getTime())) return null;
+    if (d.getFullYear() !== year || d.getMonth() !== month - 1 || d.getDate() !== day) {
+      return null;
+    }
+    return d.getTime();
   }
 
   const parsed = Date.parse(s);
@@ -154,7 +180,10 @@ export function classifyStatus(row) {
   if (s === 'normal' || s.includes('optimal') || s.includes('within') || s === 'in range') return 'normal';
 
   const pos = rangeGeometry(row);
-  if (!pos) return s ? 'unknown' : 'normal';
+  if (!pos) {
+    if (!s && parseNumeric(row?.value) === null) return 'unknown';
+    return s ? 'unknown' : 'normal';
+  }
   if (pos.side === 'above') return 'high';
   if (pos.side === 'below') return 'low';
   return pos.nearEdge ? 'borderline' : 'normal';
@@ -395,8 +424,12 @@ export function buildTrendSeries(snapshots) {
       const pv = parseNumeric(row?.previous_value);
       if (pv !== null) {
         const pt = parseClinicalDate(row?.previous_date);
-        const t = pt ?? (typeof snapT === 'number' ? snapT - 1 : idx - 0.5);
-        push(row, { t, value: pv, raw: row.previous_value, docId: null, label: row.previous_date || 'Baseline', status: null, synthetic: true });
+        const hasParsedDate = pt !== null;
+        const THIRTY_DAYS = 30 * 24 * 60 * 60 * 1000;
+        const t = hasParsedDate
+          ? pt
+          : (typeof snapT === 'number' && snapT > 1e9 ? snapT - THIRTY_DAYS : (typeof snapT === 'number' ? snapT - 1 : idx - 0.5));
+        push(row, { t, value: pv, raw: row.previous_value, docId: null, label: row.previous_date || 'Baseline', status: null, synthetic: true, hasParsedDate });
       }
     });
   });
@@ -405,7 +438,7 @@ export function buildTrendSeries(snapshots) {
     s.points.sort((a, b) => a.t - b.t);
     // A reconstructed baseline is redundant when a real reading exists within ~1.5 days of it
     const DAY = 36 * 60 * 60 * 1000;
-    s.points = s.points.filter((p, i, arr) => !(p.synthetic && arr.some((q, j) => j !== i && !q.synthetic && Math.abs(q.t - p.t) <= DAY)));
+    s.points = s.points.filter((p, i, arr) => !(p.synthetic && p.hasParsedDate && arr.some((q, j) => j !== i && !q.synthetic && Math.abs(q.t - p.t) <= DAY)));
     const first = s.points[0];
     const last = s.points[s.points.length - 1];
     s.change = first && last && first !== last && first.value !== 0
@@ -461,5 +494,16 @@ export function parseWeightToKgString(input) {
     return `${kg} kg`;
   }
   return `${val} kg`;
+}
+
+/** Strips outer quotation marks only when both the first and last character are quotes. */
+export function stripOuterQuotes(str) {
+  if (!str || typeof str !== 'string') return '';
+  let s = str.trim();
+  const QUOTES = ['"', "'", '“', '”', '‘', '’'];
+  while (s.length >= 2 && QUOTES.includes(s[0]) && QUOTES.includes(s[s.length - 1])) {
+    s = s.slice(1, -1).trim();
+  }
+  return s;
 }
 
