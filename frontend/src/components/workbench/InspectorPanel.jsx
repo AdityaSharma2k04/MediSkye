@@ -40,6 +40,7 @@ export default function InspectorPanel({
   tabs = INSPECTOR_TABS,
   metrics,
   metricsLoading,
+  metricsError,
   onReloadMetrics,
   trends,
   activePdf,
@@ -125,6 +126,26 @@ export default function InspectorPanel({
       <div className={cn('flex-1 min-h-0 overflow-y-auto overscroll-contain', isPane ? 'px-4 py-4' : 'px-4 py-4 pb-10')}>
         {!activePdf ? (
           <NoReport onUpload={onUpload} t={t} />
+        ) : metricsError && !hasMetrics && tab !== 'report' ? (
+          <div data-testid="inspector-metrics-error" className="py-12 px-4 flex flex-col items-center justify-center text-center">
+            <AlertTriangle className="w-8 h-8 text-amber-400/80 mb-3" />
+            <div className="text-sm text-white font-medium mb-1">
+              {t('inspector.metrics_error', 'Unable to load biomarker metrics')}
+            </div>
+            <div className="text-xs text-ink-mute max-w-xs mb-4">
+              {typeof metricsError === 'string' ? metricsError : t('inspector.metrics_error_hint', 'A network error occurred while retrieving lab metrics.')}
+            </div>
+            {onReloadMetrics && (
+              <button
+                type="button"
+                onClick={onReloadMetrics}
+                className="ms-tap px-3 py-1.5 rounded-lg text-xs font-medium text-white bg-white/[0.08] hover:bg-white/[0.14] border border-white/[0.10] flex items-center gap-1.5 transition"
+              >
+                <RefreshCw className="w-3.5 h-3.5" />
+                {t('common.retry', 'Retry')}
+              </button>
+            )}
+          </div>
         ) : metricsLoading && !hasMetrics && tab !== 'report' ? (
           <MetricsSkeleton />
         ) : (

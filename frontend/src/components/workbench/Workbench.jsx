@@ -75,6 +75,7 @@ export default function Workbench(props) {
     attachedDocuments,
     metrics,
     metricsLoading,
+    metricsError,
     onReloadMetrics,
     ensureMetrics,
     trends,
@@ -220,6 +221,7 @@ export default function Workbench(props) {
   const inspectorShared = {
     metrics,
     metricsLoading,
+    metricsError,
     onReloadMetrics,
     trends,
     activePdf,

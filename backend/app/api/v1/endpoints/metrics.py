@@ -6,7 +6,7 @@ import asyncio
 import copy
 from datetime import datetime, UTC
 from pydantic import BaseModel
-from fastapi import APIRouter, Depends, Header, Request, HTTPException
+from fastapi import APIRouter, Depends, Header, Request, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 from sqlalchemy.orm.attributes import flag_modified
@@ -347,6 +347,12 @@ async def _get_or_extract_metrics(
 
     if not doc or doc.user_id != current_user.id:
         raise HTTPException(status_code=404, detail="Document not found.")
+
+    if getattr(doc, "index_status", None) == "failed":
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail="This document could not be processed. Please upload a different file or re-upload.",
+        )
 
     is_future = check_is_future_date(doc.collected_at)
 

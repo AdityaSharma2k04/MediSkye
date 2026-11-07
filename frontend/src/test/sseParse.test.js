@@ -22,7 +22,8 @@ describe('parseSSEStream', () => {
       'data: {"stage": "analyzing", "message": "Analyzing your question..."}\n\n' +
       'event: stage\n' +
       'data: {"stage": "generating", "message": "Preparing your answer..."}\n\n' +
-      'data: {"token": "Your "}\n\n';
+      'data: {"token": "Your "}\n\n' +
+      'data: [DONE]\n\n';
 
     const reader = createMockReader([ssePayload]);
     const onStage = vi.fn();
@@ -48,7 +49,8 @@ describe('parseSSEStream', () => {
     const ssePayload =
       'event: stage\n' +
       'data: {"stage": "searching", "message": "Searching reports..."}\n\n' +
-      'data: {"chunk": "Test token"}\n\n';
+      'data: {"chunk": "Test token"}\n\n' +
+      'data: [DONE]\n\n';
 
     const reader = createMockReader([ssePayload]);
     const onChunk = vi.fn();
@@ -63,5 +65,28 @@ describe('parseSSEStream', () => {
     expect(onChunk).toHaveBeenNthCalledWith(2, {
       chunk: 'Test token',
     });
+  });
+
+  it('throws an error if the stream closes without a [DONE] or error chunk', async () => {
+    const ssePayload =
+      'event: stage\n' +
+      'data: {"stage": "analyzing", "message": "Analyzing..."}\n\n' +
+      'data: {"token": "Incomplete response..."}\n\n';
+
+    const reader = createMockReader([ssePayload]);
+    const onChunk = vi.fn();
+
+    await expect(parseSSEStream(reader, onChunk)).rejects.toThrow(/interrupted/i);
+  });
+
+  it('treats data with error as a valid terminal event even without [DONE]', async () => {
+    const ssePayload =
+      'data: {"error": "LLM model overloaded"}\n\n';
+
+    const reader = createMockReader([ssePayload]);
+    const onChunk = vi.fn();
+
+    await expect(parseSSEStream(reader, onChunk)).resolves.not.toThrow();
+    expect(onChunk).toHaveBeenCalledWith({ error: 'LLM model overloaded' });
   });
 });

@@ -2,6 +2,7 @@ import re
 import os
 import json
 import uuid
+import time
 import asyncio
 import logging
 from typing import Optional, List, Dict, Any
@@ -44,7 +45,41 @@ logger = logging.getLogger(__name__)
 
 # Hold strong references to background tasks to prevent GC mid-execution
 _background_tasks: set = set()
-_active_query_sessions: set = set()
+
+
+class TTLLockSet:
+    """In-memory session lock helper with monotonic TTL expiration (120.0s)."""
+
+    def __init__(self, ttl: float = 120.0):
+        self._ttl = ttl
+        self._locks: dict[str, float] = {}
+
+    def _purge_expired(self) -> None:
+        now = time.monotonic()
+        expired = [k for k, exp in self._locks.items() if exp <= now]
+        for k in expired:
+            self._locks.pop(k, None)
+
+    def add(self, key: str) -> None:
+        self._purge_expired()
+        self._locks[key] = time.monotonic() + self._ttl
+
+    def discard(self, key: str) -> None:
+        self._locks.pop(key, None)
+
+    def pop(self, key: str, default: Any = None) -> Any:
+        return self._locks.pop(key, default)
+
+    def __contains__(self, key: str) -> bool:
+        self._purge_expired()
+        return key in self._locks
+
+    def __len__(self) -> int:
+        self._purge_expired()
+        return len(self._locks)
+
+
+_active_query_sessions = TTLLockSet(ttl=120.0)
 
 router = APIRouter()
 
@@ -195,6 +230,11 @@ async def query_bot(
 
     # ── Total Miss / Building Safeguard (Executed before ANY DB writes or Gemini calls) ──
     for d in chat_docs:
+        if getattr(d, "index_status", None) == "failed":
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail="This document could not be processed. Please upload a different file or re-upload.",
+            )
         if getattr(d, "index_status", None) == "building":
             raise HTTPException(
                 status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
@@ -858,6 +898,66 @@ async def query_bot(
                 yield f'data: {json.dumps({"chunk": disclaimer})}\n\n'
                 visible_text += disclaimer
 
+            # ── Output filter scan ──
+            is_safe, reason = scan_output(visible_text)
+            if not is_safe:
+                logger.warning("Output filter blocked response: %s | user_id=%s", reason, current_user.id)
+                visible_text = SAFE_FALLBACK
+                if intent != QueryIntent.CASUAL:
+                    visible_text = append_disclaimer(visible_text, intent=intent.value if hasattr(intent, "value") else str(intent))
+                yield f'data: {json.dumps({"replace": visible_text})}\n\n'
+
+            # ── Record AI response in database ──
+            async with AsyncSessionLocal() as persist_session:
+                ai_chat = Chat(
+                    user_id=current_user.id,
+                    dependent_id=active_dep_id,
+                    document_id=primary_doc.id if primary_doc else None,
+                    session_id=effective_session_id,
+                    session_title=current_session_title,
+                    role="ai",
+                    message=visible_text,
+                )
+                persist_session.add(ai_chat)
+                await persist_session.commit()
+                await persist_session.refresh(ai_chat)
+
+                # Link AI message to chat documents if applicable
+                if chat_docs:
+                    for cd_doc in chat_docs:
+                        link = ChatDocument(chat_id=ai_chat.id, document_id=cd_doc.id)
+                        persist_session.add(link)
+                    await persist_session.commit()
+
+                # Index chat message for cross-session retrieval (user message only, memory consent gated)
+                if current_user.memory_consent_granted and settings.PATIENT_MEMORY_ENABLED:
+                    try:
+                        await index_chat_message(
+                            chat_id=current_chat_id,
+                            message_id=user_chat.id,
+                            text=body.query,
+                            user_id=current_user.id,
+                            dependent_id=active_dep_id,
+                            session=persist_session,
+                        )
+                    except Exception as e:
+                        logger.warning("Failed indexing chat message: %s", e)
+
+            # ── Trigger background fact extraction if consent granted ──
+            if current_user.memory_consent_granted and settings.PATIENT_MEMORY_ENABLED:
+                task = asyncio.create_task(
+                    process_chat_memory_extraction(
+                        chat_id=current_chat_id,
+                        user_id=current_user.id,
+                        dependent_id=active_dep_id,
+                        session_id=effective_session_id,
+                    )
+                )
+                _background_tasks.add(task)
+                task.add_done_callback(_background_tasks.discard)
+
+            yield f'data: [DONE]\n\n'
+
         except (asyncio.CancelledError, GeneratorExit):
             logger.info(
                 "Client disconnected or query stream cancelled for user_id=%s, chat_id=%s",
@@ -975,66 +1075,6 @@ async def query_bot(
             _active_query_sessions.discard(session_lock_key)
             if stream_task and not stream_task.done():
                 stream_task.cancel()
-
-        # ── Output filter scan ──
-        is_safe, reason = scan_output(visible_text)
-        if not is_safe:
-            logger.warning("Output filter blocked response: %s | user_id=%s", reason, current_user.id)
-            visible_text = SAFE_FALLBACK
-            if intent != QueryIntent.CASUAL:
-                visible_text = append_disclaimer(visible_text, intent=intent.value if hasattr(intent, "value") else str(intent))
-            yield f'data: {json.dumps({"replace": visible_text})}\n\n'
-
-        # ── Record AI response in database ──
-        async with AsyncSessionLocal() as persist_session:
-            ai_chat = Chat(
-                user_id=current_user.id,
-                dependent_id=active_dep_id,
-                document_id=primary_doc.id if primary_doc else None,
-                session_id=effective_session_id,
-                session_title=current_session_title,
-                role="ai",
-                message=visible_text,
-            )
-            persist_session.add(ai_chat)
-            await persist_session.commit()
-            await persist_session.refresh(ai_chat)
-
-            # Link AI message to chat documents if applicable
-            if chat_docs:
-                for cd_doc in chat_docs:
-                    link = ChatDocument(chat_id=ai_chat.id, document_id=cd_doc.id)
-                    persist_session.add(link)
-                await persist_session.commit()
-
-            # Index chat message for cross-session retrieval (user message only, memory consent gated)
-            if current_user.memory_consent_granted and settings.PATIENT_MEMORY_ENABLED:
-                try:
-                    await index_chat_message(
-                        chat_id=current_chat_id,
-                        message_id=user_chat.id,
-                        text=body.query,
-                        user_id=current_user.id,
-                        dependent_id=active_dep_id,
-                        session=persist_session,
-                    )
-                except Exception as e:
-                    logger.warning("Failed indexing chat message: %s", e)
-
-        # ── Trigger background fact extraction if consent granted ──
-        if current_user.memory_consent_granted and settings.PATIENT_MEMORY_ENABLED:
-            task = asyncio.create_task(
-                process_chat_memory_extraction(
-                    chat_id=current_chat_id,
-                    user_id=current_user.id,
-                    dependent_id=active_dep_id,
-                    session_id=effective_session_id,
-                )
-            )
-            _background_tasks.add(task)
-            task.add_done_callback(_background_tasks.discard)
-
-        yield f'data: [DONE]\n\n'
 
     return StreamingResponse(generate_response_stream(), media_type="text/event-stream")
 

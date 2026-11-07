@@ -46,7 +46,8 @@
     "send_message": "संदेश भेजें",
     "upload_report": "मेडिकल रिपोर्ट अपलोड करें",
     "stop_listening": "सुनना बंद करें",
-    "voice_input": "आवाज़ इनपुट"
+    "voice_input": "आवाज़ इनपुट",
+    "generating": "MediSkye उत्तर लिख रहा है…"
   },
   "settings": {
     "title": "सेटिंग्स",

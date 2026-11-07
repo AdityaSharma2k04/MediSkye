@@ -1637,6 +1637,7 @@ export default function ChatApp() {
           attachedDocuments={attachedDocuments}
           metrics={labMetrics.metrics}
           metricsLoading={labMetrics.loading}
+          metricsError={labMetrics.error}
           onReloadMetrics={labMetrics.reload}
           ensureMetrics={labMetrics.ensure}
           trends={trends}

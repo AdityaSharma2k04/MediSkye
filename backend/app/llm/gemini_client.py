@@ -1,4 +1,5 @@
 import asyncio
+from functools import lru_cache
 import logging
 import time
 from typing import Any, Optional
@@ -8,6 +9,7 @@ from app.core.config import settings
 logger = logging.getLogger(__name__)
 
 
+@lru_cache(maxsize=1)
 def get_genai_client():
     """Return a google.genai Client configured for Vertex AI or API-key auth."""
     if settings.GOOGLE_GENAI_USE_ENTERPRISE:
@@ -28,7 +30,9 @@ class GeminiUnavailableError(Exception):
 
 
 _llm_dead_until: float = 0.0
-_LLM_DEAD_COOLDOWN = 300  # 5 minutes
+_LLM_DAILY_COOLDOWN = 300  # 5 minutes
+_LLM_TRANSIENT_COOLDOWN = 30  # 30 seconds
+_LLM_DEAD_COOLDOWN = _LLM_TRANSIENT_COOLDOWN
 
 
 def reset_cooldown() -> None:
@@ -160,7 +164,9 @@ async def call_gemini_with_retry(
                     if ("resource_exhausted" in err_str or "429" in err_str) and (
                         "per_day" in err_str or "generate_content_free_tier_requests" in err_str
                     ):
-                        _llm_dead_until = time.monotonic() + _LLM_DEAD_COOLDOWN
+                        _llm_dead_until = time.monotonic() + _LLM_DAILY_COOLDOWN
+                    else:
+                        _llm_dead_until = time.monotonic() + _LLM_TRANSIENT_COOLDOWN
                     raise exc
 
                 logger.warning(
@@ -182,7 +188,7 @@ async def call_gemini_with_retry(
                     )
                     break
 
-    _llm_dead_until = time.monotonic() + _LLM_DEAD_COOLDOWN
+    _llm_dead_until = time.monotonic() + _LLM_TRANSIENT_COOLDOWN
     raise GeminiUnavailableError(
         f"All models failed: {tried_models}. Last error: {last_exception}"
     ) from last_exception

@@ -87,8 +87,11 @@ async def update_job(
         if "status" in kwargs:
             val = kwargs["status"]
             job.status = val.value if isinstance(val, UploadStatus) else str(val)
+            if job.status in (UploadStatus.COMPLETED.value, UploadStatus.FAILED.value):
+                _job_stages.pop(job_id, None)
         if "stage" in kwargs:
-            _job_stages[job_id] = str(kwargs["stage"])
+            if job.status not in (UploadStatus.COMPLETED.value, UploadStatus.FAILED.value):
+                _job_stages[job_id] = str(kwargs["stage"])
         if "document_id" in kwargs:
             val = kwargs["document_id"]
             job.document_id = str(val) if val is not None else None

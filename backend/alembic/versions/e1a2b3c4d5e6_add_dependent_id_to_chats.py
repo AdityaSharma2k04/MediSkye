@@ -54,3 +54,4 @@ def upgrade() -> None:
 def downgrade() -> None:
     op.drop_index('ix_chats_dependent_id', table_name='chats')
     op.drop_column('chats', 'dependent_id')
+

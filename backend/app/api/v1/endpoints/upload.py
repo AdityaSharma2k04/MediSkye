@@ -188,7 +188,19 @@ async def process_upload_background(
             logger.info(f"[UPLOAD {job_id}] Step A Fast Path Completed (local_ready): {time.monotonic() - t_start:.2f}s")
         except Exception as e:
             logger.error(f"[UPLOAD {job_id}] Failed after {time.monotonic() - t_start:.2f}s: {e}", exc_info=True)
-            await update_job(job_id, status=UploadStatus.FAILED, error=str(e))
+            try:
+                if 'doc' in locals() and getattr(doc, 'id', None):
+                    async with AsyncSessionLocal() as db_cleanup:
+                        res = await db_cleanup.execute(select(Document).filter(Document.id == doc.id))
+                        failed_doc = res.scalars().first()
+                        if failed_doc:
+                            failed_doc.index_status = "failed"
+                            await db_cleanup.commit()
+            except Exception as ce:
+                logger.warning("Failed to mark document as failed: %s", ce)
+            from app.rag.loader import PDFExtractionError
+            job_error = str(e) if isinstance(e, PDFExtractionError) else "We couldn't process this file. Please try another one."
+            await update_job(job_id, status=UploadStatus.FAILED, error=job_error)
             return
         finally:
             if tmp_path and os.path.exists(tmp_path):
@@ -357,8 +369,14 @@ async def upload_file(
 ):
     from app.core.security import sanitize_filename
     sanitized_filename = sanitize_filename(file.filename or "report.pdf")
-    content = await file.read()
-    validate_file_upload(content, filename=sanitized_filename)
+    max_upload_bytes = settings.MEDISKYE_MAX_UPLOAD_MB * 1024 * 1024
+    content = await file.read(max_upload_bytes + 1)
+    if len(content) > max_upload_bytes:
+        raise HTTPException(
+            status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+            detail=f"File too large. Maximum upload size is {settings.MEDISKYE_MAX_UPLOAD_MB} MB.",
+        )
+    await asyncio.to_thread(validate_file_upload, content, sanitized_filename)
 
     dep_id = None
     if patient_id and patient_id.lower() != "self" and patient_id != str(current_user.id):

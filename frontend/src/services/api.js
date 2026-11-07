@@ -352,12 +352,19 @@ export async function parseSSEStream(reader, callbacks = {}) {
   let buffer = '';
   let currentEvent = 'message';
   let currentData = '';
+  let sawDone = false;
 
   const dispatch = () => {
     if (!currentData) return;
-    if (currentData === '[DONE]') return;
+    if (currentData === '[DONE]') {
+      sawDone = true;
+      return;
+    }
     try {
       const parsed = JSON.parse(currentData);
+      if (parsed && typeof parsed === 'object' && parsed.error) {
+        sawDone = true;
+      }
       if (currentEvent === 'stage') stageHandler?.(parsed);
       else if (currentEvent === 'specialists') specHandler?.(parsed);
       else contentHandler?.(parsed);
@@ -391,6 +398,10 @@ export async function parseSSEStream(reader, callbacks = {}) {
   if (currentData) {
     dispatch();
   }
+
+  if (!sawDone) {
+    throw new Error('The response was interrupted. Please try again.');
+  }
 }
 
 export async function fetchLabMetrics(documentId, forceRefresh = false) {
@@ -410,7 +421,9 @@ export async function fetchLabMetrics(documentId, forceRefresh = false) {
         window.dispatchEvent(new Event('auth:expired'));
         throw new Error('Session expired. Please log in again.');
       }
-      return [];
+      const list = [];
+      list._error = data.detail || `Failed to fetch metrics (${res.status})`;
+      return list;
     }
     const list = Array.isArray(data.metrics) ? data.metrics : [];
     list.collected_at = data.collected_at;
@@ -420,7 +433,9 @@ export async function fetchLabMetrics(documentId, forceRefresh = false) {
     return list;
   } catch (err) {
     logger.error('Failed to fetch metrics:', err);
-    return [];
+    const list = [];
+    list._error = err.message || 'Failed to fetch metrics';
+    return list;
   }
 }
 

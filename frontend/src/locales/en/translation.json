@@ -46,7 +46,8 @@
     "send_message": "Send message",
     "upload_report": "Upload medical report",
     "stop_listening": "Stop listening",
-    "voice_input": "Voice input"
+    "voice_input": "Voice input",
+    "generating": "MediSkye is writing a response…"
   },
   "settings": {
     "title": "Settings",

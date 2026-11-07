@@ -190,7 +190,7 @@ export default function ChatWindow({
               </div>
             </div>
           ) : (
-            <div className="py-2" aria-live="polite" aria-relevant="additions">
+            <div className="py-2" role="log" aria-label="Conversation" aria-live="off">
               {messages.map((msg, index) => (
                 <ChatMessage
                   key={msg.id || index}
@@ -200,6 +200,9 @@ export default function ChatWindow({
               ))}
             </div>
           )}
+          <div className="sr-only" role="status" aria-live="polite">
+            {isGenerating ? t('chat.generating', 'MediSkye is writing a response…') : ''}
+          </div>
         </div>
       </div>
 

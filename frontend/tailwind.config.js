@@ -16,7 +16,7 @@ export default {
           DEFAULT: '#e6edf5',
           soft: '#c3cedb',
           mute: '#8a97a8',
-          faint: '#5d6a7c',
+          faint: '#7b8798',
         },
         // ── Semantic clinical accents ──
         clinical: {

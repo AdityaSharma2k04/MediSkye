@@ -143,6 +143,20 @@ def _extract_with_pypdf2(pdf_path: str) -> list[Document]:
     return docs
 
 
+def _safe_dpi(page, max_pixels: int = 25_000_000, target: int = 300) -> int:
+    """Calculate safe DPI for rendering a page without exceeding max_pixels."""
+    import math
+    try:
+        area_pt = max(page.rect.width * page.rect.height, 1.0)
+        current_px = area_pt * ((target / 72.0) ** 2)
+        if current_px <= max_pixels:
+            return target
+        scaled_dpi = int(72.0 * math.sqrt(max_pixels / area_pt))
+        return max(scaled_dpi, 72)
+    except Exception:
+        return target
+
+
 async def _extract_with_pymupdf(pdf_path: str) -> list[Document]:
     try:
         import pymupdf as fitz
@@ -157,7 +171,7 @@ async def _extract_with_pymupdf(pdf_path: str) -> list[Document]:
                 if text and len(text) >= 50:
                     pages_data.append((index, "text", text))
                 else:
-                    pix = page.get_pixmap(dpi=300)
+                    pix = page.get_pixmap(dpi=_safe_dpi(page))
                     pages_data.append((index, "image", pix.tobytes("png")))
         return pages_data
 
@@ -295,6 +309,7 @@ async def _extract_table_pages_with_vision(pdf_path: str, table_page_indices: li
     """
     Render flagged table pages as images, optionally enhance contrast,
     and send to Gemini Vision for structured Markdown extraction.
+    Capped at MAX_VISION_PAGES = 20 with asyncio.Semaphore(3).
     """
     try:
         import pymupdf as fitz
@@ -302,7 +317,9 @@ async def _extract_table_pages_with_vision(pdf_path: str, table_page_indices: li
     except ImportError:
         return []
 
-    docs: list[Document] = []
+    MAX_VISION_PAGES = 20
+    indices_to_process = table_page_indices[:MAX_VISION_PAGES]
+    semaphore = asyncio.Semaphore(3)
 
     VISION_PROMPT = """You are a precise medical document parser. Extract ALL content from this medical report page into well-structured Markdown.
 
@@ -316,53 +333,57 @@ Rules:
 
 Output the structured Markdown extraction:"""
 
-    for page_idx in table_page_indices:
-        def _render_and_fallback(p_idx):
-            with fitz.open(pdf_path) as pdf:
-                if p_idx >= len(pdf):
-                    return None, None
-                page = pdf[p_idx]
-                pix = page.get_pixmap(dpi=300)
-                img_bytes = _enhance_image_clahe(pix.tobytes("png"))
-                fallback_text = sanitize_text(page.get_text() or "")
-                return img_bytes, fallback_text
+    async def _process_single_page(page_idx: int) -> Optional[Document]:
+        async with semaphore:
+            def _render_and_fallback(p_idx):
+                with fitz.open(pdf_path) as pdf:
+                    if p_idx >= len(pdf):
+                        return None, None
+                    page = pdf[p_idx]
+                    dpi = _safe_dpi(page)
+                    pix = page.get_pixmap(dpi=dpi)
+                    img_bytes = _enhance_image_clahe(pix.tobytes("png"))
+                    fallback_text = sanitize_text(page.get_text() or "")
+                    return img_bytes, fallback_text
 
-        img_bytes, fallback_text = await asyncio.to_thread(_render_and_fallback, page_idx)
-        if not img_bytes:
-            continue
+            img_bytes, fallback_text = await asyncio.to_thread(_render_and_fallback, page_idx)
+            if not img_bytes:
+                return None
 
-        try:
-            # Send to Gemini Vision
-            from google.genai.types import GenerateContentConfig, ThinkingConfig
-            image_part = Part.from_bytes(data=img_bytes, mime_type="image/png")
-            response = await call_gemini_with_retry(
-                contents=[VISION_PROMPT, image_part],
-                config=GenerateContentConfig(
-                    thinking_config=ThinkingConfig(thinking_budget=0),
-                    temperature=0.0,
-                ),
-            )
-            
-            extracted_text = sanitize_text(response.text or "")
-            if extracted_text and len(extracted_text) > 20:
-                docs.append(Document(
-                    page_content=extracted_text,
-                    metadata={
-                        "page": page_idx + 1,
-                        "source": "vision",
-                        "extraction_method": "gemini_vision_table",
-                    }
-                ))
-        except Exception as e:
-            logger.warning("Vision extraction failed for page %s: %s", page_idx + 1, e)
-            # Fall back to standard text for this page
-            if fallback_text:
-                docs.append(Document(
-                    page_content=fallback_text,
-                    metadata={"page": page_idx + 1, "source": "pymupdf_fallback"}
-                ))
+            try:
+                # Send to Gemini Vision
+                from google.genai.types import GenerateContentConfig, ThinkingConfig
+                image_part = Part.from_bytes(data=img_bytes, mime_type="image/png")
+                response = await call_gemini_with_retry(
+                    contents=[VISION_PROMPT, image_part],
+                    config=GenerateContentConfig(
+                        thinking_config=ThinkingConfig(thinking_budget=0),
+                        temperature=0.0,
+                    ),
+                )
+                
+                extracted_text = sanitize_text(response.text or "")
+                if extracted_text and len(extracted_text) > 20:
+                    return Document(
+                        page_content=extracted_text,
+                        metadata={
+                            "page": page_idx + 1,
+                            "source": "vision",
+                            "extraction_method": "gemini_vision_table",
+                        }
+                    )
+            except Exception as e:
+                logger.warning("Vision extraction failed for page %s: %s", page_idx + 1, e)
+                # Fall back to standard text for this page
+                if fallback_text:
+                    return Document(
+                        page_content=fallback_text,
+                        metadata={"page": page_idx + 1, "source": "pymupdf_fallback"}
+                    )
+            return None
 
-    return docs
+    page_results = await asyncio.gather(*[_process_single_page(idx) for idx in indices_to_process])
+    return [d for d in page_results if d is not None]
 
 
 # ─── Main Extraction Pipeline ───────────────────────────────────────────

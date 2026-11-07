@@ -107,8 +107,10 @@ def reset_gemini_cooldown_each_test():
     """Ensure in-memory Gemini cooldown does not leak across test cases."""
     import app.llm.gemini_client as gc
     gc._llm_dead_until = 0.0
+    gc.get_genai_client.cache_clear()
     yield
     gc._llm_dead_until = 0.0
+    gc.get_genai_client.cache_clear()
 
 
 @pytest.fixture(autouse=True)
