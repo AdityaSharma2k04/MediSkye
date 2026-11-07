@@ -3,6 +3,7 @@ import uuid
 import logging
 from datetime import datetime, UTC
 from typing import Dict, Any, Optional
+from sqlalchemy import func
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 from app.db.models import PatientFact, Chat, User, Document, ChatDocument
@@ -50,9 +51,13 @@ async def save_facts(
 
     if valid_retraction_uuids:
         try:
+            dep_filter = PatientFact.dependent_id == d_id if d_id else PatientFact.dependent_id.is_(None)
             q = select(PatientFact).filter(
                 PatientFact.id.in_(valid_retraction_uuids),
                 PatientFact.user_id == u_id,
+                dep_filter,
+                PatientFact.is_user_verified.is_(False),
+                func.lower(PatientFact.fact_type).notin_(("allergy", "medication", "condition")),
             )
             res = await session.execute(q)
             target_facts = res.scalars().all()

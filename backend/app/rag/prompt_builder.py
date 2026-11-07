@@ -1,7 +1,7 @@
 from datetime import datetime
 from typing import Optional, List, Dict, Any, Tuple
 from langchain_core.documents import Document
-from app.core.security import escape_xml_content
+from app.core.security import escape_xml_content, safe_language
 
 SYSTEM_ROLE_PREFIX = "You are MediSkye, a medical education assistant."
 
@@ -70,6 +70,10 @@ LONGITUDINAL COMPARISONS & PRIOR REPORT HISTORY:
 
 PROACTIVE BORDERLINE & SUBCLINICAL TREND DETECTION (CALIBRATED TO PATIENT PROFILE):
 - When asked if any normal values are borderline or suboptimal for the patient's profile, evaluate all biomarkers against their age, sex, diet, and athletic load—not just Vitamin B12, but also Serum Ferritin (e.g., <50 ng/mL in competitive sprint/endurance or vegetarian athletes) and 25-OH Vitamin D (e.g., 30–39 ng/mL in indoor workers).
+
+GROUNDING & ILLUSTRATIVE EXAMPLES GUARD:
+- Any specific numbers, lab values, or medications mentioned in the clinical guidance sections below (e.g., Creatine Monohydrate 5g, Cholecalciferol 1000 IU, Uric Acid 7.6 mg/dL, AST 48 U/L, B12 176 pg/mL) are illustrative clinical examples only.
+- You must NEVER attribute these illustrative numbers, lab values, or medications to the patient unless they are explicitly present in the patient's `<patient_context>` tags or supplied report documents.
 
 DEEP MULTI-FACTOR PROFILE SYNTHESIS (NO GENERIC ADVICE THAT VIOLATES INTOLERANCES):
 - Cross-reference all profile fields in `<patient_context>` simultaneously: quote exact medication/supplement dosages from the profile (e.g., `Creatine Monohydrate 5g daily`, `Cholecalciferol 1000 IU daily`, `Levosalbutamol inhaler PRN`).
@@ -174,6 +178,7 @@ def _format_patient_context(
     activity_level: Optional[str] = None,
     occupation: Optional[str] = None,
 ) -> str:
+    lang = safe_language(language_preference)
     lines = [
         f"- Age: {escape_xml_content(str(calculated_age))}",
         f"- Biological Sex: {escape_xml_content(str(biological_sex))}",
@@ -190,7 +195,7 @@ def _format_patient_context(
         lines.append(f"- Activity level: {escape_xml_content(str(activity_level))}")
     if occupation:
         lines.append(f"- Occupation: {escape_xml_content(str(occupation))}")
-    lines.append(f"- Preferred Language: {escape_xml_content(str(language_preference))}")
+    lines.append(f"- Preferred Language: {escape_xml_content(lang)}")
     return "\n".join(lines)
 
 
@@ -370,6 +375,7 @@ def build_prompt(
         system_instruction parameter, providing structural separation between
         trusted instructions and untrusted user/document content.
     """
+    language_preference = safe_language(language_preference)
     context_lines = _format_patient_context(
         calculated_age=calculated_age,
         biological_sex=biological_sex,
@@ -457,6 +463,7 @@ def build_general_health_prompt(
     Returns:
         A tuple of (system_instruction, user_content).
     """
+    language_preference = safe_language(language_preference)
     context_lines = _format_patient_context(
         calculated_age=calculated_age,
         biological_sex=biological_sex,
@@ -521,11 +528,12 @@ def build_casual_prompt(
     Returns:
         A tuple of (system_instruction, user_content).
     """
+    lang = safe_language(language_preference)
     system_parts = [
         SYSTEM_ROLE_PREFIX,
         "",
         CASUAL_INSTRUCTIONS,
-        f"\nCRITICAL: You MUST write your entire explanation and response in {escape_xml_content(str(language_preference))}. Even if the uploaded document is in English, translate the medical explanation into {escape_xml_content(str(language_preference))}.",
+        f"\nCRITICAL: You MUST write your entire explanation and response in {escape_xml_content(lang)}. Even if the uploaded document is in English, translate the medical explanation into {escape_xml_content(lang)}.",
     ]
     system_instruction = "\n".join(system_parts)
     user_content = f"<user_query>\n{escape_xml_content(user_query)}\n</user_query>\n\nResponse:"

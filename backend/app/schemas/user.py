@@ -14,21 +14,37 @@ class UserCreate(BaseModel):
     phi_consent_granted: bool
 
 class UserUpdate(BaseModel):
-    full_name: Optional[str] = None
+    full_name: Optional[str] = Field(None, max_length=120)
     date_of_birth: Optional[date] = None
     biological_sex: Optional[str] = None
     blood_type: Optional[str] = None
-    pre_existing_conditions: Optional[str] = None
-    known_allergies: Optional[str] = None
-    current_medications: Optional[str] = None
+    pre_existing_conditions: Optional[str] = Field(None, max_length=2000)
+    known_allergies: Optional[str] = Field(None, max_length=1000)
+    current_medications: Optional[str] = Field(None, max_length=2000)
     language_preference: Optional[str] = None
-    emergency_contact_name: Optional[str] = None
-    emergency_contact_phone: Optional[str] = None
-    height_cm: Optional[float] = None
+    emergency_contact_name: Optional[str] = Field(None, max_length=120)
+    emergency_contact_phone: Optional[str] = Field(None, max_length=32)
+    height_cm: Optional[float] = Field(None, ge=30.0, le=272.0)
     diet_type: Optional[str] = None
     activity_level: Optional[str] = None
-    occupation: Optional[str] = None
+    occupation: Optional[str] = Field(None, max_length=120)
     memory_consent_granted: Optional[bool] = None
+
+    @field_validator("date_of_birth")
+    @classmethod
+    def validate_dob(cls, v: Optional[date]) -> Optional[date]:
+        if v is not None:
+            if v < date(1900, 1, 1) or v > date.today():
+                raise ValueError("date_of_birth must be between 1900-01-01 and today.")
+        return v
+
+    @field_validator("language_preference")
+    @classmethod
+    def validate_language(cls, v: Optional[str]) -> Optional[str]:
+        if v is not None:
+            from app.core.security import safe_language
+            return safe_language(v)
+        return v
 
     @field_validator(
         "full_name",
@@ -81,7 +97,7 @@ class MemoryConsentRequest(BaseModel):
 
 
 class RenameSessionRequest(BaseModel):
-    title: str = Field(..., min_length=1, max_length=255, description="New chat session title")
+    title: str = Field(..., min_length=1, max_length=60, description="New chat session title")
 
 
 class PasswordChange(BaseModel):
@@ -91,8 +107,8 @@ class PasswordChange(BaseModel):
 
 class PatientFactCreate(BaseModel):
     fact_type: str = Field(..., description="condition|medication|allergy|family_history|symptom|lifestyle|measurement|procedure|weight|sport_hobby")
-    fact_text: str
-    confidence: Optional[float] = 1.0
+    fact_text: str = Field(..., max_length=500)
+    confidence: Optional[float] = Field(1.0, ge=0.0, le=1.0)
     source_type: Optional[str] = "user_edit"
     source_excerpt: Optional[str] = None
     dependent_id: Optional[UUID] = None
@@ -107,8 +123,8 @@ class PatientFactCreate(BaseModel):
 
 class PatientFactUpdate(BaseModel):
     fact_type: Optional[str] = None
-    fact_text: Optional[str] = None
-    confidence: Optional[float] = None
+    fact_text: Optional[str] = Field(None, max_length=500)
+    confidence: Optional[float] = Field(None, ge=0.0, le=1.0)
     is_active: Optional[bool] = None
     is_user_verified: Optional[bool] = None
 

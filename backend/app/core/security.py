@@ -104,6 +104,18 @@ def clean_filename_to_title(filename: str) -> str:
     return title or "New Conversation"
 
 
+def safe_language(value: Optional[str], default: str = "English") -> str:
+    """Allow only alphabetic characters, spaces, hyphens, and parentheses up to 40 chars."""
+    if not value or not isinstance(value, str):
+        return default
+    cleaned = value.strip()
+    if not cleaned or len(cleaned) > 40:
+        return default
+    if not re.match(r"^[a-zA-Z\s\-()]+$", cleaned):
+        return default
+    return cleaned
+
+
 def generate_title_from_query(query: str, max_words: int = 5, max_len: int = 60) -> str:
     """Generate a clean chat title from the first N words of a user query."""
     if not query:

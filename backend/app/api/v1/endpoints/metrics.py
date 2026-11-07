@@ -159,29 +159,25 @@ Report text:
             ),
         )
         if not response or not response.text:
-            doc.cached_metrics = []
-            flag_modified(doc, "cached_metrics")
-            db.add(doc)
-            await db.commit()
-            return []
+            return None
 
         text = response.text.strip()
         if text.startswith("```json"):
             text = text[7:-3].strip()
         elif text.startswith("```"):
             text = text[3:-3].strip()
-        parsed = json.loads(text)
-        if not isinstance(parsed, list):
-            doc.cached_metrics = []
-            flag_modified(doc, "cached_metrics")
-            db.add(doc)
-            await db.commit()
-            return []
+        try:
+            parsed = json.loads(text)
+        except Exception:
+            return None
 
-        ignored_keywords = (
-            "iso 15189", "iso", "nabl", "cap", "certified", "central facility", "facility",
-            "hospital", "laboratory", "lab", "helpline", "boulevard", "street",
-            "report id", "accession", "sample", "patient name", "referred by", "page", "phone"
+        if not isinstance(parsed, list):
+            return None
+
+        _IGNORED_TEST_NAME = re.compile(
+            r"\b(iso\s*15189|nabl|certified|accreditation|central facility|hospital|laborator(?:y|ies)|helpline|"
+            r"boulevard|street|report id|accession|patient name|referred by|phone)\b",
+            re.I,
         )
 
         raw_metrics = []
@@ -192,16 +188,13 @@ Report text:
             val_str = str(item.get("value", "")).strip()
             unit_str = str(item.get("unit", "")).strip()
 
-            test_lower = test_name.lower()
-            val_lower = val_str.lower()
-
-            if any(kw in test_lower or kw in val_lower for kw in ignored_keywords):
+            if _IGNORED_TEST_NAME.search(test_name):
                 continue
 
-            if not test_name or not val_str or not unit_str:
+            if not test_name or not val_str:
                 continue
 
-            normalized_unit = normalize_clinical_unit(unit_str)
+            normalized_unit = normalize_clinical_unit(unit_str) if unit_str else ""
 
             metric_dict = {
                 "test": test_name,
@@ -497,6 +490,12 @@ class MetricTrendsResponse(BaseModel):
     series: List[MetricTrendSeries]
 
 
+def canonical_biomarker_key(name: str) -> str:
+    """Normalize biomarker name preserving distinct subtypes (e.g. Total vs Direct)."""
+    clean = re.sub(r'[^a-zA-Z0-9]+', '_', str(name or '').strip().lower()).strip('_')
+    return clean
+
+
 def normalize_biomarker_name(name: str) -> str:
     """Normalize biomarker name to match frontend normalizeName() in clinical.js."""
     n = re.sub(r'\(.*?\)', '', str(name or ''))
@@ -588,31 +587,33 @@ async def get_patient_metric_trends(
             if not isinstance(m, dict):
                 continue
             t_name = str(m.get("test") or m.get("name") or "").strip()
-            norm_key = normalize_biomarker_name(t_name)
-            if not norm_key:
+            base_key = canonical_biomarker_key(t_name)
+            if not base_key:
                 continue
-            if requested_keys and norm_key not in requested_keys:
+            norm_key = normalize_biomarker_name(t_name)
+            if requested_keys and base_key not in requested_keys and norm_key not in requested_keys:
                 continue
 
             val_float = _parse_first_float(m.get("value"))
             if val_float is None:
                 continue
 
-            unit = normalize_clinical_unit(str(m.get("unit") or "").strip())
+            unit = normalize_clinical_unit(str(m.get("unit") or "").strip()) if m.get("unit") else ""
             ref_range = str(m.get("range") or m.get("reference_range") or "").strip()
             status = str(m.get("status") or "Normal").strip()
             raw_val = str(m.get("value", "")).strip()
 
-            if norm_key not in series_map:
-                series_map[norm_key] = {
-                    "key": norm_key,
+            group_key = f"{base_key}:{unit}" if unit else base_key
+            if group_key not in series_map:
+                series_map[group_key] = {
+                    "key": base_key,
                     "name": t_name,
                     "unit": unit,
                     "reference_range": ref_range,
                     "points": [],
                 }
 
-            series_map[norm_key]["points"].append(
+            series_map[group_key]["points"].append(
                 MetricTrendPoint(
                     document_id=str(d.id),
                     collected_at=date_label,

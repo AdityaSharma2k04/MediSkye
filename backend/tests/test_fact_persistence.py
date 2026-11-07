@@ -25,7 +25,7 @@ async def test_save_facts_and_retraction_e2e():
             extraction_result={
                 "facts": [
                     {"type": "condition", "text": "Hypertension", "confidence": 1.0, "excerpt": "I have hypertension"},
-                    {"type": "medication", "text": "Lisinopril 10mg", "confidence": 0.9}
+                    {"type": "lifestyle", "text": "Drinks coffee daily", "confidence": 0.9}
                 ],
                 "retractions": [],
             },
@@ -43,14 +43,14 @@ async def test_save_facts_and_retraction_e2e():
         )
         facts = facts_res.scalars().all()
         assert len(facts) == 2
-        lisinopril_fact = next(f for f in facts if f.fact_text == "Lisinopril 10mg")
+        coffee_fact = next(f for f in facts if f.fact_text == "Drinks coffee daily")
 
         # 2. Duplicate fact should update last_seen_at without creating a new row
-        first_last_seen = lisinopril_fact.last_seen_at
+        first_last_seen = coffee_fact.last_seen_at
         res2 = await save_facts(
             extraction_result={
                 "facts": [
-                    {"type": "medication", "text": "Lisinopril 10mg", "confidence": 0.95}
+                    {"type": "lifestyle", "text": "Drinks coffee daily", "confidence": 0.95}
                 ],
                 "retractions": [],
             },
@@ -62,15 +62,15 @@ async def test_save_facts_and_retraction_e2e():
         assert res2["inserted"] == 0
         assert res2["updated"] == 1
 
-        await session.refresh(lisinopril_fact)
-        assert lisinopril_fact.confidence == 0.95
+        await session.refresh(coffee_fact)
+        assert coffee_fact.confidence == 0.95
 
-        # 3. Retract medication
+        # 3. Retract lifestyle fact
         res3 = await save_facts(
             extraction_result={
                 "facts": [],
                 "retractions": [
-                    {"existing_fact_id": str(lisinopril_fact.id), "reason": "Patient stopped lisinopril"}
+                    {"existing_fact_id": str(coffee_fact.id), "reason": "Patient quit coffee"}
                 ]
             },
             user_id=user.id,
@@ -81,8 +81,8 @@ async def test_save_facts_and_retraction_e2e():
         assert res3["retracted"] == 1
 
         # Verify row still exists in DB but is_active is False
-        await session.refresh(lisinopril_fact)
-        assert lisinopril_fact.is_active is False
+        await session.refresh(coffee_fact)
+        assert coffee_fact.is_active is False
 
 
 @pytest.mark.asyncio

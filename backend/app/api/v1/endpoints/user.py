@@ -242,7 +242,7 @@ async def get_general_chats(
             "message": c.message,
             "created_at": c.created_at.isoformat() if c.created_at else None,
             "timestamp": c.created_at.isoformat() if c.created_at else None,
-            "dependent_id": None,
+            "dependent_id": str(c.dependent_id) if c.dependent_id else None,
         }
         for c in chats
     ]
@@ -280,7 +280,7 @@ async def get_document_chats(
             "message": c.message,
             "created_at": c.created_at.isoformat() if c.created_at else None,
             "timestamp": c.created_at.isoformat() if c.created_at else None,
-            "dependent_id": None,
+            "dependent_id": str(c.dependent_id) if c.dependent_id else None,
         }
         for c in chats
     ]
@@ -507,8 +507,6 @@ async def export_my_data(
             "diet_type": d.diet_type,
             "activity_level": d.activity_level,
             "occupation": d.occupation,
-            "emergency_contact_name": d.emergency_contact_name,
-            "emergency_contact_phone": d.emergency_contact_phone,
             "created_at": d.created_at.isoformat() if d.created_at else None,
         }
         for d in dependents
@@ -525,7 +523,8 @@ async def export_my_data(
         {
             "id": str(f.id),
             "fact_text": f.fact_text,
-            "fact_category": f.fact_category,
+            "fact_type": f.fact_type,
+            "fact_category": f.fact_type,
             "source_report_id": f.source_id,
             "dependent_id": str(f.dependent_id) if f.dependent_id else None,
             "is_active": f.is_active,
@@ -535,32 +534,37 @@ async def export_my_data(
         for f in facts
     ]
 
-    # Documents with lab_metrics and chat history
+    # Documents with lab_metrics and chat history (batched chat query)
     docs_res = await db.execute(
         select(Document)
         .filter(Document.user_id == current_user.id)
         .order_by(Document.created_at.desc())
     )
     docs = docs_res.scalars().all()
-    documents_data = []
-    for doc in docs:
-        chats_res = await db.execute(
-            select(Chat)
-            .filter(Chat.user_id == current_user.id, Chat.document_id == doc.id)
-            .order_by(Chat.created_at.asc())
-        )
-        chats = chats_res.scalars().all()
-        chat_history = [
-            {
-                "id": str(c.id),
-                "role": c.role,
-                "message": c.message,
-                "session_id": c.session_id,
-                "created_at": c.created_at.isoformat() if c.created_at else None,
-            }
-            for c in chats
-        ]
-        documents_data.append({
+
+    chats_res = await db.execute(
+        select(Chat)
+        .filter(Chat.user_id == current_user.id)
+        .order_by(Chat.created_at.asc())
+    )
+    all_chats = chats_res.scalars().all()
+    chats_by_doc = {}
+    standalone_chats_data = []
+    for c in all_chats:
+        chat_item = {
+            "id": str(c.id),
+            "role": c.role,
+            "message": c.message,
+            "session_id": c.session_id,
+            "created_at": c.created_at.isoformat() if c.created_at else None,
+        }
+        if c.document_id:
+            chats_by_doc.setdefault(c.document_id, []).append(chat_item)
+        else:
+            standalone_chats_data.append(chat_item)
+
+    documents_data = [
+        {
             "id": str(doc.id),
             "filename": doc.filename,
             "title": doc.title or doc.filename,
@@ -570,25 +574,9 @@ async def export_my_data(
             "dependent_id": str(doc.dependent_id) if doc.dependent_id else None,
             "cached_summary": doc.cached_summary,
             "lab_metrics": _normalize_cached_metrics(doc.cached_metrics),
-            "chat_history": chat_history,
-        })
-
-    # Standalone chats
-    standalone_chats_res = await db.execute(
-        select(Chat)
-        .filter(Chat.user_id == current_user.id, Chat.document_id.is_(None))
-        .order_by(Chat.created_at.asc())
-    )
-    standalone_chats_data = [
-        {
-            "id": str(c.id),
-            "role": c.role,
-            "message": c.message,
-            "session_id": c.session_id,
-            "session_title": c.session_title,
-            "created_at": c.created_at.isoformat() if c.created_at else None,
+            "chat_history": chats_by_doc.get(doc.id, []),
         }
-        for c in standalone_chats_res.scalars().all()
+        for doc in docs
     ]
 
     await log_audit(db, "ACCOUNT_DATA_EXPORTED", current_user.id, "export_data", request.client.host if request.client else "unknown")
@@ -761,7 +749,6 @@ async def list_dependents(
         item.calculated_age = calculate_age(dep.date_of_birth)
         responses.append(item)
         
-    await log_audit(db, "DEPENDENTS_LIST_ACCESSED", current_user.id, "dependents", request.client.host if request.client else "unknown")
     return responses
 
 @router.post("/users/me/dependents", response_model=DependentResponse, status_code=status.HTTP_201_CREATED)
@@ -878,8 +865,17 @@ async def delete_dependent(
         except Exception:
             pass
 
-    # 3. Find and purge all chats associated with these documents
+    # 3. Find and purge all chats associated with these documents or directly with dependent
     chats_to_purge = set()
+    dep_chats_res = await db.execute(
+        select(Chat.id).filter(
+            Chat.user_id == current_user.id,
+            Chat.dependent_id == dependent_id
+        )
+    )
+    for cid in dep_chats_res.scalars().all():
+        chats_to_purge.add(cid)
+
     if dep_doc_ids:
         c_res = await db.execute(
             select(Chat.id).filter(
@@ -952,8 +948,10 @@ async def update_memory_consent(
 ):
     """Enable or disable long-term memory extraction and cross-session personalization."""
     current_user.memory_consent_granted = body.consent
-    if not body.consent and getattr(body, "clear_existing", False):
-        await db.execute(delete(PatientFact).where(PatientFact.user_id == current_user.id))
+    if not body.consent:
+        await db.execute(delete(ChatChunk).where(ChatChunk.user_id == current_user.id))
+        if getattr(body, "clear_existing", False):
+            await db.execute(delete(PatientFact).where(PatientFact.user_id == current_user.id))
     db.add(current_user)
     await db.commit()
     await db.refresh(current_user)
@@ -1007,12 +1005,12 @@ async def get_user_facts(
         PatientFact.user_id == current_user.id,
         PatientFact.is_active.is_(True),
     ]
-    if dependent_id:
+    if dependent_id and dependent_id.lower() != "self":
         try:
             dep_uuid = UUID(dependent_id)
             filters.append(PatientFact.dependent_id == dep_uuid)
         except ValueError:
-            logger.debug("Ignoring invalid dependent_id UUID: %s", dependent_id)
+            raise HTTPException(status_code=400, detail="Invalid dependent_id.")
     else:
         filters.append(PatientFact.dependent_id.is_(None))
 
@@ -1184,12 +1182,14 @@ async def clear_all_memory_facts(
 ):
     """Hard delete all remembered health facts for the user or dependent."""
     filters = [PatientFact.user_id == current_user.id]
-    if dependent_id:
+    if dependent_id and dependent_id.lower() != "self":
         try:
             dep_uuid = UUID(dependent_id)
             filters.append(PatientFact.dependent_id == dep_uuid)
         except ValueError:
-            logger.debug("Ignoring invalid dependent_id UUID: %s", dependent_id)
+            raise HTTPException(status_code=400, detail="Invalid dependent_id.")
+    else:
+        filters.append(PatientFact.dependent_id.is_(None))
 
     res = await db.execute(select(PatientFact).filter(*filters))
     facts = res.scalars().all()

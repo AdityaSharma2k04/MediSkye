@@ -3,6 +3,7 @@ import asyncio
 import logging
 from typing import List, Dict, Any, Optional
 import numpy as np
+from sqlalchemy import func
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 
@@ -36,13 +37,21 @@ async def get_active_facts(
     u_id = uuid.UUID(str(user_id)) if isinstance(user_id, str) else user_id
     d_id = uuid.UUID(str(dependent_id)) if (dependent_id and isinstance(dependent_id, str)) else dependent_id
 
-    query = (
+    critical_types = ("allergy", "medication", "condition")
+    dep_filter = PatientFact.dependent_id == d_id if d_id else PatientFact.dependent_id.is_(None)
+    base_filter = [
+        PatientFact.user_id == u_id,
+        dep_filter,
+        PatientFact.is_active.is_(True),
+        PatientFact.confidence >= settings.PATIENT_MEMORY_MIN_CONFIDENCE,
+    ]
+
+    # Safety-critical facts first (allergies, medications, conditions)
+    critical_query = (
         select(PatientFact)
         .filter(
-            PatientFact.user_id == u_id,
-            PatientFact.dependent_id == d_id if d_id else PatientFact.dependent_id.is_(None),
-            PatientFact.is_active.is_(True),
-            PatientFact.confidence >= settings.PATIENT_MEMORY_MIN_CONFIDENCE,
+            *base_filter,
+            func.lower(PatientFact.fact_type).in_(critical_types),
         )
         .order_by(
             PatientFact.is_user_verified.desc(),
@@ -51,9 +60,30 @@ async def get_active_facts(
         )
         .limit(limit)
     )
+    crit_res = await session.execute(critical_query)
+    critical_facts = list(crit_res.scalars().all())
 
-    result = await session.execute(query)
-    facts = result.scalars().all()
+    # Remaining limit for other categories
+    remaining_limit = max(0, limit - len(critical_facts))
+    other_facts = []
+    if remaining_limit > 0:
+        other_query = (
+            select(PatientFact)
+            .filter(
+                *base_filter,
+                func.lower(PatientFact.fact_type).notin_(critical_types),
+            )
+            .order_by(
+                PatientFact.is_user_verified.desc(),
+                PatientFact.confidence.desc(),
+                PatientFact.last_seen_at.desc(),
+            )
+            .limit(remaining_limit)
+        )
+        other_res = await session.execute(other_query)
+        other_facts = list(other_res.scalars().all())
+
+    facts = critical_facts + other_facts
 
     # Resolve source document names for facts if linked to a chat or document
     chat_uuids = []
@@ -163,19 +193,19 @@ async def get_relevant_past_chunks(
         else:
             try:
                 query_vec = await asyncio.to_thread(embedder.embed_query, query)
+                MIN_SIM = 0.50
                 scored = []
                 for chunk in chunks:
                     if chunk.embedding:
                         sim = _cosine_similarity(query_vec, chunk.embedding)
-                        scored.append((sim, chunk))
-                    else:
-                        scored.append((0.0, chunk))
+                        if sim >= MIN_SIM:
+                            scored.append((sim, chunk))
 
                 scored.sort(key=lambda x: x[0], reverse=True)
                 final_chunks = [chunk for _, chunk in scored[:k]]
             except Exception as e:
                 logger.error("Cosine similarity matching failed: %s", e)
-                final_chunks = list(chunks[:k])
+                final_chunks = []
 
     # Annotate chunks with associated document and session details
     if final_chunks:

@@ -30,7 +30,7 @@ async def test_batch_retraction_single_query():
         for i in range(5):
             fact = PatientFact(
                 user_id=user.id,
-                fact_type="medication",
+                fact_type="lifestyle",
                 fact_text=f"Medication {i} 10mg",
                 confidence=1.0,
                 is_active=True,

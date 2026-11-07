@@ -94,6 +94,16 @@ async def lifespan(app: FastAPI):
                     else:
                         sync_conn.execute(text("ALTER TABLE documents ADD COLUMN index_status VARCHAR(20) DEFAULT 'building' NOT NULL"))
 
+            if "chats" in inspector.get_table_names():
+                existing_chat_cols = {c["name"] for c in inspector.get_columns("chats")}
+                if "dependent_id" not in existing_chat_cols:
+                    if dialect == "postgresql":
+                        sync_conn.execute(text("ALTER TABLE chats ADD COLUMN IF NOT EXISTS dependent_id UUID REFERENCES dependent_profiles(id) ON DELETE CASCADE"))
+                        sync_conn.execute(text("CREATE INDEX IF NOT EXISTS ix_chats_dependent_id ON chats(dependent_id)"))
+                    else:
+                        sync_conn.execute(text("ALTER TABLE chats ADD COLUMN dependent_id CHAR(32)"))
+                        sync_conn.execute(text("CREATE INDEX IF NOT EXISTS ix_chats_dependent_id ON chats(dependent_id)"))
+
         await conn.run_sync(_ensure_document_cache_columns)
 
     yield

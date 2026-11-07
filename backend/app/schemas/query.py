@@ -4,9 +4,9 @@ from app.core.security import sanitize_text
 
 
 class QueryRequest(BaseModel):
-    session_id: Optional[str] = Field(None, description="UUID representation of user chat session")
+    session_id: Optional[str] = Field(None, max_length=64, description="UUID representation of user chat session")
     document_id: Optional[str] = Field(None, description="Optional document ID if querying a specific document")
-    document_ids: Optional[List[str]] = Field(None, description="Optional list of document IDs for multi-doc queries")
+    document_ids: Optional[List[str]] = Field(None, max_length=10, description="Optional list of document IDs for multi-doc queries")
     query: str = Field(..., min_length=1, max_length=2000, description="Medical query string")
     language: Optional[str] = Field("English", description="Target response language")
     patient_id: Optional[str] = Field(None, description="Optional patient/dependent ID")
