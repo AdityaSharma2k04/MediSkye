@@ -89,4 +89,23 @@ describe('useFocusTrap', () => {
     await user.keyboard('{Escape}');
     expect(openBtn).toHaveFocus();
   });
+
+  it('does not steal focus when onClose identity changes between renders', () => {
+    function Host({ onClose }) {
+      const ref = useRef(null);
+      useFocusTrap(ref, true, onClose);
+      return (
+        <div ref={ref} role="dialog">
+          <button>First</button>
+          <input aria-label="field" />
+        </div>
+      );
+    }
+    const { rerender } = render(<Host onClose={() => {}} />);
+    const input = screen.getByLabelText('field');
+    input.focus();
+    expect(input).toHaveFocus();
+    rerender(<Host onClose={() => {}} />);
+    expect(input).toHaveFocus();
+  });
 });

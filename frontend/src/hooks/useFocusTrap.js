@@ -6,6 +6,8 @@ import { useEffect, useRef } from 'react';
  */
 export function useFocusTrap(ref, isOpen, onClose) {
   const triggerRef = useRef(null);
+  const onCloseRef = useRef(onClose);
+  onCloseRef.current = onClose;
 
   useEffect(() => {
     if (!isOpen) return;
@@ -30,9 +32,9 @@ export function useFocusTrap(ref, isOpen, onClose) {
     }
 
     const handleKeyDown = (e) => {
-      if (e.key === 'Escape' && onClose) {
+      if (e.key === 'Escape' && onCloseRef.current) {
         e.preventDefault();
-        onClose();
+        onCloseRef.current();
         return;
       }
 
@@ -66,7 +68,7 @@ export function useFocusTrap(ref, isOpen, onClose) {
         triggerRef.current.focus();
       }
     };
-  }, [isOpen, ref, onClose]);
+  }, [isOpen, ref]);
 }
 
 export default useFocusTrap;
