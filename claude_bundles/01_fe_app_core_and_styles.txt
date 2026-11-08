@@ -1,0 +1,2314 @@
+===== BUNDLE: 01_fe_app_core_and_styles.txt (14 files) =====
+Included files:
+  - frontend/index.html
+  - frontend/package.json
+  - frontend/tailwind.config.js
+  - frontend/vite.config.js
+  - frontend/vitest.config.js
+  - frontend/src/App.jsx
+  - frontend/src/i18n.js
+  - frontend/src/index.css
+  - frontend/src/instrument.js
+  - frontend/src/main.jsx
+  - frontend/src/lib/clinical.js
+  - frontend/src/lib/cn.js
+  - frontend/src/lib/storageKeys.js
+  - frontend/src/styles/print.css
+
+======================================================================
+
+### FILE: frontend/index.html
+```html
+<!DOCTYPE html>
+<html lang="en" class="dark">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover, interactive-widget=resizes-content" />
+    <meta name="color-scheme" content="dark" />
+    <meta name="theme-color" content="#05070b" />
+    <meta name="description" content="MediSkye reads your lab reports, extracts every biomarker, tracks how values change between reports, and explains them in plain language." />
+    <script>document.documentElement.classList.add('dark');try{localStorage.setItem('mediskye_theme','dark');localStorage.setItem('theme','dark');}catch(e){}</script>
+    <title>MediSkye AI — Clinical Lab Intelligence</title>
+    <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%2306b6d4'/%3E%3Cpath d='M5 17h5l3-8 6 14 3-6h5' fill='none' stroke='%23031016' stroke-width='2.6' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E">
+  </head>
+  <body class="bg-obsidian text-ink font-sans antialiased" style="background-color:#05070b">
+    <div id="root"></div>
+    <script type="module" src="/src/main.jsx"></script>
+  </body>
+</html>
+
+```
+
+
+### FILE: frontend/package.json
+```json
+{
+  "name": "mediskye-frontend",
+  "private": true,
+  "version": "2.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite --port 3000 --host",
+    "build": "vite build",
+    "preview": "vite preview",
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "dependencies": {
+    "@fontsource-variable/fraunces": "^5.3.0",
+    "@fontsource-variable/inter": "^5.3.0",
+    "@fontsource-variable/jetbrains-mono": "^5.3.0",
+    "@radix-ui/react-dialog": "^1.3.1",
+    "@sentry/react": "^11.8.0",
+    "clsx": "^2.1.1",
+    "cmdk": "^1.1.1",
+    "firebase": "^11.4.0",
+    "framer-motion": "^11.18.2",
+    "i18next": "^26.5.3",
+    "i18next-browser-languagedetector": "^8.2.1",
+    "lucide-react": "^0.460.0",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "react-i18next": "^17.1.0",
+    "react-markdown": "^10.1.0",
+    "react-router-dom": "^7.18.4",
+    "remark-gfm": "^4.0.1",
+    "tailwind-merge": "^2.6.1",
+    "vaul": "^1.1.2"
+  },
+  "devDependencies": {
+    "@sentry/vite-plugin": "^11.8.0",
+    "@tailwindcss/typography": "^0.5.20",
+    "@testing-library/jest-dom": "^7.0.1",
+    "@testing-library/react": "^16.3.3",
+    "@testing-library/user-event": "^14.6.7",
+    "@types/react": "^18.3.12",
+    "@types/react-dom": "^18.3.1",
+    "@vitejs/plugin-react": "^4.3.3",
+    "autoprefixer": "^10.6.1",
+    "jsdom": "^30.1.1",
+    "postcss": "^8.4.47",
+    "tailwindcss": "^3.4.15",
+    "vite": "^5.4.10",
+    "vitest": "^2.1.8"
+  }
+}
+
+```
+
+
+### FILE: frontend/tailwind.config.js
+```js
+/** @type {import('tailwindcss').Config} */
+export default {
+  content: ['./index.html', './src/**/*.{js,ts,jsx,tsx}'],
+  darkMode: 'class',
+  theme: {
+    extend: {
+      colors: {
+        // ── Surface ladder (darkest → raised) ──
+        obsidian: '#05070b',
+        carbon: '#0a0e17',
+        graphite: '#0f1623',
+        slate2: '#151d2c',
+        ridge: '#1c2638',
+        // ── Text ──
+        ink: {
+          DEFAULT: '#e6edf5',
+          soft: '#c3cedb',
+          mute: '#8a97a8',
+          faint: '#7b8798',
+        },
+        // ── Semantic clinical accents ──
+        clinical: {
+          cyan: '#06b6d4',
+          cyanSoft: '#67e8f9',
+          emerald: '#10b981',
+          amber: '#f59e0b',
+          rose: '#f43f5e',
+        },
+        brand: {
+          50: '#f8fafc',
+          100: '#f1f5f9',
+          500: '#64748b',
+          600: '#475569',
+          700: '#334155',
+          800: '#1e293b',
+          900: '#0f172a',
+        },
+      },
+      fontFamily: {
+        sans: ['"Inter Variable"', 'Inter', '-apple-system', 'BlinkMacSystemFont', '"Segoe UI Variable Text"', '"Segoe UI"', 'sans-serif'],
+        display: ['"Fraunces Variable"', 'Fraunces', 'Georgia', 'serif'],
+        mono: ['"JetBrains Mono Variable"', '"JetBrains Mono"', 'ui-monospace', '"Cascadia Mono"', 'Consolas', 'monospace'],
+      },
+      fontSize: {
+        '2xs': ['0.6875rem', { lineHeight: '1rem' }],
+      },
+      borderRadius: {
+        xl: '12px',
+        '2xl': '16px',
+        '3xl': '24px',
+      },
+      boxShadow: {
+        specular: 'inset 0 1px 0 0 rgba(255,255,255,0.05)',
+        float: '0 24px 64px -16px rgba(0,0,0,0.7), 0 0 0 1px rgba(255,255,255,0.06)',
+        glow: '0 0 0 1px rgba(6,182,212,0.35), 0 8px 32px -8px rgba(6,182,212,0.35)',
+      },
+      transitionTimingFunction: {
+        out: 'cubic-bezier(0.22, 1, 0.36, 1)',
+      },
+      keyframes: {
+        'token-pulse': {
+          '0%, 100%': { opacity: '0.25' },
+          '50%': { opacity: '1' },
+        },
+        'stage-sweep': {
+          '0%': { transform: 'translateX(-100%)' },
+          '100%': { transform: 'translateX(100%)' },
+        },
+      },
+      animation: {
+        'token-pulse': 'token-pulse 1.1s ease-in-out infinite',
+        'stage-sweep': 'stage-sweep 1.6s cubic-bezier(0.4, 0, 0.2, 1) infinite',
+      },
+    },
+  },
+  plugins: [require('@tailwindcss/typography')],
+};
+
+```
+
+
+### FILE: frontend/vite.config.js
+```js
+import { defineConfig } from 'vite';
+import react from '@vitejs/plugin-react';
+import { sentryVitePlugin } from '@sentry/vite-plugin';
+
+export default defineConfig({
+  plugins: [
+    react(),
+    sentryVitePlugin({
+      org: process.env.SENTRY_ORG,
+      project: process.env.SENTRY_PROJECT,
+      authToken: process.env.SENTRY_AUTH_TOKEN,
+      sourcemaps: { filesToDeleteAfterUpload: ["./dist/**/*.map"] },
+    }),
+  ],
+  server: {
+    port: 3000,
+    proxy: {
+      '/api': {
+        target: 'http://127.0.0.1:8000',
+        changeOrigin: true,
+        rewrite: (path) => path.replace(/^\/api/, ''),
+      },
+    },
+  },
+  build: {
+    sourcemap: true,
+    rollupOptions: {
+      output: {
+        manualChunks(id) {
+          if (id.includes('node_modules/firebase')) {
+            return 'vendor-firebase';
+          }
+          if (id.includes('node_modules/react-markdown') || id.includes('node_modules/remark-gfm')) {
+            return 'vendor-markdown';
+          }
+          if (id.includes('node_modules/lucide-react')) {
+            return 'vendor-icons';
+          }
+          if (id.includes('node_modules/framer-motion') || id.includes('node_modules/motion-')) {
+            return 'vendor-motion';
+          }
+          if (
+            id.includes('node_modules/cmdk') ||
+            id.includes('node_modules/vaul') ||
+            id.includes('node_modules/@radix-ui')
+          ) {
+            return 'vendor-ui';
+          }
+          if (
+            id.includes('node_modules/react') ||
+            id.includes('node_modules/react-dom') ||
+            id.includes('node_modules/react-router-dom')
+          ) {
+            return 'vendor-react';
+          }
+        },
+      },
+    },
+    chunkSizeWarningLimit: 600,
+  },
+});
+
+```
+
+
+### FILE: frontend/vitest.config.js
+```js
+import { defineConfig } from 'vitest/config'
+import react from '@vitejs/plugin-react'
+import path from 'path'
+
+export default defineConfig({
+  plugins: [react()],
+  test: {
+    environment: 'jsdom',
+    globals: true,
+    setupFiles: ['./src/test/setup.js'],
+  },
+  resolve: {
+    alias: {
+      '@': path.resolve(__dirname, './src'),
+    },
+  },
+})
+
+```
+
+
+### FILE: frontend/src/App.jsx
+```jsx
+import React, { useEffect, lazy, Suspense } from 'react';
+import { BrowserRouter, Routes, Route, Navigate, useNavigate } from 'react-router-dom';
+
+const Login = lazy(() => import('./components/Login'));
+const Register = lazy(() => import('./components/Register'));
+const AuthAction = lazy(() => import('./components/AuthAction'));
+const ChatApp = lazy(() => import('./components/ChatApp'));
+const LandingPage = lazy(() => import('./components/LandingPage'));
+const PrivacyPolicy = lazy(() => import('./components/PrivacyPolicy'));
+
+const LandingSkeleton = () => (
+  <div className="min-h-screen bg-obsidian text-ink font-sans flex flex-col justify-between overflow-hidden animate-pulse" aria-label="Loading MediSkye">
+    {/* Navbar Skeleton */}
+    <nav className="sticky top-0 z-50 bg-obsidian/90 backdrop-blur-md border-b border-white/[0.07] px-6 py-3.5 flex items-center justify-between">
+      <div className="flex items-center gap-2.5">
+        <div className="w-8 h-8 rounded-lg bg-clinical-cyan flex items-center justify-center shadow-lg shadow-cyan-500/10">
+          <svg
+            className="w-4 h-4 text-zinc-900 animate-pulse"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2.5"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          >
+            <path d="M22 12h-4l-3 9L9 3l-3 9H2" />
+          </svg>
+        </div>
+        <span className="font-semibold text-base tracking-tight text-ink">MediSkye</span>
+      </div>
+      <div className="hidden sm:flex items-center gap-6">
+        <div className="h-4 w-16 bg-slate2/60 rounded" />
+        <div className="h-4 w-24 bg-slate2/60 rounded" />
+        <div className="h-4 w-16 bg-slate2/60 rounded" />
+      </div>
+      <div className="flex items-center gap-3">
+        <div className="h-9 w-20 bg-slate2/60 rounded-xl" />
+        <div className="h-9 w-28 bg-cyan-500/20 rounded-xl border border-cyan-500/30" />
+      </div>
+    </nav>
+
+    {/* Hero Section Skeleton */}
+    <div className="flex-1 max-w-6xl w-full mx-auto px-6 py-16 grid grid-cols-1 lg:grid-cols-2 gap-12 items-center">
+      <div className="space-y-6">
+        {/* Pulsing MediSkye Badge */}
+        <div className="inline-flex items-center gap-2.5 px-3.5 py-1.5 rounded-full border border-cyan-500/30 bg-cyan-950/30 shadow-sm">
+          <div className="w-5 h-5 rounded-md bg-cyan-400/20 flex items-center justify-center">
+            <svg
+              className="w-3.5 h-3.5 text-cyan-400 animate-bounce"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2.5"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            >
+              <path d="M22 12h-4l-3 9L9 3l-3 9H2" />
+            </svg>
+          </div>
+          <span className="text-xs font-semibold text-cyan-300 tracking-wide uppercase">MediSkye AI</span>
+        </div>
+
+        {/* Hero Title */}
+        <div className="space-y-3">
+          <div className="h-10 sm:h-12 w-11/12 bg-slate2/90 rounded-xl" />
+          <div className="h-10 sm:h-12 w-4/5 bg-slate2/70 rounded-xl" />
+        </div>
+
+        {/* Subtitle */}
+        <div className="space-y-2 pt-2 max-w-lg">
+          <div className="h-4 w-full bg-slate2/50 rounded" />
+          <div className="h-4 w-5/6 bg-slate2/50 rounded" />
+          <div className="h-4 w-2/3 bg-slate2/40 rounded" />
+        </div>
+
+        {/* Action Buttons */}
+        <div className="flex flex-wrap gap-3 pt-4">
+          <div className="h-12 w-36 bg-cyan-500/30 rounded-xl border border-cyan-400/30" />
+          <div className="h-12 w-36 bg-slate2/60 rounded-xl border border-white/[0.12]" />
+        </div>
+      </div>
+
+      {/* Mockup Card Skeleton with Pulsing Glow */}
+      <div className="rounded-2xl border border-white/[0.07] bg-graphite/40 p-6 space-y-4 shadow-2xl backdrop-blur-sm">
+        <div className="flex items-center justify-between pb-3 border-b border-white/[0.07]">
+          <div className="flex gap-2">
+            <div className="w-2.5 h-2.5 rounded-full bg-red-500/40" />
+            <div className="w-2.5 h-2.5 rounded-full bg-amber-500/40" />
+            <div className="w-2.5 h-2.5 rounded-full bg-green-500/40" />
+          </div>
+          <div className="h-3 w-28 bg-slate2/50 rounded" />
+          <div className="w-4" />
+        </div>
+        <div className="space-y-3 pt-2">
+          <div className="flex justify-end">
+            <div className="h-10 w-2/3 bg-cyan-950/40 border border-cyan-800/30 rounded-2xl rounded-br-sm" />
+          </div>
+          <div className="flex items-start gap-3">
+            <div className="w-7 h-7 rounded-lg bg-slate2/80 shrink-0 flex items-center justify-center text-cyan-400">
+              <svg className="w-3.5 h-3.5 animate-pulse" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <path d="M22 12h-4l-3 9L9 3l-3 9H2" />
+              </svg>
+            </div>
+            <div className="flex-1 space-y-2">
+              <div className="h-4 w-1/4 bg-slate2/70 rounded" />
+              <div className="h-14 w-full bg-slate2/40 rounded-xl" />
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    {/* Footer Skeleton */}
+    <div className="border-t border-white/[0.07] px-6 py-4 flex items-center justify-between">
+      <div className="h-3 w-32 bg-slate2/40 rounded" />
+      <div className="h-3 w-40 bg-slate2/40 rounded" />
+    </div>
+  </div>
+);
+
+const ProtectedRoute = ({ children }) => {
+  const token = localStorage.getItem('token');
+  if (!token) {
+    return <Navigate to="/login" replace />;
+  }
+
+  try {
+    const parts = token.split('.');
+    if (parts.length < 2) {
+      localStorage.removeItem('token');
+      return <Navigate to="/login" replace />;
+    }
+    const base64Url = parts[1];
+    const base64 = base64Url.replace(/-/g, '+').replace(/_/g, '/');
+    const payload = JSON.parse(atob(base64));
+    if (payload.exp && payload.exp * 1000 < Date.now()) {
+      localStorage.removeItem('token');
+      return <Navigate to="/login" replace />;
+    }
+  } catch (e) {
+    localStorage.removeItem('token');
+    return <Navigate to="/login" replace />;
+  }
+
+  return children;
+};
+
+const GlobalAuthListener = () => {
+  const navigate = useNavigate();
+  useEffect(() => {
+    const handleAuthExpired = () => {
+      navigate('/login', { replace: true });
+    };
+    window.addEventListener('auth:expired', handleAuthExpired);
+    return () => window.removeEventListener('auth:expired', handleAuthExpired);
+  }, [navigate]);
+  return null;
+};
+
+export default function App() {
+  return (
+    <BrowserRouter>
+      <GlobalAuthListener />
+      <Suspense fallback={<LandingSkeleton />}>
+        <Routes>
+          <Route path="/" element={<LandingPage />} />
+          <Route path="/login" element={<Login />} />
+          <Route path="/register" element={<Register />} />
+          <Route path="/privacy" element={<PrivacyPolicy />} />
+          <Route path="/auth/action" element={<AuthAction />} />
+          <Route
+            path="/chat/*"
+            element={
+              <ProtectedRoute>
+                <ChatApp />
+              </ProtectedRoute>
+            }
+          />
+          {/* Catch-all: redirect unknown paths to landing */}
+          <Route path="*" element={<Navigate to="/" replace />} />
+        </Routes>
+      </Suspense>
+    </BrowserRouter>
+  );
+}
+
+```
+
+
+### FILE: frontend/src/i18n.js
+```js
+import i18n from 'i18next';
+import { initReactI18next } from 'react-i18next';
+import LanguageDetector from 'i18next-browser-languagedetector';
+import enTranslation from './locales/en/translation.json';
+import hiTranslation from './locales/hi/translation.json';
+
+const resources = {
+  en: {
+    translation: enTranslation,
+  },
+  hi: {
+    translation: hiTranslation,
+  },
+};
+
+i18n
+  .use(LanguageDetector)
+  .use(initReactI18next)
+  .init({
+    resources,
+    fallbackLng: 'en',
+    supportedLngs: ['en', 'hi'],
+    detection: {
+      order: ['localStorage', 'navigator'],
+      lookupLocalStorage: 'mediskye_ui_lang',
+      caches: ['localStorage'],
+    },
+    interpolation: {
+      escapeValue: false, // React already escapes values
+    },
+  });
+
+export default i18n;
+
+```
+
+
+### FILE: frontend/src/index.css
+```css
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   MediSkye Design System — "Clinical Obsidian"
+   Surface ladder · specular hairlines · semantic clinical accents
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+:root {
+  /* Surfaces */
+  --ms-obsidian: #05070b;
+  --ms-carbon: #0a0e17;
+  --ms-graphite: #0f1623;
+  --ms-slate: #151d2c;
+  --ms-ridge: #1c2638;
+  /* Lines */
+  --ms-hairline: rgba(255, 255, 255, 0.07);
+  --ms-hairline-strong: rgba(255, 255, 255, 0.12);
+  /* Text */
+  --ms-ink: #e6edf5;
+  --ms-ink-soft: #c3cedb;
+  --ms-ink-mute: #8a97a8;
+  --ms-ink-faint: #7b8798;
+  /* Clinical semantics */
+  --ms-cyan: #06b6d4;
+  --ms-emerald: #10b981;
+  --ms-amber: #f59e0b;
+  --ms-rose: #f43f5e;
+  /* Layout */
+  --ms-header-h: 56px;
+  --ms-safe-bottom: env(safe-area-inset-bottom, 0px);
+  --ms-safe-top: env(safe-area-inset-top, 0px);
+
+  /* Legacy aliases kept for components that still read them */
+  --bg-app: var(--ms-obsidian);
+  --bg-surface: var(--ms-carbon);
+  --text-app: var(--ms-ink);
+  color-scheme: dark;
+}
+
+@layer base {
+  html,
+  body,
+  #root {
+    background-color: var(--ms-obsidian);
+    color: var(--ms-ink);
+    color-scheme: dark;
+  }
+
+  html {
+    /* Razor-sharp text on Windows ClearType + macOS */
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    text-rendering: optimizeLegibility;
+    font-feature-settings: 'cv11', 'ss01', 'ss03';
+    -webkit-tap-highlight-color: transparent;
+    /* Firefox thin scrollbars */
+    scrollbar-width: thin;
+    scrollbar-color: rgba(148, 163, 184, 0.22) transparent;
+  }
+
+  body {
+    @apply font-sans;
+    overscroll-behavior-y: none;
+  }
+
+  /* Firefox: every scroll container gets a thin dark track */
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: rgba(148, 163, 184, 0.22) transparent;
+  }
+
+  ::selection {
+    background: rgba(6, 182, 212, 0.3);
+    color: #fff;
+  }
+
+  :focus-visible {
+    outline: 2px solid rgba(34, 211, 238, 0.85);
+    outline-offset: 2px;
+    border-radius: 6px;
+  }
+
+  /* Prevent Android Chrome / iOS from zooming into inputs under 16px */
+  @media (max-width: 767px) {
+    input,
+    textarea,
+    select {
+      font-size: 16px !important;
+    }
+  }
+}
+
+/* ── Ultra-thin dark scrollbars (Chromium / Edge on Windows) ── */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background-color: rgba(148, 163, 184, 0.18);
+  border-radius: 9999px;
+  border: 2px solid transparent;
+  background-clip: content-box;
+}
+::-webkit-scrollbar-thumb:hover {
+  background-color: rgba(148, 163, 184, 0.36);
+}
+::-webkit-scrollbar-corner {
+  background: transparent;
+}
+
+@layer components {
+  /* Glass panel: used for floating menus, palettes, sheets */
+  .ms-glass {
+    background: rgba(13, 19, 30, 0.78);
+    -webkit-backdrop-filter: blur(24px) saturate(140%);
+    backdrop-filter: blur(24px) saturate(140%);
+    border: 1px solid var(--ms-hairline-strong);
+    box-shadow: 0 24px 64px -16px rgba(0, 0, 0, 0.75), inset 0 1px 0 rgba(255, 255, 255, 0.05);
+  }
+
+  /* Specular surface: 1px top highlight that makes panels feel lit */
+  .ms-surface {
+    background: var(--ms-carbon);
+    border: 1px solid var(--ms-hairline);
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04);
+  }
+
+  .ms-raised {
+    background: var(--ms-graphite);
+    border: 1px solid var(--ms-hairline);
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.05);
+  }
+
+  /* Numeric data: tabular figures everywhere a value is printed */
+  .ms-num {
+    font-family: 'JetBrains Mono Variable', 'JetBrains Mono', ui-monospace, 'Cascadia Mono', Consolas, monospace;
+    font-variant-numeric: tabular-nums slashed-zero;
+    font-feature-settings: 'zero', 'tnum';
+    letter-spacing: -0.01em;
+  }
+
+  .ms-display {
+    font-family: 'Fraunces Variable', Fraunces, Georgia, serif;
+    font-optical-sizing: auto;
+    font-variation-settings: 'SOFT' 50, 'WONK' 0;
+    letter-spacing: -0.02em;
+  }
+
+  /* Touch target floor (44×44) on coarse pointers */
+  .ms-tap {
+    min-width: 36px;
+    min-height: 36px;
+  }
+  @media (pointer: coarse) {
+    .ms-tap {
+      min-width: 44px;
+      min-height: 44px;
+    }
+  }
+
+  /* Self-contained horizontal scroll card for chat tables */
+  .ms-table-card {
+    position: relative;
+    overflow-x: auto;
+    overscroll-behavior-x: contain;
+    -webkit-overflow-scrolling: touch;
+    border-radius: 14px;
+    border: 1px solid var(--ms-hairline);
+    background: var(--ms-carbon);
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04);
+  }
+  .ms-table-card table {
+    width: 100%;
+    margin: 0 !important;
+    border-collapse: separate;
+    border-spacing: 0;
+    font-size: 13px;
+  }
+  .ms-table-card thead th {
+    background: var(--ms-graphite);
+    color: var(--ms-ink-mute);
+    font-weight: 600;
+    font-size: 12px;
+    text-align: left;
+    white-space: nowrap;
+    padding: 10px 14px;
+    border-bottom: 1px solid var(--ms-hairline);
+  }
+  .ms-table-card tbody td {
+    padding: 10px 14px;
+    white-space: nowrap;
+    color: var(--ms-ink-soft);
+    border-bottom: 1px solid rgba(255, 255, 255, 0.045);
+    font-variant-numeric: tabular-nums;
+  }
+  .ms-table-card tbody tr:last-child td {
+    border-bottom: 0;
+  }
+  .ms-table-card tbody tr:hover td {
+    background: rgba(255, 255, 255, 0.018);
+  }
+  /* Sticky first column: biomarker names never scroll out of view */
+  .ms-table-card th:first-child,
+  .ms-table-card td:first-child {
+    position: sticky;
+    left: 0;
+    z-index: 1;
+    background: var(--ms-carbon);
+    color: var(--ms-ink);
+    font-weight: 600;
+    box-shadow: 1px 0 0 var(--ms-hairline);
+  }
+  .ms-table-card thead th:first-child {
+    background: var(--ms-graphite);
+    z-index: 2;
+  }
+}
+
+@layer utilities {
+  .h-app {
+    height: 100vh;
+    height: 100dvh;
+  }
+  .min-h-app {
+    min-height: 100vh;
+    min-height: 100dvh;
+  }
+  .pb-safe-composer {
+    padding-bottom: max(0.5rem, env(safe-area-inset-bottom));
+  }
+  .pt-safe {
+    padding-top: env(safe-area-inset-top, 0px);
+  }
+  .no-scrollbar {
+    scrollbar-width: none;
+  }
+  .no-scrollbar::-webkit-scrollbar {
+    display: none;
+  }
+  .mask-fade-x {
+    -webkit-mask-image: linear-gradient(to right, transparent, #000 16px, #000 calc(100% - 16px), transparent);
+    mask-image: linear-gradient(to right, transparent, #000 16px, #000 calc(100% - 16px), transparent);
+  }
+  .bg-ambient {
+    background:
+      radial-gradient(900px 480px at 85% -10%, rgba(6, 182, 212, 0.07), transparent 60%),
+      radial-gradient(700px 420px at -10% 110%, rgba(16, 185, 129, 0.045), transparent 60%),
+      var(--ms-obsidian);
+  }
+}
+
+/* ── Keyframe Animations ── */
+@keyframes shimmer {
+  0% { opacity: 0.3; }
+  50% { opacity: 0.7; }
+  100% { opacity: 0.3; }
+}
+.animate-shimmer {
+  animation: shimmer 1.5s infinite ease-in-out;
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(6px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+.animate-fade-in {
+  animation: fadeIn 0.25s ease-out;
+}
+
+@keyframes slideIn {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+.animate-slide-in {
+  animation: slideIn 0.2s ease-out;
+}
+
+@keyframes bubbleIn {
+  0% { opacity: 0; transform: translateY(10px); }
+  100% { opacity: 1; transform: translateY(0); }
+}
+.animate-bubble-in {
+  animation: bubbleIn 0.32s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+@keyframes modalIn {
+  from { opacity: 0; transform: translateY(10px) scale(0.97); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+.animate-modal-in {
+  animation: modalIn 0.22s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+@keyframes sheetUp {
+  from { transform: translateY(100%); }
+  to { transform: translateY(0); }
+}
+@media (max-width: 639px) {
+  .ms-sheet-mobile {
+    animation: sheetUp 0.32s cubic-bezier(0.22, 1, 0.36, 1) both;
+  }
+}
+
+@keyframes backdropIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+.animate-backdrop-in {
+  animation: backdropIn 0.18s ease-out both;
+}
+
+@keyframes skeletonSweep {
+  0% { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
+}
+.skeleton-shimmer {
+  background: linear-gradient(
+    90deg,
+    rgba(28, 38, 56, 0.55) 25%,
+    rgba(45, 58, 80, 0.75) 50%,
+    rgba(28, 38, 56, 0.55) 75%
+  );
+  background-size: 200% 100%;
+  animation: skeletonSweep 1.6s linear infinite;
+}
+
+/* Range-bar marker: settles into position once on mount */
+@keyframes markerIn {
+  from { opacity: 0; transform: translate(-50%, -50%) scale(0.4); }
+  to { opacity: 1; transform: translate(-50%, -50%) scale(1); }
+}
+.ms-marker-in {
+  animation: markerIn 0.45s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+/* Legacy safe-area helper */
+.pb-safe {
+  padding-bottom: max(1rem, env(safe-area-inset-bottom));
+}
+@media (min-width: 640px) {
+  .pb-safe {
+    padding-bottom: max(1.5rem, env(safe-area-inset-bottom));
+  }
+}
+
+/* Accessibility: honor reduced-motion preferences */
+@media (prefers-reduced-motion: reduce) {
+  .animate-shimmer,
+  .animate-fade-in,
+  .animate-slide-in,
+  .animate-bubble-in,
+  .animate-modal-in,
+  .animate-backdrop-in,
+  .animate-toast-in,
+  .ms-sheet-mobile,
+  .ms-marker-in,
+  .skeleton-shimmer,
+  .animate-token-pulse,
+  .animate-stage-sweep {
+    animation: none !important;
+  }
+  * {
+    scroll-behavior: auto !important;
+  }
+}
+
+/* ── cmdk command palette ── */
+[cmdk-group-heading] {
+  padding: 10px 12px 6px;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--ms-ink-faint);
+}
+[cmdk-item] {
+  cursor: pointer;
+}
+[cmdk-item][data-selected='true'] {
+  background: rgba(255, 255, 255, 0.06);
+  color: #fff;
+}
+[cmdk-item][data-disabled='true'] {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+/* ── vaul drawer ── */
+[data-vaul-drawer] {
+  touch-action: none;
+}
+[data-vaul-drawer-direction='bottom'] {
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+}
+
+/* Hide the print summary on screen — it appears only during window.print() */
+@media screen {
+  #print-summary,
+  #print-transcript {
+    display: none;
+  }
+}
+
+/* Print Styles for 1-Click Doctor Consultation Summary Export */
+@media print {
+  html, body, #root, .h-app, .min-h-app, main, [data-testid="conversation-pane"] {
+    height: auto !important;
+    min-height: 0 !important;
+    max-height: none !important;
+    overflow: visible !important;
+    position: static !important;
+  }
+
+  body * {
+    visibility: hidden;
+  }
+  #print-summary,
+  #print-summary *,
+  #print-transcript,
+  #print-transcript * {
+    visibility: visible;
+  }
+  #print-summary,
+  #print-transcript {
+    position: static !important;
+    left: auto;
+    top: auto;
+    width: 100%;
+    background: white !important;
+    color: black !important;
+    padding: 0;
+  }
+
+  body {
+    counter-reset: none;
+  }
+
+  .print-footer {
+    margin-top: 24pt;
+    padding-top: 12pt;
+    border-top: 1px solid #666;
+    font-size: 9pt;
+    color: #333;
+  }
+
+  #print-summary table,
+  #print-transcript table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 9pt;
+    margin-bottom: 8pt;
+  }
+  #print-summary th,
+  #print-summary td,
+  #print-transcript th,
+  #print-transcript td {
+    border: 1px solid #ccc;
+    padding: 4pt 6pt;
+    text-align: left;
+  }
+  #print-summary thead tr,
+  #print-transcript thead tr {
+    background: #f0f0f0 !important;
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+
+  /* ── Full transcript export layout ── */
+  #print-transcript {
+    font-family: 'Inter Variable', Inter, -apple-system, 'Segoe UI', sans-serif;
+  }
+  #print-transcript .ts-header {
+    border-bottom: 2px solid #000;
+    padding-bottom: 10pt;
+    margin-bottom: 12pt;
+  }
+  #print-transcript .ts-logo {
+    font-size: 18pt;
+    font-weight: 700;
+    letter-spacing: -0.01em;
+  }
+  #print-transcript .ts-subtitle {
+    font-size: 10pt;
+    color: #444;
+    margin-top: 2pt;
+  }
+  #print-transcript .ts-meta {
+    display: flex;
+    gap: 18pt;
+    flex-wrap: wrap;
+    font-size: 9pt;
+    color: #222;
+    margin-bottom: 14pt;
+  }
+  #print-transcript .ts-section-title {
+    font-size: 11pt;
+    font-weight: 700;
+    margin: 14pt 0 6pt;
+    border-bottom: 1px solid #999;
+    padding-bottom: 3pt;
+  }
+  #print-transcript .ts-msg {
+    margin-bottom: 8pt;
+    padding: 6pt 9pt;
+    border-radius: 6pt;
+    page-break-inside: avoid;
+  }
+  #print-transcript .ts-msg-ai {
+    background: #f7f7f7;
+    border-left: 3pt solid #111;
+  }
+  #print-transcript .ts-msg-user {
+    background: #efefef;
+    border-left: 3pt solid #888;
+  }
+  #print-transcript .ts-msg-meta {
+    font-size: 8pt;
+    font-weight: 700;
+    color: #555;
+    margin-bottom: 2pt;
+  }
+  #print-transcript .ts-msg-body {
+    font-size: 9.5pt;
+    line-height: 1.45;
+    white-space: pre-wrap;
+    color: #111;
+  }
+  #print-transcript .ts-empty {
+    font-size: 9pt;
+    color: #555;
+    font-style: italic;
+  }
+  #print-transcript .ts-generated {
+    font-size: 8pt;
+    color: #666;
+    margin-top: 4pt;
+  }
+}
+
+/* ══════════════════════════════════════════════════════════════
+   Auth — AuthShell split layout + legacy .login-* primitives
+   ══════════════════════════════════════════════════════════════ */
+
+.login-page {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 100vh;
+  min-height: 100dvh;
+  width: 100%;
+  position: relative;
+  overflow: hidden;
+  font-family: 'Inter Variable', Inter, -apple-system, 'Segoe UI', sans-serif;
+  background: var(--ms-obsidian);
+}
+
+.login-bg-glow {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  width: 640px;
+  height: 640px;
+  pointer-events: none;
+  z-index: 0;
+  background: radial-gradient(circle, rgba(6, 182, 212, 0.07) 0%, rgba(6, 182, 212, 0.02) 40%, transparent 70%);
+}
+
+.login-card {
+  position: relative;
+  z-index: 1;
+  width: 100%;
+  max-width: 400px;
+  padding: 36px 32px 28px;
+  border-radius: 20px;
+  background: var(--ms-carbon);
+  border: 1px solid var(--ms-hairline);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.05), 0 32px 64px -24px rgba(0, 0, 0, 0.8);
+  animation: cardFadeIn 0.4s ease-out;
+}
+
+@keyframes cardFadeIn {
+  from { opacity: 0; transform: translateY(12px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.login-logo {
+  display: flex;
+  justify-content: flex-start;
+  margin-bottom: 22px;
+}
+.login-logo-icon {
+  width: 40px;
+  height: 40px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 12px;
+  background: linear-gradient(145deg, #0e7490, #06b6d4);
+  color: #031016;
+  box-shadow: 0 0 0 1px rgba(103, 232, 249, 0.3), 0 8px 24px -8px rgba(6, 182, 212, 0.6);
+}
+
+.login-title {
+  font-family: 'Fraunces Variable', Fraunces, Georgia, serif;
+  font-optical-sizing: auto;
+  font-size: 28px;
+  font-weight: 500;
+  text-align: left;
+  margin: 0 0 8px;
+  letter-spacing: -0.02em;
+  color: #ffffff;
+}
+
+.login-subtitle {
+  font-size: 14px;
+  text-align: left;
+  margin: 0 0 26px;
+  line-height: 1.55;
+  color: var(--ms-ink-mute);
+}
+
+.login-form {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.login-field {
+  position: relative;
+}
+.login-field input {
+  width: 100%;
+  min-height: 48px;
+  padding: 12px 44px 12px 14px;
+  font-size: 15px;
+  font-family: inherit;
+  border-radius: 12px;
+  outline: none;
+  box-sizing: border-box;
+  color: #ffffff;
+  background: var(--ms-graphite);
+  border: 1px solid var(--ms-hairline-strong);
+  transition: border-color 0.18s ease, box-shadow 0.18s ease;
+}
+.login-field input::placeholder {
+  color: var(--ms-ink-faint);
+}
+.login-field input:focus {
+  border-color: rgba(6, 182, 212, 0.55);
+  box-shadow: 0 0 0 4px rgba(6, 182, 212, 0.12);
+}
+
+.login-field-toggle {
+  position: absolute;
+  right: 6px;
+  top: 50%;
+  transform: translateY(-50%);
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  width: 36px;
+  height: 36px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 8px;
+  color: var(--ms-ink-mute);
+  transition: color 0.15s ease, background 0.15s ease;
+}
+.login-field-toggle:hover {
+  color: #fff;
+  background: rgba(255, 255, 255, 0.05);
+}
+
+.login-email-display {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  min-height: 44px;
+  padding: 10px 14px;
+  border-radius: 12px;
+  font-size: 13px;
+  cursor: pointer;
+  background: rgba(6, 182, 212, 0.06);
+  border: 1px solid rgba(6, 182, 212, 0.2);
+  color: var(--ms-ink-soft);
+  transition: border-color 0.2s ease;
+}
+.login-email-display:hover {
+  border-color: rgba(6, 182, 212, 0.45);
+}
+.login-email-display svg {
+  color: var(--ms-ink-mute);
+}
+
+.login-password-hint {
+  font-size: 12px;
+  margin: -4px 0 0 2px;
+  color: var(--ms-ink-faint);
+}
+
+.login-btn-primary {
+  width: 100%;
+  min-height: 48px;
+  padding: 12px;
+  font-size: 15px;
+  font-family: inherit;
+  border: none;
+  border-radius: 12px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  margin-top: 4px;
+  color: #031016;
+  background: #06b6d4;
+  font-weight: 600;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.25), 0 8px 24px -10px rgba(6, 182, 212, 0.7);
+  transition: background 0.15s ease, transform 0.1s ease;
+}
+.login-btn-primary:hover:not(:disabled) {
+  background: #22d3ee;
+}
+.login-btn-primary:active:not(:disabled) {
+  transform: scale(0.985);
+}
+.login-btn-primary:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.login-spinner {
+  display: inline-block;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  border: 2px solid rgba(0, 0, 0, 0.15);
+  border-top-color: #000000;
+  animation: spin 0.6s linear infinite;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+.login-divider {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin: 20px 0;
+}
+.login-divider::before,
+.login-divider::after {
+  content: '';
+  flex: 1;
+  height: 1px;
+  background: var(--ms-hairline);
+}
+.login-divider span {
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--ms-ink-faint);
+}
+.login-divider.login-divider-subtle {
+  margin: 18px 0;
+}
+
+.login-btn-google {
+  width: 100%;
+  min-height: 48px;
+  padding: 11px 16px;
+  font-size: 15px;
+  font-weight: 500;
+  font-family: inherit;
+  border-radius: 12px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  box-sizing: border-box;
+  color: var(--ms-ink);
+  background: var(--ms-graphite);
+  border: 1px solid var(--ms-hairline-strong);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04);
+  transition: background 0.15s ease, border-color 0.15s ease, transform 0.1s ease;
+}
+.login-btn-google:hover:not(:disabled) {
+  background: var(--ms-slate);
+  border-color: rgba(255, 255, 255, 0.2);
+}
+.login-btn-google:active:not(:disabled) {
+  transform: scale(0.985);
+}
+.login-btn-google:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.login-google-spinner {
+  display: inline-block;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  border: 2px solid rgba(66, 133, 244, 0.2);
+  border-top-color: #4285f4;
+  animation: spin 0.6s linear infinite;
+}
+
+.login-btn-secondary {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  min-height: 46px;
+  padding: 12px;
+  font-size: 14px;
+  font-weight: 500;
+  font-family: inherit;
+  background: transparent;
+  border-radius: 12px;
+  cursor: pointer;
+  text-align: center;
+  text-decoration: none;
+  box-sizing: border-box;
+  color: var(--ms-ink-soft);
+  border: 1px solid var(--ms-hairline-strong);
+  transition: background 0.2s ease, border-color 0.2s ease, color 0.2s ease;
+}
+.login-btn-secondary:hover {
+  background: rgba(255, 255, 255, 0.03);
+  border-color: rgba(255, 255, 255, 0.2);
+  color: #ffffff;
+}
+
+.login-error {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 14px;
+  font-size: 13px;
+  color: #fda4af;
+  background: rgba(244, 63, 94, 0.08);
+  border: 1px solid rgba(244, 63, 94, 0.22);
+  border-radius: 12px;
+  margin-bottom: 8px;
+}
+
+.login-success {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 14px;
+  font-size: 13px;
+  color: #6ee7b7;
+  background: rgba(16, 185, 129, 0.08);
+  border: 1px solid rgba(16, 185, 129, 0.2);
+  border-radius: 12px;
+  margin-bottom: 8px;
+  animation: cardFadeIn 0.3s ease-out;
+}
+
+.login-forgot-wrapper {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 2px;
+  margin-bottom: 8px;
+}
+.login-forgot-btn {
+  background: transparent;
+  border: none;
+  padding: 6px 2px;
+  font-size: 13px;
+  color: var(--ms-ink-mute);
+  cursor: pointer;
+  transition: color 0.15s ease;
+  text-decoration: none;
+}
+.login-forgot-btn:hover:not(:disabled) {
+  color: #ffffff;
+  text-decoration: underline;
+}
+.login-forgot-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.login-footer {
+  font-size: 12px;
+  text-align: left;
+  margin: 22px 0 0;
+  line-height: 1.5;
+  color: var(--ms-ink-faint);
+}
+
+@media (max-width: 480px) {
+  .login-card {
+    margin: 0;
+    padding: 28px 20px 24px;
+    border-radius: 0;
+    border-left: 0;
+    border-right: 0;
+    box-shadow: none;
+    background: transparent;
+    border: 0;
+  }
+}
+
+/* ── Scroll Animations (landing) ── */
+.fade-in-section,
+.fade-in-up {
+  opacity: 0;
+  transform: translateY(20px);
+  transition: opacity 0.6s cubic-bezier(0.16, 1, 0.3, 1), transform 0.6s cubic-bezier(0.16, 1, 0.3, 1);
+  will-change: opacity, transform;
+}
+.fade-in-section.is-visible,
+.fade-in-up.is-visible {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+@keyframes sheetSide {
+  from { transform: translateX(100%); opacity: 0.6; }
+  to { transform: translateX(0); opacity: 1; }
+}
+
+/* Composer: keep the placeholder on one line so the textarea never grows on load */
+.ms-composer-input::placeholder {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+```
+
+
+### FILE: frontend/src/instrument.js
+```js
+import * as Sentry from "@sentry/react";
+
+const SENSITIVE_KEYS = new Set([
+    "email", "authorization", "password", "token", "id_token",
+    "health_profile", "phi", "lab_results", "document_text",
+    "query", "message", "prompt", "response", "caregiver",
+]);
+
+export function scrubPhi(obj) {
+    if (Array.isArray(obj)) {
+        return obj.map(scrubPhi);
+    }
+    if (obj && typeof obj === "object") {
+        const out = {};
+        for (const [k, v] of Object.entries(obj)) {
+            out[k] = SENSITIVE_KEYS.has(String(k).toLowerCase()) ? "[scrubbed]" : scrubPhi(v);
+        }
+        return out;
+    }
+    if (typeof obj === "string" && obj.length > 256) {
+        return obj.slice(0, 256) + "...[truncated]";
+    }
+    return obj;
+}
+
+Sentry.init({
+    dsn: import.meta.env.VITE_SENTRY_DSN,
+    environment: import.meta.env.VITE_SENTRY_ENVIRONMENT || "production",
+    release: import.meta.env.VITE_SENTRY_RELEASE,
+    integrations: [Sentry.browserTracingIntegration()],
+    tracesSampleRate: 0.1,
+    sendDefaultPii: false,
+    beforeSend(event) {
+        // Strip auth headers, user identity, breadcrumbs, and scrub PHI-shaped fields
+        if (event.request?.headers) {
+            delete event.request.headers["Authorization"];
+            delete event.request.headers["Cookie"];
+        }
+        delete event.user;
+        delete event.breadcrumbs;
+        if (event.extra) {
+            event.extra = scrubPhi(event.extra);
+        }
+        if (event.contexts) {
+            event.contexts = scrubPhi(event.contexts);
+        }
+        return event;
+    },
+});
+```
+
+
+### FILE: frontend/src/main.jsx
+```jsx
+import "./instrument";
+import React from 'react';
+import ReactDOM from 'react-dom/client';
+import * as Sentry from "@sentry/react";
+import '@fontsource-variable/inter';
+import '@fontsource-variable/fraunces';
+import '@fontsource-variable/jetbrains-mono';
+import App from './App';
+import './i18n';
+import './index.css';
+import './styles/print.css';
+
+function CrashFallback() {
+  return (
+    <div className="min-h-app flex items-center justify-center bg-obsidian px-6 text-center">
+      <div className="max-w-sm">
+        <p className="ms-display text-2xl text-white mb-2">MediSkye hit an unexpected error.</p>
+        <p className="text-sm text-ink-mute mb-5">Your reports and conversations are safe on the server. Reload to continue where you left off.</p>
+        <button
+          type="button"
+          onClick={() => window.location.reload()}
+          className="h-11 px-5 rounded-xl bg-clinical-cyan text-slate-950 text-sm font-semibold"
+        >
+          Reload MediSkye
+        </button>
+      </div>
+    </div>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById('root')).render(
+  <Sentry.ErrorBoundary fallback={<CrashFallback />}>
+    <App />
+  </Sentry.ErrorBoundary>
+);
+
+```
+
+
+### FILE: frontend/src/lib/clinical.js
+```js
+/**
+ * Clinical computation helpers.
+ *
+ * Everything in here is a pure function over the `lab_metrics` rows returned by
+ * POST /extract-metrics, so every visualization (range bars, triage summary,
+ * organ-system grouping, longitudinal trends) works client-side today, with no
+ * new backend endpoint required.
+ *
+ * Metric row shape (backend contract, all fields optional except name/value):
+ *   { test | name, value, unit, range | reference_range, status,
+ *     previous_value, previous_date, delta_abs, delta_pct, delta_alert }
+ */
+
+// ── Primitive parsing ────────────────────────────────────────────────────────
+
+const NUM_RE = /-?\d[\d,]*\.?\d*|-?\.\d+/;
+
+/** Extract the first number from a value string ("14.2", "<5", "1,234 cells"). */
+export function parseNumeric(value) {
+  if (value === null || value === undefined) return null;
+  if (typeof value === 'number') return Number.isFinite(value) ? value : null;
+  const s = String(value);
+  if (/^\s*\d+\s*:\s*\d+/.test(s)) return null;
+  const match = s.replace(/−/g, '-').match(NUM_RE);
+  if (!match) return null;
+  const n = parseFloat(match[0].replace(/,/g, ''));
+  return Number.isFinite(n) ? n : null;
+}
+
+/**
+ * Parse a reference interval string.
+ * Supports "12–17", "12 - 17", "0.4 to 4.0", "<200", "≤ 5.7", ">40", "≥ 60",
+ * "Up to 35", "Above 40". Returns { low, high, kind } or null.
+ */
+export function parseRange(range) {
+  if (range === null || range === undefined) return null;
+  const s = String(range).replace(/−/g, '-').replace(/,/g, '').trim();
+  if (!s || s === '—' || s === '-') return null;
+
+  // Multi-tier & sex/pregnancy qualifiers guard
+  if (/(\bmale\b|\bfemale\b|\bmen\b|\bwomen\b|pregnan|trimester)/i.test(s)) return null;
+  const intervalMatches = s.match(/-?\d+(?:\.\d+)?\s*(?:-|–|—|\bto\b)\s*-?\d+(?:\.\d+)?/gi);
+  if (intervalMatches && intervalMatches.length > 1) return null;
+
+  const between = s.match(/(-?\d*\.?\d+)\s*(?:-|–|—|to)\s*(-?\d*\.?\d+)/i);
+  if (between) {
+    const a = parseFloat(between[1]);
+    const b = parseFloat(between[2]);
+    if (Number.isFinite(a) && Number.isFinite(b)) {
+      return { low: Math.min(a, b), high: Math.max(a, b), kind: 'between' };
+    }
+  }
+
+  const upper = s.match(/(?:<|≤|=<|<=|up\s*to|below|less\s*than)\s*(-?\d*\.?\d+)/i);
+  if (upper) {
+    const h = parseFloat(upper[1]);
+    if (Number.isFinite(h)) return { low: null, high: h, kind: 'upper' };
+  }
+
+  const lower = s.match(/(?:>|≥|=>|>=|above|greater\s*than|more\s*than)\s*(-?\d*\.?\d+)/i);
+  if (lower) {
+    const l = parseFloat(lower[1]);
+    if (Number.isFinite(l)) return { low: l, high: null, kind: 'lower' };
+  }
+
+  return null;
+}
+
+/** Best-effort date parser for "24 Oct 2026", "2026-10-24", "24/10/2026". */
+export function parseClinicalDate(input) {
+  if (!input) return null;
+  if (input instanceof Date) return Number.isNaN(input.getTime()) ? null : input.getTime();
+  const s = String(input).trim();
+
+  // Date-only ISO → local midnight (Date.parse would use UTC and shift the day)
+  const ymd = s.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (ymd) {
+    const d = new Date(Number(ymd[1]), Number(ymd[2]) - 1, Number(ymd[3]));
+    return Number.isNaN(d.getTime()) ? null : d.getTime();
+  }
+
+  const dmy = s.match(/^(\d{1,2})[/.-](\d{1,2})[/.-](\d{4})$/);
+  if (dmy) {
+    const p1 = Number(dmy[1]);
+    const p2 = Number(dmy[2]);
+    const year = Number(dmy[3]);
+    let day, month;
+    if (p1 > 12 && p2 <= 12) {
+      day = p1;
+      month = p2;
+    } else if (p2 > 12 && p1 <= 12) {
+      month = p1;
+      day = p2;
+    } else {
+      day = p1;
+      month = p2;
+    }
+    if (month < 1 || month > 12 || day < 1 || day > 31) return null;
+    const d = new Date(year, month - 1, day);
+    if (Number.isNaN(d.getTime())) return null;
+    if (d.getFullYear() !== year || d.getMonth() !== month - 1 || d.getDate() !== day) {
+      return null;
+    }
+    return d.getTime();
+  }
+
+  const parsed = Date.parse(s);
+  if (!Number.isNaN(parsed)) return parsed;
+
+  const loose = Date.parse(s.replace(/(\d+)(st|nd|rd|th)/, '$1'));
+  return Number.isNaN(loose) ? null : loose;
+}
+
+export function formatShortDate(ts) {
+  if (ts === null || ts === undefined) return '';
+  const d = new Date(ts);
+  if (Number.isNaN(d.getTime())) return '';
+  return d.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' });
+}
+
+// ── Row accessors ────────────────────────────────────────────────────────────
+
+export const metricName = (row) => String(row?.test || row?.name || '—').replace(/\*\*/g, '').trim();
+export const metricRange = (row) => row?.range || row?.reference_range || '';
+export const metricKey = (row) => normalizeName(metricName(row));
+
+export function normalizeName(name) {
+  return String(name || '')
+    .toLowerCase()
+    .replace(/\(.*?\)/g, '')
+    .replace(/[^a-z0-9]+/g, '')
+    .trim();
+}
+
+/** Δ% for a row: backend `delta_pct` first, then computed from previous_value. */
+export function deltaPct(row) {
+  if (row?.delta_pct !== null && row?.delta_pct !== undefined && row?.delta_pct !== '') {
+    const n = parseNumeric(row.delta_pct);
+    if (n !== null) return n;
+  }
+  const cur = parseNumeric(row?.value);
+  const prev = parseNumeric(row?.previous_value);
+  if (cur === null || prev === null || prev === 0) return null;
+  return Math.round(((cur - prev) / Math.abs(prev)) * 1000) / 10;
+}
+
+export const NOTABLE_DELTA_PCT = 10;
+
+export function isNotableShift(row) {
+  if (row?.delta_alert) return true;
+  const d = deltaPct(row);
+  return d !== null && Math.abs(d) >= NOTABLE_DELTA_PCT;
+}
+
+export function isNotableDrop(row) {
+  if (row?.delta_alert && /drop|decreas|fall/i.test(row.delta_alert)) return true;
+  const d = deltaPct(row);
+  return d !== null && d <= -NOTABLE_DELTA_PCT;
+}
+
+// ── Status classification ────────────────────────────────────────────────────
+
+/**
+ * Returns one of: 'critical' | 'high' | 'low' | 'borderline' | 'normal' | 'unknown'.
+ * Trusts the backend status label, except that a 'Normal' label is overridden when the value is clearly outside a parseable reference range.
+ */
+export function classifyStatus(row) {
+  const s = String(row?.status || '').trim().toLowerCase();
+  if (s.includes('critical') || s.includes('panic')) return 'critical';
+  if (s.includes('border')) return 'borderline';
+  if (s === 'high' || s.startsWith('high') || s.includes('elevated') || s === 'h') return 'high';
+  if (s === 'low' || s.startsWith('low') || s.includes('deficien') || s === 'l') return 'low';
+  if (s === 'abnormal') {
+    const pos = rangeGeometry(row);
+    if (pos?.side === 'above') return 'high';
+    if (pos?.side === 'below') return 'low';
+    return 'high';
+  }
+  if (s === 'normal' || s.includes('optimal') || s.includes('within') || s === 'in range') {
+    const pos = rangeGeometry(row);
+    if (pos?.side === 'above') return 'high';   // label says normal, numbers disagree
+    if (pos?.side === 'below') return 'low';
+    return 'normal';
+  }
+
+  const pos = rangeGeometry(row);
+  if (!pos) {
+    if (!s && parseNumeric(row?.value) === null) return 'unknown';
+    return s ? 'unknown' : 'normal';
+  }
+  if (pos.side === 'above') return 'high';
+  if (pos.side === 'below') return 'low';
+  return pos.nearEdge ? 'borderline' : 'normal';
+}
+
+export function isFlagged(row) {
+  const c = classifyStatus(row);
+  return c === 'critical' || c === 'high' || c === 'low' || c === 'borderline';
+}
+
+/** Semantic tone per the MediSkye clinical palette. */
+export function statusTone(row) {
+  const c = classifyStatus(row);
+  if (c === 'critical' || c === 'high') return 'rose';
+  if (c === 'low' || c === 'borderline') return 'amber';
+  if (isNotableShift(row)) return 'amber';
+  if (c === 'normal') return 'emerald';
+  return 'neutral';
+}
+
+export const TONE = {
+  rose: { text: 'text-rose-300', bg: 'bg-rose-500/10', border: 'border-rose-500/25', dot: 'bg-rose-500', hex: '#f43f5e' },
+  amber: { text: 'text-amber-300', bg: 'bg-amber-500/10', border: 'border-amber-500/25', dot: 'bg-amber-500', hex: '#f59e0b' },
+  emerald: { text: 'text-emerald-300', bg: 'bg-emerald-500/10', border: 'border-emerald-500/25', dot: 'bg-emerald-500', hex: '#10b981' },
+  cyan: { text: 'text-cyan-300', bg: 'bg-cyan-500/10', border: 'border-cyan-500/25', dot: 'bg-cyan-500', hex: '#06b6d4' },
+  neutral: { text: 'text-slate-300', bg: 'bg-slate-500/10', border: 'border-slate-500/25', dot: 'bg-slate-400', hex: '#94a3b8' },
+};
+
+// ── Range geometry ───────────────────────────────────────────────────────────
+
+/**
+ * Compute where a value sits relative to its reference interval on a padded
+ * linear scale. All percentages are 0–100 along the bar.
+ *
+ * Returns null when either the value or the range can't be parsed.
+ */
+export function rangeGeometry(row, valueOverride) {
+  const value = valueOverride !== undefined ? valueOverride : parseNumeric(row?.value);
+  const range = parseRange(metricRange(row));
+  if (value === null || !range) return null;
+  return geometryFor(value, range);
+}
+
+export function geometryFor(value, range) {
+  let { low, high } = range;
+  let domainMin;
+  let domainMax;
+
+  if (range.kind === 'between') {
+    const span = Math.max(high - low, Math.abs(high) * 0.05, 1e-6);
+    const pad = span * 0.45;
+    domainMin = Math.min(low - pad, value - span * 0.08);
+    domainMax = Math.max(high + pad, value + span * 0.08);
+    if (low >= 0 && domainMin < 0) domainMin = 0;
+  } else if (range.kind === 'upper') {
+    low = 0;
+    domainMin = 0;
+    domainMax = Math.max(high * 1.45, value * 1.08, 1e-6);
+  } else {
+    high = null;
+    domainMin = 0;
+    domainMax = Math.max(low * 1.9, value * 1.12, 1e-6);
+  }
+
+  const span = domainMax - domainMin || 1;
+  const toPct = (v) => Math.min(100, Math.max(0, ((v - domainMin) / span) * 100));
+
+  const lowPct = toPct(low ?? domainMin);
+  const highPct = high === null ? 100 : toPct(high);
+  const valuePct = toPct(value);
+
+  let side = 'inside';
+  if (high !== null && value > high) side = 'above';
+  else if (low !== null && value < low) side = 'below';
+
+  // Within 7% of interval width from an edge → borderline
+  let nearEdge = false;
+  if (side === 'inside' && range.kind === 'between') {
+    const width = high - low;
+    nearEdge = width > 0 && (value - low < width * 0.07 || high - value < width * 0.07);
+  }
+
+  // Position inside the interval (0 = bottom edge, 1 = top edge)
+  let withinFraction = null;
+  if (range.kind === 'between' && high > low) withinFraction = (value - low) / (high - low);
+
+  return { value, low, high, kind: range.kind, domainMin, domainMax, lowPct, highPct, valuePct, side, nearEdge, withinFraction };
+}
+
+/** Plain-language placement, e.g. "Near the bottom of 200–900". */
+export function describePlacement(row) {
+  const g = rangeGeometry(row);
+  if (!g) return null;
+  const r = metricRange(row);
+  const limit = g.kind === 'between' ? r : `the ${r} limit`;
+  if (g.side === 'above') return `Above ${limit}`;
+  if (g.side === 'below') return `Below ${limit}`;
+  if (g.withinFraction === null) return `Within ${r}`;
+  if (g.withinFraction < 0.2) return `Near the bottom of ${r}`;
+  if (g.withinFraction > 0.8) return `Near the top of ${r}`;
+  return `Mid-range of ${r}`;
+}
+
+// ── Formatting ───────────────────────────────────────────────────────────────
+
+export function formatDeltaPct(d) {
+  if (d === null || d === undefined || Number.isNaN(d)) return '';
+  const rounded = Math.abs(d) >= 100 ? Math.round(d) : Math.round(d * 10) / 10;
+  return `${rounded > 0 ? '+' : ''}${rounded}%`;
+}
+
+export function formatNumber(n, digits = 2) {
+  if (n === null || n === undefined || !Number.isFinite(n)) return '—';
+  const abs = Math.abs(n);
+  const max = abs >= 100 ? 0 : abs >= 10 ? 1 : digits;
+  return n.toLocaleString('en-US', { maximumFractionDigits: max });
+}
+
+// ── Organ-system grouping ────────────────────────────────────────────────────
+
+export const ORGAN_SYSTEMS = [
+  { key: 'glycemic', label: 'Metabolic & Glycemic', match: /(hba1c|\ba1c\b|glucose|sugar|insulin|homa|fbs|ppbs|fructosamine|glycated)/i },
+  { key: 'lipids', label: 'Lipids', match: /(cholesterol|\bldl\b|\bhdl\b|vldl|triglycer|\btg\b|lipoprotein|\bapo|lp\(a\)|non.?hdl)/i },
+  { key: 'thyroid', label: 'Thyroid & Vitamins', match: /(\btsh\b|\bt3\b|\bt4\b|ft3|ft4|thyro|vitamin|\bb12\b|cobalamin|folate|folic|25.?oh|calcidiol|\bd3\b)/i },
+  { key: 'renal', label: 'Renal & Electrolytes', match: /(creatinine|\burea\b|\bbun\b|egfr|\bgfr\b|uric|sodium|\bna\b|potassium|\bk\b|chloride|bicarbonate|\bco2\b|calcium|phosph|magnesium|microalbumin|albumin.?creatinine|\bacr\b|cystatin|osmolal)/i },
+  { key: 'hepatic', label: 'Hepatic', match: /(\balt\b|sgpt|\bast\b|sgot|alkaline|\balp\b|bilirubin|\bggt\b|gamma|albumin|globulin|total protein|a\/g|\bldh\b)/i },
+  { key: 'hematology', label: 'Hematology & Iron', match: /(hemoglobin|haemoglobin|\bhgb\b|\bhb\b|\brbc\b|\bwbc\b|platelet|\bplt\b|hematocrit|haematocrit|\bhct\b|\bpcv\b|\bmcv\b|\bmch\b|mchc|\brdw\b|neutrophil|lymphocyte|monocyte|eosinophil|basophil|\besr\b|ferritin|\biron\b|tibc|transferrin|reticulocyte|leukocyte|erythrocyte)/i },
+  { key: 'inflammation', label: 'Inflammation & Immunity', match: /(\bcrp\b|hs.?crp|c.?reactive|procalcitonin|\bil.?6\b|rheumatoid|\bana\b|immunoglobulin|\bige\b)/i },
+];
+
+export const OTHER_SYSTEM = { key: 'other', label: 'Other markers' };
+
+export function organSystemOf(row) {
+  const name = metricName(row);
+  const hit = ORGAN_SYSTEMS.find((s) => s.match.test(name));
+  return hit || OTHER_SYSTEM;
+}
+
+/** Severity rank used for "flagged first" ordering. Lower = more urgent. */
+export function severityRank(row) {
+  const c = classifyStatus(row);
+  if (c === 'critical') return 0;
+  if (c === 'high') return 1;
+  if (c === 'low') return 2;
+  if (c === 'borderline') return 3;
+  if (isNotableShift(row)) return 4;
+  return 5;
+}
+
+/** Legacy ordering contract: any abnormal / delta-alert row before Normal rows (stable). */
+export function sortFlaggedFirst(metrics) {
+  if (!Array.isArray(metrics)) return [];
+  const priority = (m) => {
+    const s = String(m?.status || '').trim().toLowerCase();
+    if (s === 'high' || s === 'low' || s === 'critical' || s === 'abnormal' || m?.delta_alert || isFlagged(m)) return 0;
+    return 1;
+  };
+  return metrics
+    .map((m, i) => ({ m, i }))
+    .sort((a, b) => priority(a.m) - priority(b.m) || severityRank(a.m) - severityRank(b.m) || a.i - b.i)
+    .map(({ m }) => m);
+}
+
+/** Aggregate triage summary across all metrics. */
+export function summarizeTriage(metrics) {
+  const list = Array.isArray(metrics) ? metrics.filter(Boolean) : [];
+  const counts = { total: list.length, critical: 0, high: 0, low: 0, borderline: 0, normal: 0, unknown: 0, shifts: 0, drops: 0 };
+  const systemMap = new Map();
+
+  list.forEach((row) => {
+    const c = classifyStatus(row);
+    counts[c] = (counts[c] || 0) + 1;
+    if (isNotableShift(row)) counts.shifts += 1;
+    if (isNotableDrop(row)) counts.drops += 1;
+
+    const sys = organSystemOf(row);
+    if (!systemMap.has(sys.key)) systemMap.set(sys.key, { key: sys.key, label: sys.label, metrics: [], flagged: 0, shifts: 0, worst: 5 });
+    const entry = systemMap.get(sys.key);
+    entry.metrics.push(row);
+    if (isFlagged(row)) entry.flagged += 1;
+    if (isNotableShift(row)) entry.shifts += 1;
+    entry.worst = Math.min(entry.worst, severityRank(row));
+  });
+
+  const order = [...ORGAN_SYSTEMS.map((s) => s.key), OTHER_SYSTEM.key];
+  const systems = [...systemMap.values()]
+    .map((s) => ({ ...s, metrics: [...s.metrics].sort((a, b) => severityRank(a) - severityRank(b)) }))
+    .sort((a, b) => a.worst - b.worst || order.indexOf(a.key) - order.indexOf(b.key));
+
+  const flagged = counts.critical + counts.high + counts.low + counts.borderline;
+  return { ...counts, flagged, inRange: counts.normal, systems };
+}
+
+export function filterMetrics(metrics, filter) {
+  const list = Array.isArray(metrics) ? metrics : [];
+  if (filter === 'flagged') return list.filter((m) => isFlagged(m) || Boolean(m?.delta_alert));
+  if (filter === 'drops') return list.filter(isNotableDrop);
+  if (filter === 'shifts') return list.filter(isNotableShift);
+  return list;
+}
+
+// ── Longitudinal trends ──────────────────────────────────────────────────────
+
+/**
+ * Build per-biomarker time series.
+ *
+ * @param {Array<{docId, label, date, metrics}>} snapshots  one entry per report
+ * @returns {Map<string, {key, name, unit, range, points: Array<{t, value, raw, docId, label, synthetic}>}>}
+ *
+ * When only one report exists we still produce a 2-point series from the
+ * backend's previous_value / previous_date (baseline → follow-up).
+ */
+export function buildTrendSeries(snapshots) {
+  const series = new Map();
+  const safeSnapshots = Array.isArray(snapshots) ? snapshots : [];
+
+  const push = (row, point) => {
+    const key = metricKey(row);
+    if (!key) return;
+    if (!series.has(key)) {
+      series.set(key, { key, name: metricName(row), unit: row?.unit || '', range: metricRange(row), points: [] });
+    }
+    const s = series.get(key);
+    if (!s.unit && row?.unit) s.unit = row.unit;
+    if (!s.range && metricRange(row)) s.range = metricRange(row);
+    const dup = s.points.find((p) => p.t === point.t && p.value === point.value);
+    if (!dup) s.points.push(point);
+  };
+
+  safeSnapshots.forEach((snap, idx) => {
+    const rows = Array.isArray(snap?.metrics) ? snap.metrics : [];
+    const snapT = parseClinicalDate(snap?.date) ?? parseClinicalDate(rows.collected_at) ?? idx;
+    rows.forEach((row) => {
+      const v = parseNumeric(row?.value);
+      if (v === null) return;
+      push(row, { t: snapT, value: v, raw: row.value, docId: snap.docId, label: snap.label, status: classifyStatus(row), synthetic: false });
+
+      const pv = parseNumeric(row?.previous_value);
+      if (pv !== null) {
+        const pt = parseClinicalDate(row?.previous_date);
+        const hasParsedDate = pt !== null;
+        const THIRTY_DAYS = 30 * 24 * 60 * 60 * 1000;
+        const t = hasParsedDate
+          ? pt
+          : (typeof snapT === 'number' && snapT > 1e9 ? snapT - THIRTY_DAYS : (typeof snapT === 'number' ? snapT - 1 : idx - 0.5));
+        push(row, { t, value: pv, raw: row.previous_value, docId: null, label: row.previous_date || 'Baseline', status: null, synthetic: true, hasParsedDate });
+      }
+    });
+  });
+
+  series.forEach((s) => {
+    s.points.sort((a, b) => a.t - b.t);
+    // A reconstructed baseline is redundant when a real reading exists within ~1.5 days of it
+    const DAY = 36 * 60 * 60 * 1000;
+    s.points = s.points.filter((p, i, arr) => !(p.synthetic && p.hasParsedDate && arr.some((q, j) => j !== i && !q.synthetic && Math.abs(q.t - p.t) <= DAY)));
+    const first = s.points[0];
+    const last = s.points[s.points.length - 1];
+    s.change = first && last && first !== last && first.value !== 0
+      ? Math.round(((last.value - first.value) / Math.abs(first.value)) * 1000) / 10
+      : null;
+  });
+
+  return series;
+}
+
+/** Order trend series: most-moved & flagged biomarkers first. */
+export function rankTrendSeries(seriesMap, latestMetrics = []) {
+  const latestByKey = new Map((latestMetrics || []).map((m) => [metricKey(m), m]));
+  return [...seriesMap.values()]
+    .filter((s) => s.points.length >= 1)
+    .sort((a, b) => {
+      const ra = latestByKey.has(a.key) ? severityRank(latestByKey.get(a.key)) : 5;
+      const rb = latestByKey.has(b.key) ? severityRank(latestByKey.get(b.key)) : 5;
+      if (ra !== rb) return ra - rb;
+      const multiA = a.points.length > 1 ? 1 : 0;
+      const multiB = b.points.length > 1 ? 1 : 0;
+      if (multiA !== multiB) return multiB - multiA;
+      return Math.abs(b.change || 0) - Math.abs(a.change || 0);
+    });
+}
+
+/** Human label for a report used in pickers and chips. */
+export function reportLabel(doc) {
+  if (!doc) return 'Lab report';
+  const base = doc.title || doc.name || doc.filename || 'Lab report';
+  return String(base).replace(/\.pdf$/i, '');
+}
+
+export function reportDateLabel(doc) {
+  if (!doc) return '';
+  if (doc.collected_at) return String(doc.collected_at);
+  const t = parseClinicalDate(doc.created_at);
+  return t ? formatShortDate(t) : '';
+}
+
+/** Convert weight strings like "175 lb", "175 lbs", "80 kg", "75" to standard kg string. */
+export function parseWeightToKgString(input) {
+  if (input === null || input === undefined) return '';
+  const s = String(input).trim();
+  if (!s) return '';
+  const match = s.match(/^([\d.]+)\s*(lbs?|pounds?|kg|kgs?|kilograms?)?$/i);
+  if (!match) return s;
+  const val = parseFloat(match[1]);
+  if (isNaN(val)) return s;
+  const unit = (match[2] || '').toLowerCase();
+  if (unit.startsWith('lb') || unit.startsWith('pound')) {
+    const kg = Math.round(val * 0.453592 * 10) / 10;
+    return `${kg} kg`;
+  }
+  return `${val} kg`;
+}
+
+/** Strips outer quotation marks only when both the first and last character are quotes. */
+export function stripOuterQuotes(str) {
+  if (!str || typeof str !== 'string') return '';
+  let s = str.trim();
+  const QUOTES = ['"', "'", '“', '”', '‘', '’'];
+  while (s.length >= 2 && QUOTES.includes(s[0]) && QUOTES.includes(s[s.length - 1])) {
+    s = s.slice(1, -1).trim();
+  }
+  return s;
+}
+
+
+```
+
+
+### FILE: frontend/src/lib/cn.js
+```js
+import { clsx } from 'clsx';
+import { twMerge } from 'tailwind-merge';
+
+/**
+ * Compose Tailwind class lists. `clsx` handles conditionals, `twMerge`
+ * resolves conflicts so the last utility for a property wins
+ * (e.g. cn('px-2', isWide && 'px-6') → 'px-6').
+ */
+export function cn(...inputs) {
+  return twMerge(clsx(inputs));
+}
+
+export default cn;
+
+```
+
+
+### FILE: frontend/src/lib/storageKeys.js
+```js
+/**
+ * Every localStorage / sessionStorage key the frontend reads or writes.
+ * Keys prefixed `mediskye_` are wiped by clearLocalAuthStorage() on logout,
+ * except the UI-preference keys listed in PRESERVED_STORAGE_KEYS (api.js).
+ */
+export const STORAGE_KEYS = {
+  token: 'token',
+  uiLang: 'mediskye_ui_lang',
+  patientId: 'mediskye_patient_id',
+  autoRead: 'mediskye_auto_read',
+  sidebarOpen: 'mediskye_sidebar_open',
+  theme: 'mediskye_theme',
+  // New in the redesign (all UI-only; safe to clear on logout)
+  inspectorOpen: 'mediskye_inspector_open',
+  inspectorWidth: 'mediskye_inspector_width',
+  inspectorTab: 'mediskye_inspector_tab',
+  // sessionStorage
+  consentPrompted: 'mediskye_consent_prompted',
+};
+
+export function readStorage(key, fallback = null) {
+  try {
+    const v = localStorage.getItem(key);
+    return v === null ? fallback : v;
+  } catch {
+    return fallback;
+  }
+}
+
+export function writeStorage(key, value) {
+  try {
+    localStorage.setItem(key, String(value));
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+```
+
+
+### FILE: frontend/src/styles/print.css
+```css
+@media print {
+  @page {
+    size: A4;
+    margin: 12mm;
+  }
+
+  /* Unblock multi-page flow: reset root containers to visible block flow */
+  html, body, #root, .h-app, .min-h-app, main, [data-testid="conversation-pane"] {
+    height: auto !important;
+    min-height: 0 !important;
+    max-height: none !important;
+    overflow: visible !important;
+    position: static !important;
+    background: #ffffff !important;
+    color: #000000 !important;
+  }
+
+  /* Reset all ancestors of #print-summary */
+  body,
+  #root,
+  #root > div,
+  main,
+  .chat-container,
+  div[class*="h-screen"],
+  div[class*="h-app"],
+  div[class*="h-full"],
+  div[class*="min-h-0"],
+  div[class*="overflow-"] {
+    height: auto !important;
+    min-height: 0 !important;
+    max-height: none !important;
+    overflow: visible !important;
+    position: static !important;
+    background: #ffffff !important;
+    color: #000000 !important;
+  }
+
+  /* Hide the interactive app shell so only #print-summary prints */
+  .sidebar,
+  aside,
+  header,
+  nav,
+  .chat-input,
+  .chat-scroll-area,
+  .chat-messages-container,
+  form,
+  button,
+  [data-testid="upload-progress-banner"],
+  [role="dialog"] {
+    display: none !important;
+  }
+
+  /* Ensure #print-summary is a visible flow block with clinical sans-serif */
+  #print-summary {
+    display: block !important;
+    position: static !important;
+    width: 100% !important;
+    overflow: visible !important;
+    background: #ffffff !important;
+    color: #000000 !important;
+    font-family: Inter, system-ui, -apple-system, sans-serif !important;
+    font-size: 9.5pt;
+    line-height: 1.45;
+  }
+
+  #print-summary * {
+    color: #000000 !important;
+    background: transparent !important;
+    box-shadow: none !important;
+    font-family: Inter, system-ui, -apple-system, sans-serif !important;
+  }
+
+  /* Range-position bars keep their fills on paper */
+  #print-summary .print-bar-track,
+  #print-summary .print-bar-band,
+  #print-summary .print-bar-marker {
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+  }
+  #print-summary .print-bar-track { background: #e5e7eb !important; }
+  #print-summary .print-bar-band { background: #a7f3d0 !important; }
+  #print-summary .print-bar-marker { background: #111827 !important; }
+
+  /* Clean pagination breaks */
+  table {
+    page-break-inside: auto;
+    break-inside: auto;
+    width: 100%;
+    border-collapse: collapse;
+    font-family: Inter, system-ui, -apple-system, sans-serif !important;
+  }
+
+  tr {
+    page-break-inside: avoid !important;
+    break-inside: avoid !important;
+    page-break-after: auto;
+  }
+
+  th, td {
+    padding: 5pt 7pt;
+    border-bottom: 1px solid #d1d5db;
+    font-size: 8.5pt;
+  }
+
+  th {
+    font-weight: 700;
+    border-bottom: 2px solid #000000;
+    text-align: left;
+    background-color: #f3f4f6 !important;
+  }
+
+  h1, h2, h3, h4, .section-heading {
+    page-break-after: avoid !important;
+    break-after: avoid !important;
+    font-family: Inter, system-ui, -apple-system, sans-serif !important;
+    color: #000000 !important;
+  }
+
+  /* Finding blocks and cards */
+  .clinical-card,
+  .patient-context-box {
+    page-break-inside: avoid !important;
+    break-inside: avoid !important;
+  }
+
+  /* Rendered markdown inside clinical summary */
+  .clinical-summary h1,
+  .clinical-summary h2 {
+    font-size: 11pt;
+    margin-top: 10pt;
+    margin-bottom: 4pt;
+    page-break-after: avoid !important;
+    break-after: avoid !important;
+  }
+
+  .clinical-summary h3 {
+    font-size: 10pt;
+    margin-top: 8pt;
+    margin-bottom: 3pt;
+    border-bottom: 1px solid #d1d5db;
+    padding-bottom: 2pt;
+    page-break-after: avoid !important;
+    break-after: avoid !important;
+  }
+
+  .clinical-summary strong {
+    font-weight: 700;
+  }
+
+  .clinical-summary em {
+    font-style: italic;
+  }
+
+  .clinical-summary ul,
+  .clinical-summary ol {
+    margin-left: 14pt;
+    margin-bottom: 4pt;
+  }
+
+  .clinical-summary li {
+    margin-bottom: 2pt;
+    page-break-inside: avoid;
+    break-inside: avoid;
+  }
+
+  .clinical-summary p {
+    margin-bottom: 4pt;
+    line-height: 1.45;
+  }
+
+  /* Footer */
+  .print-footer {
+    page-break-inside: avoid !important;
+    break-inside: avoid !important;
+    margin-top: 16pt;
+    padding-top: 8pt;
+    border-top: 1px solid #000000;
+    font-size: 8pt;
+    color: #000000;
+  }
+
+  .print-footer .generated-at {
+    margin-top: 2pt;
+    font-size: 7.5pt;
+    color: #444444;
+  }
+}
+
+```
+
