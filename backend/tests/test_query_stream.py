@@ -489,3 +489,58 @@ async def test_query_stream_casual_intent_no_disclaimer_persists_chat():
                 assert DISCLAIMER_TEXT.strip() not in ai_chat.message
 
 
+@pytest.mark.asyncio
+async def test_emergency_keywords_with_document_show_banner_and_answer():
+    """Regression: MEDICAL emergency + attached document must not crash the stream."""
+    transport = ASGITransport(app=app)
+    chunk = MagicMock()
+    chunk.text = "Hemoglobin is 14.2 g/dL which is within normal limits."
+    mock_client = MagicMock()
+    mock_client.models.generate_content_stream.return_value = [chunk]
+    intent_response = MagicMock()
+    intent_response.text = "DOCUMENT_QA"
+    mock_client.models.generate_content.return_value = intent_response
+
+    with (
+        patch("app.rag.retriever.get_embedder", return_value=FakeEmbedder()),
+        patch("app.services.chat_indexer.get_embedder", return_value=FakeEmbedder()),
+        patch("app.rag.embedder.get_embedder", return_value=FakeEmbedder()),
+        patch("google.genai.Client", return_value=mock_client),
+        patch("app.api.v1.endpoints.query.process_chat_memory_extraction", new=AsyncMock()),
+    ):
+        async with AsyncClient(transport=transport, base_url="http://test") as ac:
+            email = f"emerg_doc_{uuid.uuid4().hex[:8]}@test.com"
+            async with AsyncSessionLocal() as session:
+                session.add(User(email=email, hashed_password=get_password_hash(TEST_PASSWORD),
+                                 phi_consent_granted=True, memory_consent_granted=True))
+                await session.commit()
+            login = await ac.post("/login", data={"username": email, "password": TEST_PASSWORD})
+            headers = {"Authorization": f"Bearer {login.json()['access_token']}"}
+
+            pdf = fitz.open()
+            pdf.new_page().insert_text(
+                (50, 72),
+                "CBC Report. Hemoglobin: 14.2 g/dL (ref 12.0 - 15.5) Normal. Complete blood count examination reveals normal values across all parameters.",
+            )
+            up = await ac.post("/upload", files={"file": ("lab.pdf", pdf.tobytes(), "application/pdf")}, headers=headers)
+            assert up.status_code == 202
+            st = await ac.get(f"/upload/status/{up.json()['job_id']}", headers=headers)
+            doc_id = st.json()["document_id"]
+
+            res = await ac.post(
+                "/query",
+                json={"session_id": str(doc_id),
+                      "query": "I am having severe chest pain and pressure. Is my hemoglobin okay?"},
+                headers=headers,
+            )
+            assert res.status_code == 200
+            assert "EMERGENCY WARNING" in res.text
+            assert "Hemoglobin is 14.2" in res.text
+            assert "[DONE]" in res.text
+
+            from app.api.v1.endpoints.upload import _background_warm_tasks
+            if _background_warm_tasks:
+                await asyncio.gather(*list(_background_warm_tasks), return_exceptions=True)
+
+
+

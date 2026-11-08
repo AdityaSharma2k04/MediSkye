@@ -472,6 +472,9 @@ async def query_bot(
     await db.close()
 
     async def generate_response_stream():
+        full_raw_text = ""
+        visible_text = ""
+        stream_task = None
         try:
             title_to_emit = updated_chat_title or current_session_title
             if title_to_emit:
@@ -735,9 +738,6 @@ async def query_bot(
                     occupation=occupation,
                     prior_documents_metrics=prior_documents_metrics,
                 )
-
-            full_raw_text = ""
-            visible_text = ""
 
             # ── Gemini stream with thread offloading ──
             loop = asyncio.get_running_loop()
