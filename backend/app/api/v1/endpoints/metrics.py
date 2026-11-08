@@ -40,6 +40,8 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
+METRICS_PROMPT_CHAR_BUDGET = 16000
+
 
 async def extract_and_cache_metrics(
     doc_id: Union[uuid.UUID, str],
@@ -77,7 +79,7 @@ async def extract_and_cache_metrics(
     if page_docs:
         all_pages = [getattr(d, "page_content", str(d)) for d in page_docs if getattr(d, "page_content", str(d))]
         full_text = "\n".join(all_pages)
-        if len(full_text) <= 4000:
+        if len(full_text) <= METRICS_PROMPT_CHAR_BUDGET:
             combined_text = full_text
         else:
             keywords = (
@@ -109,7 +111,7 @@ async def extract_and_cache_metrics(
             "blood count lab results reference ranges cholesterol liver function",
             vectorstore,
             bm25_index,
-            k=6,
+            k=12,
         )
         combined_text = "\n".join([d.page_content for d in docs])
     else:
@@ -144,7 +146,7 @@ Return ONLY raw JSON with schema:
 ]
 
 Report text:
-{combined_text[:4000]}
+{combined_text[:METRICS_PROMPT_CHAR_BUDGET]}
 """
 
     effective_user_id = user_id or doc.user_id
