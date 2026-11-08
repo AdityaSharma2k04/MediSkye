@@ -7,7 +7,9 @@ class EmergencyKind(str, Enum):
     SELF_HARM = "self_harm"
 
 _SELF_HARM = re.compile(
-    r"\b(suicid\w*|kill(?:ing)? myself|end(?:ing)? my (?:own )?life|want(?:ed)? to die|self[- ]?harm|hurt(?:ing)? myself)\b",
+    r"\b(suicid\w*|kill(?:ing)? myself|end(?:ing)? my (?:own )?life|take my (?:own )?life|"
+    r"want(?:ed)? to die|(?:don'?t|do not|no longer) want to (?:live|be alive)|better off dead|"
+    r"self[- ]?harm|hurt(?:ing)? myself)\b",
     re.I,
 )
 _RISK_QUESTION_EXCLUSION = re.compile(
