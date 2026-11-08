@@ -32,7 +32,7 @@ from app.rag.prompt_builder import (
 )
 from app.services.clinical_units import parse_report_chronology
 from app.rag.intent_router import classify_intent, QueryIntent
-from app.rag.safety import append_disclaimer, get_emergency_response, is_emergency_query, detect_emergency, EmergencyKind
+from app.rag.safety import append_disclaimer, get_emergency_response, is_emergency_query, detect_emergency, detect_emergency_language, EmergencyKind
 from app.rag.retriever import load_hybrid_index, retrieve_relevant_docs, dynamic_retrieval_k, get_cached_hybrid_index
 from app.rag.output_filter import scan_output, SAFE_FALLBACK
 from app.services.patient_service import calculate_age
@@ -361,6 +361,7 @@ async def query_bot(
 
     # ── Emergency keyword gate ──
     emergency_kind = detect_emergency(body.query)
+    emergency_language = detect_emergency_language(body.query) or language_preference
     emergency_banner: Optional[str] = None
 
     if emergency_kind == EmergencyKind.SELF_HARM or (
@@ -372,7 +373,7 @@ async def query_bot(
         if needs_doc_title_update and primary_doc and updated_chat_title:
             primary_doc.title = updated_chat_title
             db.add(primary_doc)
-        ai_msg = get_emergency_response(emergency_kind)
+        ai_msg = get_emergency_response(emergency_kind, emergency_language)
         user_chat = Chat(
             user_id=current_user.id,
             dependent_id=active_dep_id,
@@ -404,7 +405,7 @@ async def query_bot(
         return StreamingResponse(emergency_stream(), media_type="text/event-stream")
 
     if emergency_kind == EmergencyKind.MEDICAL:
-        emergency_banner = get_emergency_response(EmergencyKind.MEDICAL)
+        emergency_banner = get_emergency_response(EmergencyKind.MEDICAL, emergency_language)
 
     session_lock_key = f"{current_user.id}:{effective_session_id or 'general'}"
     if session_lock_key in _active_query_sessions:
@@ -460,7 +461,7 @@ async def query_bot(
         document_id=doc_id_param,
     )
     if intent == QueryIntent.EMERGENCY:
-        emergency_banner = get_emergency_response(EmergencyKind.MEDICAL)
+        emergency_banner = get_emergency_response(EmergencyKind.MEDICAL, emergency_language)
         intent = QueryIntent.DOCUMENT_QA if has_document else QueryIntent.GENERAL_HEALTH
     elif emergency_banner and intent != QueryIntent.DOCUMENT_QA:
         intent = QueryIntent.GENERAL_HEALTH
