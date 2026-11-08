@@ -105,7 +105,7 @@ export default function Sheet({
           <Dialog.Content
             style={{ width: `min(${width}px, calc(100vw - 24px))` }}
             className={cn(
-              'fixed z-[61] inset-x-0 mx-auto top-[12dvh] flex flex-col w-full max-w-md max-h-[86dvh] rounded-3xl outline-none bg-carbon border border-white/[0.08] shadow-float animate-modal-in',
+              'fixed z-[61] inset-x-0 mx-auto top-[12dvh] flex flex-col max-h-[86dvh] rounded-3xl outline-none bg-carbon border border-white/[0.08] shadow-float animate-modal-in',
               className
             )}
           >
