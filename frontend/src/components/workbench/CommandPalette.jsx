@@ -77,7 +77,7 @@ export default function CommandPalette({
         <Dialog.Overlay className="fixed inset-0 z-[70] bg-black/55 backdrop-blur-[3px] animate-backdrop-in" />
         <Dialog.Content
           data-testid="command-palette"
-          className="fixed z-[71] left-1/2 top-[12dvh] -translate-x-1/2 w-[min(640px,calc(100vw-24px))] rounded-3xl ms-glass overflow-hidden animate-modal-in outline-none"
+          className="fixed z-[71] inset-x-0 mx-auto top-[12dvh] w-[min(640px,calc(100vw-24px))] rounded-3xl ms-glass overflow-hidden animate-modal-in outline-none"
           aria-describedby={undefined}
         >
           <Dialog.Title className="sr-only">Command palette</Dialog.Title>
