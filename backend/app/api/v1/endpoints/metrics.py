@@ -16,7 +16,7 @@ from app.core.auth import UserDTO, get_current_user
 from app.core.limiter import limiter
 from app.core.config import settings
 from app.db.database import get_db
-from app.db.models import User, Document
+from app.db.models import User, Document, DependentProfile
 from app.schemas.upload import MetricsResponse, LabMetricItem
 from app.rag.retriever import retrieve_relevant_docs, get_cached_hybrid_index, load_hybrid_index
 from app.rag.index_storage import aensure_index_local
@@ -102,6 +102,80 @@ def _status_from_range(value: Any, rng: str) -> Optional[str]:
     return None
 
 
+_STRATUM = re.compile(
+    r"(?P<label>adult\s+male|adult\s+female|female|male|women|woman|men|man|girls?|boys?|"
+    r"(?-i:\b[MF]\b)|child(?:ren)?|infants?|neonates?|newborns?|pediatric|adults?)"
+    r"\s*[:\-–—(]?\s*(?P<lo>-?\d+(?:\.\d+)?)\s*(?:-|–|—|to)\s*(?P<hi>-?\d+(?:\.\d+)?)",
+    re.I,
+)
+
+
+def _stratum_class(label: str) -> str:
+    l = label.strip().lower()
+    if "female" in l or l in ("women", "woman", "f", "girl", "girls"):
+        return "female"
+    if "male" in l or l in ("men", "man", "m", "boy", "boys"):
+        return "male"
+    return "other"
+
+
+def _status_from_demographic_ranges(value: Any, rng: str, sex: Optional[str]) -> Optional[str]:
+    """High/Low/Normal for 'Male: a-b; Female: c-d' style ranges, or None if unresolved."""
+    v = _parse_first_float(value)
+    if v is None or not rng:
+        return None
+    subs = [
+        (_stratum_class(m.group("label")), float(m.group("lo")), float(m.group("hi")))
+        for m in _STRATUM.finditer(rng)
+    ]
+    if len(subs) < 2 or any(c == "other" for c, _, _ in subs):
+        return None  # single range, or age-group strata (needs patient age)
+
+    def st(lo: float, hi: float) -> str:
+        return "Low" if v < lo else "High" if v > hi else "Normal"
+
+    if sex in ("male", "female"):
+        mine = [(lo, hi) for c, lo, hi in subs if c == sex]
+        if len(mine) == 1:
+            return st(*mine[0])
+    statuses = {st(lo, hi) for _, lo, hi in subs}
+    return statuses.pop() if len(statuses) == 1 else None
+
+
+def _resolve_status(llm_status: Any, value: Any, rng: Any, sex: Optional[str]) -> str:
+    llm = str(llm_status or "").strip()
+    rng = str(rng or "")
+    derived = _status_from_range(value, rng)
+    demographic = False
+    if derived is None:
+        existing = globals().get("_RANGE_DEMOGRAPHIC")
+        demographic = bool(existing.search(rng)) if existing is not None else False
+        demographic = demographic or len(list(_STRATUM.finditer(rng))) >= 2
+        if demographic:
+            derived = _status_from_demographic_ranges(value, rng, sex)
+    if not llm:
+        return derived or "Unknown"
+    if llm.lower() == "normal":
+        if derived in ("High", "Low"):
+            return derived          # numbers beat a wrong "Normal"
+        if derived is None and demographic:
+            return "Unknown"        # unresolved stratified range: no false reassurance
+    return llm                      # High/Low/Critical/Abnormal/Borderline etc. are preserved as-is
+
+
+async def _load_patient_sex(db: AsyncSession, doc: Any) -> Optional[str]:
+    """'male'/'female' from the dependent's profile if the document belongs to one, else the owner's."""
+    try:
+        if getattr(doc, "dependent_id", None):
+            res = await db.execute(select(DependentProfile.biological_sex).filter(DependentProfile.id == doc.dependent_id))
+        else:
+            res = await db.execute(select(User.biological_sex).filter(User.id == doc.user_id))
+        raw = str(res.scalars().first() or "").strip().lower()
+        return raw if raw in ("male", "female") else None
+    except Exception:
+        return None
+
+
 async def extract_and_cache_metrics(
     doc_id: Union[uuid.UUID, str],
     page_docs: Optional[List[Any]] = None,
@@ -133,6 +207,8 @@ async def extract_and_cache_metrics(
     if not doc:
         logger.warning("Document %s not found for metrics extraction.", doc_id)
         return []
+
+    patient_sex = await _load_patient_sex(db, doc)
 
     combined_text = ""
     if page_docs:
@@ -258,24 +334,8 @@ Report text:
             normalized_unit = normalize_clinical_unit(unit_str) if unit_str else ""
 
             ref_range = str(item.get("range") or item.get("reference_range") or "").strip()
-            raw_status = (item.get("status") or "").strip()
-            derived = _status_from_range(val_str, ref_range)
-            is_ambiguous_range = bool(
-                ref_range and (_RANGE_DEMOGRAPHIC.search(ref_range) or _RANGE_AMBIGUOUS.search(ref_range))
-            )
-
-            if derived in ("High", "Low"):
-                final_status = derived
-            elif raw_status in ("High", "Low", "Critical", "Abnormal"):
-                final_status = raw_status
-            elif derived == "Normal":
-                final_status = "Normal"
-            elif is_ambiguous_range:
-                final_status = "Unknown"
-            elif raw_status == "Normal" or not ref_range:
-                final_status = "Normal"
-            else:
-                final_status = "Unknown"
+            range_str = ref_range
+            final_status = _resolve_status(item.get("status"), val_str, range_str, patient_sex)
 
             metric_dict = {
                 "test": test_name,
