@@ -115,7 +115,7 @@ export default function PrivacyPolicy() {
             </div>
             <h3 className="font-semibold text-sm text-white">Fernet Encryption</h3>
             <p className="text-xs text-slate-400 leading-relaxed">
-              Medical profiles and vitals are encrypted at rest using Fernet symmetric encryption with SHA-256 token caching.
+              Chat messages, remembered health facts, and the medical fields of your health profile are encrypted at rest using Fernet symmetric encryption, with SHA-256 token caching.
             </p>
           </div>
 
@@ -180,7 +180,7 @@ export default function PrivacyPolicy() {
                   Fernet Encryption at Rest
                 </div>
                 <p className="text-xs text-slate-400 leading-relaxed">
-                  Medical profiles, clinical vitals, remembered conditions, and sensitive patient records are encrypted at rest using authenticated symmetric Fernet encryption (AES-128 in CBC mode with HMAC SHA-256).
+                  Chat messages, remembered health facts, and the medical fields of your health profile are encrypted at rest using authenticated symmetric Fernet encryption (AES-128 in CBC mode with HMAC SHA-256).
                 </p>
               </div>
 
