@@ -463,5 +463,29 @@ describe('ChatApp — deletion and rename persistence', () => {
     // 2. The duplicate user bubble is NOT left in the chat
     expect(screen.queryByText('Duplicate query during generation')).not.toBeInTheDocument();
   });
+
+  it('syncs selectedPatientId across tabs when mediskye_patient_id changes in localStorage', async () => {
+    api.getDependents.mockResolvedValue([
+      { id: 'dep-child-1', full_name: 'Aarav Verma', relationship: 'Child' },
+    ]);
+
+    render(<ChatApp />);
+    await waitFor(() => expect(api.getProfile).toHaveBeenCalled());
+
+    // Dispatch a storage event simulating another tab changing the active patient
+    await act(async () => {
+      window.dispatchEvent(
+        new StorageEvent('storage', {
+          key: 'mediskye_patient_id',
+          newValue: 'dep-child-1',
+        })
+      );
+    });
+
+    // The header/sidebar active patient name updates to the child profile
+    await waitFor(() => {
+      expect(screen.getByText('Aarav Verma')).toBeInTheDocument();
+    });
+  });
 });
 

@@ -1188,6 +1188,13 @@ async def get_or_generate_document_summary(
 
     # 2. Reconstruct document text from stored chunks/content ordered by chunk index
     report_text = await _reconstruct_document_text(doc)
+    fallback_title = f"Medical Report: {doc.title or doc.filename}".strip()
+    if not report_text or not report_text.strip() or report_text.strip() == fallback_title:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Document index is still syncing. Please try again in a few seconds.",
+            headers={"Retry-After": "2"},
+        )
     summary_prompt = build_document_summary_prompt(report_text)
 
     try:

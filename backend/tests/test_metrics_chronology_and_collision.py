@@ -13,7 +13,9 @@ from app.services.clinical_units import (
     parse_report_chronology,
     canonical_biomarker_key,
     compute_biomarker_delta,
+    convert_to_standard,
 )
+from app.api.v1.endpoints.metrics import _status_from_range
 
 
 def test_canonical_biomarker_key_collision_rules():
@@ -335,5 +337,73 @@ async def test_upload_status_stage_and_fact_attribution():
             assert len(facts_data) >= 1
             matched_fact = next(f for f in facts_data if f["fact_text"] == "Mild anemia observed")
             assert matched_fact["source_document_id"] == str(doc_id)
+
+
+def test_demographic_reference_ranges_return_unknown_not_normal():
+    """
+    Fix 1: Reference intervals qualified by sex or age (e.g. Male/Female, Adult/Child)
+    must return 'Unknown' instead of defaulting or false-matching to 'Normal'.
+    """
+    # Multi-gender ranges
+    assert _status_from_range("8.2", "Male: 13.5-17.5; Female: 12.0-15.5") == "Unknown"
+    assert _status_from_range("14.0", "Male: 13.5-17.5; Female: 12.0-15.5") == "Unknown"
+    assert _status_from_range("22.0", "Adult Men: 13.0 - 18.0, Women: 12.0 - 16.0") == "Unknown"
+    assert _status_from_range("4.5", "Child: 4.0 - 5.5, Adult: 4.5 - 6.0") == "Unknown"
+
+    # Standard unambiguous ranges still derive properly
+    assert _status_from_range("14.0", "12.0 - 16.0") == "Normal"
+    assert _status_from_range("18.5", "12.0 - 16.0") == "High"
+    assert _status_from_range("10.0", "12.0 - 16.0") == "Low"
+
+
+def test_stoichiometric_unit_conversions_for_deltas():
+    """
+    Fix 2: Longitudinal deltas must correctly convert standard units across visits
+    for Glucose, Creatinine, Cholesterol, and Triglycerides.
+    """
+    # 1. Glucose: 110 mg/dL current vs 6.1 mmol/L prior (~109.91 mg/dL)
+    # 6.1 mmol/L * 18.018 = 109.91 mg/dL -> diff ~ +0.09 mg/dL
+    conv_glu = convert_to_standard(6.1, "mmol/L", "mg/dL", "fasting_glucose")
+    assert conv_glu is not None
+    assert round(conv_glu, 1) == 109.9
+
+    d_abs, d_pct, _ = compute_biomarker_delta(
+        current_val_str="110",
+        prev_val_str="6.1",
+        status="Normal",
+        unit="mg/dL",
+        canonical_key="fasting_glucose",
+        prev_unit="mmol/L",
+    )
+    assert d_abs is not None
+    assert d_pct is not None
+    assert d_abs == "+0.09 mg/dL" or d_abs.startswith("+0.1") or d_abs.startswith("+0.09")
+
+    # 2. Creatinine: 1.2 mg/dL current vs 88.4 µmol/L prior (= 1.0 mg/dL)
+    # 88.4 umol/L / 88.4 = 1.0 mg/dL -> diff +0.2 mg/dL (+20%)
+    conv_cr = convert_to_standard(88.4, "µmol/L", "mg/dL", "creatinine")
+    assert conv_cr is not None
+    assert round(conv_cr, 1) == 1.0
+
+    d_abs_cr, d_pct_cr, _ = compute_biomarker_delta(
+        current_val_str="1.2",
+        prev_val_str="88.4",
+        status="Normal",
+        unit="mg/dL",
+        canonical_key="creatinine",
+        prev_unit="µmol/L",
+    )
+    assert d_abs_cr == "+0.2 mg/dL"
+    assert d_pct_cr == "+20.0%"
+
+    # 3. Total Cholesterol: 200 mg/dL vs 5.17 mmol/L (~200 mg/dL)
+    conv_chol = convert_to_standard(5.17, "mmol/L", "mg/dL", "cholesterol")
+    assert conv_chol is not None
+    assert round(conv_chol, 0) == 200.0
+
+    # 4. Triglycerides: 150 mg/dL vs 1.69 mmol/L (~150 mg/dL)
+    conv_tg = convert_to_standard(1.69, "mmol/L", "mg/dL", "triglycerides")
+    assert conv_tg is not None
+    assert round(conv_tg, 0) == 150.0
 
 

@@ -32,6 +32,7 @@ from app.services.clinical_units import (
     canonical_biomarker_name,
     canonical_biomarker_key,
     compute_biomarker_delta,
+    convert_to_standard,
     parse_report_chronology,
     _parse_first_float,
 )
@@ -55,16 +56,22 @@ _RANGE_LOWER = re.compile(
     re.IGNORECASE,
 )
 _RANGE_AMBIGUOUS = re.compile(r"(?:-|–|—|to|<|>|<=|>=)")
+_RANGE_DEMOGRAPHIC = re.compile(
+    r"\b(?:male|female|adult|child|pediatric|infant|men|women|years|yrs|males|females)\b",
+    re.IGNORECASE,
+)
 
 
 def _status_from_range(value: Any, rng: str) -> Optional[str]:
-    """Derive Low / High / Normal from a numeric value and reference range."""
+    """Derive Low / High / Normal / Unknown from a numeric value and reference range."""
     if value is None or not rng:
         return None
+    text = str(rng).strip()
+    if _RANGE_DEMOGRAPHIC.search(text):
+        return "Unknown"
     val = _parse_first_float(str(value))
     if val is None:
         return None
-    text = rng.strip()
     m = _RANGE_BETWEEN.match(text)
     if m:
         try:
@@ -255,14 +262,18 @@ Report text:
             derived = _status_from_range(val_str, ref_range)
             if derived in ("High", "Low"):
                 final_status = derived
-            elif raw_status in ("High", "Low", "Critical", "Abnormal", "Normal"):
+            elif derived == "Unknown":
+                final_status = "Unknown"
+            elif raw_status in ("High", "Low", "Critical", "Abnormal"):
                 final_status = raw_status
             elif derived == "Normal":
+                final_status = "Normal"
+            elif raw_status == "Normal":
                 final_status = "Normal"
             elif not ref_range or not _RANGE_AMBIGUOUS.search(ref_range):
                 final_status = "Normal"
             else:
-                final_status = ""
+                final_status = "Unknown"
 
             metric_dict = {
                 "test": test_name,
@@ -384,8 +395,20 @@ async def _apply_longitudinal_deltas(
             c_val = str(m.get("value", "")).strip()
             status = str(m.get("status") or "Normal").strip()
             unit = str(m.get("unit") or "").strip()
+
+            effective_prev_val = prev_val
+            effective_prev_unit = prev_unit
+            if unit and prev_unit:
+                u1 = normalize_clinical_unit(unit).strip().lower().replace(" ", "")
+                u2 = normalize_clinical_unit(prev_unit).strip().lower().replace(" ", "")
+                if u1 != u2:
+                    conv = convert_to_standard(prev_val, prev_unit, unit, key)
+                    if conv is not None:
+                        effective_prev_val = str(conv)
+                        effective_prev_unit = unit
+
             d_abs, d_pct, d_alert = compute_biomarker_delta(
-                c_val, prev_val, status, unit, canonical_key=key, prev_unit=prev_unit
+                c_val, effective_prev_val, status, unit, canonical_key=key, prev_unit=effective_prev_unit
             )
 
         result_items.append(LabMetricItem(

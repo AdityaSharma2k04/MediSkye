@@ -166,6 +166,7 @@ export function isNotableDrop(row) {
  */
 export function classifyStatus(row) {
   const s = String(row?.status || '').trim().toLowerCase();
+  if (s === 'unknown') return 'unknown';
   if (s.includes('critical') || s.includes('panic')) return 'critical';
   if (s.includes('border')) return 'borderline';
   if (s === 'high' || s.startsWith('high') || s.includes('elevated') || s === 'h') return 'high';

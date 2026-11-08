@@ -255,6 +255,67 @@ def canonical_biomarker_key(name: str) -> str:
     return re.sub(r'\s+', '_', n_clean)
 
 
+def convert_to_standard(
+    value: Any,
+    from_unit: Optional[str],
+    to_unit: Optional[str],
+    biomarker_key: Optional[str] = "",
+) -> Optional[float]:
+    """
+    Converts a biomarker numeric value between standard clinical units.
+    Supported conversions:
+      - Glucose (fasting_glucose, glucose): mg/dL <-> mmol/L (factor 18.018)
+      - Creatinine (creatinine): mg/dL <-> µmol/L (factor 88.4)
+      - Cholesterol (cholesterol, ldl, hdl, vldl): mg/dL <-> mmol/L (factor 38.67)
+      - Triglycerides (triglycerides): mg/dL <-> mmol/L (factor 88.57)
+    Returns the converted float, or None if unsupported or invalid.
+    """
+    if value is None or from_unit is None or to_unit is None:
+        return None
+    val = _parse_first_float(str(value))
+    if val is None:
+        return None
+
+    u_from = normalize_clinical_unit(from_unit).strip().lower().replace(" ", "")
+    u_to = normalize_clinical_unit(to_unit).strip().lower().replace(" ", "")
+    if not u_from or not u_to:
+        return None
+    if u_from == u_to:
+        return val
+
+    key = (biomarker_key or "").strip().lower()
+
+    # 1. Glucose: mg/dL <-> mmol/L (18.018)
+    if key in ("glucose", "fasting_glucose") or re.search(r'\b(?:glucose|fbs|fbg|blood_sugar)\b', key):
+        if u_from == "mmol/l" and u_to == "mg/dl":
+            return round(val * 18.018, 4)
+        if u_from == "mg/dl" and u_to == "mmol/l":
+            return round(val / 18.018, 4)
+
+    # 2. Creatinine: mg/dL <-> µmol/L (88.4)
+    if key == "creatinine" or re.search(r'\bcreatinine\b', key):
+        if u_from == "mg/dl" and u_to in ("µmol/l", "umol/l", "μmol/l"):
+            return round(val * 88.4, 4)
+        if u_from in ("µmol/l", "umol/l", "μmol/l") and u_to == "mg/dl":
+            return round(val / 88.4, 4)
+
+    # 3. Cholesterol (Total, LDL, HDL): mg/dL <-> mmol/L (38.67)
+    if key in ("cholesterol", "ldl", "hdl", "vldl") or re.search(r'\b(?:cholesterol|ldl|hdl|vldl)\b', key):
+        if u_from == "mmol/l" and u_to == "mg/dl":
+            return round(val * 38.67, 4)
+        if u_from == "mg/dl" and u_to == "mmol/l":
+            return round(val / 38.67, 4)
+
+    # 4. Triglycerides: mg/dL <-> mmol/L (88.57)
+    if key in ("triglycerides", "tg") or re.search(r'\b(?:triglycerides?|tg)\b', key):
+        if u_from == "mmol/l" and u_to == "mg/dl":
+            return round(val * 88.57, 4)
+        if u_from == "mg/dl" and u_to == "mmol/l":
+            return round(val / 88.57, 4)
+
+    return None
+
+
 # Backward-compatible alias
 canonical_biomarker_name = canonical_biomarker_key
 
@@ -302,14 +363,18 @@ def compute_biomarker_delta(
       Never flag a rise in Vitamin D, B12, or Ferritin as "abnormal".
       Never flag a drop in Uric Acid or LDL as "Notable Drop".
     """
+    c_val = _parse_first_float(current_val_str)
+    p_val = _parse_first_float(prev_val_str)
+
     if unit and prev_unit:
         u1 = normalize_clinical_unit(unit).strip().lower().replace(" ", "")
         u2 = normalize_clinical_unit(prev_unit).strip().lower().replace(" ", "")
         if u1 and u2 and u1 != u2:
-            return (None, None, None)
-
-    c_val = _parse_first_float(current_val_str)
-    p_val = _parse_first_float(prev_val_str)
+            conv = convert_to_standard(p_val, prev_unit, unit, canonical_key)
+            if conv is not None:
+                p_val = conv
+            else:
+                return (None, None, None)
 
     if c_val is None or p_val is None or p_val == 0:
         return (None, None, None)

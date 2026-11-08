@@ -93,6 +93,20 @@ describe('LabMetrics Clinical Table', () => {
     expect(screen.queryByRole('button', { name: /Export CSV/i })).not.toBeInTheDocument();
   });
 
+  it('renders neutral badge for Unknown status on demographic ranges, not Normal green badge', () => {
+    const demographicMetrics = [
+      { test: 'Hemoglobin', value: '8.2', unit: 'g/dL', range: 'Male: 13.5-17.5; Female: 12.0-15.5', status: 'Unknown' },
+    ];
+    const { container } = render(<LabMetrics metrics={demographicMetrics} />);
+    expect(screen.getAllByText('Hemoglobin')[0]).toBeInTheDocument();
+    expect(screen.getAllByText('Unknown')[0]).toBeInTheDocument();
+    // Neutral slate badge
+    const badge = container.querySelector('.bg-slate-500\\/10');
+    expect(badge).toBeInTheDocument();
+    // Does NOT render emerald normal badge
+    expect(container.querySelector('.bg-emerald-500\\/10')).toBeNull();
+  });
+
   it('renders mobile card list for 390px viewports without horizontal clipping', () => {
     const { container } = render(<LabMetrics metrics={sampleMetrics} />);
     const mobileCardsContainer = container.querySelector('.block.sm\\:hidden');

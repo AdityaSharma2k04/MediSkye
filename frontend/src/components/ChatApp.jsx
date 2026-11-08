@@ -131,6 +131,17 @@ export default function ChatApp() {
   });
   const [profileInitialTab, setProfileInitialTab] = useState('profile');
 
+  // Cross-Tab Patient Profile Sync
+  useEffect(() => {
+    const handleStorage = (e) => {
+      if (e.key === 'mediskye_patient_id' && e.newValue) {
+        setSelectedPatientId(e.newValue);
+      }
+    };
+    window.addEventListener('storage', handleStorage);
+    return () => window.removeEventListener('storage', handleStorage);
+  }, []);
+
   // ── Theme state: 'light' | 'dark' | 'system' — the raw preference is persisted ──
   // Permanent Obsidian dark theme — light mode has been removed.
   const themePreference = 'dark';

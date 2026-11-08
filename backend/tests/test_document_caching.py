@@ -175,6 +175,7 @@ async def test_summary_persistent_caching_and_emoji_stripping():
     with (
         patch("google.genai.Client", return_value=mock_client),
         patch("firebase_admin.auth.verify_id_token", side_effect=Exception("Local JWT")),
+        patch("app.api.v1.endpoints.query._reconstruct_document_text", return_value="Complete Blood Count Report: Hemoglobin 12.0 g/dL"),
     ):
         async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as ac:
             login_res = await ac.post("/login", data={"username": email, "password": TEST_PASSWORD})
@@ -242,3 +243,52 @@ async def test_summary_ownership_verification():
             # User 2 attempting to access User 1's summary should return 404
             res = await ac.post(f"/users/me/documents/{doc1_id}/summary", headers=h2)
             assert res.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_summary_cache_poisoning_raises_503_on_index_miss():
+    """
+    Fix 4 test: If the document text cannot be reconstructed or is just the fallback title,
+    the endpoint must raise 503 Service Unavailable, avoid calling Gemini, and not cache an empty summary.
+    """
+    email = f"summary_503_{uuid.uuid4().hex[:8]}@test.com"
+    async with AsyncSessionLocal() as session:
+        user = User(
+            email=email,
+            hashed_password=get_password_hash(TEST_PASSWORD),
+            phi_consent_granted=True,
+        )
+        session.add(user)
+        await session.commit()
+        await session.refresh(user)
+
+        doc = Document(
+            user_id=user.id,
+            filename="unindexed_report.pdf",
+            file_path="nonexistent/index/path",
+        )
+        session.add(doc)
+        await session.commit()
+        await session.refresh(doc)
+        doc_id = doc.id
+
+    mock_client = MagicMock()
+    with (
+        patch("google.genai.Client", return_value=mock_client),
+        patch("firebase_admin.auth.verify_id_token", side_effect=Exception("Local JWT")),
+    ):
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as ac:
+            login_res = await ac.post("/login", data={"username": email, "password": TEST_PASSWORD})
+            token = login_res.json()["access_token"]
+            headers = {"Authorization": f"Bearer {token}"}
+
+            # Should return 503 and not call Gemini
+            res = await ac.post(f"/users/me/documents/{doc_id}/summary", headers=headers)
+            assert res.status_code == 503
+            assert "Document index is still syncing" in res.json()["detail"]
+            assert mock_client.models.generate_content.call_count == 0
+
+            # Verify nothing is cached in the DB
+            async with AsyncSessionLocal() as session:
+                refreshed_doc = await session.get(Document, doc_id)
+                assert refreshed_doc.cached_summary is None
