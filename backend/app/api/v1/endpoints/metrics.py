@@ -42,6 +42,58 @@ router = APIRouter()
 
 METRICS_PROMPT_CHAR_BUDGET = 16000
 
+_RANGE_BETWEEN = re.compile(
+    r"^\s*(\d+(?:\.\d+)?)\s*(?:-|–|—|to)\s*(\d+(?:\.\d+)?)\s*$",
+    re.IGNORECASE,
+)
+_RANGE_UPPER = re.compile(
+    r"^\s*(?:<|<=|less than|up to)\s*(\d+(?:\.\d+)?)\s*$",
+    re.IGNORECASE,
+)
+_RANGE_LOWER = re.compile(
+    r"^\s*(?:>|>=|greater than|more than)\s*(\d+(?:\.\d+)?)\s*$",
+    re.IGNORECASE,
+)
+_RANGE_AMBIGUOUS = re.compile(r"(?:-|–|—|to|<|>|<=|>=)")
+
+
+def _status_from_range(value: Any, rng: str) -> Optional[str]:
+    """Derive Low / High / Normal from a numeric value and reference range."""
+    if value is None or not rng:
+        return None
+    val = _parse_first_float(str(value))
+    if val is None:
+        return None
+    text = rng.strip()
+    m = _RANGE_BETWEEN.match(text)
+    if m:
+        try:
+            lo, hi = float(m.group(1)), float(m.group(2))
+            if lo > hi:
+                lo, hi = hi, lo
+            if val < lo:
+                return "Low"
+            if val > hi:
+                return "High"
+            return "Normal"
+        except (ValueError, TypeError):
+            return None
+    m = _RANGE_UPPER.match(text)
+    if m:
+        try:
+            hi = float(m.group(1))
+            return "High" if val > hi else "Normal"
+        except (ValueError, TypeError):
+            return None
+    m = _RANGE_LOWER.match(text)
+    if m:
+        try:
+            lo = float(m.group(1))
+            return "Low" if val < lo else "Normal"
+        except (ValueError, TypeError):
+            return None
+    return None
+
 
 async def extract_and_cache_metrics(
     doc_id: Union[uuid.UUID, str],
@@ -198,12 +250,26 @@ Report text:
 
             normalized_unit = normalize_clinical_unit(unit_str) if unit_str else ""
 
+            ref_range = str(item.get("range") or item.get("reference_range") or "").strip()
+            raw_status = (item.get("status") or "").strip()
+            derived = _status_from_range(val_str, ref_range)
+            if derived in ("High", "Low"):
+                final_status = derived
+            elif raw_status in ("High", "Low", "Critical", "Abnormal", "Normal"):
+                final_status = raw_status
+            elif derived == "Normal":
+                final_status = "Normal"
+            elif not ref_range or not _RANGE_AMBIGUOUS.search(ref_range):
+                final_status = "Normal"
+            else:
+                final_status = ""
+
             metric_dict = {
                 "test": test_name,
                 "value": val_str,
                 "unit": normalized_unit,
-                "range": str(item.get("range") or item.get("reference_range") or "").strip(),
-                "status": str(item.get("status") or "Normal").strip(),
+                "range": ref_range,
+                "status": final_status,
             }
             raw_metrics.append(metric_dict)
 
