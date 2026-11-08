@@ -54,6 +54,7 @@ describe('status, tone and geometry', () => {
     expect(classifyStatus({ status: 'Critical High' })).toBe('critical');
     expect(classifyStatus({ value: '5.9', range: '4.0-5.6' })).toBe('high');
     expect(classifyStatus({ value: '4.8', range: '4.0-5.6' })).toBe('normal');
+    expect(classifyStatus({ status: 'Normal', value: '260', range: '0-200' })).toBe('high');
   });
 
   it('maps tones to the clinical palette (rose high, amber low/shift, emerald normal)', () => {

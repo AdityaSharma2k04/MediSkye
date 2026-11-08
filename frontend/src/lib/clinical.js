@@ -162,8 +162,7 @@ export function isNotableDrop(row) {
 
 /**
  * Returns one of: 'critical' | 'high' | 'low' | 'borderline' | 'normal' | 'unknown'.
- * Trusts the backend status label first; derives from the reference interval
- * only when the label is missing.
+ * Trusts the backend status label, except that a 'Normal' label is overridden when the value is clearly outside a parseable reference range.
  */
 export function classifyStatus(row) {
   const s = String(row?.status || '').trim().toLowerCase();
@@ -177,7 +176,12 @@ export function classifyStatus(row) {
     if (pos?.side === 'below') return 'low';
     return 'high';
   }
-  if (s === 'normal' || s.includes('optimal') || s.includes('within') || s === 'in range') return 'normal';
+  if (s === 'normal' || s.includes('optimal') || s.includes('within') || s === 'in range') {
+    const pos = rangeGeometry(row);
+    if (pos?.side === 'above') return 'high';   // label says normal, numbers disagree
+    if (pos?.side === 'below') return 'low';
+    return 'normal';
+  }
 
   const pos = rangeGeometry(row);
   if (!pos) {
