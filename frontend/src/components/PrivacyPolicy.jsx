@@ -180,7 +180,7 @@ export default function PrivacyPolicy() {
                   Fernet Encryption at Rest
                 </div>
                 <p className="text-xs text-slate-400 leading-relaxed">
-                  Chat messages, remembered health facts, and the medical fields of your health profile are encrypted at rest using authenticated symmetric Fernet encryption (AES-128 in CBC mode with HMAC SHA-256).
+                  Chat messages, remembered health facts, and the medical fields of your health profile (blood type, conditions, allergies, medications, occupation) are encrypted at rest using authenticated symmetric Fernet encryption (AES-128 in CBC mode with HMAC SHA-256). Uploaded reports, extracted lab values, report summaries, and basic account details (name, date of birth) are protected by encryption at rest from our infrastructure providers, TLS in transit, and strict per-user access controls.
                 </p>
               </div>
 
