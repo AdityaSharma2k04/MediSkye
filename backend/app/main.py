@@ -106,6 +106,14 @@ async def lifespan(app: FastAPI):
 
         await conn.run_sync(_ensure_document_cache_columns)
 
+    try:
+        from app.services.upload_jobs import fail_stale_building_documents
+        swept = await fail_stale_building_documents()
+        if swept:
+            logger.warning("Marked %d stale 'building' document(s) as failed on startup", swept)
+    except Exception as sweep_err:
+        logger.warning("Startup stale-document sweep skipped: %s", sweep_err)
+
     yield
     
     # Shutdown Lifespan

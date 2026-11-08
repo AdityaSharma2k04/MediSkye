@@ -40,6 +40,7 @@ from app.services.patient_memory import get_active_facts, get_relevant_past_chun
 from app.services.memory_formatter import format_facts_for_prompt, format_past_chats_for_prompt
 from app.services.fact_persistence import process_chat_memory_extraction
 from app.services.chat_indexer import index_chat_message
+from app.services.upload_jobs import is_stale_building
 
 logger = logging.getLogger(__name__)
 
@@ -230,7 +231,7 @@ async def query_bot(
 
     # ── Total Miss / Building Safeguard (Executed before ANY DB writes or Gemini calls) ──
     for d in chat_docs:
-        if getattr(d, "index_status", None) == "failed":
+        if getattr(d, "index_status", None) == "failed" or is_stale_building(d):
             raise HTTPException(
                 status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
                 detail="This document could not be processed. Please upload a different file or re-upload.",
@@ -1178,6 +1179,12 @@ async def get_or_generate_document_summary(
     # 1. Check persistent database cache
     if not force_refresh and doc.cached_summary is not None and doc.cached_summary.strip() != "":
         return DocumentSummaryResponse(summary=doc.cached_summary, cached=True)
+
+    if is_stale_building(doc):
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="This document could not be processed. Please upload a different file or re-upload.",
+        )
 
     if getattr(doc, "index_status", None) == "building":
         raise HTTPException(

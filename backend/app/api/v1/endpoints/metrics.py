@@ -18,6 +18,7 @@ from app.core.config import settings
 from app.db.database import get_db
 from app.db.models import User, Document, DependentProfile
 from app.schemas.upload import MetricsResponse, LabMetricItem
+from app.services.upload_jobs import is_stale_building
 from app.rag.retriever import retrieve_relevant_docs, get_cached_hybrid_index, load_hybrid_index
 from app.rag.index_storage import aensure_index_local
 from app.rag.embedder import get_embedder
@@ -501,7 +502,7 @@ async def _get_or_extract_metrics(
     if not doc or doc.user_id != current_user.id:
         raise HTTPException(status_code=404, detail="Document not found.")
 
-    if getattr(doc, "index_status", None) == "failed":
+    if getattr(doc, "index_status", None) == "failed" or is_stale_building(doc):
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail="This document could not be processed. Please upload a different file or re-upload.",

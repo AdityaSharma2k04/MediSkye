@@ -3,11 +3,11 @@ from datetime import datetime, timedelta, UTC
 from typing import Optional, Any
 from enum import Enum
 import logging
-from sqlalchemy import select, delete
+from sqlalchemy import select, delete, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.database import AsyncSessionLocal
-from app.db.models import UploadJob
+from app.db.models import UploadJob, Document
 
 logger = logging.getLogger(__name__)
 
@@ -159,3 +159,45 @@ async def cleanup_stale_jobs(
     else:
         async with AsyncSessionLocal() as s:
             return await _cleanup(s)
+
+
+STALE_BUILDING_MINUTES = 15
+
+
+def _as_utc(dt):
+    if dt is None:
+        return None
+    return dt if dt.tzinfo else dt.replace(tzinfo=UTC)
+
+
+def is_stale_building(doc, max_age_minutes: int = STALE_BUILDING_MINUTES) -> bool:
+    """True if a document has been 'building' for longer than max_age_minutes."""
+    if getattr(doc, "index_status", None) != "building":
+        return False
+    created = _as_utc(getattr(doc, "created_at", None))
+    if created is None:
+        return False
+    return created < datetime.now(UTC) - timedelta(minutes=max_age_minutes)
+
+
+async def fail_stale_building_documents(
+    max_age_minutes: int = STALE_BUILDING_MINUTES,
+    session: Optional[AsyncSession] = None,
+) -> int:
+    """Mark documents stuck in 'building' longer than max_age_minutes as 'failed'. Returns rows updated."""
+    cutoff = datetime.now(UTC) - timedelta(minutes=max_age_minutes)
+
+    async def _run(s: AsyncSession) -> int:
+        res = await s.execute(
+            update(Document)
+            .where(Document.index_status == "building", Document.created_at < cutoff)
+            .values(index_status="failed")
+        )
+        await s.commit()
+        return res.rowcount or 0
+
+    if session is not None:
+        return await _run(session)
+    async with AsyncSessionLocal() as s:
+        return await _run(s)
+
