@@ -17,6 +17,10 @@ def test_detect_emergency_self_harm():
     assert detect_emergency("thinking of hurting myself") == EmergencyKind.SELF_HARM
     assert detect_emergency("self-harm thoughts") == EmergencyKind.SELF_HARM
     assert is_emergency_query("I am suicidal") is True
+    assert detect_emergency("I want to take my own life") == EmergencyKind.SELF_HARM
+    assert detect_emergency("I don't want to live anymore") == EmergencyKind.SELF_HARM
+    assert detect_emergency("I don't want to live like this") == EmergencyKind.SELF_HARM
+    assert detect_emergency("everyone would be better off dead") == EmergencyKind.SELF_HARM
 
 
 def test_detect_emergency_acute_medical():
@@ -36,6 +40,8 @@ def test_detect_emergency_risk_question_exclusions():
     assert detect_emergency("Family history of heart attack") is None
     assert detect_emergency("What is a stroke?") is None
     assert is_emergency_query("Does my high cholesterol raise risk of heart attack?") is False
+    assert detect_emergency("I don't want to live on insulin for the rest of my life") is None
+    assert detect_emergency("I don't want to live with high cholesterol forever") is None
 
 
 def test_get_emergency_response():
