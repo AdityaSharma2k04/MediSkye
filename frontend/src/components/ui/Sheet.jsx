@@ -102,19 +102,17 @@ export default function Sheet({
             {foot}
           </Dialog.Content>
         ) : (
-          <div className="fixed inset-0 z-[61] flex items-center justify-center p-4 pointer-events-none">
-            <Dialog.Content
-              style={{ width: `min(${width}px, calc(100vw - 32px))` }}
-              className={cn(
-                'pointer-events-auto flex flex-col w-full max-w-md max-h-[86dvh] rounded-3xl outline-none bg-carbon border border-white/[0.08] shadow-float animate-modal-in',
-                className
-              )}
-            >
-              {header}
-              {body}
-              {foot}
-            </Dialog.Content>
-          </div>
+          <Dialog.Content
+            style={{ width: `min(${width}px, calc(100vw - 24px))` }}
+            className={cn(
+              'fixed z-[61] inset-x-0 mx-auto top-[12dvh] flex flex-col w-full max-w-md max-h-[86dvh] rounded-3xl outline-none bg-carbon border border-white/[0.08] shadow-float animate-modal-in',
+              className
+            )}
+          >
+            {header}
+            {body}
+            {foot}
+          </Dialog.Content>
         )}
       </Dialog.Portal>
     </Dialog.Root>

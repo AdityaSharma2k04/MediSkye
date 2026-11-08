@@ -341,19 +341,54 @@ async def test_upload_status_stage_and_fact_attribution():
 
 def test_demographic_reference_ranges_return_unknown_not_normal():
     """
-    Fix 1: Reference intervals qualified by sex or age (e.g. Male/Female, Adult/Child)
-    must return 'Unknown' instead of defaulting or false-matching to 'Normal'.
+    Reference intervals qualified by sex or age (e.g. Male/Female, Adult/Child)
+    cannot be derived purely by number without demographic cohort -> return None.
+    Resolution logic preserves extracted High/Low/Critical and assigns Unknown for ambiguous Normal.
     """
-    # Multi-gender ranges
-    assert _status_from_range("8.2", "Male: 13.5-17.5; Female: 12.0-15.5") == "Unknown"
-    assert _status_from_range("14.0", "Male: 13.5-17.5; Female: 12.0-15.5") == "Unknown"
-    assert _status_from_range("22.0", "Adult Men: 13.0 - 18.0, Women: 12.0 - 16.0") == "Unknown"
-    assert _status_from_range("4.5", "Child: 4.0 - 5.5, Adult: 4.5 - 6.0") == "Unknown"
+    # Multi-gender ranges cannot be derived purely by numbers without knowing demographic cohort
+    assert _status_from_range("8.2", "Male: 13.5-17.5; Female: 12.0-15.5") is None
+    assert _status_from_range("14.0", "Male: 13.5-17.5; Female: 12.0-15.5") is None
+    assert _status_from_range("22.0", "Adult Men: 13.0 - 18.0, Women: 12.0 - 16.0") is None
+    assert _status_from_range("4.5", "Child: 4.0 - 5.5, Adult: 4.5 - 6.0") is None
 
     # Standard unambiguous ranges still derive properly
     assert _status_from_range("14.0", "12.0 - 16.0") == "Normal"
     assert _status_from_range("18.5", "12.0 - 16.0") == "High"
     assert _status_from_range("10.0", "12.0 - 16.0") == "Low"
+
+
+def test_demographic_resolution_logic_preserves_extracted_status():
+    """
+    Verify that when demographic reference ranges are present:
+    - Extracted High/Low/Critical flags are preserved.
+    - LLM Normal or empty status becomes Unknown (never falsely labeled healthy).
+    """
+    from app.api.v1.endpoints.metrics import _RANGE_AMBIGUOUS, _RANGE_DEMOGRAPHIC
+
+    def resolve(val_str, ref_range, raw_status):
+        derived = _status_from_range(val_str, ref_range)
+        is_ambiguous_range = bool(
+            ref_range and (_RANGE_DEMOGRAPHIC.search(ref_range) or _RANGE_AMBIGUOUS.search(ref_range))
+        )
+        if derived in ("High", "Low"):
+            return derived
+        elif raw_status in ("High", "Low", "Critical", "Abnormal"):
+            return raw_status
+        elif derived == "Normal":
+            return "Normal"
+        elif is_ambiguous_range:
+            return "Unknown"
+        elif raw_status == "Normal" or not ref_range:
+            return "Normal"
+        else:
+            return "Unknown"
+
+    demo_range = "Male: 13.5-17.5; Female: 12.0-15.5"
+    assert resolve("19.0", demo_range, "High") == "High"
+    assert resolve("10.0", demo_range, "Low") == "Low"
+    assert resolve("7.0", demo_range, "Critical") == "Critical"
+    assert resolve("14.0", demo_range, "Normal") == "Unknown"
+    assert resolve("14.0", demo_range, "") == "Unknown"
 
 
 def test_stoichiometric_unit_conversions_for_deltas():

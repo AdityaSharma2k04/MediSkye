@@ -5,6 +5,7 @@ import UploadStepper from '../components/workbench/UploadStepper';
 import RangeBar from '../components/clinical/RangeBar';
 import LabMetrics from '../components/LabMetrics';
 import OrganSystemsOverview from '../components/clinical/OrganSystemsOverview';
+import Sheet from '../components/ui/Sheet';
 
 const metrics = [
   { test: 'Hemoglobin', value: '11.6', unit: 'g/dL', range: '12.0–15.5', status: 'Low', previous_value: '13.1', delta_pct: -11.5, delta_alert: 'Notable Drop (-11.5%)' },
@@ -68,5 +69,32 @@ describe('OrganSystemsOverview', () => {
     expect(screen.getByText('2 of 3 values need attention')).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: /Notable drops/i }));
     expect(onApplyFilter).toHaveBeenCalledWith('drops');
+  });
+});
+
+describe('Sheet centered variant', () => {
+  it('renders centered without pointer-events wrapping div and supports escape and close', () => {
+    const onOpenChange = vi.fn();
+    render(
+      <Sheet open={true} onOpenChange={onOpenChange} title="Actions" variant="center" width={420}>
+        <div>Sheet body content</div>
+      </Sheet>
+    );
+    const dialog = screen.getByRole('dialog');
+    expect(dialog).toBeInTheDocument();
+    expect(dialog.className).toContain('fixed');
+    expect(dialog.className).toContain('inset-x-0');
+    expect(dialog.className).toContain('mx-auto');
+    expect(dialog.className).toContain('top-[12dvh]');
+    expect(screen.getByText('Sheet body content')).toBeInTheDocument();
+
+    // Close button dismisses
+    const closeBtn = screen.getByRole('button', { name: /Close Actions/i });
+    fireEvent.click(closeBtn);
+    expect(onOpenChange).toHaveBeenCalledWith(false);
+
+    // Escape key dismisses
+    fireEvent.keyDown(dialog, { key: 'Escape', code: 'Escape' });
+    expect(onOpenChange).toHaveBeenCalledWith(false);
   });
 });

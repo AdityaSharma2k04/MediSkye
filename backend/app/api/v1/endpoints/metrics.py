@@ -63,12 +63,12 @@ _RANGE_DEMOGRAPHIC = re.compile(
 
 
 def _status_from_range(value: Any, rng: str) -> Optional[str]:
-    """Derive Low / High / Normal / Unknown from a numeric value and reference range."""
+    """Derive Low / High / Normal / None from a numeric value and reference range."""
     if value is None or not rng:
         return None
     text = str(rng).strip()
     if _RANGE_DEMOGRAPHIC.search(text):
-        return "Unknown"
+        return None
     val = _parse_first_float(str(value))
     if val is None:
         return None
@@ -260,17 +260,19 @@ Report text:
             ref_range = str(item.get("range") or item.get("reference_range") or "").strip()
             raw_status = (item.get("status") or "").strip()
             derived = _status_from_range(val_str, ref_range)
+            is_ambiguous_range = bool(
+                ref_range and (_RANGE_DEMOGRAPHIC.search(ref_range) or _RANGE_AMBIGUOUS.search(ref_range))
+            )
+
             if derived in ("High", "Low"):
                 final_status = derived
-            elif derived == "Unknown":
-                final_status = "Unknown"
             elif raw_status in ("High", "Low", "Critical", "Abnormal"):
                 final_status = raw_status
             elif derived == "Normal":
                 final_status = "Normal"
-            elif raw_status == "Normal":
-                final_status = "Normal"
-            elif not ref_range or not _RANGE_AMBIGUOUS.search(ref_range):
+            elif is_ambiguous_range:
+                final_status = "Unknown"
+            elif raw_status == "Normal" or not ref_range:
                 final_status = "Normal"
             else:
                 final_status = "Unknown"
