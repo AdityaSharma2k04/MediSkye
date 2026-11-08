@@ -89,20 +89,33 @@ export default function Sheet({
     <Dialog.Root open={open} onOpenChange={onOpenChange}>
       <Dialog.Portal>
         <Dialog.Overlay className="fixed inset-0 z-[60] bg-black/55 backdrop-blur-[3px] animate-backdrop-in" />
-        <Dialog.Content
-          style={{ width: isSide ? `min(${width}px, 100vw)` : `min(${width}px, calc(100vw - 32px))` }}
-          className={cn(
-            'fixed z-[61] flex flex-col outline-none bg-carbon border border-white/[0.08] shadow-float',
-            isSide
-              ? 'right-0 top-0 h-app rounded-l-3xl border-r-0 animate-[sheetSide_0.32s_cubic-bezier(0.22,1,0.36,1)_both]'
-              : 'left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 max-h-[86dvh] rounded-3xl animate-modal-in',
-            className
-          )}
-        >
-          {header}
-          {body}
-          {foot}
-        </Dialog.Content>
+        {isSide ? (
+          <Dialog.Content
+            style={{ width: `min(${width}px, 100vw)` }}
+            className={cn(
+              'fixed z-[61] right-0 top-0 h-app flex flex-col outline-none bg-carbon border border-white/[0.08] border-r-0 rounded-l-3xl shadow-float animate-[sheetSide_0.32s_cubic-bezier(0.22,1,0.36,1)_both]',
+              className
+            )}
+          >
+            {header}
+            {body}
+            {foot}
+          </Dialog.Content>
+        ) : (
+          <div className="fixed inset-0 z-[61] flex items-center justify-center p-4 pointer-events-none">
+            <Dialog.Content
+              style={{ width: `min(${width}px, calc(100vw - 32px))` }}
+              className={cn(
+                'pointer-events-auto flex flex-col w-full max-w-md max-h-[86dvh] rounded-3xl outline-none bg-carbon border border-white/[0.08] shadow-float animate-modal-in',
+                className
+              )}
+            >
+              {header}
+              {body}
+              {foot}
+            </Dialog.Content>
+          </div>
+        )}
       </Dialog.Portal>
     </Dialog.Root>
   );
