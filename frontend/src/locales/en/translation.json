@@ -95,6 +95,7 @@
     "google_signup": "Sign up with Google",
     "google_signing_in": "Signing in with Google...",
     "google_signing_up": "Signing up with Google...",
+    "google_consent_note": "By signing in with Google you agree to the Privacy Policy and consent to MediSkye processing your health information, including by Google Vertex AI, to answer your questions.",
     "or_email": "or continue with email",
     "email_placeholder": "Email address",
     "password_placeholder": "Password",

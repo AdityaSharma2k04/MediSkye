@@ -330,6 +330,16 @@ export default function Login() {
           )}
         </button>
 
+        <p
+          data-testid="google-consent-note"
+          style={{ marginTop: 8, fontSize: 11, lineHeight: 1.4, textAlign: 'center', opacity: 0.7 }}
+        >
+          {t(
+            'auth.google_consent_note',
+            'By signing in with Google you agree to the Privacy Policy and consent to MediSkye processing your health information, including by Google Vertex AI, to answer your questions.'
+          )}
+        </p>
+
         {/* Divider */}
         <div className="login-divider login-divider-subtle">
           <span>{t('auth.or_email', 'or continue with email')}</span>

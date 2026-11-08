@@ -95,6 +95,7 @@
     "google_signup": "Google के साथ साइन अप करें",
     "google_signing_in": "Google से साइन इन हो रहा है...",
     "google_signing_up": "Google से साइन अप हो रहा है...",
+    "google_consent_note": "Google से साइन इन करके आप गोपनीयता नीति से सहमत होते हैं और MediSkye को आपके स्वास्थ्य संबंधी जानकारी (Google Vertex AI सहित) को संसाधित करने की सहमति देते हैं, ताकि आपके प्रश्नों का उत्तर दिया जा सके।",
     "or_email": "या ईमेल के साथ जारी रखें",
     "email_placeholder": "ईमेल पता",
     "password_placeholder": "पासवर्ड",
