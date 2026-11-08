@@ -250,7 +250,7 @@ export default function Workbench(props) {
             <Menu className="w-[18px] h-[18px]" />
           </IconButton>
 
-          {!isDesktop && <BrandMark size={26} className="shrink-0 mr-0.5" />}
+          {!isDesktop && !isMobile && <BrandMark size={26} className="shrink-0 mr-0.5" />}
 
           {currentUser && (
             <PatientSwitcher
