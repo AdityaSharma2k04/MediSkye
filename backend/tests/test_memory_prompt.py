@@ -187,7 +187,11 @@ def test_format_facts_source_report_attribution():
 
 def test_prompt_builder_forbids_previously_discussed_and_enforces_exact_citations():
     """Verify system instructions explicitly forbid '[previously discussed]' and enforce exact citations and directionality."""
-    sys_doc_qa, _ = build_prompt(user_query="How do my reports compare?")
+    sys_doc_qa, user_content = build_prompt(
+        user_query="How do my reports compare?",
+        known_allergies="Strict Lactose Intolerance, NSAID",
+        current_medications="Creatine Monohydrate 5g daily",
+    )
     assert 'NEVER write "[previously discussed]"' in sys_doc_qa
     assert "CLINICAL DIRECTIONALITY & ZERO CONTRADICTIONS" in sys_doc_qa
     assert "LONGITUDINAL COMPARISONS & PRIOR REPORT HISTORY" in sys_doc_qa
@@ -197,10 +201,26 @@ def test_prompt_builder_forbids_previously_discussed_and_enforces_exact_citation
     assert "specimen collection date" in sys_doc_qa
     assert "PROACTIVE BORDERLINE & SUBCLINICAL TREND DETECTION" in sys_doc_qa
     assert "DEEP MULTI-FACTOR PROFILE SYNTHESIS" in sys_doc_qa
-    assert "Strict Lactose Intolerance" in sys_doc_qa
-    assert "NSAID-induced bronchospasm" in sys_doc_qa
+
+    # Patient injected allergies/intolerances in user_content
+    assert "Strict Lactose Intolerance" in user_content
+    assert "NSAID" in user_content
+    assert "Creatine Monohydrate" in user_content
+
+    # Universal clinical & empathy rules in system_instruction
+    assert "What This Report Does Not Cover" in sys_doc_qa
+    assert "Cystatin C" in sys_doc_qa
+    assert "Methylmalonic Acid" in sys_doc_qa
+    assert "8–12 weeks" in sys_doc_qa
+
+    # De-overfitting: ensure no hardcoded Aarav Verma literals in system_instruction
+    assert "176 pg/mL" not in sys_doc_qa
+    assert "94 mL/min" not in sys_doc_qa
+    assert "24 Oct 2026" not in sys_doc_qa
+    assert "Levosalbutamol" not in sys_doc_qa
 
     sys_general, _ = build_general_health_prompt(user_query="Can ferritin drop without anemia?")
     assert 'NEVER write "[previously discussed]"' in sys_general
     assert "Never group Low" in sys_general
     assert "Reference Range" in sys_general
+    assert "What This Report Does Not Cover" in sys_general

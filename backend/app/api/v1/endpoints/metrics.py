@@ -296,36 +296,67 @@ async def extract_and_cache_metrics(
         else:
             keywords = (
                 "lab", "test", "result", "reference", "range", "unit", "blood", "serum",
-                "count", "panel", "hemoglobin", "glucose", "cholesterol", "platelet", "wbc", "rbc"
+                "count", "panel", "hemoglobin", "glucose", "cholesterol", "platelet", "wbc", "rbc",
+                "interval", "plasma", "urine", "assay", "profile", "mmol", "umol", "µmol",
+                "iu/", "miu", "u/l", "ng/", "pg/", "ratio", "normal", "high", "low",
+                "reactive", "negative", "positive"
             )
             lab_pages = [p for p in all_pages if any(kw in p.lower() for kw in keywords)]
             combined_text = "\n".join(lab_pages) if lab_pages else full_text
     elif doc.file_path:
         try:
             bm25_index = None
-            if hasattr(FAISS.load_local, "mock_calls") or hasattr(FAISS.load_local, "_mock_return_value"):
+            cached_entry = get_cached_hybrid_index(str(doc.id)) or get_cached_hybrid_index(doc.file_path)
+            if cached_entry is not None:
+                vectorstore, bm25_index = cached_entry
+            elif hasattr(FAISS.load_local, "mock_calls") or hasattr(FAISS.load_local, "_mock_return_value"):
                 vectorstore = await asyncio.to_thread(
                     FAISS.load_local, doc.file_path, get_embedder(), allow_dangerous_deserialization=True
                 )
             else:
-                cached_entry = get_cached_hybrid_index(str(doc.id)) or get_cached_hybrid_index(doc.file_path)
-                if cached_entry is not None:
-                    vectorstore, bm25_index = cached_entry
-                else:
-                    resolved_path = str(await aensure_index_local(doc.file_path))
-                    vectorstore, bm25_index = await asyncio.to_thread(load_hybrid_index, resolved_path)
+                resolved_path = str(await aensure_index_local(doc.file_path))
+                vectorstore, bm25_index = await asyncio.to_thread(load_hybrid_index, resolved_path)
         except Exception as e:
             logger.error("Could not load document index: %s", e)
             raise HTTPException(status_code=500, detail="Could not load document index.")
 
-        docs = await asyncio.to_thread(
-            retrieve_relevant_docs,
-            "blood count lab results reference ranges cholesterol liver function",
-            vectorstore,
-            bm25_index,
-            k=12,
-        )
-        combined_text = "\n".join([d.page_content for d in docs])
+        def _extract_ordered_chunks(v, b) -> List[str]:
+            # 1. BM25 corpus retains original chunk ordering
+            if b is not None and hasattr(b, "chunks") and isinstance(b.chunks, (list, tuple)) and b.chunks:
+                texts = [getattr(c, "page_content", "") for c in b.chunks if isinstance(getattr(c, "page_content", None), str) and getattr(c, "page_content", "").strip()]
+                if texts:
+                    return texts
+            # 2. FAISS index_to_docstore_id order
+            if hasattr(v, "index_to_docstore_id") and isinstance(v.index_to_docstore_id, dict) and hasattr(v, "docstore"):
+                try:
+                    texts = []
+                    for i in range(len(v.index_to_docstore_id)):
+                        doc_item = v.docstore.search(v.index_to_docstore_id[i])
+                        if hasattr(doc_item, "page_content") and isinstance(doc_item.page_content, str) and doc_item.page_content.strip():
+                            texts.append(doc_item.page_content)
+                    if texts:
+                        return texts
+                except Exception:
+                    pass
+            # 3. FAISS docstore _dict fallback
+            if hasattr(v, "docstore") and hasattr(v.docstore, "_dict") and isinstance(v.docstore._dict, dict):
+                texts = [getattr(c, "page_content", "") for c in v.docstore._dict.values() if isinstance(getattr(c, "page_content", None), str) and getattr(c, "page_content", "").strip()]
+                if texts:
+                    return texts
+            return []
+
+        ordered_texts = _extract_ordered_chunks(vectorstore, bm25_index)
+        if ordered_texts:
+            combined_text = "\n".join(ordered_texts)
+        else:
+            docs = await asyncio.to_thread(
+                retrieve_relevant_docs,
+                "blood count lab results reference ranges cholesterol liver function",
+                vectorstore,
+                bm25_index,
+                k=12,
+            )
+            combined_text = "\n".join([d.page_content for d in docs])
     else:
         return []
 

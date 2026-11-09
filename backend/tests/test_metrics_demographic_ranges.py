@@ -1,3 +1,6 @@
+from unittest.mock import MagicMock, AsyncMock, patch
+from app.db.models import Document
+from app.api.v1.endpoints.metrics import extract_and_cache_metrics
 import uuid
 from types import SimpleNamespace
 import pytest
@@ -117,5 +120,26 @@ def test_remediation_clinical_status_and_biomarkers():
     assert canonical_biomarker_key("MCHC") == "mchc"
     assert canonical_biomarker_key("Total Leucocyte Count (TLC)") == "wbc"
 
+@pytest.mark.asyncio
+async def test_on_demand_extraction_reconstructs_all_chunks_across_3_windows():
+    uid = uuid.uuid4()
+    doc_id = uuid.uuid4()
+    async with AsyncSessionLocal() as session:
+        session.add(User(id=uid, email=f"user_{uuid.uuid4().hex[:8]}@test.com", hashed_password="pw"))
+        session.add(Document(id=doc_id, user_id=uid, title="Multi-Page Report", filename="multi.pdf", file_path="dummy.index"))
+        await session.commit()
 
+        mock_chunks = [SimpleNamespace(page_content="Page " + str(i) + " " + ("x" * 9000)) for i in range(5)]
+        mock_bm25 = SimpleNamespace(chunks=mock_chunks)
+        mock_vectorstore = MagicMock()
+
+        gemini_mock = AsyncMock(side_effect=lambda **kwargs: SimpleNamespace(text='[{"test": "Hemoglobin", "value": "14", "unit": "g/dL", "range": "12-16", "status": "Normal"}]'))
+
+        with patch("app.api.v1.endpoints.metrics.get_cached_hybrid_index", return_value=(mock_vectorstore, mock_bm25)), \
+             patch("app.api.v1.endpoints.metrics.call_gemini_with_retry", gemini_mock):
+
+            metrics = await extract_and_cache_metrics(doc_id=doc_id, page_docs=None, db=session)
+            assert gemini_mock.call_count == 3
+            assert metrics is not None
+            assert len(metrics) > 0
 

@@ -49,3 +49,22 @@ def test_prompt_grounding_with_real_document_structure():
     )
     assert "<uploaded_documents>" in user_content
     assert "Hemoglobin | 14.2 | g/dL" in user_content
+
+def test_prompts_are_deoverfitted_and_include_cindi_empathy_rules():
+    from app.rag.prompt_builder import DOCTOR_INSTRUCTIONS, GENERAL_HEALTH_INSTRUCTIONS
+
+    for instructions in (DOCTOR_INSTRUCTIONS, GENERAL_HEALTH_INSTRUCTIONS):
+        lower_inst = instructions.lower()
+        # Do NOT contain hardcoded Aarav Verma values
+        assert "176 pg/ml" not in lower_inst
+        assert "94 ml/min" not in lower_inst
+        assert "levosalbutamol" not in lower_inst
+        assert "24 oct 2026" not in lower_inst
+        assert "24 apr 2027" not in lower_inst
+
+        # DO contain all 4 Cindi empathy rules
+        assert "THE EMPATHETIC TONE & REASSURANCE RULE" in instructions
+        assert "THE DYNAMIC REAL-WORLD ANALOGY RULE" in instructions
+        assert "THE PROACTIVE SYMPTOM CORRELATION RULE" in instructions
+        assert "What This Report Does Not Cover" in instructions
+
