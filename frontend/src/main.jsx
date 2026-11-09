@@ -10,6 +10,21 @@ import './i18n';
 import './index.css';
 import './styles/print.css';
 
+window.addEventListener('vite:preloadError', (event) => {
+  // This prevents the error from bubbling up to Sentry as a crash
+  event.preventDefault();
+
+  // Reload the page to get the new index.html and new chunk hashes
+  const hasReloaded = sessionStorage.getItem('chunk_reload');
+  if (!hasReloaded) {
+    sessionStorage.setItem('chunk_reload', 'true');
+    window.location.reload();
+  } else {
+    sessionStorage.removeItem('chunk_reload');
+    console.error("Failed to load chunks after reload.", event.payload);
+  }
+});
+
 function CrashFallback() {
   return (
     <div className="min-h-app flex items-center justify-center bg-obsidian px-6 text-center">

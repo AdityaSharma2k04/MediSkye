@@ -33,6 +33,38 @@ def test_init_sentry_called_when_dsn_set(monkeypatch):
         assert kwargs["before_send_transaction"] == _before_send
 
 
+def test_init_sentry_failsafe_on_invalid_dsn(monkeypatch):
+    """init_sentry() does not raise and does not call sentry_sdk.init on invalid non-https DSN."""
+    monkeypatch.setenv("SENTRY_DSN", "invalid-dsn-string")
+    with patch("sentry_sdk.init") as mock_init:
+        init_sentry()
+        mock_init.assert_not_called()
+
+
+def test_init_sentry_failsafe_on_init_exception(monkeypatch):
+    """init_sentry() catches any sentry_sdk.init exception so app never crashes on startup."""
+    monkeypatch.setenv("SENTRY_DSN", "https://mockpublickey@sentry.io/12345")
+    with patch("sentry_sdk.init", side_effect=RuntimeError("Sentry connection boom")):
+        # Must not raise
+        init_sentry()
+
+
+@pytest.mark.anyio
+async def test_global_exception_handler_captures_to_sentry():
+    """global_exception_handler calls sentry_sdk.capture_exception before returning 500."""
+    from unittest.mock import MagicMock
+    from app.middleware.error_handler import global_exception_handler
+    mock_request = MagicMock()
+    mock_request.state.request_id = "test-req-123"
+    mock_request.method = "GET"
+    mock_request.url.path = "/test-route"
+    test_exc = ValueError("Unhandled test exception")
+    with patch("sentry_sdk.capture_exception") as mock_capture:
+        res = await global_exception_handler(mock_request, test_exc)
+        assert res.status_code == 500
+        mock_capture.assert_called_once_with(test_exc)
+
+
 def test_before_send_strips_request_and_user_and_scrubs_exception():
     """_before_send strips 'request' & 'user' and replaces exception value with '[scrubbed exception message]'."""
     event = {

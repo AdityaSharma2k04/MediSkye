@@ -1,4 +1,5 @@
 import os
+import logging
 import sentry_sdk
 from sentry_sdk.integrations.fastapi import FastApiIntegration
 from sentry_sdk.integrations.starlette import StarletteIntegration
@@ -6,6 +7,8 @@ try:
     from sentry_sdk.integrations.sqlalchemy import SqlalchemyIntegration as SqlAlchemyIntegration
 except ImportError:
     from sentry_sdk.integrations.sqlalchemy import SqlAlchemyIntegration
+
+logger = logging.getLogger(__name__)
 
 SENSITIVE_KEYS = {
     "email", "authorization", "password", "token", "id_token",
@@ -42,23 +45,33 @@ def init_sentry():
     dsn = os.getenv("SENTRY_DSN")
     if not dsn:
         return  # no-op in dev/CI; enabled only when DSN present
+    
+    # Strip hidden whitespaces or quotes that Cloud Run secrets often inject
     dsn = dsn.strip().strip('"').strip("'")
-    if not dsn:
+    
+    if not dsn.startswith("https://"):
+        logger.warning("Invalid SENTRY_DSN format. Sentry disabled.")
         return
-    sentry_sdk.init(
-        dsn=dsn,
-        environment=os.getenv("SENTRY_ENVIRONMENT", "production"),
-        release=os.getenv("SENTRY_RELEASE"),
-        integrations=[
-            FastApiIntegration(),
-            StarletteIntegration(),
-            SqlAlchemyIntegration(),
-        ],
-        traces_sample_rate=0.1,
-        profiles_sample_rate=0.0,
-        send_default_pii=False,
-        max_request_body_size="never",
-        include_local_variables=False,
-        before_send=_before_send,
-        before_send_transaction=_before_send,
-    )
+
+    try:
+        sentry_sdk.init(
+            dsn=dsn,
+            environment=os.getenv("SENTRY_ENVIRONMENT", "production"),
+            release=os.getenv("SENTRY_RELEASE"),
+            integrations=[
+                FastApiIntegration(),
+                StarletteIntegration(),
+                SqlAlchemyIntegration(),
+            ],
+            traces_sample_rate=0.1,
+            profiles_sample_rate=0.0,
+            send_default_pii=False,
+            max_request_body_size="never",
+            include_local_variables=False,
+            before_send=_before_send,
+            before_send_transaction=_before_send,
+        )
+        logger.info("Sentry initialized successfully.")
+    except Exception as e:
+        logger.error(f"Failed to initialize Sentry: {e}. Application will continue running without Sentry.")
+        # We DO NOT raise the exception. The app must start!
