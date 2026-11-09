@@ -361,6 +361,7 @@ export default function SettingsModal({
   autoRead = false,
   setAutoRead,
   onOpenProfile,
+  selectedPatientId = 'self',
 }) {
   const { t, i18n } = useTranslation();
   const [showPassword, setShowPassword] = useState(false);
@@ -454,7 +455,7 @@ export default function SettingsModal({
       try {
         if (isMounted) setLoadingMemory(true);
         const profilePromise = typeof getProfile === 'function' ? Promise.resolve(getProfile()).catch(() => null) : Promise.resolve(null);
-        const factsPromise = typeof getMemoryFacts === 'function' ? Promise.resolve(getMemoryFacts()).catch(() => []) : Promise.resolve([]);
+        const factsPromise = typeof getMemoryFacts === 'function' ? Promise.resolve(getMemoryFacts(selectedPatientId)).catch(() => []) : Promise.resolve([]);
         const [profile, facts] = await Promise.all([profilePromise, factsPromise]);
         if (!isMounted) return;
         if (profile) {
@@ -480,7 +481,7 @@ export default function SettingsModal({
     return () => {
       isMounted = false;
     };
-  }, [isOpen]);
+  }, [isOpen, selectedPatientId]);
 
   const handleToggleMemoryConsent = async () => {
     const nextVal = !memoryConsent;
@@ -516,7 +517,7 @@ export default function SettingsModal({
 
   const handleClearAllFacts = async () => {
     try {
-      await clearAllMemoryFacts();
+      await clearAllMemoryFacts(selectedPatientId);
       setMemoryFacts([]);
       setShowClearMemoryConfirm(false);
     } catch (err) {

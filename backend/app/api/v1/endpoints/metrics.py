@@ -45,15 +45,19 @@ router = APIRouter()
 METRICS_PROMPT_CHAR_BUDGET = 16000
 
 _RANGE_BETWEEN = re.compile(
-    r"^\s*(\d+(?:\.\d+)?)\s*(?:-|–|—|to)\s*(\d+(?:\.\d+)?)\s*$",
+    r"^\s*(-?\d+(?:\.\d+)?)\s*(?:-|–|—|to)\s*(-?\d+(?:\.\d+)?)(?:\s*[a-zA-Z%/µμ0-9.^]+)?\s*$",
     re.IGNORECASE,
 )
 _RANGE_UPPER = re.compile(
-    r"^\s*(?:<|<=|less than|up to)\s*(\d+(?:\.\d+)?)\s*$",
+    r"^\s*(?:<=|<|≤|less than|up to)\s*(-?\d+(?:\.\d+)?)(?:\s*[a-zA-Z%/µμ0-9.^]+)?\s*$",
     re.IGNORECASE,
 )
 _RANGE_LOWER = re.compile(
-    r"^\s*(?:>|>=|greater than|more than)\s*(\d+(?:\.\d+)?)\s*$",
+    r"^\s*(?:>=|>|≥|greater than|more than)\s*(-?\d+(?:\.\d+)?)(?:\s*[a-zA-Z%/µμ0-9.^]+)?\s*$",
+    re.IGNORECASE,
+)
+_COMPARATOR_RE = re.compile(
+    r"^\s*(?P<val_op><=|>=|<|>|≤|≥)\s*(?P<val_num>-?\d+(?:[.,]\d+)?)",
     re.IGNORECASE,
 )
 _RANGE_AMBIGUOUS = re.compile(r"(?:-|–|—|to|<|>|<=|>=)")
@@ -64,42 +68,101 @@ _RANGE_DEMOGRAPHIC = re.compile(
 
 
 def _status_from_range(value: Any, rng: str) -> Optional[str]:
-    """Derive Low / High / Normal / None from a numeric value and reference range."""
+    """Derive Low / High / Normal / None from a numeric or comparator value and reference range."""
     if value is None or not rng:
         return None
-    text = str(rng).strip()
-    if _RANGE_DEMOGRAPHIC.search(text):
+    raw_rng = str(rng).strip()
+    if _RANGE_DEMOGRAPHIC.search(raw_rng):
         return None
-    val = _parse_first_float(str(value))
+
+    # Normalize European decimal commas and thousand-separators in reference range
+    while re.search(r'(\d),(\d{3})\b', raw_rng):
+        raw_rng = re.sub(r'(\d),(\d{3})\b', r'\1\2', raw_rng)
+    text = re.sub(r'(\d),(\d{1,2})(?!\d)', r'\1.\2', raw_rng)
+
+    # Check for comparator in value (e.g. < 0.5, <= 0.02, > 200, >= 100)
+    val_str = str(value).strip()
+    m_comp = _COMPARATOR_RE.match(val_str)
+    val_op = None
+    if m_comp:
+        raw_op = m_comp.group("val_op")
+        if raw_op in ("≤", "<="):
+            val_op = "<="
+        elif raw_op in ("≥", ">="):
+            val_op = ">="
+        elif raw_op == "<":
+            val_op = "<"
+        elif raw_op == ">":
+            val_op = ">"
+        val = _parse_first_float(m_comp.group("val_num"))
+    else:
+        val = _parse_first_float(val_str)
+
     if val is None:
         return None
+
+    # 1. Between range: lo - hi
     m = _RANGE_BETWEEN.match(text)
     if m:
         try:
             lo, hi = float(m.group(1)), float(m.group(2))
             if lo > hi:
                 lo, hi = hi, lo
-            if val < lo:
-                return "Low"
-            if val > hi:
-                return "High"
-            return "Normal"
+            if val_op in (">", ">="):
+                if val >= hi:
+                    return "High"
+                return None
+            elif val_op in ("<", "<="):
+                if val <= lo and lo > 0:
+                    return "Low"
+                elif val <= hi:
+                    return "Normal"
+                return None
+            else:
+                if val < lo:
+                    return "Low"
+                if val > hi:
+                    return "High"
+                return "Normal"
         except (ValueError, TypeError):
             return None
+
+    # 2. Upper bound range: < hi or <= hi
     m = _RANGE_UPPER.match(text)
     if m:
         try:
             hi = float(m.group(1))
-            return "High" if val > hi else "Normal"
+            if val_op in (">", ">="):
+                if val >= hi:
+                    return "High"
+                return None
+            elif val_op in ("<", "<="):
+                if val <= hi:
+                    return "Normal"
+                return None
+            else:
+                return "High" if val > hi else "Normal"
         except (ValueError, TypeError):
             return None
+
+    # 3. Lower bound range: > lo or >= lo
     m = _RANGE_LOWER.match(text)
     if m:
         try:
             lo = float(m.group(1))
-            return "Low" if val < lo else "Normal"
+            if val_op in ("<", "<="):
+                if val <= lo:
+                    return "Low"
+                return None
+            elif val_op in (">", ">="):
+                if val >= lo:
+                    return "Normal"
+                return None
+            else:
+                return "Low" if val < lo else "Normal"
         except (ValueError, TypeError):
             return None
+
     return None
 
 
@@ -154,6 +217,19 @@ def _resolve_status(llm_status: Any, value: Any, rng: Any, sex: Optional[str]) -
         demographic = demographic or len(list(_STRATUM.finditer(rng))) >= 2
         if demographic:
             derived = _status_from_demographic_ranges(value, rng, sex)
+
+    # Support Qualitative / Serology Results (F-005)
+    if derived is None and rng:
+        val_str_clean = str(value or "").strip().lower()
+        rng_clean = rng.strip().lower()
+        if re.match(r"^\s*(?:negative|non[-\s]?reactive|absent|nil|normal)\s*$", rng_clean, re.I):
+            if (re.search(r"\b(?:positive|reactive|detected|present|trace)\b", val_str_clean, re.I) or re.search(r"(?<!\w)\+[1-4]?(?!\w)", val_str_clean)) and not re.search(r"\b(?:non[-\s]?reactive|negative|absent|nil)\b", val_str_clean, re.I):
+                if llm.lower() in ("high", "abnormal", "critical"):
+                    return llm
+                return "High"
+            elif re.match(r"^\s*(?:negative|non[-\s]?reactive|absent|nil|none\s+detected)\s*$", val_str_clean, re.I):
+                return "Normal"
+
     if not llm:
         return derived or "Unknown"
     if llm.lower() == "normal":
@@ -260,7 +336,30 @@ async def extract_and_cache_metrics(
         await db.commit()
         return []
 
-    extract_prompt = f"""You are a specialized medical lab data extraction system.
+    windows = []
+    if len(combined_text) <= METRICS_PROMPT_CHAR_BUDGET:
+        windows = [combined_text]
+    else:
+        # Multi-window extraction (F-007): chunk up to 3 windows of 16k chars
+        for i in range(0, min(len(combined_text), METRICS_PROMPT_CHAR_BUDGET * 3), METRICS_PROMPT_CHAR_BUDGET):
+            chunk = combined_text[i:i + METRICS_PROMPT_CHAR_BUDGET].strip()
+            if chunk:
+                windows.append(chunk)
+
+    _IGNORED_TEST_NAME = re.compile(
+        r"\b(iso\s*15189|nabl|certified|accreditation|central facility|hospital|laborator(?:y|ies)|helpline|"
+        r"boulevard|street|report id|accession|patient name|referred by|phone)\b",
+        re.I,
+    )
+
+    effective_user_id = user_id or doc.user_id
+    raw_metrics = []
+    seen_canonical_keys = set()
+    any_success = False
+
+    try:
+        for window_text in windows:
+            extract_prompt = f"""You are a specialized medical lab data extraction system.
 Extract structured clinical biomarker values from the following medical report text into a clean JSON array.
 
 CRITICAL EXTRACTION RULES:
@@ -282,70 +381,69 @@ Return ONLY raw JSON with schema:
 ]
 
 Report text:
-{combined_text[:METRICS_PROMPT_CHAR_BUDGET]}
+{window_text}
 """
-
-    effective_user_id = user_id or doc.user_id
-    try:
-        response = await call_gemini_with_retry(
-            contents=extract_prompt,
-            user_id=effective_user_id,
-            backoff_delays=[1.5, 4.0, 16.0],
-            config=GenerateContentConfig(
-                thinking_config=ThinkingConfig(thinking_budget=0),
-                temperature=0.0,
-            ),
-        )
-        if not response or not response.text:
-            return None
-
-        text = response.text.strip()
-        if text.startswith("```json"):
-            text = text[7:-3].strip()
-        elif text.startswith("```"):
-            text = text[3:-3].strip()
-        try:
-            parsed = json.loads(text)
-        except Exception:
-            return None
-
-        if not isinstance(parsed, list):
-            return None
-
-        _IGNORED_TEST_NAME = re.compile(
-            r"\b(iso\s*15189|nabl|certified|accreditation|central facility|hospital|laborator(?:y|ies)|helpline|"
-            r"boulevard|street|report id|accession|patient name|referred by|phone)\b",
-            re.I,
-        )
-
-        raw_metrics = []
-        for item in parsed:
-            if not isinstance(item, dict):
-                continue
-            test_name = str(item.get("test") or item.get("name") or "").strip()
-            val_str = str(item.get("value", "")).strip()
-            unit_str = str(item.get("unit", "")).strip()
-
-            if _IGNORED_TEST_NAME.search(test_name):
+            response = await call_gemini_with_retry(
+                contents=extract_prompt,
+                user_id=effective_user_id,
+                backoff_delays=[1.5, 4.0, 16.0],
+                config=GenerateContentConfig(
+                    thinking_config=ThinkingConfig(thinking_budget=0),
+                    temperature=0.0,
+                ),
+            )
+            if not response or not response.text:
                 continue
 
-            if not test_name or not val_str:
+            text = response.text.strip()
+            if text.startswith("```json"):
+                text = text[7:-3].strip()
+            elif text.startswith("```"):
+                text = text[3:-3].strip()
+            try:
+                parsed = json.loads(text)
+            except Exception:
                 continue
 
-            normalized_unit = normalize_clinical_unit(unit_str) if unit_str else ""
+            if not isinstance(parsed, list):
+                continue
 
-            ref_range = str(item.get("range") or item.get("reference_range") or "").strip()
-            range_str = ref_range
-            final_status = _resolve_status(item.get("status"), val_str, range_str, patient_sex)
+            any_success = True
+            for item in parsed:
+                if not isinstance(item, dict):
+                    continue
+                test_name = str(item.get("test") or item.get("name") or "").strip()
+                val_str = str(item.get("value", "")).strip()
+                unit_str = str(item.get("unit", "")).strip()
 
-            metric_dict = {
-                "test": test_name,
-                "value": val_str,
-                "unit": normalized_unit,
-                "range": ref_range,
-                "status": final_status,
-            }
-            raw_metrics.append(metric_dict)
+                if _IGNORED_TEST_NAME.search(test_name):
+                    continue
+
+                if not test_name or not val_str:
+                    continue
+
+                c_key = canonical_biomarker_key(test_name)
+                if c_key in seen_canonical_keys:
+                    continue
+                seen_canonical_keys.add(c_key)
+
+                normalized_unit = normalize_clinical_unit(unit_str) if unit_str else ""
+
+                ref_range = str(item.get("range") or item.get("reference_range") or "").strip()
+                range_str = ref_range
+                final_status = _resolve_status(item.get("status"), val_str, range_str, patient_sex)
+
+                metric_dict = {
+                    "test": test_name,
+                    "value": val_str,
+                    "unit": normalized_unit,
+                    "range": ref_range,
+                    "status": final_status,
+                }
+                raw_metrics.append(metric_dict)
+
+        if not any_success and len(windows) > 0:
+            return None
 
         doc.cached_metrics = raw_metrics
         flag_modified(doc, "cached_metrics")
@@ -649,11 +747,6 @@ class MetricTrendsResponse(BaseModel):
     reports: List[MetricTrendReport]
     series: List[MetricTrendSeries]
 
-
-def canonical_biomarker_key(name: str) -> str:
-    """Normalize biomarker name preserving distinct subtypes (e.g. Total vs Direct)."""
-    clean = re.sub(r'[^a-zA-Z0-9]+', '_', str(name or '').strip().lower()).strip('_')
-    return clean
 
 
 def normalize_biomarker_name(name: str) -> str:

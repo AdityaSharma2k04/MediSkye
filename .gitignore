@@ -122,3 +122,15 @@ desktop.ini
 # ==============================================================================
 *.log
 logs/
+
+# ==============================================================================
+# Audit & Scratch Artifacts
+# ==============================================================================
+*.db.pre-seed-backup
+rehearsal.db
+list_tables.py
+backend/list_tables.py
+claudebundler.py
+claude_bundles/
+audit_output*/
+auditoutput*/

@@ -4,6 +4,7 @@ from unittest.mock import ANY, AsyncMock, patch
 from httpx import AsyncClient, ASGITransport
 
 from app.api.v1.endpoints.auth import _build_mediskye_email_html
+from app.core.config import settings
 from app.main import app
 
 
@@ -248,3 +249,27 @@ async def test_send_custom_verification_background_tasks_dispatch():
         assert response.json()["message"] == "Verification email sent"
         # Background tasks executed by Starlette ASGI transport after response
         mock_send_email.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_sync_email_test_header_ignored_in_production():
+    test_email = "prod_patient@example.com"
+    fake_link = "https://mediskye.firebaseapp.com/__/auth/action?mode=verifyEmail&apiKey=fakeApiKey&oobCode=verify-code"
+
+    with patch.object(settings, "ENV", "production"), \
+         patch("firebase_admin.auth.generate_email_verification_link", return_value=fake_link), \
+         patch("app.api.v1.endpoints.auth.send_email_via_gmail", new_callable=AsyncMock) as mock_send_email:
+
+        transport = ASGITransport(app=app)
+        async with AsyncClient(transport=transport, base_url="http://test") as ac:
+            response = await ac.post(
+                "/auth/send-custom-verification",
+                json={"email": test_email},
+                headers={"X-Sync-Email-Test": "1"},  # Should be ignored in production
+            )
+
+        assert response.status_code == 200
+        assert response.json()["message"] == "Verification email sent"
+        # In production, was added to BackgroundTasks, which AsyncClient completes on exit
+        mock_send_email.assert_awaited_once()
+

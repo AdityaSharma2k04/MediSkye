@@ -50,7 +50,7 @@ class Settings(BaseSettings):
         "http://localhost:3000",
         "http://localhost:5173",
     ]
-    ALLOWED_ORIGIN_REGEX: str = r"^https:\/\/.*\.pages\.dev$"
+    ALLOWED_ORIGIN_REGEX: str = r"^https://([a-z0-9-]+\.)?mediskye\.pages\.dev$"
     SHOW_SPECIALIST_CONTACTS: bool = False
 
     # Vertex AI / Google Cloud credentials

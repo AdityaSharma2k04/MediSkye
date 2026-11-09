@@ -29,6 +29,14 @@ def normalize_clinical_unit(unit: Optional[str]) -> str:
     u = re.sub(r'(?<![a-zA-Z0-9])ug\b', 'µg', u)
     u = re.sub(r'(?<![a-zA-Z0-9])umol\b', 'µmol', u)
 
+    # 5. Indian and legacy clinical laboratory unit normalizations
+    u = re.sub(r'\b(?:mill|million|mil)\s*/\s*(?:cu\.?\s*mm|cumm)\b', '10⁶/µL', u, flags=re.IGNORECASE)
+    u = re.sub(r'\b(?:thou|thousand)\s*/\s*(?:cu\.?\s*mm|cumm)\b', '10³/µL', u, flags=re.IGNORECASE)
+    u = re.sub(r'\bgm\s*%', 'g/dL', u, flags=re.IGNORECASE)
+    u = re.sub(r'\bgm\s*/\s*dl\b', 'g/dL', u, flags=re.IGNORECASE)
+    u = re.sub(r'\bg\s*/\s*dl\b', 'g/dL', u, flags=re.IGNORECASE)
+    u = re.sub(r'\bmg\s*/\s*dl\b', 'mg/dL', u, flags=re.IGNORECASE)
+
     return u
 
 
@@ -155,10 +163,13 @@ def canonical_biomarker_key(name: str) -> str:
     Returns a normalized key for matching clinical biomarkers across reports using whole-word regexes.
     Order matters:
       1. 'hba1c', 'glycated hemoglobin' -> 'hba1c'
-      2. 'hemoglobin', \\bhb\\b, \\bhgb\\b -> 'hemoglobin'
-      3. 'fasting plasma glucose' -> 'fasting_glucose'
-      4. 'aspartate aminotransferase', \\bast\\b -> 'ast'
-      5. Strict whole-word regexes for ALT, Vitamin D, B12, Ferritin, Creatinine, eGFR, BUN, Uric Acid, etc.
+      2. 'non-hdl', 'vldl' -> 'non_hdl', 'vldl' (MUST precede HDL & Cholesterol)
+      3. 'mchc', 'mch', 'mcv' -> 'mchc', 'mch', 'mcv' (MUST precede Hemoglobin)
+      4. 'hemoglobin', \\bhb\\b, \\bhgb\\b -> 'hemoglobin'
+      5. 'hematocrit', 'pcv' -> 'hematocrit'
+      6. 'wbc', 'tlc' -> 'wbc'
+      7. 'fasting plasma glucose' -> 'fasting_glucose'
+      8. Strict whole-word regexes for AST, ALT, ALP, GGT, Bilirubins, Proteins, Electrolytes, Thyroid, etc.
     """
     if not name:
         return ""
@@ -171,79 +182,189 @@ def canonical_biomarker_key(name: str) -> str:
     if re.search(r'\b(?:hba1c|glycated\s+hemoglobin|glycohemoglobin|hemoglobin\s+a1c|a1c)\b', n_clean):
         return "hba1c"
 
-    # 2. Hemoglobin (strict whole-word)
+    # 2. Non-HDL and VLDL (MUST precede HDL & Cholesterol)
+    if re.search(r'\bnon[\s-]*hdl(?:\s+cholesterol)?\b', n_clean):
+        return "non_hdl"
+    if re.search(r'\bvldl(?:\s+cholesterol)?\b', n_clean):
+        return "vldl"
+
+    # 3. RBC Indices MCHC, MCH, MCV (MUST precede Hemoglobin so they never match Hb)
+    if re.search(r'\bmchc\b', n_clean):
+        return "mchc"
+    if re.search(r'\bmch\b', n_clean):
+        return "mch"
+    if re.search(r'\bmcv\b', n_clean):
+        return "mcv"
+
+    # 4. Hemoglobin (strict whole-word)
     if re.search(r'\b(?:hemoglobin|hb|hgb)\b', n_clean):
         return "hemoglobin"
 
-    # 3. Fasting Glucose (MUST precede general glucose)
-    if re.search(r'\b(?:fasting\s+plasma\s+glucose|fasting\s+blood\s+sugar|fasting\s+blood\s+glucose|fasting\s+glucose|fbs|fbg)\b', n_clean):
-        return "fasting_glucose"
+    # 5. Hematocrit / Packed Cell Volume (PCV)
+    if re.search(r'\b(?:hematocrit|pcv|packed\s+cell\s+volume|hct)\b', n_clean):
+        return "hematocrit"
 
-    # 4. AST (strict whole-word, never matches 'fasting')
-    if re.search(r'\b(?:aspartate\s+aminotransferase|ast|sgot)\b', n_clean):
-        return "ast"
-
-    # 5. ALT
-    if re.search(r'\b(?:alanine\s+aminotransferase|alt|sgpt)\b', n_clean):
-        return "alt"
-
-    # 6. Vitamin D (strict whole-word, e.g. 'Vit D', '25-OH Vitamin D')
-    if re.search(r'\b(?:25\s*-?\s*oh\s+vitamin\s+d|vitamin\s+d3?|vit\s+d3?|25\s*-?\s*hydroxy\s*vitamin\s+d|calcidiol|25\s*-?\s*oh\s*-?\s*d)\b', n_clean):
-        return "vitamin_d"
-
-    # 7. Vitamin B12
-    if re.search(r'\b(?:vitamin\s+b12|vit\s+b12|b12|cobalamin|cyanocobalamin)\b', n_clean):
-        return "vitamin_b12"
-
-    # 8. Ferritin
-    if re.search(r'\b(?:serum\s+ferritin|ferritin)\b', n_clean):
-        return "ferritin"
-
-    # 9. Creatinine
-    if re.search(r'\b(?:serum\s+creatinine|creatinine)\b', n_clean):
-        return "creatinine"
-
-    # 10. eGFR
-    if re.search(r'\b(?:estimated\s+gfr|egfr|gfr)\b', n_clean):
-        return "egfr"
-
-    # 11. BUN
-    if re.search(r'\b(?:blood\s+urea\s+nitrogen|bun|urea\s+nitrogen)\b', n_clean):
-        return "bun"
-
-    # 12. Uric Acid
-    if re.search(r'\b(?:serum\s+uric\s+acid|uric\s+acid|urate)\b', n_clean):
-        return "uric_acid"
-
-    # 13. Platelets
-    if re.search(r'\b(?:platelet\s+count|platelets?|plt)\b', n_clean):
-        return "platelets"
-
-    # 14. WBC
-    if re.search(r'\b(?:white\s+blood\s+cell(?:\s+count)?|white\s+blood\s+cells?|wbc(?:\s+count)?|leukocytes?)\b', n_clean):
+    # 6. WBC / TLC (Total Leucocyte Count)
+    if re.search(r'\b(?:white\s+blood\s+cell(?:\s+count)?|white\s+blood\s+cells?|wbc(?:\s+count)?|leukocytes?|leucocytes?|tlc|total\s+leucocyte\s+count|total\s+leukocyte\s+count)\b', n_clean):
         return "wbc"
 
-    # 15. RBC
+    # 7. RBC
     if re.search(r'\b(?:red\s+blood\s+cell(?:\s+count)?|red\s+blood\s+cells?|rbc(?:\s+count)?|erythrocytes?)\b', n_clean):
         return "rbc"
 
-    # 16. Glucose (general)
-    if re.search(r'\b(?:glucose|blood\s+sugar|rbs)\b', n_clean):
+    # 8. MPV (MUST precede Platelets)
+    if re.search(r'\b(?:mean\s+platelet\s+volume|mpv)\b', n_clean):
+        return "mpv"
+
+    # 9. Platelets
+    if re.search(r'\b(?:platelet\s+count|platelets?|plt)\b', n_clean):
+        return "platelets"
+
+    # 9. ESR
+    if re.search(r'\b(?:erythrocyte\s+sedimentation\s+rate|esr)\b', n_clean):
+        return "esr"
+
+    # 10. CRP
+    if re.search(r'\b(?:c\s*-?\s*reactive\s+protein|crp|hs\s*-?\s*crp)\b', n_clean):
+        return "crp"
+
+    # 11. Fasting Glucose (MUST precede general glucose)
+    if re.search(r'\b(?:fasting\s+plasma\s+glucose|fasting\s+blood\s+sugar|fasting\s+blood\s+glucose|fasting\s+glucose|fbs|fbg)\b', n_clean):
+        return "fasting_glucose"
+
+    # 12. General Glucose
+    if re.search(r'\b(?:glucose|blood\s+sugar|rbs|random\s+blood\s+sugar)\b', n_clean):
         return "glucose"
 
-    # 17. LDL
+    # 13. Thyroid: Free T3/T4 MUST precede total T3/T4
+    if re.search(r'\b(?:free\s+triiodothyronine|free\s+t3|ft3)\b', n_clean):
+        return "free_t3"
+    if re.search(r'\b(?:free\s+thyroxine|free\s+t4|ft4)\b', n_clean):
+        return "free_t4"
+    if re.search(r'\b(?:thyroid\s+stimulating\s+hormone|tsh|thyrotropin)\b', n_clean):
+        return "tsh"
+    if re.search(r'\b(?:total\s+t3|t3|triiodothyronine)\b', n_clean):
+        return "t3"
+    if re.search(r'\b(?:total\s+t4|t4|thyroxine)\b', n_clean):
+        return "t4"
+
+    # 14. AST (strict whole-word, never matches 'fasting')
+    if re.search(r'\b(?:aspartate\s+aminotransferase|ast|sgot)\b', n_clean):
+        return "ast"
+
+    # 15. ALT
+    if re.search(r'\b(?:alanine\s+aminotransferase|alt|sgpt)\b', n_clean):
+        return "alt"
+
+    # 16. ALP & GGT
+    if re.search(r'\b(?:alkaline\s+phosphatase|alp)\b', n_clean):
+        return "alp"
+    if re.search(r'\b(?:gamma\s*-?\s*glutamyl\s*trans(?:ferase|peptidase)|gamma\s*-?\s*gt|ggt)\b', n_clean):
+        return "ggt"
+
+    # 17. Bilirubin (Direct & Indirect MUST precede Total)
+    if re.search(r'\b(?:direct\s+bilirubin|bilirubin\s+direct|conjugated\s+bilirubin)\b', n_clean):
+        return "bilirubin_direct"
+    if re.search(r'\b(?:indirect\s+bilirubin|bilirubin\s+indirect|unconjugated\s+bilirubin)\b', n_clean):
+        return "bilirubin_indirect"
+    if re.search(r'\b(?:total\s+bilirubin|bilirubin\s+total|bilirubin)\b', n_clean):
+        return "bilirubin_total"
+
+    # 18. Proteins
+    if re.search(r'\b(?:a[\s/]*g\s+ratio|ag\s+ratio|albumin\s+globulin\s+ratio)\b', n_clean):
+        return "ag_ratio"
+    if re.search(r'\balbumin\b', n_clean):
+        return "albumin"
+    if re.search(r'\bglobulin\b', n_clean):
+        return "globulin"
+    if re.search(r'\b(?:total\s+protein|serum\s+protein)\b', n_clean):
+        return "total_protein"
+
+    # 19. Renal Function
+    if re.search(r'\b(?:estimated\s+gfr|egfr|gfr)\b', n_clean):
+        return "egfr"
+    if re.search(r'\b(?:serum\s+creatinine|creatinine)\b', n_clean):
+        return "creatinine"
+    if re.search(r'\b(?:blood\s+urea\s+nitrogen|bun|urea\s+nitrogen)\b', n_clean):
+        return "bun"
+    if re.search(r'\b(?:blood\s+urea|urea)\b', n_clean):
+        return "urea"
+    if re.search(r'\b(?:serum\s+uric\s+acid|uric\s+acid|urate)\b', n_clean):
+        return "uric_acid"
+
+    # 20. Electrolytes & Minerals
+    if re.search(r'\b(?:sodium|na\+?)\b', n_clean):
+        return "sodium"
+    if re.search(r'\b(?:potassium|k\+?)\b', n_clean):
+        return "potassium"
+    if re.search(r'\b(?:chloride|cl-?)\b', n_clean):
+        return "chloride"
+    if re.search(r'\b(?:calcium|ca\+?2?)\b', n_clean):
+        return "calcium"
+    if re.search(r'\b(?:magnesium|mg\+?2?)\b', n_clean):
+        return "magnesium"
+    if re.search(r'\b(?:phosphorus|phosphate)\b', n_clean):
+        return "phosphorus"
+
+    # 21. Iron & Vitamins
+    if re.search(r'\b(?:total\s+iron\s+binding\s+capacity|tibc)\b', n_clean):
+        return "tibc"
+    if re.search(r'\b(?:transferrin\s+saturation|transferrin)\b', n_clean):
+        return "transferrin_saturation"
+    if re.search(r'\b(?:serum\s+iron|iron|fe)\b', n_clean):
+        return "iron"
+    if re.search(r'\b(?:serum\s+ferritin|ferritin)\b', n_clean):
+        return "ferritin"
+    if re.search(r'\b(?:25\s*-?\s*oh\s+vitamin\s+d|vitamin\s+d3?|vit\s+d3?|25\s*-?\s*hydroxy\s*vitamin\s+d|calcidiol|25\s*-?\s*oh\s*-?\s*d)\b', n_clean):
+        return "vitamin_d"
+    if re.search(r'\b(?:vitamin\s+b12|vit\s+b12|b12|cobalamin|cyanocobalamin)\b', n_clean):
+        return "vitamin_b12"
+    if re.search(r'\b(?:folate|folic\s+acid|vitamin\s+b9)\b', n_clean):
+        return "folate"
+
+    # 22. Differential WBC & Indices
+    if re.search(r'\b(?:neutrophils?|polymorphs?)\b', n_clean):
+        return "neutrophils"
+    if re.search(r'\b(?:lymphocytes?|lymphs?)\b', n_clean):
+        return "lymphocytes"
+    if re.search(r'\b(?:monocytes?)\b', n_clean):
+        return "monocytes"
+    if re.search(r'\b(?:eosinophils?|eos)\b', n_clean):
+        return "eosinophils"
+    if re.search(r'\b(?:basophils?)\b', n_clean):
+        return "basophils"
+    if re.search(r'\b(?:rdw(?:\s*-\s*(?:cv|sd))?)\b', n_clean):
+        return "rdw"
+    if re.search(r'\b(?:mean\s+platelet\s+volume|mpv)\b', n_clean):
+        return "mpv"
+
+    # 23. Cardiac, Coagulation & Enzymes
+    if re.search(r'\b(?:prostate\s+specific\s+antigen|psa)\b', n_clean):
+        return "psa"
+    if re.search(r'\b(?:troponin(?:\s*-\s*[it])?|trop\s*-\s*[it])\b', n_clean):
+        return "troponin"
+    if re.search(r'\b(?:bnp|nt\s*-?\s*probnp|pro\s*-?\s*bnp)\b', n_clean):
+        return "bnp"
+    if re.search(r'\b(?:pt[\s/]*inr|inr|prothrombin\s+time)\b', n_clean):
+        return "inr"
+    if re.search(r'\b(?:activated\s+partial\s+thromboplastin\s+time|aptt|ptt)\b', n_clean):
+        return "aptt"
+    if re.search(r'\b(?:lactate\s+dehydrogenase|ldh)\b', n_clean):
+        return "ldh"
+    if re.search(r'\b(?:amylase|serum\s+amylase)\b', n_clean):
+        return "amylase"
+    if re.search(r'\b(?:lipase|serum\s+lipase)\b', n_clean):
+        return "lipase"
+    if re.search(r'\b(?:creatine\s+kinase|ck|cpk)\b', n_clean):
+        return "ck"
+
+    # 24. Lipids (LDL, HDL, Triglycerides, Total Cholesterol)
     if re.search(r'\b(?:ldl\s+cholesterol|ldl(?:\s*-\s*c)?)\b', n_clean):
         return "ldl"
-
-    # 18. HDL
     if re.search(r'\b(?:hdl\s+cholesterol|hdl(?:\s*-\s*c)?)\b', n_clean):
         return "hdl"
-
-    # 19. Triglycerides
     if re.search(r'\b(?:triglycerides?|tg)\b', n_clean):
         return "triglycerides"
-
-    # 20. Cholesterol
     if re.search(r'\b(?:total\s+cholesterol|cholesterol)\b', n_clean):
         return "cholesterol"
 
@@ -323,7 +444,13 @@ canonical_biomarker_name = canonical_biomarker_key
 def _parse_first_float(s: Any) -> Optional[float]:
     if s is None:
         return None
-    m = re.search(r'[-+]?[0-9]*\.?[0-9]+', str(s))
+    text = str(s).strip()
+    # Remove thousand separators (e.g. 11,200 or 250,000 or 1,000,000)
+    while re.search(r'(\d),(\d{3})\b', text):
+        text = re.sub(r'(\d),(\d{3})\b', r'\1\2', text)
+    # Convert European decimal comma (e.g. 6,8 -> 6.8)
+    text = re.sub(r'(\d),(\d{1,2})(?!\d)', r'\1.\2', text)
+    m = re.search(r'[-+]?[0-9]*\.?[0-9]+', text)
     if m:
         try:
             return float(m.group(0))
@@ -341,6 +468,21 @@ ALLOWED_DELTA_DROP_KEYS = {
     "rbc",
     "wbc",
     "egfr",
+    "creatinine",
+    "urea",
+    "bun",
+    "alt",
+    "ast",
+    "alp",
+    "bilirubin_total",
+    "sodium",
+    "potassium",
+    "calcium",
+    "fasting_glucose",
+    "glucose_fasting",
+    "glucose",
+    "hba1c",
+    "tsh",
 }
 
 

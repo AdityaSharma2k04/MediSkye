@@ -97,6 +97,17 @@ def test_allowed_extensions_config_harmonization():
     assert "Invalid file extension" in exc_info.value.detail
 
     # 3. Acceptance of supported image extensions without failing extension check
-    validate_file_upload(b"fake jpeg content", filename="scan.jpg")
-    validate_file_upload(b"fake png content", filename="xray.png")
+    import io
+    from PIL import Image
+
+    png_buf = io.BytesIO()
+    Image.new("RGB", (1, 1), color="white").save(png_buf, format="PNG")
+    valid_png = png_buf.getvalue()
+
+    jpg_buf = io.BytesIO()
+    Image.new("RGB", (1, 1), color="white").save(jpg_buf, format="JPEG")
+    valid_jpg = jpg_buf.getvalue()
+
+    validate_file_upload(valid_jpg, filename="scan.jpg")
+    validate_file_upload(valid_png, filename="xray.png")
 

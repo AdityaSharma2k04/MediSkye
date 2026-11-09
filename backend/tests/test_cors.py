@@ -66,3 +66,33 @@ def test_allowed_origins_parses_json_array_env_string():
         ALLOWED_ORIGINS='["http://a.example", "http://b.example"]',
     )
     assert s.ALLOWED_ORIGINS == ["http://a.example", "http://b.example"]
+
+
+@pytest.mark.asyncio
+async def test_mediskye_pages_dev_allowed_and_arbitrary_pages_dev_rejected():
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as ac:
+        # Apex mediskye.pages.dev allowed
+        res1 = await ac.options(
+            "/users/me",
+            headers={"Origin": "https://mediskye.pages.dev", "Access-Control-Request-Method": "GET"},
+        )
+        assert res1.status_code == 200
+        assert res1.headers.get("access-control-allow-origin") == "https://mediskye.pages.dev"
+
+        # Preview branch under mediskye.pages.dev allowed
+        res2 = await ac.options(
+            "/users/me",
+            headers={"Origin": "https://feat-preview.mediskye.pages.dev", "Access-Control-Request-Method": "GET"},
+        )
+        assert res2.status_code == 200
+        assert res2.headers.get("access-control-allow-origin") == "https://feat-preview.mediskye.pages.dev"
+
+        # Arbitrary Cloudflare Pages site rejected
+        res3 = await ac.options(
+            "/users/me",
+            headers={"Origin": "https://malicious-attacker.pages.dev", "Access-Control-Request-Method": "GET"},
+        )
+        assert res3.headers.get("access-control-allow-origin") is None
+        assert res3.status_code == 400
+

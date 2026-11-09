@@ -4,6 +4,7 @@ import pytest
 from app.db.database import AsyncSessionLocal
 from app.db.models import User, DependentProfile
 from app.api.v1.endpoints.metrics import _resolve_status, _status_from_demographic_ranges, _load_patient_sex
+from app.services.clinical_units import canonical_biomarker_key
 
 R1 = "Male: 13.8 - 17.2; Female: 12.1 - 15.1"
 R2 = "M 13-17 / F 12-15"
@@ -95,5 +96,26 @@ async def test_load_patient_sex_user_none():
         await session.commit()
         doc = SimpleNamespace(user_id=uid, dependent_id=None)
         assert await _load_patient_sex(session, doc) is None
+
+
+def test_remediation_clinical_status_and_biomarkers():
+    # EU decimal commas
+    assert _resolve_status("Normal", "6,8", "3,9 - 5,6", None) == "High"
+
+    # Comparator values
+    assert _resolve_status("Normal", "> 200", "10 - 200", None) == "High"
+    assert _resolve_status("Normal", "< 0.5", "< 1.0", None) == "Normal"
+
+    # Trailing units in range
+    assert _resolve_status("Normal", "18.5", "13.5 - 17.5 g/dL", None) == "High"
+
+    # Qualitative serology
+    assert _resolve_status("Normal", "Positive (1:160)", "Negative", None) == "High"
+
+    # Canonical biomarker keys
+    assert canonical_biomarker_key("Non-HDL Cholesterol") == "non_hdl"
+    assert canonical_biomarker_key("MCHC") == "mchc"
+    assert canonical_biomarker_key("Total Leucocyte Count (TLC)") == "wbc"
+
 
 

@@ -72,6 +72,14 @@ async def setup_test_database():
 
     yield
 
+    # Clean up all table rows between tests so SQLite state never leaks across test cases
+    try:
+        async with engine.begin() as conn:
+            for table in reversed(Base.metadata.sorted_tables):
+                await conn.execute(table.delete())
+    except Exception:
+        pass
+
     # Clean up and drain any background tasks spawned during the test
     # before pytest-asyncio destroys this test's event loop.
     try:

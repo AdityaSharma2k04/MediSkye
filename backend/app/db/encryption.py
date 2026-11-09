@@ -33,6 +33,9 @@ class EncryptedString(types.TypeDecorator):
             decrypted = fernet.decrypt(value.encode('utf-8'))
             return decrypted.decode('utf-8')
         except (InvalidToken, Exception):
+            if _looks_like_token(value):
+                logger.error("EncryptedString: Fernet-looking value could not be decrypted (wrong key or corruption).")
+                return None
             # If decryption fails (e.g., data was already in DB unencrypted), log and return as is
             logger.warning("Fernet decryption failed; falling back to raw database value.")
             return value

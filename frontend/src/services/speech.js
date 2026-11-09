@@ -149,7 +149,20 @@ export function stopSpeaking() {
 
 // ── Speech-to-Text (unchanged) ────────────────────────────────────────
 
-export function startSpeechRecognition(onResult, onError, onEnd) {
+const SPEECH_RECOGNITION_LOCALE_MAP = {
+  Hindi: 'hi-IN',
+  hi: 'hi-IN',
+  Spanish: 'es-ES',
+  es: 'es-ES',
+  French: 'fr-FR',
+  fr: 'fr-FR',
+  German: 'de-DE',
+  de: 'de-DE',
+  English: 'en-US',
+  en: 'en-US',
+};
+
+export function startSpeechRecognition(onResult, onError, onEnd, lang) {
   const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
   if (!SpeechRecognition) {
     onError('Speech recognition is not supported in this browser.');
@@ -159,7 +172,9 @@ export function startSpeechRecognition(onResult, onError, onEnd) {
   const recognition = new SpeechRecognition();
   recognition.continuous = false;
   recognition.interimResults = true;
-  recognition.lang = 'en-US';
+
+  const targetLang = lang || inferLanguagePreference();
+  recognition.lang = SPEECH_RECOGNITION_LOCALE_MAP[targetLang] || (targetLang && targetLang.includes('-') ? targetLang : 'en-US');
 
   recognition.onresult = (event) => {
     let transcript = '';

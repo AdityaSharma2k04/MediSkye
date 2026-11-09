@@ -444,7 +444,7 @@ export default function ChatApp() {
           serverStandaloneConvs.push({
             id: sid,
             document_id: null,
-            patient_id: 'self',
+            patient_id: messagesList[0]?.dependent_id || existing?.patient_id || 'self',
             title,
             messages: (existing?.messages && existing.messages.length > formattedMessages.length)
               ? existing.messages
@@ -589,7 +589,7 @@ export default function ChatApp() {
       if (candidate) {
         setSessionId(candidate.id);
         setActivePdf(candidate.pdf || null);
-        loadChatHistory(candidate.id);
+        loadChatHistory(candidate.document_id || null, candidate.id);
         return;
       }
       const newId = generateSessionId();
@@ -1763,6 +1763,7 @@ export default function ChatApp() {
         autoRead={autoRead}
         setAutoRead={setAutoReadPersist}
         onOpenProfile={handleOpenProfile}
+        selectedPatientId={selectedPatientId}
       />
 
       {isProfileOpen && (

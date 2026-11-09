@@ -233,5 +233,6 @@ async def test_database_url_and_paths_production_readiness():
     # Verify Cloudflare Pages CORS regex
     import re
     assert re.match(s.ALLOWED_ORIGIN_REGEX, "https://mediskye.pages.dev")
-    assert re.match(s.ALLOWED_ORIGIN_REGEX, "https://preview-123.pages.dev")
+    assert re.match(s.ALLOWED_ORIGIN_REGEX, "https://preview-123.mediskye.pages.dev")
+    assert not re.match(s.ALLOWED_ORIGIN_REGEX, "https://preview-123.pages.dev")
     assert not re.match(s.ALLOWED_ORIGIN_REGEX, "https://malicious-site.com")

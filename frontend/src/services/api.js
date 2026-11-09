@@ -557,7 +557,7 @@ export async function deleteAccount() {
   if (!res.ok) {
     throw new Error('Failed to delete account');
   }
-  localStorage.removeItem('token');
+  clearLocalAuthStorage();
   if (auth && typeof signOut === 'function') {
     await signOut(auth);
   }

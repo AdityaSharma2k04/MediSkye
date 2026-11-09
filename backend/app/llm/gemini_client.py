@@ -165,8 +165,6 @@ async def call_gemini_with_retry(
                         "per_day" in err_str or "generate_content_free_tier_requests" in err_str
                     ):
                         _llm_dead_until = time.monotonic() + _LLM_DAILY_COOLDOWN
-                    else:
-                        _llm_dead_until = time.monotonic() + _LLM_TRANSIENT_COOLDOWN
                     raise exc
 
                 logger.warning(

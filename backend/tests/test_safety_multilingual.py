@@ -1,4 +1,5 @@
 import uuid
+from unittest.mock import AsyncMock, patch
 import pytest
 from httpx import AsyncClient, ASGITransport
 
@@ -154,7 +155,8 @@ async def test_hindi_chest_pain_returns_localized_banner():
         token = login.json()["access_token"]
         headers = {"Authorization": f"Bearer {token}"}
 
-        res = await ac.post("/query", json={"query": "मुझे सीने में तेज़ दर्द हो रहा है"}, headers=headers)
+        with patch("app.api.v1.endpoints.query.process_chat_memory_extraction", new=AsyncMock()):
+            res = await ac.post("/query", json={"query": "मुझे सीने में तेज़ दर्द हो रहा है"}, headers=headers)
         assert res.status_code == 200, res.text
         assert "आपातकालीन चेतावनी" in res.text, f"Missing Hindi emergency title in: {res.text}"
         assert "If you or someone near you" not in res.text, f"English banner found in: {res.text}"

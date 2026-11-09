@@ -316,13 +316,13 @@ async def send_custom_verification(
         security_note="If you did not create a MediSkye account, you can safely disregard this email.",
     )
 
-    sync_header = request.headers.get("X-Sync-Email-Test")
-    if sync_header == "1":
-        is_sync = True
-    elif sync_header == "0":
-        is_sync = False
-    else:
-        is_sync = getattr(settings, "ENV", "").lower() == "test"
+    is_sync = False
+    if getattr(settings, "ENV", "").lower() == "test":
+        sync_header = request.headers.get("X-Sync-Email-Test")
+        if sync_header == "0":
+            is_sync = False
+        else:
+            is_sync = True
 
     if is_sync:
         try:
@@ -390,13 +390,13 @@ async def send_custom_password_reset(
         ),
     )
 
-    sync_header = request.headers.get("X-Sync-Email-Test")
-    if sync_header == "1":
-        is_sync = True
-    elif sync_header == "0":
-        is_sync = False
-    else:
-        is_sync = getattr(settings, "ENV", "").lower() == "test"
+    is_sync = False
+    if getattr(settings, "ENV", "").lower() == "test":
+        sync_header = request.headers.get("X-Sync-Email-Test")
+        if sync_header == "0":
+            is_sync = False
+        else:
+            is_sync = True
 
     if is_sync:
         try:

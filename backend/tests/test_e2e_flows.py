@@ -444,11 +444,13 @@ async def test_security_isolation_and_edge_cases():
             email=user_a_email,
             hashed_password=get_password_hash(TEST_PASSWORD),
             phi_consent_granted=True,
+            memory_consent_granted=False,
         )
         user_b = User(
             email=user_b_email,
             hashed_password=get_password_hash(TEST_PASSWORD),
             phi_consent_granted=True,
+            memory_consent_granted=False,
         )
         session.add_all([user_a, user_b])
         await session.commit()

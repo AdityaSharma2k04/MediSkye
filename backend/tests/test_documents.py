@@ -163,6 +163,7 @@ async def test_document_auto_naming_on_first_query():
             patch("app.services.chat_indexer.get_embedder", return_value=FakeEmbedder()),
             patch("app.rag.embedder.get_embedder", return_value=FakeEmbedder()),
             patch("google.genai.Client", return_value=mock_client),
+            patch("app.api.v1.endpoints.query.process_chat_memory_extraction", new=AsyncMock()),
         ):
             query_res = await ac.post(
                 "/query",

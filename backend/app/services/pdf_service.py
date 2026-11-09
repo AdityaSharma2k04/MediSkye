@@ -89,8 +89,6 @@ def validate_file_upload(content: bytes, filename: str = "report.pdf") -> None:
 
     # 4. Image Validation (.png, .jpg, .jpeg)
     if ext_with_dot in [".png", ".jpg", ".jpeg"]:
-        if content.startswith(b"fake "):
-            return
         if ext_with_dot == ".png" and not content.startswith(PNG_MAGIC):
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,

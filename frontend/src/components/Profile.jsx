@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { User, Users, HeartPulse, Save, X, Trash2, Edit2, Plus, Shield, Phone, Activity } from 'lucide-react';
-import { getProfile, updateProfile, deleteAccount, getDependents, createDependent, updateDependent, deleteDependent, createMemoryFact, getMemoryFacts } from '../services/api';
+import { getProfile, updateProfile, deleteAccount, clearLocalAuthStorage, getDependents, createDependent, updateDependent, deleteDependent, createMemoryFact, getMemoryFacts } from '../services/api';
+import { invalidateMetrics } from '../hooks/useLabMetrics';
 import { logger } from '../services/logger';
 import { parseWeightToKgString } from '../lib/clinical';
 import ConfirmModal from './ConfirmModal';
@@ -301,6 +302,8 @@ export default function Profile({
     setErrorMsg('');
     try {
       await deleteAccount();
+      clearLocalAuthStorage();
+      invalidateMetrics();
       navigate('/login');
     } catch (error) {
       console.error('Could not delete your account:', error);

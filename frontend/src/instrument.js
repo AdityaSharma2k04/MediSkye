@@ -31,13 +31,17 @@ Sentry.init({
     tracesSampleRate: 0.1,
     sendDefaultPii: false,
     beforeSend(event) {
-        // Strip auth headers, user identity, breadcrumbs, and scrub PHI-shaped fields
-        if (event.request?.headers) {
-            delete event.request.headers["Authorization"];
-            delete event.request.headers["Cookie"];
-        }
+        // Strip request object, user identity, breadcrumbs, and scrub PHI-shaped fields & exception messages
+        delete event.request;
         delete event.user;
         delete event.breadcrumbs;
+        if (event.exception?.values) {
+            for (const val of event.exception.values) {
+                if (val && typeof val.value === "string") {
+                    val.value = "[scrubbed exception message]";
+                }
+            }
+        }
         if (event.extra) {
             event.extra = scrubPhi(event.extra);
         }
