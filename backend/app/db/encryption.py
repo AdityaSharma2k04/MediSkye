@@ -1,4 +1,6 @@
+import json
 import logging
+from typing import Optional
 import sqlalchemy.types as types
 from cryptography.fernet import Fernet, InvalidToken
 from app.core.config import settings
@@ -34,3 +36,77 @@ class EncryptedString(types.TypeDecorator):
             # If decryption fails (e.g., data was already in DB unencrypted), log and return as is
             logger.warning("Fernet decryption failed; falling back to raw database value.")
             return value
+
+
+_TOKEN_PREFIX = "gAAAA"  # every Fernet token starts with this
+
+
+def _looks_like_token(value) -> bool:
+    return isinstance(value, str) and value.startswith(_TOKEN_PREFIX)
+
+
+def _try_decrypt(value: str) -> Optional[str]:
+    try:
+        return fernet.decrypt(value.encode("utf-8")).decode("utf-8")
+    except Exception:
+        return None
+
+
+class EncryptedText(types.TypeDecorator):
+    """Text encrypted at rest. Legacy plaintext rows still read fine until backfilled.
+    A value that looks like a Fernet token but cannot be decrypted (wrong key / corruption)
+    reads as None and logs an error; it is never returned as ciphertext."""
+
+    impl = types.Text
+    cache_ok = True
+
+    def process_bind_param(self, value, dialect):
+        if value is None:
+            return None
+        if not isinstance(value, str):
+            value = str(value)
+        return fernet.encrypt(value.encode("utf-8")).decode("utf-8")
+
+    def process_result_value(self, value, dialect):
+        if value is None:
+            return None
+        if not isinstance(value, str):
+            return value
+        plain = _try_decrypt(value)
+        if plain is not None:
+            return plain
+        if _looks_like_token(value):
+            logger.error("EncryptedText: Fernet-looking value could not be decrypted (wrong key or corruption).")
+            return None
+        return value  # legacy plaintext row, not yet backfilled
+
+
+class EncryptedJSON(types.TypeDecorator):
+    """JSON encrypted at rest. The encrypted token is stored as a JSON *string* in the existing JSON column,
+    so no schema change is needed. Legacy rows (a JSON list/dict) still read fine until backfilled."""
+
+    impl = types.JSON
+    cache_ok = True
+
+    def process_bind_param(self, value, dialect):
+        if value is None:
+            return None
+        payload = json.dumps(value, ensure_ascii=False, separators=(",", ":"))
+        return fernet.encrypt(payload.encode("utf-8")).decode("utf-8")
+
+    def process_result_value(self, value, dialect):
+        if value is None:
+            return None
+        if isinstance(value, str):
+            plain = _try_decrypt(value)
+            if plain is not None:
+                try:
+                    return json.loads(plain)
+                except ValueError:
+                    logger.error("EncryptedJSON: decrypted payload is not valid JSON.")
+                    return None
+            if _looks_like_token(value):
+                logger.error("EncryptedJSON: Fernet-looking value could not be decrypted (wrong key or corruption).")
+                return None
+        return value  # legacy plaintext list/dict
+
