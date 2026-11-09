@@ -18,7 +18,7 @@ from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import relationship as orm_relationship
 from sqlalchemy.ext.hybrid import hybrid_property
 from .database import Base
-from .encryption import EncryptedString
+from .encryption import EncryptedString, EncryptedText, EncryptedJSON
 
 
 def utcnow():
@@ -34,7 +34,7 @@ class User(Base):
     hashed_password = Column(String, nullable=False)
     created_at = Column(DateTime(timezone=True), default=utcnow)
     
-    full_name = Column(String, nullable=True)
+    full_name = Column(EncryptedText, nullable=True)
     date_of_birth = Column(Date, nullable=True)
     biological_sex = Column(String, nullable=True)
     blood_type = Column(EncryptedString, nullable=True)
@@ -92,7 +92,7 @@ class DependentProfile(Base):
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     user_id = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
     relationship = Column(String, nullable=False)
-    full_name = Column(String, nullable=False)
+    full_name = Column(EncryptedText, nullable=False)
     date_of_birth = Column(Date, nullable=True)
     biological_sex = Column(String, nullable=True)
 
@@ -128,8 +128,8 @@ class Document(Base):
     file_path = Column(String, nullable=True)  # Path to FAISS index or PDF
     title = Column(String(60), nullable=True)  # User-defined or auto-generated chat title
     index_status = Column(String(20), default="local_ready", nullable=False)  # building | local_ready | synced
-    cached_metrics = Column(JSON, nullable=True)
-    cached_summary = Column(Text, nullable=True)
+    cached_metrics = Column(EncryptedJSON, nullable=True)
+    cached_summary = Column(EncryptedText, nullable=True)
     collected_at = Column(String(64), nullable=True)
     created_at = Column(DateTime(timezone=True), default=utcnow)
 
