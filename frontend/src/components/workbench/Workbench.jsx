@@ -246,9 +246,11 @@ export default function Workbench(props) {
       {/* ━━━ Header ━━━ */}
       <header data-testid="workbench-header" className="shrink-0 z-20 border-b border-white/[0.06] bg-obsidian/85 backdrop-blur-xl pt-safe">
         <div className="h-14 px-2 sm:px-3 flex items-center gap-1.5 sm:gap-2">
-          <IconButton label="Toggle sidebar" onClick={toggleSidebar} className="shrink-0">
-            <Menu className="w-[18px] h-[18px]" />
-          </IconButton>
+          {!isDesktop && (
+            <IconButton label="Toggle sidebar" onClick={toggleSidebar} className="shrink-0">
+              <Menu className="w-[18px] h-[18px]" />
+            </IconButton>
+          )}
 
           {!isDesktop && !isMobile && <BrandMark size={26} className="shrink-0 mr-0.5" />}
 

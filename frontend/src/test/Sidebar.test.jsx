@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, fireEvent, waitFor, within } from '@testing-library/react';
 import React from 'react';
 import { MemoryRouter } from 'react-router-dom';
@@ -34,7 +34,11 @@ describe('Sidebar DeepSeek-style Slide Collapse Animation', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     localStorage.clear();
-    // Default to desktop viewport
+    // Tablet/mobile viewport so header Toggle sidebar control is rendered
+    window.innerWidth = 800;
+  });
+
+  afterEach(() => {
     window.innerWidth = 1024;
   });
 
@@ -50,6 +54,10 @@ describe('Sidebar DeepSeek-style Slide Collapse Animation', () => {
     const toggleButton = await screen.findByRole('button', { name: /toggle sidebar/i });
     const sidebarWrapper = container.querySelector('[data-testid="sidebar-wrapper"]');
     expect(sidebarWrapper).toBeInTheDocument();
+    // At tablet/mobile width (< 1024px), the drawer starts closed; open it first
+    if (sidebarWrapper.className.includes('-translate-x-full')) {
+      fireEvent.click(toggleButton);
+    }
     expect(sidebarWrapper.className).toContain('translate-x-0');
     expect(sidebarWrapper.className).not.toContain('-translate-x-full');
 
