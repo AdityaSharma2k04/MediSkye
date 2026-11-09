@@ -398,8 +398,8 @@ async def query_bot(
         await db.close()
 
         async def emergency_stream():
-            yield f'data: {json.dumps({"title": updated_chat_title or current_session_title, "document_id": primary_doc_id_str, "session_id": effective_session_id})}\n\n'
-            yield f'data: {json.dumps({"chunk": ai_msg})}\n\n'
+            yield f'data: {json.dumps({"title": updated_chat_title or current_session_title, "document_id": primary_doc_id_str, "session_id": effective_session_id}, ensure_ascii=False)}\n\n'
+            yield f'data: {json.dumps({"chunk": ai_msg}, ensure_ascii=False)}\n\n'
             yield f'data: [DONE]\n\n'
 
         return StreamingResponse(emergency_stream(), media_type="text/event-stream")
@@ -1181,7 +1181,7 @@ async def get_or_generate_document_summary(
     if not force_refresh and doc.cached_summary is not None and doc.cached_summary.strip() != "":
         return DocumentSummaryResponse(summary=doc.cached_summary, cached=True)
 
-    if is_stale_building(doc):
+    if getattr(doc, "index_status", None) == "failed" or is_stale_building(doc):
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail="This document could not be processed. Please upload a different file or re-upload.",

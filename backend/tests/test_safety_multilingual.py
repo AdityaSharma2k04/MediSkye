@@ -1,4 +1,12 @@
+import uuid
 import pytest
+from httpx import AsyncClient, ASGITransport
+
+from app.main import app
+from app.db.database import AsyncSessionLocal
+from app.db.models import User
+from app.core.auth import get_password_hash
+from tests.conftest import TEST_PASSWORD
 from app.rag.safety import (
     EmergencyKind,
     detect_emergency,
@@ -128,12 +136,25 @@ def test_banner_language_aliases_and_default(alias, expected_medical, expected_c
     assert get_emergency_response(EmergencyKind.SELF_HARM, alias) == expected_crisis
 
 
-def test_hindi_chest_pain_returns_localized_banner():
-    q = "मेरे सीने में तेज दर्द हो रहा है"
-    kind = detect_emergency(q)
-    lang = detect_emergency_language(q)
-    assert kind == EmergencyKind.MEDICAL
-    assert lang == "Hindi"
-    banner = get_emergency_response(kind, lang)
-    assert banner == _HI_MEDICAL
-    assert "112" in banner
+@pytest.mark.asyncio
+async def test_hindi_chest_pain_returns_localized_banner():
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as ac:
+        email = f"hindi_emerg_{uuid.uuid4().hex[:8]}@test.com"
+        async with AsyncSessionLocal() as session:
+            session.add(User(
+                email=email,
+                hashed_password=get_password_hash(TEST_PASSWORD),
+                phi_consent_granted=True,
+                memory_consent_granted=True,
+            ))
+            await session.commit()
+        login = await ac.post("/login", data={"username": email, "password": TEST_PASSWORD})
+        assert login.status_code == 200, login.text
+        token = login.json()["access_token"]
+        headers = {"Authorization": f"Bearer {token}"}
+
+        res = await ac.post("/query", json={"query": "मुझे सीने में तेज़ दर्द हो रहा है"}, headers=headers)
+        assert res.status_code == 200, res.text
+        assert "आपातकालीन चेतावनी" in res.text, f"Missing Hindi emergency title in: {res.text}"
+        assert "If you or someone near you" not in res.text, f"English banner found in: {res.text}"

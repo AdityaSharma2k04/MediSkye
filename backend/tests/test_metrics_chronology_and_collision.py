@@ -363,32 +363,15 @@ def test_demographic_resolution_logic_preserves_extracted_status():
     - Extracted High/Low/Critical flags are preserved.
     - LLM Normal or empty status becomes Unknown (never falsely labeled healthy).
     """
-    from app.api.v1.endpoints.metrics import _RANGE_AMBIGUOUS, _RANGE_DEMOGRAPHIC
-
-    def resolve(val_str, ref_range, raw_status):
-        derived = _status_from_range(val_str, ref_range)
-        is_ambiguous_range = bool(
-            ref_range and (_RANGE_DEMOGRAPHIC.search(ref_range) or _RANGE_AMBIGUOUS.search(ref_range))
-        )
-        if derived in ("High", "Low"):
-            return derived
-        elif raw_status in ("High", "Low", "Critical", "Abnormal"):
-            return raw_status
-        elif derived == "Normal":
-            return "Normal"
-        elif is_ambiguous_range:
-            return "Unknown"
-        elif raw_status == "Normal" or not ref_range:
-            return "Normal"
-        else:
-            return "Unknown"
+    from app.api.v1.endpoints.metrics import _resolve_status
 
     demo_range = "Male: 13.5-17.5; Female: 12.0-15.5"
-    assert resolve("19.0", demo_range, "High") == "High"
-    assert resolve("10.0", demo_range, "Low") == "Low"
-    assert resolve("7.0", demo_range, "Critical") == "Critical"
-    assert resolve("14.0", demo_range, "Normal") == "Unknown"
-    assert resolve("14.0", demo_range, "") == "Unknown"
+    assert _resolve_status("High", "19.0", demo_range, None) == "High"
+    assert _resolve_status("Low", "10.0", demo_range, None) == "Low"
+    assert _resolve_status("Critical", "7.0", demo_range, None) == "Critical"
+    assert _resolve_status("Normal", "14.0", demo_range, None) == "Normal"    # inside both strata -> Normal
+    assert _resolve_status("Normal", "12.5", demo_range, None) == "Unknown"   # inside Female only, no sex -> Unknown
+    assert _resolve_status("", "12.5", demo_range, None) == "Unknown"
 
 
 def test_stoichiometric_unit_conversions_for_deltas():
