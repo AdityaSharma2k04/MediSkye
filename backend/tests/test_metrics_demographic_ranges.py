@@ -1,5 +1,9 @@
+import uuid
+from types import SimpleNamespace
 import pytest
-from app.api.v1.endpoints.metrics import _resolve_status, _status_from_demographic_ranges
+from app.db.database import AsyncSessionLocal
+from app.db.models import User, DependentProfile
+from app.api.v1.endpoints.metrics import _resolve_status, _status_from_demographic_ranges, _load_patient_sex
 
 R1 = "Male: 13.8 - 17.2; Female: 12.1 - 15.1"
 R2 = "M 13-17 / F 12-15"
@@ -49,3 +53,47 @@ def test_status_from_demographic_ranges(value, rng, sex, expected):
 ])
 def test_resolve_status(llm, value, rng, sex, expected):
     assert _resolve_status(llm, value, rng, sex) == expected
+
+
+@pytest.mark.asyncio
+async def test_load_patient_sex_user_female_no_dependent():
+    uid = uuid.uuid4()
+    async with AsyncSessionLocal() as session:
+        session.add(User(id=uid, email=f"fem_{uuid.uuid4().hex[:8]}@test.com", hashed_password="pw", biological_sex="Female"))
+        await session.commit()
+        doc = SimpleNamespace(user_id=uid, dependent_id=None)
+        assert await _load_patient_sex(session, doc) == "female"
+
+
+@pytest.mark.asyncio
+async def test_load_patient_sex_dependent_male_overrides_user():
+    uid = uuid.uuid4()
+    dep_id = uuid.uuid4()
+    async with AsyncSessionLocal() as session:
+        session.add(User(id=uid, email=f"dep_{uuid.uuid4().hex[:8]}@test.com", hashed_password="pw", biological_sex="Female"))
+        session.add(DependentProfile(id=dep_id, user_id=uid, relationship="child", full_name="Son", biological_sex="Male"))
+        await session.commit()
+        doc = SimpleNamespace(user_id=uid, dependent_id=dep_id)
+        assert await _load_patient_sex(session, doc) == "male"
+
+
+@pytest.mark.asyncio
+async def test_load_patient_sex_user_prefer_not_to_say():
+    uid = uuid.uuid4()
+    async with AsyncSessionLocal() as session:
+        session.add(User(id=uid, email=f"pnts_{uuid.uuid4().hex[:8]}@test.com", hashed_password="pw", biological_sex="Prefer not to say"))
+        await session.commit()
+        doc = SimpleNamespace(user_id=uid, dependent_id=None)
+        assert await _load_patient_sex(session, doc) is None
+
+
+@pytest.mark.asyncio
+async def test_load_patient_sex_user_none():
+    uid = uuid.uuid4()
+    async with AsyncSessionLocal() as session:
+        session.add(User(id=uid, email=f"none_{uuid.uuid4().hex[:8]}@test.com", hashed_password="pw", biological_sex=None))
+        await session.commit()
+        doc = SimpleNamespace(user_id=uid, dependent_id=None)
+        assert await _load_patient_sex(session, doc) is None
+
+
