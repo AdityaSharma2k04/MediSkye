@@ -18,7 +18,6 @@ from app.middleware.body_limit import BodySizeLimitMiddleware
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from app.core.observability import init_sentry
-init_sentry()
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -128,6 +127,9 @@ app = FastAPI(
     redoc_url="/redoc" if settings.DEBUG else None,
     lifespan=lifespan,
 )
+
+# Initialize Sentry AFTER app instantiation and BEFORE custom middlewares
+init_sentry()
 
 # Process Time Middleware (X-Process-Time-Ms)
 @app.middleware("http")

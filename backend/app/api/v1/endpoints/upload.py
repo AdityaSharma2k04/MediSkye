@@ -187,6 +187,8 @@ async def process_upload_background(
             await update_job(job_id, status=UploadStatus.COMPLETED, document_id=str(doc_id_val), stage="ready")
             logger.info(f"[UPLOAD {job_id}] Step A Fast Path Completed (local_ready): {time.monotonic() - t_start:.2f}s")
         except Exception as e:
+            import sentry_sdk
+            sentry_sdk.capture_exception(e)
             logger.error(f"[UPLOAD {job_id}] Failed after {time.monotonic() - t_start:.2f}s: {e}", exc_info=True)
             try:
                 if 'doc' in locals() and getattr(doc, 'id', None):
@@ -211,48 +213,53 @@ async def process_upload_background(
 
     # Step B (Async Background GCS Sync & Cache Warming):
     async def _run_post_upload_tasks():
-        t_gcs = time.perf_counter()
-        gcs_success = False
         try:
-            gcs_success = await asave_index_artifacts_with_retry(index_path, max_attempts=3, initial_delay=0.5)
-        except Exception as gcs_err:
-            logger.warning(f"[UPLOAD {job_id}] GCS index sync error: {gcs_err}")
-        gcs_sync_ms = int((time.perf_counter() - t_gcs) * 1000)
+            t_gcs = time.perf_counter()
+            gcs_success = False
+            try:
+                gcs_success = await asave_index_artifacts_with_retry(index_path, max_attempts=3, initial_delay=0.5)
+            except Exception as gcs_err:
+                logger.warning(f"[UPLOAD {job_id}] GCS index sync error: {gcs_err}")
+            gcs_sync_ms = int((time.perf_counter() - t_gcs) * 1000)
 
-        # Structured UPLOAD_BREAKDOWN logging
-        logger.info(
-            "UPLOAD_BREAKDOWN: parse=%dms chunk=%dms embed=%dms faiss_build=%dms db_commit=%dms gcs_sync=%dms",
-            parse_ms,
-            chunk_ms,
-            embed_ms,
-            faiss_build_ms,
-            db_commit_ms,
-            gcs_sync_ms,
-        )
-
-        if gcs_success:
-            async with AsyncSessionLocal() as db_sync:
-                try:
-                    res = await db_sync.execute(select(Document).filter(Document.id == doc_id_val))
-                    sync_doc = res.scalars().first()
-                    if sync_doc:
-                        sync_doc.index_status = "synced"
-                        await db_sync.commit()
-                        logger.info(f"[UPLOAD {job_id}] Document {doc_id_val} index_status updated to 'synced'")
-                except Exception as se:
-                    logger.warning(f"[UPLOAD {job_id}] Failed to set index_status to synced: {se}")
-
-        # Post-completion cache warming
-        try:
-            t_warm = time.monotonic()
-            await asyncio.gather(
-                _warm_document_metrics_cache(doc_id=doc_id_val, user_uuid=user_uuid, page_docs=page_docs),
-                _warm_document_summary_cache(doc_id=doc_id_val, user_uuid=user_uuid, page_docs=page_docs),
-                return_exceptions=True,
+            # Structured UPLOAD_BREAKDOWN logging
+            logger.info(
+                "UPLOAD_BREAKDOWN: parse=%dms chunk=%dms embed=%dms faiss_build=%dms db_commit=%dms gcs_sync=%dms",
+                parse_ms,
+                chunk_ms,
+                embed_ms,
+                faiss_build_ms,
+                db_commit_ms,
+                gcs_sync_ms,
             )
-            logger.info(f"[UPLOAD {job_id}] Post-completion cache warming finished in {time.monotonic() - t_warm:.2f}s")
-        except Exception as ce:
-            logger.warning(f"[UPLOAD {job_id}] Post-completion cache warming non-fatal error: {ce}")
+
+            if gcs_success:
+                async with AsyncSessionLocal() as db_sync:
+                    try:
+                        res = await db_sync.execute(select(Document).filter(Document.id == doc_id_val))
+                        sync_doc = res.scalars().first()
+                        if sync_doc:
+                            sync_doc.index_status = "synced"
+                            await db_sync.commit()
+                            logger.info(f"[UPLOAD {job_id}] Document {doc_id_val} index_status updated to 'synced'")
+                    except Exception as se:
+                        logger.warning(f"[UPLOAD {job_id}] Failed to set index_status to synced: {se}")
+
+            # Post-completion cache warming
+            try:
+                t_warm = time.monotonic()
+                await asyncio.gather(
+                    _warm_document_metrics_cache(doc_id=doc_id_val, user_uuid=user_uuid, page_docs=page_docs),
+                    _warm_document_summary_cache(doc_id=doc_id_val, user_uuid=user_uuid, page_docs=page_docs),
+                    return_exceptions=True,
+                )
+                logger.info(f"[UPLOAD {job_id}] Post-completion cache warming finished in {time.monotonic() - t_warm:.2f}s")
+            except Exception as ce:
+                logger.warning(f"[UPLOAD {job_id}] Post-completion cache warming non-fatal error: {ce}")
+        except Exception as e:
+            import sentry_sdk
+            sentry_sdk.capture_exception(e)
+            logger.error(f"[UPLOAD {job_id}] Error in post-upload background tasks: {e}", exc_info=True)
 
     bg_task = asyncio.create_task(_run_post_upload_tasks())
     _background_warm_tasks.add(bg_task)
@@ -301,10 +308,12 @@ async def _warm_document_metrics_cache(doc_id: uuid.UUID, user_uuid: uuid.UUID, 
                 else:
                     logger.warning("prewarm_skip doc_id=%s kind=%s (extraction returned None)", doc_id, "metrics")
                     return
-        except Exception:
+        except Exception as e:
             if attempt == 0:
                 await asyncio.sleep(2.0)
             else:
+                import sentry_sdk
+                sentry_sdk.capture_exception(e)
                 logger.exception("prewarm_fail doc_id=%s kind=%s", doc_id, "metrics")
 
 
@@ -348,10 +357,12 @@ async def _warm_document_summary_cache(doc_id: uuid.UUID, user_uuid: uuid.UUID, 
             elapsed_ms = int((time.perf_counter() - t_start) * 1000)
             logger.info("prewarm_ok doc_id=%s kind=%s elapsed_ms=%d", doc_id, "summary", elapsed_ms)
             return
-        except Exception:
+        except Exception as e:
             if attempt == 0:
                 await asyncio.sleep(2.0)
             else:
+                import sentry_sdk
+                sentry_sdk.capture_exception(e)
                 logger.exception("prewarm_fail doc_id=%s kind=%s", doc_id, "summary")
 
 

@@ -14,3 +14,10 @@ async def get_health_status():
         version=settings.VERSION,
         environment=settings.ENV,
     )
+
+
+@router.get("/sentry-debug", tags=["Health"])
+@router.get("/api/v1/sentry-debug", tags=["Health"])
+async def trigger_error():
+    division_by_zero = 1 / 0
+    return {"status": "unreachable"}

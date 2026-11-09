@@ -253,4 +253,6 @@ async def process_chat_memory_extraction(
             logger.info("Fact persistence completed for user %s: %s", user_id, stats)
 
     except Exception as e:
+        import sentry_sdk
+        sentry_sdk.capture_exception(e)
         logger.error("Failed to run background memory extraction: %s", e, exc_info=True)

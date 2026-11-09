@@ -266,7 +266,9 @@ async def _send_email_background(to_email: str, subject: str, html_body: str) ->
             subject=subject,
             html_body=html_body,
         )
-    except Exception:
+    except Exception as e:
+        import sentry_sdk
+        sentry_sdk.capture_exception(e)
         logger.exception("Failed to send background email to %s", to_email)
 
 
