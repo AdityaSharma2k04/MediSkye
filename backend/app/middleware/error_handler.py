@@ -20,6 +20,9 @@ async def http_exception_handler(request: Request, exc: StarletteHTTPException):
 
 async def global_exception_handler(request: Request, exc: Exception):
     req_id = getattr(request.state, "request_id", "")
+    import sentry_sdk
+    sentry_sdk.capture_exception(exc)
+
     # Log detailed traceback internally
     logger.error(
         f"Unhandled Exception on {request.method} {request.url.path} (request_id={req_id}): {exc}\n"
