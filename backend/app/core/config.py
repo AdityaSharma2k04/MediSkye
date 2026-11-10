@@ -33,6 +33,7 @@ class Settings(BaseSettings):
     REDIS_URL: str = "redis://localhost:6379/0"
 
     # Security & API Key
+    ALLOW_UNVERIFIED_JWT_FALLBACK: bool = False
     GOOGLE_API_KEY: str = Field(default_factory=lambda: os.getenv("GOOGLE_API_KEY", ""))
     GEMINI_MODEL: str = "gemini-3.6-flash"
     EMBEDDING_MODEL: str = "models/gemini-embedding-2"

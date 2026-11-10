@@ -393,7 +393,7 @@ async def _resolve_user_full(token: str, db: AsyncSession) -> Optional[User]:
                         issuer=f"https://securetoken.google.com/{project_id}",
                     )
                 except Exception as jwks_err:
-                    if settings.ENV in ("development", "test"):
+                    if settings.ALLOW_UNVERIFIED_JWT_FALLBACK:
                         unverified = jwt.decode(token, options={"verify_signature": False})
                         if unverified.get("iss") == f"https://securetoken.google.com/{project_id}":
                             decoded_token = unverified

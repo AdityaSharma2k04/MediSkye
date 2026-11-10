@@ -34,6 +34,11 @@ router = APIRouter(tags=["Authentication"])
 CUSTOM_AUTH_ACTION_URL = "https://mediskye.pages.dev/auth/action"
 
 
+def _mask_email(email: str) -> str:
+    u, _, d = str(email or "").partition("@")
+    return f"{u[:1]}***@{d}" if d else "***"
+
+
 def _build_custom_action_link(firebase_link: str, mode: str) -> str:
     oob_code = parse_qs(urlsplit(firebase_link).query).get("oobCode", [None])[0]
     if not oob_code:
@@ -269,7 +274,7 @@ async def _send_email_background(to_email: str, subject: str, html_body: str) ->
     except Exception as e:
         import sentry_sdk
         sentry_sdk.capture_exception(e)
-        logger.exception("Failed to send background email to %s", to_email)
+        logger.exception("Failed to send background email to %s", _mask_email(to_email))
 
 
 @router.post("/auth/send-custom-verification")
@@ -296,10 +301,10 @@ async def send_custom_verification(
         )
         link = _build_custom_action_link(firebase_link, "verifyEmail")
     except UserNotFoundError:
-        logger.warning("Verification requested for non-existent user: %s", email)
+        logger.warning("Verification requested for non-existent user: %s", _mask_email(email))
         return {"message": "Verification email sent"}
     except Exception:
-        logger.exception("Failed to generate verification link for %s", email)
+        logger.exception("Failed to generate verification link for %s", _mask_email(email))
         raise HTTPException(status_code=500, detail="An internal error occurred.")
 
     html_content = _build_mediskye_email_html(
@@ -332,7 +337,7 @@ async def send_custom_verification(
                 html_body=html_content,
             )
         except Exception:
-            logger.exception("Failed to send verification email to %s", email)
+            logger.exception("Failed to send verification email to %s", _mask_email(email))
             raise HTTPException(status_code=502, detail="Email service is currently unavailable. Please try again later.")
     else:
         background_tasks.add_task(
@@ -406,7 +411,7 @@ async def send_custom_password_reset(
                 html_body=html_content,
             )
         except Exception:
-            logger.exception("Failed to send password reset email to %s", email)
+            logger.exception("Failed to send password reset email to %s", _mask_email(email))
             raise HTTPException(status_code=502, detail="Email service is currently unavailable. Please try again later.")
     else:
         background_tasks.add_task(

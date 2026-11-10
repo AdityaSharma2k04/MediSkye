@@ -8,6 +8,11 @@ import aiosmtplib
 logger = logging.getLogger(__name__)
 
 
+def _mask_email(email: str) -> str:
+    u, _, d = str(email or "").partition("@")
+    return f"{u[:1]}***@{d}" if d else "***"
+
+
 async def send_email_via_gmail(to_email: str, subject: str, html_body: str) -> None:
     """Send an email using Gmail's SMTP server via an App Password."""
     smtp_host = os.getenv("SMTP_HOST", "smtp.gmail.com")
@@ -34,7 +39,7 @@ async def send_email_via_gmail(to_email: str, subject: str, html_body: str) -> N
             username=smtp_user,
             password=smtp_password,
         )
-        logger.info("Email sent successfully to %s via Gmail SMTP", to_email)
+        logger.info("Email sent successfully to %s via Gmail SMTP", _mask_email(to_email))
     except Exception:
-        logger.exception("Failed to send email via Gmail SMTP to %s", to_email)
+        logger.exception("Failed to send email via Gmail SMTP to %s", _mask_email(to_email))
         raise

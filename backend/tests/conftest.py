@@ -16,6 +16,7 @@ TEST_PASSWORD = "TestPassword123!"
 # Disable remote GCS bucket calls in tests (tests testing GCS mock it explicitly)
 from app.core.config import settings
 settings.GCS_INDEX_BUCKET = None
+settings.ALLOW_UNVERIFIED_JWT_FALLBACK = True
 
 # Fast-fail external Firebase network calls for synthetic test emails
 import firebase_admin.auth
