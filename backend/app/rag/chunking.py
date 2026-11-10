@@ -44,6 +44,54 @@ BULLET_RUN_RE = re.compile(
     re.MULTILINE,
 )
 
+TABLE_ROW_RE = re.compile(r"^[ \t]*\|.*\|[ \t]*$")
+TABLE_SEP_RE = re.compile(r"^[ \t]*\|(?:\s*:?-+:?\s*\|)+[ \t]*$")
+
+
+def _propagate_table_headers(page_docs: List[Document]) -> List[Document]:
+    """
+    Carries over Markdown table headers across page boundaries when a table
+    continues onto page N+1 without repeating the column header row.
+    """
+    updated_docs: List[Document] = []
+    last_header: Optional[Tuple[str, str, int]] = None
+
+    for doc in page_docs:
+        content = doc.page_content or ""
+        lines = content.split("\n")
+        new_lines: List[str] = []
+        i = 0
+        while i < len(lines):
+            line = lines[i]
+            is_table_row = bool(TABLE_ROW_RE.match(line))
+            prev_is_table_row = bool(i > 0 and TABLE_ROW_RE.match(lines[i - 1]))
+
+            if is_table_row and not prev_is_table_row:
+                next_line = lines[i + 1] if i + 1 < len(lines) else ""
+                if TABLE_SEP_RE.match(next_line):
+                    last_header = (line, next_line, line.count("|"))
+                    new_lines.append(line)
+                    new_lines.append(next_line)
+                    i += 2
+                    continue
+                elif last_header is not None and line.count("|") == last_header[2]:
+                    new_lines.append(last_header[0])
+                    new_lines.append(last_header[1])
+                    new_lines.append(line)
+                    i += 1
+                    continue
+
+            new_lines.append(line)
+            i += 1
+
+        new_content = "\n".join(new_lines)
+        if new_content != content:
+            updated_docs.append(Document(page_content=new_content, metadata=dict(doc.metadata)))
+        else:
+            updated_docs.append(doc)
+
+    return updated_docs
+
 # Opaque, separator-free placeholder used while splitting.  Contains no
 # newlines/spaces/punctuation, so RecursiveCharacterTextSplitter can never
 # split inside it.
@@ -109,9 +157,10 @@ def split_medical_documents(
     chunk_overlap: int = 200,
 ) -> List[Document]:
     """Split documents with table/bullet-aware chunking (CPU-bound)."""
+    propagated_docs = _propagate_table_headers(page_docs)
     splitter = MedicalTextSplitter(
         chunk_size=chunk_size,
         chunk_overlap=chunk_overlap,
     )
-    raw_chunks = splitter.split_documents(page_docs)
+    raw_chunks = splitter.split_documents(propagated_docs)
     return [c for c in raw_chunks if c.page_content and c.page_content.strip()]

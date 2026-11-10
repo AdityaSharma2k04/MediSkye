@@ -95,3 +95,20 @@ def test_no_tables_no_bullets_behaves_like_recursive_splitter():
     text = "A plain paragraph with words. " * 10
     chunks = _all_chunks(splitter, text)
     assert len(chunks) > 1
+
+
+def test_multipage_markdown_table_header_propagation():
+    page1 = Document(
+        page_content="| Analyte | Result | Ref Range | Units |\n|---|---|---|---|\n| Glucose | 95 | 70-99 | mg/dL |",
+        metadata={"page": 1},
+    )
+    page2 = Document(
+        page_content="| Creatinine | 1.4 | 0.7-1.2 | mg/dL |\n| Urea | 24 | 15-40 | mg/dL |",
+        metadata={"page": 2},
+    )
+    chunks = split_medical_documents([page1, page2], chunk_size=500, chunk_overlap=0)
+    page2_chunks = [c for c in chunks if c.metadata.get("page") == 2]
+    assert len(page2_chunks) > 0
+    assert "| Analyte | Result | Ref Range | Units |" in page2_chunks[0].page_content
+    assert "|---|---|---|---|" in page2_chunks[0].page_content
+
