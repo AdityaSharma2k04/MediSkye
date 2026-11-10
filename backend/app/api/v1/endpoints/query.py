@@ -20,7 +20,7 @@ from app.core.limiter import limiter
 from app.core.audit import log_audit
 from app.core.security import generate_title_from_query, sanitize_text
 from app.db.database import get_db, AsyncSessionLocal
-from app.db.models import Document, Chat, ChatDocument, DependentProfile
+from app.db.models import Document, Chat, ChatDocument, DependentProfile, User
 from app.llm.gemini_client import GeminiUnavailableError, get_genai_client, call_gemini_with_retry
 from app.rag.index_storage import aensure_index_local
 from app.schemas.query import QueryRequest
@@ -329,6 +329,11 @@ async def query_bot(
             raise HTTPException(status_code=404, detail="Dependent profile not found.")
         active_profile = dep
         active_dep_id = dep.id
+    else:
+        user_res = await db.execute(select(User).filter(User.id == current_user.id))
+        db_user = user_res.scalars().first()
+        if db_user:
+            active_profile = db_user
 
     if body.patient_id and any(d.dependent_id != active_dep_id for d in chat_docs):
         raise HTTPException(status_code=409, detail="This report belongs to a different patient profile.")

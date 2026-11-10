@@ -49,7 +49,7 @@ logger = logging.getLogger(__name__)
 router = APIRouter(tags=["Users & Dependents"])
 
 @router.get("/users/me", response_model=UserResponse)
-async def read_user_me(current_user: UserDTO = Depends(get_current_user)):
+async def read_user_me(current_user: User = Depends(get_current_user_full)):
     user_res = UserResponse.model_validate(current_user)
     user_res.calculated_age = calculate_age(current_user.date_of_birth)
     return user_res
