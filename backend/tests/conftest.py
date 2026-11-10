@@ -253,6 +253,7 @@ def fast_gemini_retry(request, monkeypatch):
         monkeypatch.setattr(fe, "call_gemini_with_retry", _fast_call)
 
     yield
+    monkeypatch.undo()
 
 
 @pytest.fixture(autouse=True)
