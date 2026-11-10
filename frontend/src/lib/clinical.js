@@ -19,9 +19,13 @@ const NUM_RE = /-?\d[\d,]*\.?\d*|-?\.\d+/;
 export function parseNumeric(value) {
   if (value === null || value === undefined) return null;
   if (typeof value === 'number') return Number.isFinite(value) ? value : null;
-  const s = String(value);
+  let s = String(value);
   if (/^\s*\d+\s*:\s*\d+/.test(s)) return null;
-  const match = s.replace(/−/g, '-').match(NUM_RE);
+  s = s
+    .replace(/−/g, '-')
+    .replace(/(\d),(\d{3})\b/g, '$1$2')
+    .replace(/(\d),(\d{1,2})(?!\d)/g, '$1.$2');
+  const match = s.match(NUM_RE);
   if (!match) return null;
   const n = parseFloat(match[0].replace(/,/g, ''));
   return Number.isFinite(n) ? n : null;
@@ -34,7 +38,12 @@ export function parseNumeric(value) {
  */
 export function parseRange(range) {
   if (range === null || range === undefined) return null;
-  const s = String(range).replace(/−/g, '-').replace(/,/g, '').trim();
+  let s = String(range)
+    .replace(/−/g, '-')
+    .replace(/(\d),(\d{3})\b/g, '$1$2')
+    .replace(/(\d),(\d{1,2})(?!\d)/g, '$1.$2')
+    .replace(/,/g, '')
+    .trim();
   if (!s || s === '—' || s === '-') return null;
 
   // Multi-tier & sex/pregnancy qualifiers guard
@@ -171,6 +180,31 @@ export function classifyStatus(row) {
   if (s.includes('border')) return 'borderline';
   if (s === 'high' || s.startsWith('high') || s.includes('elevated') || s === 'h') return 'high';
   if (s === 'low' || s.startsWith('low') || s.includes('deficien') || s === 'l') return 'low';
+
+  const valTrimmed = String(row?.value || '').trim();
+  const rangeTrimmed = String(row?.range || row?.reference_range || '').trim();
+
+  // Qualitative serology (e.g. Positive vs Negative)
+  if (
+    /^\s*(negative|non[-\s]?reactive|absent|nil)\s*$/i.test(rangeTrimmed) &&
+    /\b(positive|reactive|detected|present)\b/i.test(valTrimmed) &&
+    !/\b(non[-\s]?reactive|negative)\b/i.test(valTrimmed)
+  ) {
+    return 'high';
+  }
+
+  // Comparator values (> 200, < 0.5)
+  if (/^>=?/.test(valTrimmed)) {
+    const v = parseNumeric(row?.value);
+    const r = parseRange(row?.range || row?.reference_range);
+    if (v !== null && r?.high !== null && v >= r.high) return 'high';
+  }
+  if (/^<=?/.test(valTrimmed)) {
+    const v = parseNumeric(row?.value);
+    const r = parseRange(row?.range || row?.reference_range);
+    if (v !== null && r?.low !== null && r.low > 0 && v <= r.low) return 'low';
+  }
+
   if (s === 'abnormal') {
     const pos = rangeGeometry(row);
     if (pos?.side === 'above') return 'high';
@@ -310,13 +344,46 @@ export function formatNumber(n, digits = 2) {
 // ── Organ-system grouping ────────────────────────────────────────────────────
 
 export const ORGAN_SYSTEMS = [
-  { key: 'glycemic', label: 'Metabolic & Glycemic', match: /(hba1c|\ba1c\b|glucose|sugar|insulin|homa|fbs|ppbs|fructosamine|glycated)/i },
-  { key: 'lipids', label: 'Lipids', match: /(cholesterol|\bldl\b|\bhdl\b|vldl|triglycer|\btg\b|lipoprotein|\bapo|lp\(a\)|non.?hdl)/i },
-  { key: 'thyroid', label: 'Thyroid & Vitamins', match: /(\btsh\b|\bt3\b|\bt4\b|ft3|ft4|thyro|vitamin|\bb12\b|cobalamin|folate|folic|25.?oh|calcidiol|\bd3\b)/i },
-  { key: 'renal', label: 'Renal & Electrolytes', match: /(creatinine|\burea\b|\bbun\b|egfr|\bgfr\b|uric|sodium|\bna\b|potassium|\bk\b|chloride|bicarbonate|\bco2\b|calcium|phosph|magnesium|microalbumin|albumin.?creatinine|\bacr\b|cystatin|osmolal)/i },
-  { key: 'hepatic', label: 'Hepatic', match: /(\balt\b|sgpt|\bast\b|sgot|alkaline|\balp\b|bilirubin|\bggt\b|gamma|albumin|globulin|total protein|a\/g|\bldh\b)/i },
-  { key: 'hematology', label: 'Hematology & Iron', match: /(hemoglobin|haemoglobin|\bhgb\b|\bhb\b|\brbc\b|\bwbc\b|platelet|\bplt\b|hematocrit|haematocrit|\bhct\b|\bpcv\b|\bmcv\b|\bmch\b|mchc|\brdw\b|neutrophil|lymphocyte|monocyte|eosinophil|basophil|\besr\b|ferritin|\biron\b|tibc|transferrin|reticulocyte|leukocyte|erythrocyte)/i },
-  { key: 'inflammation', label: 'Inflammation & Immunity', match: /(\bcrp\b|hs.?crp|c.?reactive|procalcitonin|\bil.?6\b|rheumatoid|\bana\b|immunoglobulin|\bige\b)/i },
+  {
+    key: 'hematology',
+    label: 'Hematology / Blood',
+    match: /(hemoglobin|haemoglobin|\bhgb\b|\bhb\b|\brbc\b|\bwbc\b|\btlc\b|leucocyte|leukocyte|\bpcv\b|hematocrit|haematocrit|\bhct\b|\bmcv\b|\bmch\b|mchc|\brdw\b|platelet|\bplt\b|\bmpv\b|neutrophil|\banc\b|lymphocyte|monocyte|eosinophil|\baec\b|basophil|\besr\b|reticulocyte|erythrocyte)/i,
+  },
+  {
+    key: 'glycemic',
+    label: 'Metabolic / Glycemic',
+    match: /(glucose|\bfbs\b|\bfbg\b|\bppbs\b|\brbs\b|blood sugar|\bsugar\b|hba1c|\ba1c\b|glycated|insulin|c-peptide|c.?peptide|\bhoma\b|lactate|fructosamine)/i,
+  },
+  {
+    key: 'lipids',
+    label: 'Lipids & Cardiovascular',
+    match: /(cholesterol|triglyceride|triglycer|\btg\b|\bhdl\b|\bldl\b|vldl|non.?hdl|apob|\bapo\s*b\b|\bapo\s*a\b|\bapo\b|lipoprotein|lp\(a\)|troponin|\bbnp\b|nt.?probnp|ck.?mb|homocysteine)/i,
+  },
+  {
+    key: 'hepatic',
+    label: 'Liver / Hepatic',
+    match: /(\bast\b|sgot|\balt\b|sgpt|\balp\b|alkaline phosphatase|alkaline|\bggt\b|gamma\s*gt|gamma|bilirubin|albumin|globulin|total protein|a\/g ratio|a\/g|ammonia|\bldh\b)/i,
+  },
+  {
+    key: 'renal',
+    label: 'Kidney / Renal & Electrolytes',
+    match: /(creatinine|\bbun\b|\burea\b|egfr|\bgfr\b|uric acid|uric|urate|cystatin|uacr|microalbumin|albumin.?creatinine|\bacr\b|sodium|\bna\b|potassium|\bk\b|chloride|bicarbonate|\bhco3\b|\bco2\b|calcium|magnesium|phosphorus|phosphate|phosph|osmolal)/i,
+  },
+  {
+    key: 'thyroid',
+    label: 'Thyroid & Endocrine / Hormones',
+    match: /(\btsh\b|thyroid|thyro|\bt3\b|\bt4\b|ft3|ft4|anti.?tpo|thyroglobulin|cortisol|\bacth\b|testosterone|estradiol|estrogen|progesterone|prolactin|\bfsh\b|\blh\b|\bdhea\b|\bshbg\b|\bpsa\b|\bpth\b|parathyroid)/i,
+  },
+  {
+    key: 'vitamins',
+    label: 'Vitamins, Iron & Nutrition',
+    match: /(vitamin|vit\s*d|vit\s*b12|\bb12\b|cobalamin|folate|folic|ferritin|\biron\b|tibc|uibc|transferrin|tsat|zinc|copper|\bmma\b|methylmalonic|25.?oh|calcidiol|\bd3\b)/i,
+  },
+  {
+    key: 'inflammation',
+    label: 'Inflammation, Immunology & Coagulation',
+    match: /(\bcrp\b|hs.?crp|c.?reactive|\bana\b|rheumatoid|anti.?ccp|\bige\b|\bigg\b|\biga\b|\bigm\b|immunoglobulin|complement|\bpt\b|\binr\b|prothrombin|\baptt\b|d.?dimer|hbsag|\bhcv\b|\bhiv\b|vdrl|widal|dengue|procalcitonin|\bil.?6\b)/i,
+  },
 ];
 
 export const OTHER_SYSTEM = { key: 'other', label: 'Other markers' };

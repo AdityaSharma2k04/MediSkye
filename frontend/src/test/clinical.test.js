@@ -138,3 +138,27 @@ describe('grouping, triage and trends', () => {
     expect(stripOuterQuotes('“What does this mean?”')).toBe('What does this mean?');
   });
 });
+
+describe('EU decimal commas, comparators, and qualitative serology', () => {
+  it('parses EU decimal commas and thousand separators', () => {
+    expect(parseNumeric('6,8')).toBe(6.8);
+    expect(parseNumeric('11,200')).toBe(11200);
+  });
+
+  it('parses ranges with EU decimal commas and trailing units', () => {
+    expect(parseRange('3,9 - 5,6')).toEqual({ low: 3.9, high: 5.6, kind: 'between' });
+    expect(parseRange('13.5 - 17.5 g/dL')).toEqual({ low: 13.5, high: 17.5, kind: 'between' });
+  });
+
+  it('classifies status with EU decimal values and ranges', () => {
+    expect(classifyStatus({ status: 'Normal', value: '6,8', range: '3,9 - 5,6' })).toBe('high');
+  });
+
+  it('classifies status with comparator values exceeding bounds', () => {
+    expect(classifyStatus({ status: 'Normal', value: '> 200', range: '10 - 200' })).toBe('high');
+  });
+
+  it('classifies qualitative serology with positive finding against negative range', () => {
+    expect(classifyStatus({ status: 'Normal', value: 'Positive (1:160)', range: 'Negative' })).toBe('high');
+  });
+});
