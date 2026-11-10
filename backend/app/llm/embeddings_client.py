@@ -46,15 +46,24 @@ async def embed_content_with_retry(
             call_kwargs = {}
             if config is not None:
                 call_kwargs["config"] = config
+            elif timeout and timeout > 0:
+                try:
+                    from google.genai.types import EmbedContentConfig, HttpOptions
+                    call_kwargs["config"] = EmbedContentConfig(
+                        http_options=HttpOptions(timeout=int(timeout * 1000))
+                    )
+                except Exception:
+                    pass
             call_kwargs.update(kwargs)
 
-            response = await asyncio.to_thread(
+            coro = asyncio.to_thread(
                 _sync_embed_content,
                 api_client,
                 target_model,
                 contents,
                 **call_kwargs,
             )
+            response = await asyncio.wait_for(coro, timeout=float(timeout))
             logger.info(
                 "Gemini embed call succeeded: model=%s user_id=%s attempt=%d",
                 target_model,
@@ -63,9 +72,9 @@ async def embed_content_with_retry(
             )
             return response
 
-        except Exception as exc:
+        except (TimeoutError, asyncio.TimeoutError, Exception) as exc:
             last_exception = exc
-            is_retryable = _is_retryable_error(exc)
+            is_retryable = isinstance(exc, (TimeoutError, asyncio.TimeoutError)) or _is_retryable_error(exc)
             if not is_retryable:
                 logger.warning(
                     "Non-retryable error on embedding model %s: %s. Raising immediately.",
