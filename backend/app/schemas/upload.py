@@ -3,11 +3,6 @@ from pydantic import BaseModel
 
 
 
-class UploadResponse(BaseModel):
-    message: str
-    document_id: str
-
-
 class UploadJobResponse(BaseModel):
     job_id: str
     status_url: str

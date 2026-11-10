@@ -938,7 +938,6 @@ async def delete_dependent(
 
 @router.post("/users/me/memory/consent")
 @router.post("/memory/consent")
-@router.post("/users/me/memory/consent")
 @router.patch("/users/me/memory-consent")
 async def update_memory_consent(
     request: Request,

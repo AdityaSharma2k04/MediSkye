@@ -18,16 +18,3 @@ class QueryRequest(BaseModel):
         if not sanitized:
             raise ValueError("Query string cannot be blank or contain only control characters.")
         return sanitized
-
-
-class SourceChunk(BaseModel):
-    title: str
-    page: int
-    score: str
-    excerpt: str
-
-
-class QueryResponse(BaseModel):
-    response: Optional[str] = None
-    error: Optional[str] = None
-    sources: Optional[List[SourceChunk]] = None

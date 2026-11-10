@@ -17,16 +17,6 @@ def verify_api_key(x_api_key: Optional[str] = Header(default=None, alias="X-API-
         )
 
 
-def validate_session_id(session_id: str) -> str:
-    try:
-        return str(uuid.UUID(session_id))
-    except ValueError as exc:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Invalid session_id. Must be a valid UUID string.",
-        ) from exc
-
-
 def sanitize_text(text: str) -> str:
     if not text:
         return ""

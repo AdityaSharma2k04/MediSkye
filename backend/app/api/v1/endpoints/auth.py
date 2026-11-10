@@ -417,5 +417,3 @@ async def send_custom_password_reset(
         )
 
     return {"message": "If an account exists with this email, a reset link has been sent."}
-
-    return {"message": "If an account exists with this email, a reset link has been sent."}

@@ -252,23 +252,6 @@ def load_hybrid_index(index_path: str):
     return vectorstore, bm25_index
 
 
-def add_to_vectorstore(vectorstore: FAISS, page_docs: list[Document], session_id: str = None):
-    splitter = _build_splitter()
-    chunks = splitter.split_documents(page_docs)
-    vectorstore.add_documents(chunks)
-    
-    if session_id:
-        save_vectorstore_to_disk(vectorstore, session_id)
-
-
-def save_vectorstore_to_disk(vectorstore: FAISS, session_id: str):
-    try:
-        session_dir = settings.VECTOR_CACHE_DIR / session_id
-        vectorstore.save_local(str(session_dir))
-    except Exception as err:
-        logger.warning("Failed to save vectorstore for %s: %s", session_id, err)
-
-
 def retrieve_relevant_docs(
     query: str,
     vectorstore,
