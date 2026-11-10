@@ -86,7 +86,11 @@ _LOCALIZED = {
             r"|\bplus\s+envie\s+de\s+vivre\b|\bme\s+faire\s+du\s+mal\b|\bautomutil\w+|\bscarification\b"
         ),
         "medical": _rx(
-            r"\bdouleurs?\s+(?:thoraciques?|(?:dans|[àa])\s+la\s+poitrine)\b|\bserrement\s+(?:dans\s+la\s+|de\s+la\s+)?poitrine\b"
+            r"\b(?:(?:forte|violente|intense|terrible|grosse|s[ée]v[èe]re|vive|atroce|aigu[ëe]|insupportable)s?\s+)?douleurs?"
+            r"(?:\s+(?:forte|violente|intense|terrible|grosse|s[ée]v[èe]re|vive|atroce|aigu[ëe]|insupportable)s?)?"
+            r"\s+(?:thoraciques?|(?:dans|[àa])\s+la\s+poitrine)\b"
+            r"|\bdouleurs?\s+thoraciques?(?:\s+(?:forte|violente|intense|terrible|grosse|s[ée]v[èe]re|vive|atroce|aigu[ëe]|insupportable)s?)?\b"
+            r"|\bserrement\s+(?:dans\s+la\s+|de\s+la\s+)?poitrine\b"
             r"|\boppression\s+(?:thoracique|dans\s+la\s+poitrine)\b"
             r"|\b(?:n['’]arrive\s+pas|ne\s+peux\s+(?:pas|plus)|ne\s+parviens\s+pas)\s+[àa]?\s*respirer\b"
             r"|\bdifficult[ée]s?\s+[àa]\s+respirer\b|\bh[ée]morragie\b|\bsaignement\s+(?:abondant|important|grave|incontr[oô]l[ée])\b"
@@ -95,7 +99,7 @@ _LOCALIZED = {
             r"|\bje\s+(?:fais|suis\s+en\s+train\s+de\s+faire)\s+(?:un|une)\s+(?:infarctus|avc|crise\s+cardiaque)\b"
         ),
         "acute": _rx(r"\b(?:crise\s+cardiaque|infarctus|avc|accident\s+vasculaire\s+c[ée]r[ée]bral)\b"),
-        "exclusion": _rx(r"\b(?:risques?|pr[ée]venir|pr[ée]vention|ant[ée]c[ée]dents(?:\s+familiaux)?\s+de|qu['’]est-ce\s+(?:que|qu['’]))\b"),
+        "exclusion": _rx(r"\b(?:risques?|pr[ée]venir|pr[ée]vention|ant[ée]c[ée]dents(?:\s+familiaux)?(?:\s+de|\s+d['’])|qu['’]est-ce\s+(?:que|qu['’]))\b"),
     },
     "German": {
         "self_harm": _rx(
