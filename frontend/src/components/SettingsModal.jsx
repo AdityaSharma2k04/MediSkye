@@ -134,7 +134,9 @@ const selectClass = (darkMode) =>
       : 'bg-zinc-50 border-zinc-200 text-zinc-900 focus:border-zinc-400'
   }`;
 
-function ChangePasswordModal({ isOpen, onClose, darkMode, isGoogleOnly = false }) {
+export function ChangePasswordModal({ isOpen, onClose, darkMode, isGoogleOnly = false }) {
+  const modalRef = useRef(null);
+  useFocusTrap(modalRef, isOpen, onClose);
   const [currentPassword, setCurrentPassword] = useState('');
   const [newPassword, setNewPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
@@ -152,15 +154,6 @@ function ChangePasswordModal({ isOpen, onClose, darkMode, isGoogleOnly = false }
       setPwdError(null);
     }
   }, [isOpen]);
-
-  useEffect(() => {
-    if (!isOpen) return;
-    const handle = (e) => {
-      if (e.key === 'Escape') onClose();
-    };
-    document.addEventListener('keydown', handle);
-    return () => document.removeEventListener('keydown', handle);
-  }, [isOpen, onClose]);
 
   if (!isOpen) return null;
 
@@ -223,6 +216,7 @@ function ChangePasswordModal({ isOpen, onClose, darkMode, isGoogleOnly = false }
       onMouseDown={onClose}
     >
       <div
+        ref={modalRef}
         className={`relative rounded-t-[28px] sm:rounded-2xl shadow-float w-full sm:max-w-sm border ms-sheet-mobile sm:animate-modal-in pb-[env(safe-area-inset-bottom)] sm:pb-0 ${darkMode ? 'bg-graphite border-white/[0.07]' : 'bg-white border-zinc-200'}`}
         onMouseDown={(e) => e.stopPropagation()}
         role="dialog"
@@ -306,13 +300,9 @@ function ChangePasswordModal({ isOpen, onClose, darkMode, isGoogleOnly = false }
   );
 }
 
-function DisclaimerModal({ isOpen, onClose, darkMode }) {
-  useEffect(() => {
-    if (!isOpen) return;
-    const handle = (e) => { if (e.key === 'Escape') onClose(); };
-    document.addEventListener('keydown', handle);
-    return () => document.removeEventListener('keydown', handle);
-  }, [isOpen, onClose]);
+export function DisclaimerModal({ isOpen, onClose, darkMode }) {
+  const modalRef = useRef(null);
+  useFocusTrap(modalRef, isOpen, onClose);
 
   if (!isOpen) return null;
 
@@ -322,6 +312,7 @@ function DisclaimerModal({ isOpen, onClose, darkMode }) {
       onMouseDown={onClose}
     >
       <div
+        ref={modalRef}
         className={`relative rounded-t-[28px] sm:rounded-2xl shadow-float w-full sm:max-w-sm border ms-sheet-mobile sm:animate-modal-in pb-[env(safe-area-inset-bottom)] sm:pb-0 ${darkMode ? 'bg-graphite border-white/[0.07]' : 'bg-white border-zinc-200'}`}
         onMouseDown={(e) => e.stopPropagation()}
         role="dialog"

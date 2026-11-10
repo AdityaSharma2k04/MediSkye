@@ -3,6 +3,7 @@ import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import React, { useRef, useState } from 'react';
 import useFocusTrap from '../hooks/useFocusTrap';
+import { DisclaimerModal, ChangePasswordModal } from '../components/SettingsModal';
 
 function TestModal({ isOpen, onClose }) {
   const modalRef = useRef(null);
@@ -107,5 +108,17 @@ describe('useFocusTrap', () => {
     expect(input).toHaveFocus();
     rerender(<Host onClose={() => {}} />);
     expect(input).toHaveFocus();
+  });
+
+  it('traps focus in DisclaimerModal when open', () => {
+    render(<DisclaimerModal isOpen={true} onClose={() => {}} />);
+    const dialog = screen.getByRole('dialog', { name: /medical disclaimer/i });
+    expect(dialog.contains(document.activeElement)).toBe(true);
+  });
+
+  it('traps focus in ChangePasswordModal when open', () => {
+    render(<ChangePasswordModal isOpen={true} onClose={() => {}} />);
+    const dialog = screen.getByRole('dialog', { name: /change password/i });
+    expect(dialog.contains(document.activeElement)).toBe(true);
   });
 });

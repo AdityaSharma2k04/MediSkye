@@ -227,7 +227,7 @@ export default function PrintableSummary({ user, document, summary, metrics, spe
               Flagged &amp; Notable Delta Biomarkers (Abnormal Values)
             </h2>
             <span style={{ fontSize: '8pt', color: '#b91c1c', fontWeight: 600 }}>
-              {flaggedMetrics.length} analyte{flaggedMetrics.length > 1 ? 's' : ''} flagged
+              {flaggedMetrics.length} test{flaggedMetrics.length > 1 ? 's' : ''} flagged
             </span>
           </div>
           <table

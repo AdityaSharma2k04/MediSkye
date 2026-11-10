@@ -281,8 +281,8 @@ export default function LandingPage() {
 
             <dl className="mt-12 grid grid-cols-3 gap-6 max-w-md text-[13px]">
               <div>
-                <dt className="text-ink-faint">Biomarkers mapped</dt>
-                <dd className="mt-1 text-white">Range, Δ and trend</dd>
+                <dt className="text-ink-faint">Lab tests identified</dt>
+                <dd className="mt-1 text-white">Reference range &amp; change over time</dd>
               </div>
               <div>
                 <dt className="text-ink-faint">Family profiles</dt>
