@@ -310,7 +310,7 @@ async def _warm_document_metrics_cache(doc_id: uuid.UUID, user_uuid: uuid.UUID, 
                     return
         except Exception as e:
             if attempt == 0:
-                await asyncio.sleep(2.0)
+                await asyncio.sleep(settings.CACHE_WARM_RETRY_DELAY_SECONDS)
             else:
                 import sentry_sdk
                 sentry_sdk.capture_exception(e)
@@ -359,7 +359,7 @@ async def _warm_document_summary_cache(doc_id: uuid.UUID, user_uuid: uuid.UUID, 
             return
         except Exception as e:
             if attempt == 0:
-                await asyncio.sleep(2.0)
+                await asyncio.sleep(settings.CACHE_WARM_RETRY_DELAY_SECONDS)
             else:
                 import sentry_sdk
                 sentry_sdk.capture_exception(e)

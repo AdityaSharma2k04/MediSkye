@@ -209,6 +209,7 @@ describe('PrintableSummary', () => {
     // Both tables are rendered so Hemoglobin will appear, but only once in abnormal section
     const abnormalSection = screen.getByText(/Abnormal Values/i).closest('div');
     expect(abnormalSection).not.toBeNull();
+    expect(abnormalSection.textContent).not.toContain('Hemoglobin');
   });
 
   it('renders specialists section with matched flags', () => {

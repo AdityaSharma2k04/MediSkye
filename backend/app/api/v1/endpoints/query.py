@@ -118,6 +118,27 @@ async def rename_document_title(
 
 
 
+async def link_chat_documents_batch(
+    db: AsyncSession,
+    chat_id: uuid.UUID,
+    doc_ids: list[uuid.UUID],
+) -> set[uuid.UUID]:
+    """Ensure ChatDocument associations exist for all attached docs using a single batch query."""
+    if not doc_ids:
+        return set()
+    existing_cds = await db.execute(
+        select(ChatDocument.document_id).filter(
+            ChatDocument.chat_id == chat_id,
+            ChatDocument.document_id.in_(doc_ids),
+        )
+    )
+    already_linked = set(existing_cds.scalars().all())
+    for doc_id in doc_ids:
+        if doc_id not in already_linked:
+            db.add(ChatDocument(chat_id=chat_id, document_id=doc_id))
+    return already_linked
+
+
 @router.post("/query", tags=["RAG Query"])
 @limiter.limit(settings.RATE_LIMIT_QUERY)
 async def query_bot(
@@ -443,16 +464,7 @@ async def query_bot(
         # Ensure ChatDocument associations exist for all attached docs (single batch query)
         if chat_docs:
             doc_ids = [cd_doc.id for cd_doc in chat_docs]
-            existing_cds = await db.execute(
-                select(ChatDocument.document_id).filter(
-                    ChatDocument.chat_id == current_chat_id,
-                    ChatDocument.document_id.in_(doc_ids),
-                )
-            )
-            already_linked = set(existing_cds.scalars().all())
-            for doc_id in doc_ids:
-                if doc_id not in already_linked:
-                    db.add(ChatDocument(chat_id=current_chat_id, document_id=doc_id))
+            await link_chat_documents_batch(db, current_chat_id, doc_ids)
             await db.commit()
     except Exception:
         _active_query_sessions.discard(session_lock_key)

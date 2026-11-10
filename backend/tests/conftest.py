@@ -17,6 +17,7 @@ TEST_PASSWORD = "TestPassword123!"
 from app.core.config import settings
 settings.GCS_INDEX_BUCKET = None
 settings.ALLOW_UNVERIFIED_JWT_FALLBACK = True
+settings.CACHE_WARM_RETRY_DELAY_SECONDS = 0.05
 
 # Fast-fail external Firebase network calls for synthetic test emails
 import firebase_admin.auth
@@ -82,52 +83,52 @@ async def setup_test_database(request):
             import asyncio
             dbapi_conn._execute_mutex = asyncio.Lock()
 
-    if not _SCHEMA_INITIALIZED:
-        async with engine.begin() as conn:
-            def _init_sqlite(sync_conn):
-                if sync_conn.dialect.name == "sqlite":
-                    sync_conn.execute(text("PRAGMA synchronous = OFF;"))
-                    sync_conn.execute(text("PRAGMA journal_mode = MEMORY;"))
+    async with engine.begin() as conn:
+        def _init_sqlite(sync_conn):
+            if sync_conn.dialect.name == "sqlite":
+                sync_conn.execute(text("PRAGMA synchronous = OFF;"))
+                sync_conn.execute(text("PRAGMA journal_mode = MEMORY;"))
+            inspector = sa_inspect(sync_conn)
+            if "users" not in inspector.get_table_names():
+                Base.metadata.create_all(sync_conn)
 
-            await conn.run_sync(_init_sqlite)
-            await conn.run_sync(Base.metadata.create_all)
+        await conn.run_sync(_init_sqlite)
 
-            def _ensure_document_cache_columns(sync_conn):
-                inspector = sa_inspect(sync_conn)
-                if "documents" in inspector.get_table_names():
-                    existing_cols = {c["name"] for c in inspector.get_columns("documents")}
-                    dialect = sync_conn.dialect.name
-                    if "cached_metrics" not in existing_cols:
-                        if dialect == "postgresql":
-                            sync_conn.execute(text("ALTER TABLE documents ADD COLUMN IF NOT EXISTS cached_metrics JSON"))
-                        else:
-                            sync_conn.execute(text("ALTER TABLE documents ADD COLUMN cached_metrics JSON"))
-                    if "cached_summary" not in existing_cols:
-                        if dialect == "postgresql":
-                            sync_conn.execute(text("ALTER TABLE documents ADD COLUMN IF NOT EXISTS cached_summary TEXT"))
-                        else:
-                            sync_conn.execute(text("ALTER TABLE documents ADD COLUMN cached_summary TEXT"))
+        def _ensure_document_cache_columns(sync_conn):
+            inspector = sa_inspect(sync_conn)
+            if "documents" in inspector.get_table_names():
+                existing_cols = {c["name"] for c in inspector.get_columns("documents")}
+                dialect = sync_conn.dialect.name
+                if "cached_metrics" not in existing_cols:
+                    if dialect == "postgresql":
+                        sync_conn.execute(text("ALTER TABLE documents ADD COLUMN IF NOT EXISTS cached_metrics JSON"))
+                    else:
+                        sync_conn.execute(text("ALTER TABLE documents ADD COLUMN cached_metrics JSON"))
+                if "cached_summary" not in existing_cols:
+                    if dialect == "postgresql":
+                        sync_conn.execute(text("ALTER TABLE documents ADD COLUMN IF NOT EXISTS cached_summary TEXT"))
+                    else:
+                        sync_conn.execute(text("ALTER TABLE documents ADD COLUMN cached_summary TEXT"))
 
-                if "users" in inspector.get_table_names():
-                    existing_user_cols = {c["name"] for c in inspector.get_columns("users")}
-                    if "token_invalid_before" not in existing_user_cols:
-                        if dialect == "postgresql":
-                            sync_conn.execute(text("ALTER TABLE users ADD COLUMN IF NOT EXISTS token_invalid_before TIMESTAMP WITH TIME ZONE"))
-                        else:
-                            sync_conn.execute(text("ALTER TABLE users ADD COLUMN token_invalid_before DATETIME"))
+            if "users" in inspector.get_table_names():
+                existing_user_cols = {c["name"] for c in inspector.get_columns("users")}
+                if "token_invalid_before" not in existing_user_cols:
+                    if dialect == "postgresql":
+                        sync_conn.execute(text("ALTER TABLE users ADD COLUMN IF NOT EXISTS token_invalid_before TIMESTAMP WITH TIME ZONE"))
+                    else:
+                        sync_conn.execute(text("ALTER TABLE users ADD COLUMN token_invalid_before DATETIME"))
 
-                if "chats" in inspector.get_table_names():
-                    existing_chat_cols = {c["name"] for c in inspector.get_columns("chats")}
-                    if "dependent_id" not in existing_chat_cols:
-                        if dialect == "postgresql":
-                            sync_conn.execute(text("ALTER TABLE chats ADD COLUMN IF NOT EXISTS dependent_id UUID REFERENCES dependent_profiles(id) ON DELETE CASCADE"))
-                            sync_conn.execute(text("CREATE INDEX IF NOT EXISTS ix_chats_dependent_id ON chats(dependent_id)"))
-                        else:
-                            sync_conn.execute(text("ALTER TABLE chats ADD COLUMN dependent_id CHAR(32)"))
-                            sync_conn.execute(text("CREATE INDEX IF NOT EXISTS ix_chats_dependent_id ON chats(dependent_id)"))
+            if "chats" in inspector.get_table_names():
+                existing_chat_cols = {c["name"] for c in inspector.get_columns("chats")}
+                if "dependent_id" not in existing_chat_cols:
+                    if dialect == "postgresql":
+                        sync_conn.execute(text("ALTER TABLE chats ADD COLUMN IF NOT EXISTS dependent_id UUID REFERENCES dependent_profiles(id) ON DELETE CASCADE"))
+                        sync_conn.execute(text("CREATE INDEX IF NOT EXISTS ix_chats_dependent_id ON chats(dependent_id)"))
+                    else:
+                        sync_conn.execute(text("ALTER TABLE chats ADD COLUMN dependent_id CHAR(32)"))
+                        sync_conn.execute(text("CREATE INDEX IF NOT EXISTS ix_chats_dependent_id ON chats(dependent_id)"))
 
-            await conn.run_sync(_ensure_document_cache_columns)
-        _SCHEMA_INITIALIZED = True
+        await conn.run_sync(_ensure_document_cache_columns)
 
     # Record total_changes before test execution to detect if any writes happen
     def _get_changes(sync_conn):
@@ -152,10 +153,18 @@ async def setup_test_database(request):
         from app.api.v1.endpoints.upload import _background_warm_tasks
         from app.api.v1.endpoints.query import _background_tasks
 
-        pending = [t for t in (_background_warm_tasks | _background_tasks) if not t.done()]
+        is_prewarm_test = "pre_generates_and_caches_metrics" in getattr(request.node, "name", "")
+        if not is_prewarm_test:
+            for wtask in list(_background_warm_tasks):
+                if not wtask.done():
+                    wtask.cancel()
+        if _background_warm_tasks:
+            await asyncio.gather(*_background_warm_tasks, return_exceptions=True)
+            _background_warm_tasks.clear()
+
+        pending = [t for t in _background_tasks if not t.done()]
         if pending:
             await asyncio.gather(*pending, return_exceptions=True)
-        _background_warm_tasks.clear()
         _background_tasks.clear()
     except Exception:
         pass

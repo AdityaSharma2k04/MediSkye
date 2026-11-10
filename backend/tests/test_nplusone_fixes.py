@@ -7,6 +7,7 @@ from app.db.database import AsyncSessionLocal
 from app.db.models import User, PatientFact, Chat, Document, ChatDocument
 from app.core.auth import get_password_hash
 from app.services.fact_persistence import save_facts
+from app.api.v1.endpoints.query import link_chat_documents_batch
 
 
 @pytest.mark.asyncio
@@ -125,17 +126,8 @@ async def test_batch_document_attachment_verification_single_query():
 
         session.execute = execute_spy
 
-        # Run batch document association check
-        existing_cds = await session.execute(
-            select(ChatDocument.document_id).filter(
-                ChatDocument.chat_id == current_chat_id,
-                ChatDocument.document_id.in_(doc_ids),
-            )
-        )
-        already_linked = set(existing_cds.scalars().all())
-        for did in doc_ids:
-            if did not in already_linked:
-                session.add(ChatDocument(chat_id=current_chat_id, document_id=did))
+        # Run batch document association check via application code path
+        await link_chat_documents_batch(session, current_chat_id, doc_ids)
         await session.commit()
 
         # Assert exactly 1 batch SELECT emitted
