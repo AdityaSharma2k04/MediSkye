@@ -81,6 +81,41 @@ async def test_load_patient_sex_dependent_male_overrides_user():
         assert await _load_patient_sex(session, doc) == "male"
 
 
+def test_fix5_canonical_biomarker_keys():
+    assert canonical_biomarker_key("Hb Electrophoresis") == "hb_electrophoresis"
+    assert canonical_biomarker_key("Hemoglobin Electrophoresis") == "hb_electrophoresis"
+    assert canonical_biomarker_key("Hb A2") == "hba2"
+    assert canonical_biomarker_key("Hemoglobin A2") == "hba2"
+    assert canonical_biomarker_key("Hb F") == "hbf"
+    assert canonical_biomarker_key("Fetal Hemoglobin") == "hbf"
+    assert canonical_biomarker_key("Hemoglobin") == "hemoglobin"
+
+
+def test_fix5_multi_tier_reference_ranges():
+    rng_lipid = "Desirable: <200, Borderline: 200-239, High: >=240"
+    assert _resolve_status("Normal", "180", rng_lipid, None) == "Normal"
+    assert _resolve_status("High", "215", rng_lipid, None) == "Borderline"
+    assert _resolve_status("High", "250", rng_lipid, None) == "High"
+
+    rng_glucose = "Normal: < 100; Prediabetes: 100-125; Diabetes: >= 126"
+    assert _resolve_status("Normal", "90", rng_glucose, None) == "Normal"
+    assert _resolve_status("Normal", "110", rng_glucose, None) == "Borderline"
+    assert _resolve_status("High", "130", rng_glucose, None) == "High"
+
+
+def test_fix5_age_strata_consensus():
+    rng_age = "Adult: 4.0-10.0; Child: 5.0-13.0"
+    # Unanimous consensus across all strata
+    assert _resolve_status("Normal", "15.0", rng_age, None) == "High"
+    assert _resolve_status("Normal", "6.5", rng_age, None) == "Normal"
+    assert _resolve_status("Normal", "2.0", rng_age, None) == "Low"
+
+    # Disagreeing strata must resolve to Unknown to prevent false reassurance
+    assert _resolve_status("Normal", "4.5", rng_age, None) == "Unknown"
+    assert _resolve_status("Normal", "11.5", rng_age, None) == "Unknown"
+
+
+
 @pytest.mark.asyncio
 async def test_load_patient_sex_user_prefer_not_to_say():
     uid = uuid.uuid4()

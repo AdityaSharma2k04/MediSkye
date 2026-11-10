@@ -196,6 +196,14 @@ def canonical_biomarker_key(name: str) -> str:
     if re.search(r'\bmcv\b', n_clean):
         return "mcv"
 
+    # 3b. Hemoglobin variants & electrophoresis (MUST precede general Hemoglobin)
+    if re.search(r'\b(?:hb\s*electrophoresis|hemoglobin\s*electrophoresis)\b', n_clean):
+        return "hb_electrophoresis"
+    if re.search(r'\b(?:hb\s*a2|hemoglobin\s*a2)\b', n_clean):
+        return "hba2"
+    if re.search(r'\b(?:hb\s*f|fetal\s*hemoglobin)\b', n_clean):
+        return "hbf"
+
     # 4. Hemoglobin (strict whole-word)
     if re.search(r'\b(?:hemoglobin|hb|hgb)\b', n_clean):
         return "hemoglobin"

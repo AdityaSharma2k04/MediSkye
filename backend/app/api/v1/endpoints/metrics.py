@@ -206,9 +206,60 @@ def _status_from_demographic_ranges(value: Any, rng: str, sex: Optional[str]) ->
     return statuses.pop() if len(statuses) == 1 else None
 
 
+_MULTI_TIER_BAND_RE = re.compile(
+    r'(?P<label>[a-zA-Z\s]+?)\s*[:=]\s*(?:(?P<op>[<>]=?|≤|≥)\s*)?(?P<lo>-?\d+(?:\.\d+)?)(?:\s*(?:-|–|—|to)\s*(?P<hi>-?\d+(?:\.\d+)?))?',
+    re.I
+)
+
+
+def _status_from_multi_tier(val_float: float, rng: str) -> Optional[str]:
+    """Parse multi-tier reference bands (e.g. Desirable: <200, Borderline: 200-239, High: >=240)."""
+    if not rng:
+        return None
+    kw = ['desirable', 'borderline', 'optimal', 'prediabetes', 'diabetes', 'moderate', 'high']
+    if not any(k in rng.lower() for k in kw):
+        return None
+
+    matches = list(_MULTI_TIER_BAND_RE.finditer(rng))
+    if len(matches) < 2:
+        return None
+
+    for m in matches:
+        label = m.group("label").strip().lower()
+        op = m.group("op")
+        lo = float(m.group("lo"))
+        hi = float(m.group("hi")) if m.group("hi") else None
+
+        inside = False
+        if op in ("<", "<=", "≤"):
+            inside = val_float < lo if op == "<" else val_float <= lo
+        elif op in (">", ">=", "≥"):
+            inside = val_float > lo if op == ">" else val_float >= lo
+        elif hi is not None:
+            inside = lo <= val_float <= hi
+
+        if inside:
+            if any(w in label for w in ["desirable", "optimal", "normal"]):
+                return "Normal"
+            if any(w in label for w in ["borderline", "prediabetes", "near optimal", "moderate"]):
+                return "Borderline"
+            if any(w in label for w in ["high", "diabetes", "elevated", "critical"]):
+                return "High"
+            if any(w in label for w in ["low", "deficient"]):
+                return "Low"
+    return None
+
+
 def _resolve_status(llm_status: Any, value: Any, rng: Any, sex: Optional[str]) -> str:
     llm = str(llm_status or "").strip()
     rng = str(rng or "")
+    v_float = _parse_first_float(value)
+
+    if v_float is not None:
+        multi_tier = _status_from_multi_tier(v_float, rng)
+        if multi_tier is not None:
+            return multi_tier
+
     derived = _status_from_range(value, rng)
     demographic = False
     if derived is None:
@@ -217,6 +268,18 @@ def _resolve_status(llm_status: Any, value: Any, rng: Any, sex: Optional[str]) -
         demographic = demographic or len(list(_STRATUM.finditer(rng))) >= 2
         if demographic:
             derived = _status_from_demographic_ranges(value, rng, sex)
+            if derived is None and v_float is not None:
+                subs = [
+                    (float(m.group("lo")), float(m.group("hi")))
+                    for m in _STRATUM.finditer(rng)
+                ]
+                if len(subs) >= 2:
+                    statuses = {
+                        ("Low" if v_float < lo else "High" if v_float > hi else "Normal")
+                        for lo, hi in subs
+                    }
+                    if len(statuses) == 1:
+                        derived = statuses.pop()
 
     # Support Qualitative / Serology Results (F-005)
     if derived is None and rng:
