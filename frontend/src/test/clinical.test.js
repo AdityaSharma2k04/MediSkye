@@ -24,6 +24,7 @@ describe('clinical parsing', () => {
     expect(parseNumeric('1,234 cells')).toBe(1234);
     expect(parseNumeric('<5')).toBe(5);
     expect(parseNumeric('1:160')).toBeNull();
+    expect(parseNumeric('Positive (1:160)')).toBeNull();
     expect(parseNumeric('n/a')).toBeNull();
   });
 
@@ -160,5 +161,8 @@ describe('EU decimal commas, comparators, and qualitative serology', () => {
 
   it('classifies qualitative serology with positive finding against negative range', () => {
     expect(classifyStatus({ status: 'Normal', value: 'Positive (1:160)', range: 'Negative' })).toBe('high');
+    expect(classifyStatus({ status: 'Normal', value: 'Negative', range: 'Negative' })).toBe('normal');
+    expect(classifyStatus({ status: '', value: 'Negative', range: 'Negative' })).toBe('normal');
+    expect(classifyStatus({ status: '', value: '6.5', range: 'Adult: 4.0-10.0; Child: 5.0-13.0' })).toBe('unknown');
   });
 });

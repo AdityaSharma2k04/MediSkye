@@ -20,7 +20,8 @@ export function parseNumeric(value) {
   if (value === null || value === undefined) return null;
   if (typeof value === 'number') return Number.isFinite(value) ? value : null;
   let s = String(value);
-  if (/^\s*\d+\s*:\s*\d+/.test(s)) return null;
+  if (/\b\d+\s*:\s*\d+\b/.test(s)) return null;
+  if (/^\s*(positive|negative|reactive|non[-\s]?reactive|detected|absent|trace|nil)\b/i.test(s)) return null;
   s = s
     .replace(/−/g, '-')
     .replace(/(\d),(\d{3})\b/g, '$1$2')
@@ -185,12 +186,16 @@ export function classifyStatus(row) {
   const rangeTrimmed = String(row?.range || row?.reference_range || '').trim();
 
   // Qualitative serology (e.g. Positive vs Negative)
-  if (
-    /^\s*(negative|non[-\s]?reactive|absent|nil)\s*$/i.test(rangeTrimmed) &&
-    /\b(positive|reactive|detected|present)\b/i.test(valTrimmed) &&
-    !/\b(non[-\s]?reactive|negative)\b/i.test(valTrimmed)
-  ) {
-    return 'high';
+  if (/^\s*(negative|non[-\s]?reactive|absent|nil)\s*$/i.test(rangeTrimmed)) {
+    if (/^\s*(negative|non[-\s]?reactive|absent|nil|none\s+detected)\s*$/i.test(valTrimmed)) {
+      return 'normal';
+    }
+    if (
+      /\b(positive|reactive|detected|present)\b/i.test(valTrimmed) &&
+      !/\b(non[-\s]?reactive|negative)\b/i.test(valTrimmed)
+    ) {
+      return 'high';
+    }
   }
 
   // Comparator values (> 200, < 0.5)
@@ -220,8 +225,10 @@ export function classifyStatus(row) {
 
   const pos = rangeGeometry(row);
   if (!pos) {
-    if (!s && parseNumeric(row?.value) === null) return 'unknown';
-    return s ? 'unknown' : 'normal';
+    if (s) return 'unknown';
+    if (rangeTrimmed) return 'unknown';
+    if (parseNumeric(row?.value) === null) return 'unknown';
+    return 'normal';
   }
   if (pos.side === 'above') return 'high';
   if (pos.side === 'below') return 'low';
