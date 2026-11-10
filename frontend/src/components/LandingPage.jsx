@@ -243,11 +243,15 @@ export default function LandingPage() {
               {t('landing.hero_badge', 'Clinical AI Interpretation')}
             </p>
 
-            <h1 className="ms-display text-[44px] sm:text-[60px] lg:text-[68px] leading-[1.02] text-white mb-6 max-w-[14ch]">
+            <h1 className="font-display ms-display tracking-tight text-[44px] sm:text-[60px] lg:text-[68px] leading-[1.02] text-white mb-6 max-w-[14ch]">
               <Trans
                 i18nKey="landing.hero_title_accent"
                 defaults="Understand your medical reports <accent>in seconds.</accent>"
-                components={{ accent: <span /> }}
+                components={{
+                  accent: (
+                    <span className="bg-gradient-to-r from-cyan-300 via-sky-400 to-blue-500 bg-clip-text text-transparent" />
+                  ),
+                }}
               />
             </h1>
 
