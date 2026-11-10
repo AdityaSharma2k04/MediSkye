@@ -7,9 +7,8 @@ markers = [
   "unit: fast, no external dependencies",
 ]
 asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "function"
 filterwarnings = [
-    "ignore::DeprecationWarning:passlib.*",
-    "ignore::DeprecationWarning:slowapi.*",
-    "ignore::DeprecationWarning:langchain_community.*",
-    "ignore::DeprecationWarning:google.genai.*",
+    "ignore::DeprecationWarning",
+    "ignore::UserWarning:slowapi.*",
 ]
