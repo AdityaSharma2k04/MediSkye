@@ -2,7 +2,7 @@ import asyncio
 from functools import lru_cache
 import logging
 import time
-from typing import Any, Optional
+from typing import Any, Optional, List
 from google import genai
 from app.core.config import settings
 
@@ -57,7 +57,7 @@ MODEL_FALLBACK_CHAIN = [
 ]
 
 
-def get_fallback_models(primary_model: Optional[str] = None) -> List[str]:
+def get_fallback_models(primary_model: Optional[str] = None) -> list[str]:
     """
     Returns an ordered chain of at least 5 progressive fallback models for streaming/query:
     1. Primary configured model (settings.GEMINI_MODEL)
