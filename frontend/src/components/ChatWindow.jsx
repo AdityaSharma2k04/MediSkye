@@ -105,7 +105,7 @@ export default function ChatWindow({
   };
 
   const triage = useMemo(() => summarizeTriage(metrics), [metrics]);
-  const suggestions = useMemo(() => (activePdf ? buildReportSuggestions(metrics) : GENERAL_SUGGESTIONS), [activePdf, metrics]);
+  const suggestions = useMemo(() => (activePdf ? buildReportSuggestions(metrics) : GENERAL_SUGGESTIONS), [activePdf?.id, metrics]);
   const firstName = (patientName || currentUser?.full_name || '').split(' ')[0];
 
   return (

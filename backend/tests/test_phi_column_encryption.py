@@ -29,10 +29,12 @@ def test_text_none_and_legacy_plaintext_passthrough():
     assert t.process_result_value("Plain legacy name", None) == "Plain legacy name"
 
 
-def test_text_undecryptable_token_is_none_not_ciphertext():
+def test_text_undecryptable_token_raises_data_decryption_error():
+    from app.db.encryption import DataDecryptionError
     t = EncryptedText()
     foreign = Fernet(Fernet.generate_key()).encrypt(b"secret").decode()
-    assert t.process_result_value(foreign, None) is None
+    with pytest.raises(DataDecryptionError):
+        t.process_result_value(foreign, None)
 
 
 def test_json_roundtrip_and_ciphertext():
@@ -52,10 +54,12 @@ def test_json_empty_list_none_and_legacy_passthrough():
     assert j.process_result_value({"a": 1}, None) == {"a": 1}     # legacy dict
 
 
-def test_json_undecryptable_token_is_none():
+def test_json_undecryptable_token_raises_data_decryption_error():
+    from app.db.encryption import DataDecryptionError
     j = EncryptedJSON()
     foreign = Fernet(Fernet.generate_key()).encrypt(b"[1]").decode()
-    assert j.process_result_value(foreign, None) is None
+    with pytest.raises(DataDecryptionError):
+        j.process_result_value(foreign, None)
 
 
 # ---------------------------------------------------------------------------
@@ -320,5 +324,13 @@ async def test_db_empty_string_cached_summary_roundtrip():
     async with AsyncSessionLocal() as session:
         doc = (await session.execute(sa.select(Document).where(Document.id == doc_id))).scalar_one()
         assert doc.cached_summary == ""
+
+
+def test_corrupted_fernet_token_raises_data_decryption_error():
+    from app.db.encryption import DataDecryptionError, EncryptedString, EncryptedText, EncryptedJSON
+    for col_type in (EncryptedString(), EncryptedText(), EncryptedJSON()):
+        with pytest.raises(DataDecryptionError):
+            col_type.process_result_value("gAAAAAB_bad_token", None)
+        assert col_type.process_result_value("Penicillin", None) == "Penicillin"
 
 

@@ -960,6 +960,10 @@ async def get_patient_metric_trends(
                     "points": [],
                 }
 
+            # Deduplicate identical (date, value) measurements for the same series
+            if any(pt.collected_at == date_label and pt.value == val_float for pt in series_map[group_key]["points"]):
+                continue
+
             series_map[group_key]["points"].append(
                 MetricTrendPoint(
                     document_id=str(d.id),

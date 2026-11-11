@@ -241,13 +241,13 @@ MediSkye/
 │   │   └── main.py                  # FastAPI application entry point
 │   ├── scripts/
 │   │   ├── api_benchmark.py         # Direct Cloud Run API latency benchmark (N=10)
-│   ├── backfill_encrypt_phi.py  # CLI script for PHI encryption backfill
-│   └── latency_profiler.py      # Playwright E2E browser latency profiler (N=5)
+│   │   ├── backfill_encrypt_phi.py  # CLI script for PHI encryption backfill
+│   │   └── latency_profiler.py      # Playwright E2E browser latency profiler (N=5)
 │   ├── tests/
 │   │   ├── eval/                    # Prompt quality evaluation tests
 │   │   ├── fixtures/test_report.pdf # Sample report fixture
 │   │   ├── conftest.py              # Pytest configuration and fixtures
-│   │   └── test_*.py                # 73 backend test suites (501 passed tests)
+│   │   └── test_*.py                # 73 backend test suites (508 passed tests)
 │   ├── .dockerignore
 │   ├── .env.example
 │   ├── Dockerfile                   # Cloud Run container definition
@@ -332,7 +332,7 @@ MediSkye/
 │   │   │   ├── speech.js                # Web Speech API text-to-speech
 │   │   │   └── storage.js               # Local storage helper
 │   │   ├── styles/print.css             # Print media stylesheet
-│   │   ├── test/                        # Vitest test suite (26 files, 207 tests)
+│   │   ├── test/                        # Vitest test suite (26 files, 208 tests)
 │   │   ├── App.jsx                      # Root router & protected route guard
 │   │   ├── i18n.js                      # Internationalization configuration
 │   │   ├── index.css                    # Tailwind CSS entry point
@@ -359,7 +359,7 @@ Latest production benchmark snapshot (Direct Cloud Run API across N=10 warm runs
 
 ### Direct Cloud Run API (Table A, N=10 warm runs)
 
-| Endpoint | Cold (1st Hit) | Warm p50 | Warm p95 | Server X-Process-Time (p50 / p95) | Successful warm requests | n_425 | n_429 | n_retries |
+| Endpoint | Cold (1st Hit) | Warm p50 (N=10) | Warm p95 (N=10) | Server X-Process-Time (p50 / p95) | Successful warm requests | n_425 | n_429 | n_retries |
 | :--- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
 | `GET /health` | 267.9 ms | 148.5 ms | 213.6 ms | 0.5 / 0.9 ms | 10/10 | 0 | 0 | 0 |
 | `GET /users/me` (Auth Cache Hit) | 149.9 ms | 203.7 ms | 5,940.7 ms | 29.7 / 34.2 ms | 10/10 | 0 | 0 | 0 |
@@ -369,7 +369,7 @@ Latest production benchmark snapshot (Direct Cloud Run API across N=10 warm runs
 | `POST /query (DOCUMENT_QA)` | 341.4 ms | 375.1 ms | 946.0 ms | 205.4 / 808.8 ms | 10/10 | 0 | 0 | 0 |
 | `POST /query (IDOR 404 Rejection)` | 184.1 ms | 236.1 ms | 250.1 ms | 48.8 / 67.0 ms | 10/10 | 0 | 0 | 0 |
 
-*Note: For `GET /users/me`, server processing time remained tightly bounded at 29.7 ms (p50) and 34.2 ms (p95); elevated client p95 reflects trans-oceanic edge routing jitter on two cold connections.*
+*Note: For `GET /users/me`, server processing time remained tightly bounded at 29.7 ms (p50) and 34.2 ms (p95); elevated client p95 reflects Cloud Run HTTP/2 ALPN renegotiation and trans-oceanic edge routing jitter on two cold connections.*
 
 | Upload / Cold-Start Measurement | Observed Latency | Server Processing Time |
 | :--- | ---: | ---: |
@@ -378,7 +378,7 @@ Latest production benchmark snapshot (Direct Cloud Run API across N=10 warm runs
 
 ### Browser E2E Benchmark (Table B, Playwright, DOCUMENT_QA Workload, N=5 runs)
 
-| Metric / Step | Run 1 | Run 2 | Run 3 | Run 4 | Run 5 | Warm p50 | Warm p95 |
+| Metric / Step | Run 1 | Run 2 | Run 3 | Run 4 | Run 5 | Warm p50 (N=5) | Warm p95 (N=5) |
 | :--- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
 | Page Load | 1,764.4 ms | 1,777.6 ms | 1,766.3 ms | 2,275.7 ms | 1,910.3 ms | **1,777.6 ms** | **2,202.6 ms** |
 | Login & Auth Redirect | 3,275.2 ms | 2,914.5 ms | 3,304.2 ms | 2,851.7 ms | 12,049.6 ms | **3,275.2 ms** | **10,300.5 ms** |
@@ -394,13 +394,15 @@ Latest production benchmark snapshot (Direct Cloud Run API across N=10 warm runs
 
 | Pipeline Stage | Observed Duration (ms) | Percentage of Total | Notes / Safeguards |
 | :--- | ---: | ---: | :--- |
-| `parse` | 42 ms | 1.8% | PyMuPDF text stream extraction |
-| `chunk` | 18 ms | 0.8% | `MedicalTextSplitter` with table header propagation |
-| `embed` | 2,120 ms | 88.3% | Vertex AI batched in slices of 100 (`EMBED_CONCURRENCY=4`) |
-| `faiss_build` | 134 ms | 5.6% | In-memory FAISS & BM25 generation |
-| `db_commit` | 86 ms | 3.6% | `index_status = 'local_ready'`, job flipped to `COMPLETED` |
+| `parse` | 42 ms | 1.75% | PyMuPDF text stream extraction |
+| `chunk` | 18 ms | 0.75% | `MedicalTextSplitter` with table header propagation |
+| `embed` | 2,120 ms | 88.33% | Vertex AI batched in slices of 100 (`EMBED_CONCURRENCY=4`) |
+| `faiss_build` | 134 ms | 5.58% | In-memory FAISS & BM25 generation |
+| `db_commit` | 86 ms | 3.58% | `index_status = 'local_ready'`, job flipped to `COMPLETED` |
 | `background_gcs_sync` | 1,480 ms | Background (Offloaded) | Async GCS sync with exponential retry backoff (3 attempts) |
-| **Total Synchronous Upload** | **2,400 ms** | **100%** | **Instant Ready Contract (Flipped before background tasks)** |
+| **Total Synchronous Upload** | **2,400 ms** | **100.00%** | **Instant Ready Contract (Flipped before background tasks)** |
+
+*Note: Table C reflects single-document backend instrumentation profiling (2,400 ms synchronous processing time), distinct from Table B's end-to-end browser Playwright measurements.*
 
 ### In-Process Subsystem Micro-Benchmarks (N=50 iterations)
 
@@ -417,6 +419,7 @@ Latest production benchmark snapshot (Direct Cloud Run API across N=10 warm runs
 | :--- | :--- | :---: |
 | **401 Unauthorized** (Missing & Tampered Bearer Token) | `401 / 401` | **PASS** |
 | **403 Forbidden** (Unverified Email Token Rejected) | `403 (Email not verified)` | **PASS** |
+| **429 Too Many Requests** (Rate Limit Threshold Gate) | `429 (Per-instance SlowAPI in-memory store)` | **PASS** |
 | **POST /logout Invalidation Latency** | `206.0 ms` (Server: 47.16 ms, Code 200) | **PASS** |
 | **Immediate Post-Logout GET /users/me 401 Rejection** | `203.6 ms` (Server: 0.87 ms, Code 401) | **PASS** |
 | **Physical Hard-Delete Cleanup Gate** | 0 benchmark test users remaining in Neon PostgreSQL | **PASS** |

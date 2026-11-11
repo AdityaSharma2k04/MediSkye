@@ -458,6 +458,13 @@ def _parse_first_float(s: Any) -> Optional[float]:
         text = re.sub(r'(\d),(\d{3})\b', r'\1\2', text)
     # Convert European decimal comma (e.g. 6,8 -> 6.8)
     text = re.sub(r'(\d),(\d{1,2})(?!\d)', r'\1.\2', text)
+
+    # Return None for ratio/titer or interval range strings
+    if re.search(r'\b\d+\s*:\s*\d+\b', text):
+        return None
+    if re.search(r'-?\d+(?:\.\d+)?\s*(?:[-–—]|to)\s*-?\d+(?:\.\d+)?', text):
+        return None
+
     m = re.search(r'[-+]?[0-9]*\.?[0-9]+', text)
     if m:
         try:

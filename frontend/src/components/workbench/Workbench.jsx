@@ -433,7 +433,7 @@ export default function Workbench(props) {
               {...pane.handleProps}
               data-testid="inspector-resize-handle"
               className={cn(
-                'group relative w-[9px] -mx-1 z-10 shrink-0 cursor-col-resize flex items-stretch justify-center outline-none',
+                'group relative w-[9px] -mx-1 z-10 shrink-0 cursor-col-resize flex items-stretch justify-center outline-none touch-none select-none',
                 'focus-visible:[&>span]:bg-cyan-400'
               )}
             >

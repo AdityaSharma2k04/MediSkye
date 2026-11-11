@@ -150,14 +150,15 @@ def test_allowed_delta_drop_keys_expanded():
         assert analyte in ALLOWED_DELTA_DROP_KEYS, f"{analyte} missing from ALLOWED_DELTA_DROP_KEYS"
 
 
-def test_encrypted_string_corrupt_token_returns_none():
+def test_encrypted_string_corrupt_token_raises_data_decryption_error():
+    from app.db.encryption import DataDecryptionError
     enc = EncryptedString()
     # Corrupt Fernet token prefix
     corrupt_token = "gAAAAABm_fake_corrupt_fernet_token_that_cannot_decrypt"
-    result = enc.process_result_value(corrupt_token, None)
-    assert result is None, f"Expected None for corrupt token, got: {result}"
+    with pytest.raises(DataDecryptionError):
+        enc.process_result_value(corrupt_token, None)
 
-    # Plaintext legacy value (doesn't start with gAAAA) returns as-is
+    # Plaintext legacy value (doesn't start with gAAAAA) returns as-is
     plain_result = enc.process_result_value("legacy_plaintext_value", None)
     assert plain_result == "legacy_plaintext_value"
 

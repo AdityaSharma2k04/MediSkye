@@ -857,8 +857,16 @@ async def query_bot(
 
                 # Check if JSON block starts in pending_buffer
                 lower_buf = pending_buffer.lower()
-                if "```json" in lower_buf or "```" in lower_buf:
-                    fence_idx = lower_buf.find("```")
+                has_fence = False
+                fence_idx = -1
+                for fence in ("```", "~~~"):
+                    idx = lower_buf.find(fence)
+                    if idx != -1:
+                        if fence_idx == -1 or idx < fence_idx:
+                            fence_idx = idx
+                            has_fence = True
+
+                if has_fence:
                     tail = pending_buffer[fence_idx:]
 
                     # Check if this fence is the abnormal_flags block
@@ -871,7 +879,7 @@ async def query_bot(
                         pending_buffer = ""
                     elif len(tail) < 150:
                         # Wait for more chunks to see if 'abnormal_flags' appears
-                        # Yield any text that occurred before the backticks
+                        # Yield any text that occurred before the backticks / tildes
                         if fence_idx > 0:
                             visible_chunk = pending_buffer[:fence_idx]
                             visible_text += visible_chunk
@@ -883,13 +891,13 @@ async def query_bot(
                         yield f'data: {json.dumps({"chunk": pending_buffer})}\n\n'
                         pending_buffer = ""
                 else:
-                    # Hold back any trailing backticks in case ``` is split across chunks
-                    if pending_buffer.endswith("``"):
+                    # Hold back any trailing backticks or tildes in case ``` or ~~~ is split across chunks
+                    if pending_buffer.endswith(("``", "~~")):
                         to_yield = pending_buffer[:-2]
-                        pending_buffer = "``"
-                    elif pending_buffer.endswith("`"):
+                        pending_buffer = pending_buffer[-2:]
+                    elif pending_buffer.endswith(("`", "~")):
                         to_yield = pending_buffer[:-1]
-                        pending_buffer = "`"
+                        pending_buffer = pending_buffer[-1:]
                     else:
                         to_yield = pending_buffer
                         pending_buffer = ""
@@ -901,8 +909,9 @@ async def query_bot(
             # Stream finished — flush any remaining pending_buffer if not entering JSON block
             if pending_buffer and not in_json_block:
                 lower_pending = pending_buffer.lower()
-                if "abnormal_flags" in lower_pending and "```" in lower_pending:
-                    fence_idx = lower_pending.find("```")
+                fences_found = [lower_pending.find(f) for f in ("```", "~~~") if lower_pending.find(f) != -1]
+                if "abnormal_flags" in lower_pending and fences_found:
+                    fence_idx = min(fences_found)
                     visible_chunk = pending_buffer[:fence_idx]
                     if visible_chunk:
                         visible_text += visible_chunk
@@ -910,6 +919,7 @@ async def query_bot(
                 else:
                     visible_text += pending_buffer
                     yield f'data: {json.dumps({"chunk": pending_buffer})}\n\n'
+                pending_buffer = ""
                 pending_buffer = ""
 
             if intent != QueryIntent.CASUAL:

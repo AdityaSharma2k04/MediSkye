@@ -29,7 +29,19 @@ export default function TrendChart({ series, height = 200, className }) {
   const pad = { l: 44, r: 16, t: 14, b: 26 };
 
   const model = useMemo(() => {
-    const pts = series?.points || [];
+    const rawPts = series?.points || [];
+    if (!rawPts.length) return null;
+
+    // Deduplicate identical (t, value) pairs
+    const pts = [];
+    const seen = new Set();
+    for (const p of rawPts) {
+      const k = `${p.t}:${p.value}`;
+      if (!seen.has(k)) {
+        seen.add(k);
+        pts.push(p);
+      }
+    }
     if (!pts.length) return null;
     const range = parseRange(series.range);
     const values = pts.map((p) => p.value);

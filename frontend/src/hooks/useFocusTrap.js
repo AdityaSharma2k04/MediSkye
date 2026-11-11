@@ -1,19 +1,40 @@
-import { useEffect, useRef } from 'react';
+import { useEffect, useLayoutEffect, useRef } from 'react';
 
 /**
  * Custom hook to trap focus within a container element while isOpen is true,
  * restore focus to the previously active element upon closing, and handle the Escape key.
+ *
+ * Uses a persistent `focusin` listener to track the last element focused *outside*
+ * the modal container, so that `autoFocus` children don't overwrite the trigger ref.
  */
 export function useFocusTrap(ref, isOpen, onClose) {
   const triggerRef = useRef(null);
   const onCloseRef = useRef(onClose);
   onCloseRef.current = onClose;
+  const isOpenRef = useRef(isOpen);
+  isOpenRef.current = isOpen;
 
+  // Track the last focused element while the modal is CLOSED.
+  // Once isOpen is true, freeze triggerRef so internal autoFocus inputs cannot overwrite it.
   useEffect(() => {
+    const handleFocusIn = () => {
+      if (isOpenRef.current) return;
+      const active = document.activeElement;
+      if (active && active !== document.body && (!ref.current || !ref.current.contains(active))) {
+        triggerRef.current = active;
+      }
+    };
+    document.addEventListener('focusin', handleFocusIn, true);
+    return () => document.removeEventListener('focusin', handleFocusIn, true);
+  }, [ref]);
+
+  useLayoutEffect(() => {
     if (!isOpen) return;
 
-    // Remember the element that had focus before opening the modal
-    triggerRef.current = document.activeElement;
+    // Fallback: if triggerRef wasn't set by focusin before open, capture current activeElement if outside
+    if (!triggerRef.current && document.activeElement && (!ref.current || !ref.current.contains(document.activeElement))) {
+      triggerRef.current = document.activeElement;
+    }
 
     if (!ref.current) return;
 
@@ -27,7 +48,8 @@ export function useFocusTrap(ref, isOpen, onClose) {
     };
 
     const focusable = getFocusable();
-    if (focusable.length > 0) {
+    // Only move focus into the modal if nothing inside already has focus (e.g. autoFocus)
+    if (!ref.current.contains(document.activeElement) && focusable.length > 0) {
       focusable[0].focus();
     }
 
@@ -63,9 +85,10 @@ export function useFocusTrap(ref, isOpen, onClose) {
 
     return () => {
       document.removeEventListener('keydown', handleKeyDown);
-      // Restore focus to trigger element on close
-      if (triggerRef.current && typeof triggerRef.current.focus === 'function') {
-        triggerRef.current.focus();
+      // Restore focus to the element that triggered the modal
+      const target = triggerRef.current;
+      if (target && typeof target.focus === 'function' && document.body.contains(target)) {
+        target.focus({ preventScroll: true });
       }
     };
   }, [isOpen, ref]);

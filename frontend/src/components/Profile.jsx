@@ -260,7 +260,13 @@ export default function Profile({
       for (const key in formData) {
         if (key === 'weight') continue; // weight logged separately as fact
         if (key === 'height_cm') {
-          payload[key] = formData[key] ? parseFloat(formData[key]) : null;
+          const val = formData[key] ? parseFloat(formData[key]) : null;
+          if (val !== null && (val < 30 || val > 280)) {
+            setError('Height must be between 30 and 280 cm');
+            setSaving(false);
+            return;
+          }
+          payload[key] = val;
         } else {
           payload[key] = formData[key] ? formData[key] : null;
         }
@@ -395,6 +401,11 @@ export default function Profile({
       delete payload.weight; // weight logged separately
       if (payload.height_cm) {
         payload.height_cm = parseFloat(payload.height_cm);
+        if (payload.height_cm < 30 || payload.height_cm > 280) {
+          setError('Height must be between 30 and 280 cm');
+          setSaving(false);
+          return;
+        }
       } else {
         payload.height_cm = null;
       }
@@ -639,6 +650,8 @@ export default function Profile({
                     label="Height (cm)"
                     name="height_cm"
                     type="number"
+                    min="30"
+                    max="280"
                     value={formData.height_cm}
                     onChange={handleChange}
                     placeholder="e.g. 175"
@@ -882,6 +895,8 @@ export default function Profile({
                         label="Height (cm)"
                         name="height_cm"
                         type="number"
+                        min="30"
+                        max="280"
                         value={dependentForm.height_cm}
                         onChange={handleDependentFormChange}
                         placeholder="e.g. 160"

@@ -8,6 +8,11 @@ from app.core.config import settings
 logger = logging.getLogger(__name__)
 fernet = Fernet(settings.FERNET_KEY.encode() if isinstance(settings.FERNET_KEY, str) else settings.FERNET_KEY)
 
+
+class DataDecryptionError(RuntimeError):
+    pass
+
+
 class EncryptedString(types.TypeDecorator):
     """
     A SQLAlchemy TypeDecorator that encrypts strings before saving to the database
@@ -32,16 +37,16 @@ class EncryptedString(types.TypeDecorator):
             # Decrypt the string
             decrypted = fernet.decrypt(value.encode('utf-8'))
             return decrypted.decode('utf-8')
-        except (InvalidToken, Exception):
-            if _looks_like_token(value):
+        except (InvalidToken, Exception) as exc:
+            if isinstance(value, str) and value.startswith("gAAAAA"):
                 logger.error("EncryptedString: Fernet-looking value could not be decrypted (wrong key or corruption).")
-                return None
+                raise DataDecryptionError("Corrupted or undecryptable Fernet ciphertext token") from exc
             # If decryption fails (e.g., data was already in DB unencrypted), log and return as is
             logger.warning("Fernet decryption failed; falling back to raw database value.")
             return value
 
 
-_TOKEN_PREFIX = "gAAAA"  # every Fernet token starts with this
+_TOKEN_PREFIX = "gAAAAA"
 
 
 def _looks_like_token(value) -> bool:
@@ -58,7 +63,7 @@ def _try_decrypt(value: str) -> Optional[str]:
 class EncryptedText(types.TypeDecorator):
     """Text encrypted at rest. Legacy plaintext rows still read fine until backfilled.
     A value that looks like a Fernet token but cannot be decrypted (wrong key / corruption)
-    reads as None and logs an error; it is never returned as ciphertext."""
+    raises DataDecryptionError; it is never returned as ciphertext or overwritten with None."""
 
     impl = types.Text
     cache_ok = True
@@ -75,13 +80,14 @@ class EncryptedText(types.TypeDecorator):
             return None
         if not isinstance(value, str):
             return value
-        plain = _try_decrypt(value)
-        if plain is not None:
-            return plain
-        if _looks_like_token(value):
-            logger.error("EncryptedText: Fernet-looking value could not be decrypted (wrong key or corruption).")
-            return None
-        return value  # legacy plaintext row, not yet backfilled
+        try:
+            decrypted = fernet.decrypt(value.encode("utf-8")).decode("utf-8")
+            return decrypted
+        except (InvalidToken, Exception) as exc:
+            if isinstance(value, str) and value.startswith("gAAAAA"):
+                logger.error("EncryptedText: Fernet-looking value could not be decrypted (wrong key or corruption).")
+                raise DataDecryptionError("Corrupted or undecryptable Fernet ciphertext token") from exc
+            return value  # legacy plaintext row, not yet backfilled
 
 
 class EncryptedJSON(types.TypeDecorator):
@@ -101,15 +107,19 @@ class EncryptedJSON(types.TypeDecorator):
         if value is None:
             return None
         if isinstance(value, str):
-            plain = _try_decrypt(value)
-            if plain is not None:
+            try:
+                decrypted = fernet.decrypt(value.encode("utf-8")).decode("utf-8")
                 try:
-                    return json.loads(plain)
+                    return json.loads(decrypted)
                 except ValueError:
                     logger.error("EncryptedJSON: decrypted payload is not valid JSON.")
                     return None
-            if _looks_like_token(value):
-                logger.error("EncryptedJSON: Fernet-looking value could not be decrypted (wrong key or corruption).")
-                return None
+            except (InvalidToken, Exception) as exc:
+                if isinstance(value, str) and value.startswith("gAAAAA"):
+                    logger.error("EncryptedJSON: Fernet-looking value could not be decrypted (wrong key or corruption).")
+                    raise DataDecryptionError("Corrupted or undecryptable Fernet ciphertext token") from exc
+                try:
+                    return json.loads(value)
+                except ValueError:
+                    return value
         return value  # legacy plaintext list/dict
-

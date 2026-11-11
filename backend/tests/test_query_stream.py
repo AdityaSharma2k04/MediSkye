@@ -543,4 +543,89 @@ async def test_emergency_keywords_with_document_show_banner_and_answer():
                 await asyncio.gather(*list(_background_warm_tasks), return_exceptions=True)
 
 
+def test_deterministic_token_boundary_abnormal_flags_stripping():
+    sample_response = (
+        "Your abnormal JSON-formatted lab sheet shows mild shifts.\n"
+        '~~~json\n{"abnormal_flags": [{"biomarker": "LDL", "status": "High"}]}\n~~~'
+    )
+    expected_visible = "Your abnormal JSON-formatted lab sheet shows mild shifts.\n"
+
+    def run_stream(chunks):
+        pending_buffer = ""
+        in_json_block = False
+        emitted_chunks = []
+
+        for chunk_text in chunks:
+            if not chunk_text:
+                continue
+            if in_json_block:
+                continue
+
+            pending_buffer += chunk_text
+            lower_buf = pending_buffer.lower()
+
+            has_fence = False
+            fence_idx = -1
+            for fence in ("```", "~~~"):
+                idx = lower_buf.find(fence)
+                if idx != -1:
+                    if fence_idx == -1 or idx < fence_idx:
+                        fence_idx = idx
+                        has_fence = True
+
+            if has_fence:
+                tail = pending_buffer[fence_idx:]
+                if "abnormal_flags" in tail:
+                    in_json_block = True
+                    visible_chunk = pending_buffer[:fence_idx]
+                    if visible_chunk:
+                        emitted_chunks.append(visible_chunk)
+                    pending_buffer = ""
+                elif len(tail) < 150:
+                    if fence_idx > 0:
+                        visible_chunk = pending_buffer[:fence_idx]
+                        emitted_chunks.append(visible_chunk)
+                        pending_buffer = pending_buffer[fence_idx:]
+                else:
+                    emitted_chunks.append(pending_buffer)
+                    pending_buffer = ""
+            else:
+                if pending_buffer.endswith(("``", "~~")):
+                    to_yield = pending_buffer[:-2]
+                    pending_buffer = pending_buffer[-2:]
+                elif pending_buffer.endswith(("`", "~")):
+                    to_yield = pending_buffer[:-1]
+                    pending_buffer = pending_buffer[-1:]
+                else:
+                    to_yield = pending_buffer
+                    pending_buffer = ""
+
+                if to_yield:
+                    emitted_chunks.append(to_yield)
+
+        if pending_buffer and not in_json_block:
+            lower_pending = pending_buffer.lower()
+            fences_found = [lower_pending.find(f) for f in ("```", "~~~") if lower_pending.find(f) != -1]
+            if "abnormal_flags" in lower_pending and fences_found:
+                fence_idx = min(fences_found)
+                visible_chunk = pending_buffer[:fence_idx]
+                if visible_chunk:
+                    emitted_chunks.append(visible_chunk)
+            else:
+                emitted_chunks.append(pending_buffer)
+            pending_buffer = ""
+
+        return "".join(emitted_chunks)
+
+    results = {}
+    for step in (2, 7):
+        chunks = [sample_response[i : i + step] for i in range(0, len(sample_response), step)]
+        visible = run_stream(chunks)
+        results[step] = visible
+        assert visible == expected_visible, f"Mismatch at step {step}: got {visible!r}"
+        assert "abnormal_flags" not in visible
+
+    assert results[2] == results[7] == expected_visible
+
+
 

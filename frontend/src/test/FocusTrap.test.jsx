@@ -91,6 +91,42 @@ describe('useFocusTrap', () => {
     expect(openBtn).toHaveFocus();
   });
 
+  it('restores focus to trigger button when modal contains autoFocus input', async () => {
+    function AutoFocusModal({ isOpen, onClose }) {
+      const modalRef = useRef(null);
+      useFocusTrap(modalRef, isOpen, onClose);
+      if (!isOpen) return null;
+      return (
+        <div ref={modalRef} role="dialog">
+          <input autoFocus data-testid="autofocus-input" />
+          <button onClick={onClose}>Close</button>
+        </div>
+      );
+    }
+
+    function Parent() {
+      const [open, setOpen] = useState(false);
+      return (
+        <div>
+          <button id="trigger-btn" onClick={() => setOpen(true)}>Open</button>
+          <AutoFocusModal isOpen={open} onClose={() => setOpen(false)} />
+        </div>
+      );
+    }
+
+    const user = userEvent.setup();
+    render(<Parent />);
+    const trigger = screen.getByRole('button', { name: 'Open' });
+    trigger.focus();
+    expect(trigger).toHaveFocus();
+
+    await user.click(trigger);
+    expect(screen.getByTestId('autofocus-input')).toHaveFocus();
+
+    await user.keyboard('{Escape}');
+    expect(trigger).toHaveFocus();
+  });
+
   it('does not steal focus when onClose identity changes between renders', () => {
     function Host({ onClose }) {
       const ref = useRef(null);

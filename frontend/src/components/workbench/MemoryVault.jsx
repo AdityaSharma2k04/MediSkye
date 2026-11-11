@@ -7,6 +7,31 @@ import { getFacts, deleteFact, clearAllMemoryFacts, updateMemoryConsent, updateP
 import { logger } from '../../services/logger';
 import { reportLabel } from '../../lib/clinical';
 
+function FactText({ text }) {
+  const [expanded, setExpanded] = useState(false);
+  if (!text) return null;
+  const isLong = text.length > 160;
+
+  if (!isLong) {
+    return <p className="text-[13px] text-ink leading-snug break-words">{text}</p>;
+  }
+
+  return (
+    <div>
+      <p className={cn('text-[13px] text-ink leading-snug break-words', !expanded && 'line-clamp-3')}>
+        {text}
+      </p>
+      <button
+        type="button"
+        onClick={() => setExpanded((prev) => !prev)}
+        className="mt-1 text-[11px] font-medium text-cyan-400 hover:text-cyan-300 underline underline-offset-2"
+      >
+        {expanded ? 'Show less' : 'Show more'}
+      </button>
+    </div>
+  );
+}
+
 const CATEGORY_STYLES = {
   condition: 'bg-rose-500/10 text-rose-200 border-rose-500/25',
   medication: 'bg-sky-500/10 text-sky-200 border-sky-500/25',
@@ -320,7 +345,7 @@ export default function MemoryVault({ open, onOpenChange, selectedPatientId = 's
                           <span className="absolute -left-[4.5px] top-3.5 w-2 h-2 rounded-full bg-carbon border border-white/30" aria-hidden="true" />
                           <div className="group p-3 rounded-xl ms-surface flex items-start gap-3">
                             <div className="min-w-0 flex-1 space-y-1.5">
-                              <p className="text-[13px] text-ink leading-snug break-words">{f.fact_text || f.fact_value}</p>
+                              <FactText text={f.fact_text || f.fact_value} />
                               <div className="flex flex-wrap items-center gap-1.5">
                                 <span className={cn('text-[10px] font-medium px-1.5 py-0.5 rounded-md border', CATEGORY_STYLES[c] || 'bg-white/[0.04] text-ink-mute border-white/[0.08]')}>
                                   {prettyCategory(c)}

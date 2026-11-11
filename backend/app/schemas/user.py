@@ -24,11 +24,19 @@ class UserUpdate(BaseModel):
     language_preference: Optional[str] = None
     emergency_contact_name: Optional[str] = Field(None, max_length=120)
     emergency_contact_phone: Optional[str] = Field(None, max_length=32)
-    height_cm: Optional[float] = Field(None, ge=30.0, le=272.0)
+    height_cm: Optional[float] = None
     diet_type: Optional[str] = None
     activity_level: Optional[str] = None
     occupation: Optional[str] = Field(None, max_length=120)
     memory_consent_granted: Optional[bool] = None
+
+    @field_validator("height_cm")
+    @classmethod
+    def validate_height_cm(cls, v: Optional[float]) -> Optional[float]:
+        if v is not None:
+            if v < 30.0 or v > 280.0:
+                raise ValueError("height_cm must be between 30 and 280 cm")
+        return v
 
     @field_validator("date_of_birth")
     @classmethod

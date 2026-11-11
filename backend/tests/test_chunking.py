@@ -112,3 +112,21 @@ def test_multipage_markdown_table_header_propagation():
     assert "| Analyte | Result | Ref Range | Units |" in page2_chunks[0].page_content
     assert "|---|---|---|---|" in page2_chunks[0].page_content
 
+
+def test_table_header_propagation_with_escaped_pipe_and_empty_cell():
+    page1 = Document(
+        page_content="| Analyte | Result | Ref Range |\n|---|---|---|\n| Glucose | 95 | 70-99 |",
+        metadata={"page": 1},
+    )
+    # Continuation row with escaped pipe \| (still 3 cols) and empty cell (still 3 cols)
+    page2 = Document(
+        page_content=r"| Blood Pressure \| Sitting | 120/80 | Normal |" + "\n" + "|| 1.4 | 0.7-1.2 |",
+        metadata={"page": 2},
+    )
+    chunks = split_medical_documents([page1, page2], chunk_size=500, chunk_overlap=0)
+    page2_chunks = [c for c in chunks if c.metadata.get("page") == 2]
+    assert len(page2_chunks) > 0
+    assert "| Analyte | Result | Ref Range |" in page2_chunks[0].page_content
+    assert "|---|---|---|" in page2_chunks[0].page_content
+    assert "Blood Pressure \\| Sitting" in page2_chunks[0].page_content
+

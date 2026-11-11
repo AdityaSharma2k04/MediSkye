@@ -48,6 +48,15 @@ TABLE_ROW_RE = re.compile(r"^[ \t]*\|.*\|[ \t]*$")
 TABLE_SEP_RE = re.compile(r"^[ \t]*\|(?:\s*:?-+:?\s*\|)+[ \t]*$")
 
 
+def _count_table_columns(line: str) -> int:
+    s = line.strip()
+    if s.startswith("|"):
+        s = s[1:]
+    if s.endswith("|") and not s.endswith(r"\|"):
+        s = s[:-1]
+    return len(re.split(r"(?<!\\)\|", s))
+
+
 def _propagate_table_headers(page_docs: List[Document]) -> List[Document]:
     """
     Carries over Markdown table headers across page boundaries when a table
@@ -69,12 +78,12 @@ def _propagate_table_headers(page_docs: List[Document]) -> List[Document]:
             if is_table_row and not prev_is_table_row:
                 next_line = lines[i + 1] if i + 1 < len(lines) else ""
                 if TABLE_SEP_RE.match(next_line):
-                    last_header = (line, next_line, line.count("|"))
+                    last_header = (line, next_line, _count_table_columns(line))
                     new_lines.append(line)
                     new_lines.append(next_line)
                     i += 2
                     continue
-                elif last_header is not None and line.count("|") == last_header[2]:
+                elif last_header is not None and _count_table_columns(line) == last_header[2]:
                     new_lines.append(last_header[0])
                     new_lines.append(last_header[1])
                     new_lines.append(line)

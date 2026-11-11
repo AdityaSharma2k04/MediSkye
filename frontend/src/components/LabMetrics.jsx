@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Search, X, Calendar, AlertTriangle, MessageSquarePlus, Layers, ListFilter } from 'lucide-react';
 import { cn } from '../lib/cn';
 import {
@@ -86,6 +86,25 @@ export default function LabMetrics({
   }, [grouped, visibleMetrics]);
 
   const counts = { all: triage.total, flagged: filterMetrics(metrics || [], 'flagged').length, drops: triage.drops };
+
+  const tableContainerRef = useRef(null);
+  const [canScrollRight, setCanScrollRight] = useState(false);
+
+  const checkScroll = useCallback(() => {
+    const el = tableContainerRef.current;
+    if (!el) return;
+    setCanScrollRight(el.scrollLeft + el.clientWidth < el.scrollWidth - 2);
+  }, []);
+
+  useEffect(() => {
+    const el = tableContainerRef.current;
+    if (!el) return;
+    checkScroll();
+    if (typeof ResizeObserver === 'undefined') return;
+    const ro = new ResizeObserver(checkScroll);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [checkScroll, visibleMetrics]);
 
   return (
     <div className="animate-fade-in py-1">
@@ -191,8 +210,8 @@ export default function LabMetrics({
       ) : (
         <>
           {(layout === 'auto' || layout === 'table') && (
-            <div className={cn(layout === 'auto' ? 'hidden sm:block' : 'block', 'rounded-2xl ms-surface overflow-hidden')}>
-              <div className="w-full overflow-x-auto">
+            <div className={cn(layout === 'auto' ? 'hidden sm:block' : 'block', 'relative rounded-2xl ms-surface overflow-hidden')}>
+              <div ref={tableContainerRef} onScroll={checkScroll} className="w-full overflow-x-auto">
                 <table className="min-w-[680px] w-full text-left text-[13px] border-collapse">
                   <thead className="bg-graphite">
                     <tr className="border-b border-white/[0.07]">
@@ -231,6 +250,12 @@ export default function LabMetrics({
                   ))}
                 </table>
               </div>
+              {canScrollRight && (
+                <div
+                  aria-hidden="true"
+                  className="pointer-events-none absolute inset-y-0 right-0 w-8 bg-gradient-to-l from-[#0c0e14] to-transparent"
+                />
+              )}
             </div>
           )}
 

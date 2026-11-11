@@ -18,6 +18,14 @@ class DependentBase(BaseModel):
     activity_level: Optional[str] = None
     occupation: Optional[str] = None
 
+    @field_validator("height_cm")
+    @classmethod
+    def validate_height_cm(cls, v: Optional[float]) -> Optional[float]:
+        if v is not None:
+            if v < 30.0 or v > 280.0:
+                raise ValueError("height_cm must be between 30 and 280 cm")
+        return v
+
     @field_validator(
         "relationship",
         "full_name",
@@ -49,6 +57,14 @@ class DependentUpdate(BaseModel):
     diet_type: Optional[str] = None
     activity_level: Optional[str] = None
     occupation: Optional[str] = None
+
+    @field_validator("height_cm")
+    @classmethod
+    def validate_height_cm(cls, v: Optional[float]) -> Optional[float]:
+        if v is not None:
+            if v < 30.0 or v > 280.0:
+                raise ValueError("height_cm must be between 30 and 280 cm")
+        return v
 
     @field_validator(
         "relationship",

@@ -96,3 +96,19 @@ async def test_mediskye_pages_dev_allowed_and_arbitrary_pages_dev_rejected():
         assert res3.headers.get("access-control-allow-origin") is None
         assert res3.status_code == 400
 
+
+@pytest.mark.asyncio
+async def test_cors_exposes_retry_after_and_timing_headers():
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as ac:
+        res = await ac.get(
+            "/health",
+            headers={"Origin": "https://mediskye.pages.dev"},
+        )
+        assert res.status_code == 200
+        expose = res.headers.get("access-control-expose-headers", "")
+        exposed_list = [h.strip().lower() for h in expose.split(",")]
+        assert "retry-after" in exposed_list
+        assert "x-process-time-ms" in exposed_list
+        assert "x-request-id" in exposed_list
+

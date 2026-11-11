@@ -95,3 +95,32 @@ def test_null_byte_stripped_in_schemas():
         fact_text="Type 2\x00 Diabetes",
     )
     assert f.fact_text == "Type 2 Diabetes"
+
+
+def test_height_cm_bounds_validation():
+    from app.schemas.user import UserUpdate
+    from app.schemas.dependent import DependentCreate, DependentUpdate
+
+    # Valid values
+    assert UserUpdate(height_cm=None).height_cm is None
+    assert UserUpdate(height_cm=175.0).height_cm == 175.0
+    assert UserUpdate(height_cm=30.0).height_cm == 30.0
+    assert UserUpdate(height_cm=280.0).height_cm == 280.0
+
+    # Below 30.0
+    with pytest.raises(ValueError, match="height_cm must be between 30 and 280 cm"):
+        UserUpdate(height_cm=29.9)
+
+    # Above 280.0
+    with pytest.raises(ValueError, match="height_cm must be between 30 and 280 cm"):
+        UserUpdate(height_cm=280.1)
+
+    # DependentCreate
+    assert DependentCreate(relationship="Child", full_name="Alex", height_cm=110.0).height_cm == 110.0
+    with pytest.raises(ValueError, match="height_cm must be between 30 and 280 cm"):
+        DependentCreate(relationship="Child", full_name="Alex", height_cm=25.0)
+
+    # DependentUpdate
+    assert DependentUpdate(height_cm=120.0).height_cm == 120.0
+    with pytest.raises(ValueError, match="height_cm must be between 30 and 280 cm"):
+        DependentUpdate(height_cm=290.0)

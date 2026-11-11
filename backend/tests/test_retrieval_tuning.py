@@ -58,3 +58,27 @@ def test_fetch_k_scales_with_k_and_stays_bounded():
 def test_defaults_unchanged_for_backward_compat():
     assert RETRIEVAL_K == 8
     assert RETRIEVAL_FETCH_K == 24
+
+
+def test_oversized_index_skips_caching_and_avoids_eviction():
+    from unittest.mock import MagicMock
+    from types import SimpleNamespace
+    from app.rag.retriever import (
+        cache_hybrid_index,
+        get_cached_hybrid_index,
+        _INDEX_CACHE,
+        MAX_CACHEABLE_INDEX_CHUNKS,
+    )
+
+    assert MAX_CACHEABLE_INDEX_CHUNKS == 5000
+    mock_vs = MagicMock()
+    mock_bm25_normal = SimpleNamespace(chunks=[MagicMock() for _ in range(10)])
+    cache_hybrid_index("normal_doc", mock_vs, mock_bm25_normal)
+    assert get_cached_hybrid_index("normal_doc") is not None
+
+    # Oversized index (> 5000 chunks)
+    mock_bm25_oversized = SimpleNamespace(chunks=[MagicMock() for _ in range(5001)])
+    cache_hybrid_index("huge_doc", mock_vs, mock_bm25_oversized)
+
+    assert get_cached_hybrid_index("huge_doc") is None
+    assert get_cached_hybrid_index("normal_doc") is not None

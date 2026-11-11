@@ -163,7 +163,7 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
     max_age=3600,
-    expose_headers=["*", "X-Process-Time-Ms"],
+    expose_headers=["Retry-After", "X-Process-Time-Ms", "X-Request-ID"],
 )
 
 # API Router

@@ -37,7 +37,9 @@ MAX_FETCH_K = 48
 
 _INDEX_CACHE_LOCK = threading.Lock()
 _HYBRID_INDEX_CACHE: OrderedDict[str, tuple] = OrderedDict()
+_INDEX_CACHE = _HYBRID_INDEX_CACHE
 MAX_CACHE_ENTRIES = 10
+MAX_CACHEABLE_INDEX_CHUNKS = 5000
 
 
 def _normalize_index_key(key) -> str:
@@ -51,6 +53,10 @@ def _normalize_index_key(key) -> str:
 def cache_hybrid_index(key, vectorstore, bm25_index) -> None:
     """Store (vectorstore, bm25_index) in in-memory LRU cache (bounded to 10 entries)."""
     if not key:
+        return
+    chunk_count = len(bm25_index.chunks) if bm25_index is not None and hasattr(bm25_index, "chunks") and isinstance(bm25_index.chunks, list) else 0
+    if chunk_count > MAX_CACHEABLE_INDEX_CHUNKS:
+        logger.info("Skipping cache for oversized index %s with %d chunks (> %d)", key, chunk_count, MAX_CACHEABLE_INDEX_CHUNKS)
         return
     norm_key = _normalize_index_key(key)
     with _INDEX_CACHE_LOCK:

@@ -407,14 +407,28 @@ export async function parseSSEStream(reader, callbacks = {}) {
 export async function fetchLabMetrics(documentId, forceRefresh = false) {
   try {
     const query = forceRefresh ? '?force_refresh=true' : '';
-    const res = await fetch(`${API_BASE}/extract-metrics${query}`, {
-      method: 'POST',
-      headers: {
-        'X-Session-ID': documentId,
-        ...getAuthHeaders(),
-      },
-    });
-    const data = await res.json();
+    const endpoint = `${API_BASE}/extract-metrics${query}`;
+    const makeRequest = () =>
+      apiFetch(endpoint, {
+        method: 'POST',
+        headers: {
+          'X-Session-ID': documentId,
+          ...getAuthHeaders(),
+        },
+      }, 60000);
+
+    let res = await makeRequest();
+
+    // Transparent retry for 503 Service Unavailable / 425 Too Early / 429 Too Many Requests with Retry-After honoring
+    if (res.status === 503 || res.status === 425 || res.status === 429) {
+      const retryAfter = parseInt(res.headers?.get?.('Retry-After') || '2', 10);
+      const waitMs = Math.max(isNaN(retryAfter) ? 2 : retryAfter, 2) * 1000;
+      logger.info(`Received ${res.status} from /extract-metrics. Transparent retry after ${waitMs}ms...`);
+      await new Promise((resolve) => setTimeout(resolve, waitMs));
+      res = await makeRequest();
+    }
+
+    const data = await res.json().catch(() => ({}));
     if (!res.ok) {
       if (res.status === 401) {
         localStorage.removeItem('token');

@@ -178,3 +178,11 @@ async def test_on_demand_extraction_reconstructs_all_chunks_across_3_windows():
             assert metrics is not None
             assert len(metrics) > 0
 
+
+def test_parse_first_float_ranges_and_titers():
+    from app.api.v1.endpoints.metrics import _parse_first_float
+    assert _parse_first_float("10-20") is None
+    assert _parse_first_float("4.0 - 10.0") is None
+    assert _parse_first_float("Positive (1:160)") is None
+    assert _parse_first_float("-2.5") == -2.5
+
