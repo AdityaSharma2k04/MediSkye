@@ -52,6 +52,15 @@ class Settings(BaseSettings):
         "http://localhost:3000",
         "http://localhost:5173",
     ]
+    # Native WebView origins for Android (Capacitor) and Windows Desktop (Tauri v2)
+    NATIVE_APP_ORIGINS: List[str] = [
+        "https://localhost",
+        "http://localhost",
+        "capacitor://localhost",
+        "http://tauri.localhost",
+        "https://tauri.localhost",
+        "tauri://localhost",
+    ]
     ALLOWED_ORIGIN_REGEX: str = r"^https://([a-z0-9-]+\.)?mediskye\.pages\.dev$"
     SHOW_SPECIALIST_CONTACTS: bool = False
 

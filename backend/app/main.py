@@ -155,9 +155,14 @@ app.add_middleware(SecurityHeadersMiddleware)
 app.add_middleware(SlowAPIMiddleware)
 
 # CORS Configuration with Amortized Preflight Max-Age
+# Always ensure native WebView origins (Capacitor Android & Tauri Windows) are allowed
+active_allowed_origins = list(
+    dict.fromkeys(list(settings.ALLOWED_ORIGINS) + list(getattr(settings, "NATIVE_APP_ORIGINS", [])))
+)
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=settings.ALLOWED_ORIGINS,
+    allow_origins=active_allowed_origins,
     allow_origin_regex=settings.ALLOWED_ORIGIN_REGEX,
     allow_credentials=True,
     allow_methods=["*"],

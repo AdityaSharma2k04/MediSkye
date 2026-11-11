@@ -112,3 +112,41 @@ async def test_cors_exposes_retry_after_and_timing_headers():
         assert "x-process-time-ms" in exposed_list
         assert "x-request-id" in exposed_list
 
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "native_origin",
+    [
+        "https://localhost",
+        "http://localhost",
+        "capacitor://localhost",
+        "http://tauri.localhost",
+        "https://tauri.localhost",
+        "tauri://localhost",
+    ],
+)
+async def test_native_app_origins_allowed_for_options_and_get(native_origin: str):
+    """Native WebViews (Capacitor Android and Tauri Windows) must be allowed CORS."""
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as ac:
+        # Preflight OPTIONS
+        preflight_res = await ac.options(
+            "/users/me",
+            headers={
+                "Origin": native_origin,
+                "Access-Control-Request-Method": "GET",
+            },
+        )
+        assert preflight_res.status_code == 200
+        assert preflight_res.headers.get("access-control-allow-origin") == native_origin
+        assert preflight_res.headers.get("access-control-allow-credentials") == "true"
+
+        # GET /health
+        health_res = await ac.get(
+            "/health",
+            headers={"Origin": native_origin},
+        )
+        assert health_res.status_code == 200
+        assert health_res.headers.get("access-control-allow-origin") == native_origin
+
+
