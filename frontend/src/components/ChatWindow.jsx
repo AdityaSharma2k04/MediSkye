@@ -52,12 +52,36 @@ function buildReportSuggestions(metrics) {
   return out.slice(0, 4);
 }
 
-function greeting() {
+export function greeting() {
   const h = new Date().getHours();
   if (h < 5) return 'Working late';
   if (h < 12) return 'Good morning';
   if (h < 17) return 'Good afternoon';
   return 'Good evening';
+}
+
+const INVALID_NAME_PATTERNS = new Set([
+  'my',
+  'user',
+  'patient',
+  'null',
+  'undefined',
+  'not specified',
+  'self',
+  'my profile',
+  'profile',
+  'dependent',
+]);
+
+export function cleanGreetingName(name) {
+  if (!name || typeof name !== 'string') return null;
+  const trimmed = name.trim();
+  if (!trimmed) return null;
+  if (trimmed.includes('@')) return null;
+  if (INVALID_NAME_PATTERNS.has(trimmed.toLowerCase())) return null;
+  const first = trimmed.split(/\s+/)[0];
+  if (!first || INVALID_NAME_PATTERNS.has(first.toLowerCase())) return null;
+  return first;
 }
 
 export default function ChatWindow({
@@ -106,7 +130,7 @@ export default function ChatWindow({
 
   const triage = useMemo(() => summarizeTriage(metrics), [metrics]);
   const suggestions = useMemo(() => (activePdf ? buildReportSuggestions(metrics) : GENERAL_SUGGESTIONS), [activePdf?.id, metrics]);
-  const firstName = (patientName || currentUser?.full_name || '').split(' ')[0];
+  const greetingName = cleanGreetingName(patientName || currentUser?.full_name);
 
   return (
     <div className={cn('relative flex-1 min-h-0 flex flex-col', className)}>
@@ -123,7 +147,7 @@ export default function ChatWindow({
               <span className="sr-only">MediSkye AI Medical Assistant</span>
 
               <div className="mb-7">
-                <p className="text-sm text-ink-mute mb-2">{firstName ? `${greeting()}, ${firstName}.` : `${greeting()}.`}</p>
+                <p className="text-sm text-ink-mute mb-2">{greetingName ? `${greeting()}, ${greetingName}.` : `${greeting()}.`}</p>
                 <h1 className="ms-display text-[30px] sm:text-[38px] leading-[1.08] text-white max-w-xl">
                   {activePdf ? 'Your report is indexed and ready for questions.' : 'Where should we start?'}
                 </h1>

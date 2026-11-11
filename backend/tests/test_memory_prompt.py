@@ -224,3 +224,33 @@ def test_prompt_builder_forbids_previously_discussed_and_enforces_exact_citation
     assert "Never group Low" in sys_general
     assert "Reference Range" in sys_general
     assert "What This Report Does Not Cover" in sys_general
+
+
+@pytest.mark.asyncio
+async def test_format_past_chats_unloaded_orm_relationship_no_missing_greenlet():
+    """Regression test: formatting an attached ChatChunk without loaded relationships must not raise MissingGreenlet."""
+    import uuid
+    import sqlalchemy as sa
+    from app.db.database import AsyncSessionLocal
+    from app.db.models import User, Chat, ChatChunk
+
+    async with AsyncSessionLocal() as session:
+        user_id = uuid.uuid4()
+        user = User(id=user_id, email=f"user_{user_id.hex[:8]}@testmediskye.com", hashed_password="fake_hash_12345")
+        session.add(user)
+        chat = Chat(user_id=user_id, role="user", message="Fasting glucose discussion", session_title="Glucose Review")
+        session.add(chat)
+        await session.flush()
+
+        chunk = ChatChunk(user_id=user_id, chat_id=chat.id, chunk_text="Fasting glucose was 95 mg/dL")
+        session.add(chunk)
+        await session.commit()
+        chunk_id = chunk.id
+
+    async with AsyncSessionLocal() as session2:
+        res = await session2.execute(sa.select(ChatChunk).where(ChatChunk.id == chunk_id))
+        loaded_chunk = res.scalar_one()
+
+        result = format_past_chats_for_prompt([loaded_chunk])
+        assert "Fasting glucose was 95 mg/dL" in result
+

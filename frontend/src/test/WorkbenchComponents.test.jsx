@@ -6,6 +6,7 @@ import RangeBar from '../components/clinical/RangeBar';
 import LabMetrics from '../components/LabMetrics';
 import OrganSystemsOverview from '../components/clinical/OrganSystemsOverview';
 import Sheet from '../components/ui/Sheet';
+import ChatWindow, { cleanGreetingName } from '../components/ChatWindow';
 
 const metrics = [
   { test: 'Hemoglobin', value: '11.6', unit: 'g/dL', range: '12.0–15.5', status: 'Low', previous_value: '13.1', delta_pct: -11.5, delta_alert: 'Notable Drop (-11.5%)' },
@@ -96,5 +97,57 @@ describe('Sheet centered variant', () => {
     // Escape key dismisses
     fireEvent.keyDown(dialog, { key: 'Escape', code: 'Escape' });
     expect(onOpenChange).toHaveBeenCalledWith(false);
+  });
+});
+
+describe('ChatWindow Greeting & Fallback Name', () => {
+  it('cleanGreetingName filters out invalid/placeholder names', () => {
+    expect(cleanGreetingName(null)).toBeNull();
+    expect(cleanGreetingName('')).toBeNull();
+    expect(cleanGreetingName('   ')).toBeNull();
+    expect(cleanGreetingName('my')).toBeNull();
+    expect(cleanGreetingName('My profile')).toBeNull();
+    expect(cleanGreetingName('user@example.com')).toBeNull();
+    expect(cleanGreetingName('patient')).toBeNull();
+    expect(cleanGreetingName('null')).toBeNull();
+    expect(cleanGreetingName('undefined')).toBeNull();
+    expect(cleanGreetingName('Aditya Sharma')).toBe('Aditya');
+    expect(cleanGreetingName('Priya')).toBe('Priya');
+  });
+
+  it('renders clean greeting without "my" or dangling comma when name is null or loading', () => {
+    const { container } = render(
+      <ChatWindow
+        messages={[]}
+        isGenerating={false}
+        currentUser={{ full_name: null, email: 'patient@example.com' }}
+        patientName={null}
+      />
+    );
+
+    const greetingEl = container.querySelector('.text-sm.text-ink-mute');
+    expect(greetingEl).not.toBeNull();
+    const text = greetingEl.textContent;
+    // Must match greeting pattern
+    expect(text).toMatch(/^(Good morning|Good afternoon|Good evening|Working late)\.$/);
+    // Must NOT contain "my", "patient", or dangling comma
+    expect(text.toLowerCase()).not.toContain('my');
+    expect(text.toLowerCase()).not.toContain('patient');
+    expect(text).not.toContain(',');
+  });
+
+  it('renders personalized greeting when valid full_name is present', () => {
+    const { container } = render(
+      <ChatWindow
+        messages={[]}
+        isGenerating={false}
+        currentUser={{ full_name: 'Aditya Sharma' }}
+      />
+    );
+
+    const greetingEl = container.querySelector('.text-sm.text-ink-mute');
+    expect(greetingEl).not.toBeNull();
+    const text = greetingEl.textContent;
+    expect(text).toMatch(/^(Good morning|Good afternoon|Good evening|Working late), Aditya\.$/);
   });
 });

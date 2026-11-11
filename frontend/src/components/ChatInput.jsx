@@ -5,6 +5,16 @@ import { startSpeechRecognition } from '../services/speech';
 import { cn } from '../lib/cn';
 import { stripOuterQuotes } from '../lib/clinical';
 
+export function isTouchOrMobileDevice() {
+  if (typeof window === 'undefined') return false;
+  return Boolean(
+    window.matchMedia?.('(pointer: coarse)')?.matches ||
+    'ontouchstart' in window ||
+    (navigator?.maxTouchPoints && navigator.maxTouchPoints > 0) ||
+    (typeof window.innerWidth === 'number' && window.innerWidth < 1024)
+  );
+}
+
 const ChatInput = forwardRef(
   (
     {
@@ -25,10 +35,18 @@ const ChatInput = forwardRef(
     const { t } = useTranslation();
     const [text, setText] = useState('');
     const [isListening, setIsListening] = useState(false);
+    const [isTouch, setIsTouch] = useState(() => isTouchOrMobileDevice());
     const recognitionRef = useRef(null);
     const textareaRef = useRef(null);
     const fileInputRef = useRef(null);
     const isSubmittingRef = useRef(false);
+
+    useEffect(() => {
+      setIsTouch(isTouchOrMobileDevice());
+      const onResize = () => setIsTouch(isTouchOrMobileDevice());
+      window.addEventListener?.('resize', onResize);
+      return () => window.removeEventListener?.('resize', onResize);
+    }, []);
 
     // Stop speech recognition on unmount (no background listening)
     useEffect(() => {
@@ -87,6 +105,10 @@ const ChatInput = forwardRef(
 
     const handleKeyDown = (e) => {
       if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent?.isComposing) {
+        if (isTouchOrMobileDevice()) {
+          // On touch/mobile devices, Enter inserts a newline (\n) rather than submitting
+          return;
+        }
         e.preventDefault();
         handleSubmit();
       }
@@ -191,7 +213,7 @@ const ChatInput = forwardRef(
               onKeyDown={handleKeyDown}
               placeholder={activeFile ? t('chat.input_placeholder_report', 'Ask about this report...') : t('chat.input_placeholder', 'Ask MediSkye...')}
               rows={1}
-              enterKeyHint="send"
+              enterKeyHint={isTouch ? 'enter' : 'send'}
               className="ms-composer-input flex-1 min-w-0 self-center text-base sm:text-[15px] text-white placeholder:text-ink-faint bg-transparent border-0 focus:ring-0 focus:outline-none resize-none leading-6 py-2 max-h-[200px]"
             />
 

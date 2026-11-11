@@ -162,9 +162,15 @@ async def get_relevant_past_chunks(
     d_id = uuid.UUID(str(dependent_id)) if (dependent_id and isinstance(dependent_id, str)) else dependent_id
     c_exclude = uuid.UUID(str(exclude_chat_id)) if (exclude_chat_id and isinstance(exclude_chat_id, str)) else exclude_chat_id
 
-    stmt = select(ChatChunk).filter(
-        ChatChunk.user_id == u_id,
-        ChatChunk.dependent_id == d_id if d_id else ChatChunk.dependent_id.is_(None),
+    from sqlalchemy.orm import selectinload
+
+    stmt = (
+        select(ChatChunk)
+        .options(selectinload(ChatChunk.chat).selectinload(Chat.document))
+        .filter(
+            ChatChunk.user_id == u_id,
+            ChatChunk.dependent_id == d_id if d_id else ChatChunk.dependent_id.is_(None),
+        )
     )
     if c_exclude:
         stmt = stmt.filter(ChatChunk.chat_id != c_exclude)

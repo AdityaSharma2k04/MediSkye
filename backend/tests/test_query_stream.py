@@ -628,4 +628,66 @@ def test_deterministic_token_boundary_abnormal_flags_stripping():
     assert results[2] == results[7] == expected_visible
 
 
+@pytest.mark.asyncio
+async def test_query_stream_retries_across_fallback_models_until_success():
+    """Verify that if the first 4 models fail, the 5th model succeeds and streams answer without failing."""
+    transport = ASGITransport(app=app)
+
+    models_attempted = []
+
+    def mock_generate_stream(model, contents, config):
+        models_attempted.append(model)
+        if len(models_attempted) < 5:
+            raise RuntimeError(f"Simulated rate limit on {model}")
+        chunk = MagicMock()
+        chunk.text = f"Fifth model ({model}) successfully answered your question."
+        return [chunk]
+
+    mock_gemini_client = MagicMock()
+    mock_gemini_client.models.generate_content_stream.side_effect = mock_generate_stream
+
+    intent_response = MagicMock()
+    intent_response.text = "GENERAL_HEALTH"
+    mock_gemini_client.models.generate_content.return_value = intent_response
+
+    with (
+        patch("app.rag.retriever.get_embedder", return_value=FakeEmbedder()),
+        patch("app.services.chat_indexer.get_embedder", return_value=FakeEmbedder()),
+        patch("app.rag.embedder.get_embedder", return_value=FakeEmbedder()),
+        patch("google.genai.Client", return_value=mock_gemini_client),
+        patch("app.api.v1.endpoints.query.process_chat_memory_extraction", new=AsyncMock()),
+    ):
+        async with AsyncClient(transport=transport, base_url="http://test") as ac:
+            email = f"query_fallback_{uuid.uuid4().hex[:8]}@test.com"
+            async with AsyncSessionLocal() as session:
+                user = User(
+                    email=email,
+                    hashed_password=get_password_hash(TEST_PASSWORD),
+                    phi_consent_granted=True,
+                    memory_consent_granted=False,
+                )
+                session.add(user)
+                await session.commit()
+
+            login_res = await ac.post("/login", data={"username": email, "password": TEST_PASSWORD})
+            assert login_res.status_code == 200
+            token = login_res.json()["access_token"]
+            headers = {"Authorization": f"Bearer {token}"}
+
+            res = await ac.post(
+                "/query",
+                json={
+                    "session_id": str(uuid.uuid4()),
+                    "query": "What causes headaches?",
+                },
+                headers=headers,
+            )
+            assert res.status_code == 200
+            stream_text = res.text
+
+            assert len(models_attempted) == 5
+            assert "Fifth model" in stream_text, f"FULL STREAM TEXT: {stream_text}"
+
+
+
 

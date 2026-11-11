@@ -1480,9 +1480,9 @@ export default function ChatApp() {
   }, [selectedPatientId, currentUser, dependents]);
 
   const patientName = useMemo(() => {
-    const p = buildPatients(currentUser, dependents);
-    if (isSelfSelected(selectedPatientId, currentUser)) return p[0]?.name;
-    return p.find((x) => String(x.id) === String(selectedPatientId))?.name || p[0]?.name;
+    if (isSelfSelected(selectedPatientId, currentUser)) return currentUser?.full_name || null;
+    const dep = (dependents || []).find((x) => String(x.id) === String(selectedPatientId));
+    return dep?.full_name || null;
   }, [currentUser, dependents, selectedPatientId]);
 
   const handleFocusMetric = useCallback(

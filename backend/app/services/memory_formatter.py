@@ -126,21 +126,26 @@ def format_past_chats_for_prompt(chunks: List[Any]) -> str:
             doc_date = c.get("doc_date") or c.get("document_date") or created_at
             session_title = c.get("session_title") or c.get("source_session_title")
         else:
-            created_at = getattr(c, "created_at", None)
-            text = getattr(c, "chunk_text", "")
+            c_dict = getattr(c, "__dict__", {}) or {}
+            created_at = c_dict.get("created_at") or getattr(c, "created_at", None)
+            text = c_dict.get("chunk_text") or getattr(c, "chunk_text", "")
             doc_name = getattr(c, "source_doc_name", None)
             doc_date = getattr(c, "source_doc_date", None) or created_at
             session_title = getattr(c, "source_session_title", None)
 
-            # Fallback to chat / document attributes if loaded
-            if not doc_name and hasattr(c, "chat") and c.chat:
-                if getattr(c.chat, "document", None):
-                    doc_name = c.chat.document.filename or c.chat.document.title
-                    doc_date = c.chat.document.created_at
+            # Fallback to chat / document attributes ONLY if already loaded in __dict__
+            chat_obj = c_dict.get("chat") if "chat" in c_dict else None
+            if not doc_name and chat_obj is not None:
+                chat_dict = getattr(chat_obj, "__dict__", {}) or {}
+                doc_obj = chat_dict.get("document") if "document" in chat_dict else None
+                if doc_obj is not None:
+                    doc_dict = getattr(doc_obj, "__dict__", {}) or {}
+                    doc_name = doc_dict.get("filename") or doc_dict.get("title")
+                    doc_date = doc_dict.get("created_at") or doc_date
                 if not session_title:
-                    session_title = c.chat.session_title
+                    session_title = chat_dict.get("session_title")
                 if not created_at:
-                    created_at = c.chat.created_at
+                    created_at = chat_dict.get("created_at")
 
         clean_text = escape_xml_content(text.strip())
         if not clean_text:

@@ -175,6 +175,73 @@ describe('Frontend Chaos QA & Edge Cases', () => {
         })
       );
     });
+
+    it('sendQueryStream auto-retries up to 5 times on 500/network failures and succeeds', async () => {
+      vi.useFakeTimers();
+      vi.stubGlobal('navigator', { onLine: true });
+
+      let attempts = 0;
+      const fetchMock = vi.fn((_url, options) => {
+        attempts += 1;
+        if (attempts < 5) {
+          return Promise.resolve({
+            ok: false,
+            status: 503,
+            headers: new Headers(),
+            json: () => Promise.resolve({ detail: 'Service temporarily overloaded' }),
+          });
+        }
+        const encoder = new TextEncoder();
+        const stream = new ReadableStream({
+          start(controller) {
+            controller.enqueue(encoder.encode('data: {"chunk": "Recovery answer"}\n\ndata: [DONE]\n\n'));
+            controller.close();
+          },
+        });
+        return Promise.resolve({
+          ok: true,
+          status: 200,
+          headers: new Headers(),
+          body: stream,
+        });
+      });
+      vi.stubGlobal('fetch', fetchMock);
+
+      const receivedChunks = [];
+      const queryPromise = sendQueryStream('Test retry', 'session-retry', 'English', (c) => {
+        receivedChunks.push(c);
+      });
+
+      for (let i = 0; i < 4; i++) {
+        await vi.advanceTimersByTimeAsync(4000);
+      }
+
+      await queryPromise;
+      expect(attempts).toBe(5);
+      expect(receivedChunks.some((c) => c.chunk === 'Recovery answer')).toBe(true);
+    });
+
+    it('sendQueryStream abortController cancels retry timer immediately without waiting', async () => {
+      vi.useFakeTimers();
+      vi.stubGlobal('navigator', { onLine: true });
+
+      const fetchMock = vi.fn().mockResolvedValue({
+        ok: false,
+        status: 503,
+        headers: new Headers(),
+        json: () => Promise.resolve({ detail: 'Unavailable' }),
+      });
+      vi.stubGlobal('fetch', fetchMock);
+
+      const controller = new AbortController();
+      const queryPromise = sendQueryStream('Test abort', 'session-abort', 'English', () => {}, null, controller.signal);
+
+      await vi.advanceTimersByTimeAsync(10);
+      controller.abort();
+
+      await expect(queryPromise).rejects.toThrow();
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+    });
   });
 
   describe('3. ChatInput Synchronous Double-Send & Unmount Guard', () => {
@@ -194,6 +261,32 @@ describe('Frontend Chaos QA & Edge Cases', () => {
       // Due to isSubmittingRef synchronous lock, onSendMessage should ONLY have fired once!
       expect(handleSendMessage).toHaveBeenCalledTimes(1);
       expect(handleSendMessage).toHaveBeenCalledWith('My medical symptom query');
+    });
+  });
+
+  describe('4. Mobile / Touch Enter-Key Newline & enterKeyHint', () => {
+    it('does not submit on Enter key when pointer is coarse (mobile/touch device)', () => {
+      const handleSendMessage = vi.fn();
+      vi.stubGlobal('matchMedia', vi.fn().mockImplementation((query) => ({
+        matches: query === '(pointer: coarse)',
+        media: query,
+        onchange: null,
+        addListener: vi.fn(),
+        removeListener: vi.fn(),
+        addEventListener: vi.fn(),
+        removeEventListener: vi.fn(),
+        dispatchEvent: vi.fn(),
+      })));
+
+      render(<ChatInput onSendMessage={handleSendMessage} disabled={false} />);
+
+      const textarea = screen.getByRole('textbox');
+      expect(textarea.getAttribute('enterkeyhint')).toBe('enter');
+
+      fireEvent.change(textarea, { target: { value: 'Line one' } });
+      fireEvent.keyDown(textarea, { key: 'Enter', code: 'Enter' });
+
+      expect(handleSendMessage).not.toHaveBeenCalled();
     });
   });
 });

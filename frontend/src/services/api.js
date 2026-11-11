@@ -278,6 +278,28 @@ export async function getUploadStatus(jobId, timeoutMs = 10000) {
   return await res.json();
 }
 
+function sleepWithAbort(ms, signal) {
+  return new Promise((resolve, reject) => {
+    if (signal?.aborted) {
+      const err = new Error('The operation was aborted.');
+      err.name = 'AbortError';
+      return reject(err);
+    }
+    let timer = null;
+    const onAbort = () => {
+      if (timer) clearTimeout(timer);
+      const err = new Error('The operation was aborted.');
+      err.name = 'AbortError';
+      reject(err);
+    };
+    timer = setTimeout(() => {
+      signal?.removeEventListener?.('abort', onAbort);
+      resolve();
+    }, ms);
+    signal?.addEventListener?.('abort', onAbort, { once: true });
+  });
+}
+
 export async function sendQueryStream(queryText, documentId, language = 'English', onChunk, patientId = null, signal = undefined, sessionId = null) {
   // documentId can be null for general-health queries (no PDF uploaded)
   const activeSessionId = sessionId || documentId || 'general-health-' + Date.now();
@@ -293,23 +315,19 @@ export async function sendQueryStream(queryText, documentId, language = 'English
     payload.patient_id = patientId;
   }
 
-  let res = await apiFetch(`${API_BASE}/query`, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify(payload),
-    signal,
-  }, 180000);
+  const RETRY_DELAYS = [800, 1500, 2500, 3500, 5000];
+  const maxAttempts = 1 + RETRY_DELAYS.length;
+  let lastError = null;
 
-  // Transparent retry for 503 Service Unavailable / 425 Too Early / 429 Too Many Requests
-  if ((res.status === 503 || res.status === 425 || res.status === 429) && !signal?.aborted) {
-    const retryAfter = parseInt(res.headers?.get?.('Retry-After') || '2', 10);
-    const waitMs = Math.max(isNaN(retryAfter) ? 2 : retryAfter, 2) * 1000;
-    logger.info(`Received ${res.status} from /query. Transparent retry after ${waitMs}ms...`);
-    await new Promise((resolve) => setTimeout(resolve, waitMs));
-    if (!signal?.aborted) {
-      res = await apiFetch(`${API_BASE}/query`, {
+  for (let attempt = 0; attempt < maxAttempts; attempt++) {
+    if (signal?.aborted) {
+      const abortErr = new Error('The operation was aborted.');
+      abortErr.name = 'AbortError';
+      throw abortErr;
+    }
+
+    try {
+      let res = await apiFetch(`${API_BASE}/query`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -317,26 +335,81 @@ export async function sendQueryStream(queryText, documentId, language = 'English
         body: JSON.stringify(payload),
         signal,
       }, 180000);
+
+      if (!res.ok) {
+        const isNonRetryable = (
+          res.status === 400 ||
+          res.status === 401 ||
+          res.status === 403 ||
+          res.status === 404 ||
+          res.status === 409 ||
+          res.status === 422
+        );
+
+        let errorDetail = res.status >= 500
+          ? 'Something went wrong on our end. Please try again.'
+          : 'Unable to complete your request. Please try again.';
+        try {
+          const errorData = await res.json();
+          if (errorData && (errorData.detail || errorData.error)) {
+            errorDetail = errorData.detail || errorData.error;
+          }
+        } catch (e) {}
+
+        const err = new Error(errorDetail);
+        err.status = res.status;
+
+        if (isNonRetryable) {
+          throw err;
+        }
+
+        lastError = err;
+        if (attempt < RETRY_DELAYS.length) {
+          const retryAfterSec = parseInt(res.headers?.get?.('Retry-After') || '', 10);
+          const waitMs = (!isNaN(retryAfterSec) && retryAfterSec > 0)
+            ? retryAfterSec * 1000
+            : RETRY_DELAYS[attempt];
+          logger.info(`Received ${res.status} from /query (attempt ${attempt + 1}/${maxAttempts}). Retrying after ${waitMs}ms...`);
+          onChunk?.({
+            stage: 'generating',
+            message: `Retrying connection (${attempt + 1}/${RETRY_DELAYS.length})...`,
+          });
+          await sleepWithAbort(waitMs, signal);
+          continue;
+        }
+        throw err;
+      }
+
+      const reader = res.body.getReader();
+      await parseSSEStream(reader, onChunk);
+      return;
+    } catch (err) {
+      if (err.name === 'AbortError' || signal?.aborted) {
+        throw err;
+      }
+      if (err.status && (err.status === 400 || err.status === 401 || err.status === 403 || err.status === 404 || err.status === 409 || err.status === 422)) {
+        throw err;
+      }
+
+      lastError = err;
+      if (attempt < RETRY_DELAYS.length) {
+        const waitMs = RETRY_DELAYS[attempt];
+        logger.warn(`sendQueryStream failed on attempt ${attempt + 1}/${maxAttempts}: ${err.message}. Retrying in ${waitMs}ms...`);
+        onChunk?.({
+          replace: '',
+          stage: 'generating',
+          message: `Reconnecting stream (${attempt + 1}/${RETRY_DELAYS.length})...`,
+        });
+        await sleepWithAbort(waitMs, signal);
+        continue;
+      }
+      throw err;
     }
   }
 
-  if (!res.ok) {
-    let errorDetail = res.status >= 500
-      ? 'Something went wrong on our end. Please try again.'
-      : 'Unable to complete your request. Please try again.';
-    try {
-      const errorData = await res.json();
-      if (res.status < 500 && (errorData.detail || errorData.error)) {
-        errorDetail = errorData.detail || errorData.error;
-      }
-    } catch (e) {}
-    const err = new Error(errorDetail);
-    err.status = res.status;
-    throw err;
+  if (lastError) {
+    throw lastError;
   }
-
-  const reader = res.body.getReader();
-  await parseSSEStream(reader, onChunk);
 }
 
 export async function parseSSEStream(reader, callbacks = {}) {
