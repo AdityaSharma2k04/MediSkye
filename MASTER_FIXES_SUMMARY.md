@@ -26,3 +26,29 @@ To prevent overfitting, eliminate dismissive language, avoid unprompted lifestyl
 
 ### Rollback
 - Revert the commits on branch `prompt-quality-pass`: `git checkout main && git branch -D prompt-quality-pass`.
+
+
+## Prompt Quality Pass 2 (Branch: prompt-quality-pass)
+
+### What Changed
+- **R1 (`REPORT_WALKTHROUGH_RULES`, item 6):** Made "What This Report Does Not Cover" a closed list. Prohibited stating any named test is not measured, not included, or missing unless listed under `verified_absent_adjacent_tests`.
+- **R2 (`SHARED_CORE_RULES`, EVIDENCE AND SAFETY):** Explicitly prohibited using "confirm", "confirms", "confirming", or "confirmed" to state what a result shows, and prohibited saying results "point toward" a condition/cause (instructed to use "may suggest" or "can be consistent with").
+- **R3 (`REPORT_WALKTHROUGH_RULES`, item 2):** Allowed grouping by the report's own section titles; enforced plain text with no emoji for panel headings; strictly forbade using a single heading when there are more than six markers.
+- **R4 (`REPORT_WALKTHROUGH_RULES`, item 5):** Constrained next steps to discuss management only in general terms without naming specific supplements, medications, or diet changes, and forbade presupposing medications, supplements, diet, or activity not present in user tags.
+- **R5 (`REPORT_WALKTHROUGH_RULES`, item 7):** Forbade questions to ask your doctor from presupposing any medication, supplement, diet, or activity not in the user's tags.
+
+### Why
+To address issues where answers named other tests as missing, used "confirming" or "point toward" for causes, produced one-heading output with emoji, and presupposed medications or supplements in next steps and questions to the doctor.
+
+### Tests Added
+- `backend/tests/test_prompt_quality_regression.py` (4 tests: `test_absent_test_rule_is_a_closed_list`, `test_diagnosis_wording_rules_cover_variants`, `test_heading_rules`, `test_next_steps_and_questions_do_not_presuppose_lifestyle`).
+
+### Tests Modified
+- None.
+
+### PROMPT_VERSION
+- Unchanged at `"v3"` because the cached document-summary prompt is untouched.
+
+### Rollback
+- Before merge: delete the branch (`git checkout main && git branch -D prompt-quality-pass`).
+- After merge: revert the pass-2 commits (`git revert <pass-2-commits>`).
