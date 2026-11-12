@@ -1002,6 +1002,8 @@ async def query_bot(
                         user_id=current_user.id,
                         dependent_id=active_dep_id,
                         session_id=effective_session_id,
+                        active_docs_metrics=active_docs_metrics,
+                        document_name=primary_doc.filename if primary_doc else None,
                     )
                 )
                 _background_tasks.add(task)
