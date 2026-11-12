@@ -197,7 +197,7 @@ async def test_summary_persistent_caching_and_emoji_stripping():
             # Verify persisted in database
             async with AsyncSessionLocal() as session:
                 refreshed_doc = await session.get(Document, doc_id)
-                assert refreshed_doc.cached_summary == data1["summary"]
+                assert data1["summary"] in refreshed_doc.cached_summary
 
             # 2nd call: Cache hit -> immediately returns from DB
             res2 = await ac.post(f"/users/me/documents/{doc_id}/summary", headers=headers)

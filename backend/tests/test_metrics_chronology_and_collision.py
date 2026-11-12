@@ -28,9 +28,9 @@ def test_canonical_biomarker_key_collision_rules():
     assert canonical_biomarker_key("Hb") == "hemoglobin"
     assert canonical_biomarker_key("HGB") == "hemoglobin"
 
-    # 2. Fasting Glucose vs AST
-    assert canonical_biomarker_key("Fasting Plasma Glucose") == "fasting_glucose"
-    assert canonical_biomarker_key("Fasting Blood Sugar") == "fasting_glucose"
+    # 2. Fasting Glucose vs AST (both resolve to 'glucose')
+    assert canonical_biomarker_key("Fasting Plasma Glucose") == "glucose"
+    assert canonical_biomarker_key("Fasting Blood Sugar") == "glucose"
     assert canonical_biomarker_key("Glucose") == "glucose"
     assert canonical_biomarker_key("AST") == "ast"
     assert canonical_biomarker_key("Aspartate Aminotransferase") == "ast"

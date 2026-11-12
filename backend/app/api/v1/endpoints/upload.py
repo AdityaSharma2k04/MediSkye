@@ -26,7 +26,7 @@ from app.core.security import clean_filename_to_title
 from app.rag.index_storage import asave_index_artifacts, asave_index_artifacts_with_retry
 from app.api.v1.endpoints.metrics import extract_and_cache_metrics
 from app.services.clinical_units import extract_specimen_collection_date
-from app.rag.prompt_builder import build_document_summary_prompt
+from app.rag.prompt_builder import build_document_summary_prompt, PROMPT_VERSION_PREFIX
 from langchain_core.documents import Document as LCDocument
 
 logger = logging.getLogger(__name__)
@@ -332,13 +332,24 @@ async def _warm_document_summary_cache(doc_id: uuid.UUID, user_uuid: uuid.UUID, 
             async with AsyncSessionLocal() as db:
                 res = await db.execute(select(Document).filter(Document.id == doc_id))
                 doc_obj = res.scalars().first()
-                if not doc_obj or (doc_obj.cached_summary and doc_obj.cached_summary.strip()):
+                if not doc_obj or (doc_obj.cached_summary and doc_obj.cached_summary.startswith(PROMPT_VERSION_PREFIX) and doc_obj.cached_summary.strip()):
                     return
 
                 all_pages = [getattr(d, "page_content", str(d)) for d in page_docs if getattr(d, "page_content", str(d))]
                 report_text = "\n\n".join(all_pages)
 
-                summary_prompt = build_document_summary_prompt(report_text)
+                raw_cm = doc_obj.cached_metrics
+                if isinstance(raw_cm, str):
+                    try:
+                        raw_cm = json.loads(raw_cm)
+                    except Exception:
+                        raw_cm = []
+                if isinstance(raw_cm, dict) and "metrics" in raw_cm:
+                    raw_cm = raw_cm["metrics"]
+                if not isinstance(raw_cm, list):
+                    raw_cm = None
+
+                summary_prompt = build_document_summary_prompt(report_text, cached_metrics=raw_cm)
 
                 response = await call_gemini_with_retry(
                     contents=summary_prompt,
@@ -351,7 +362,7 @@ async def _warm_document_summary_cache(doc_id: uuid.UUID, user_uuid: uuid.UUID, 
                 raw_text = getattr(response, "text", "") or ""
                 summary_text = strip_emojis(raw_text).strip()
                 if summary_text:
-                    doc_obj.cached_summary = summary_text
+                    doc_obj.cached_summary = f"{PROMPT_VERSION_PREFIX}{summary_text}"
                     db.add(doc_obj)
                     await db.commit()
             elapsed_ms = int((time.perf_counter() - t_start) * 1000)

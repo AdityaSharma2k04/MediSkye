@@ -29,6 +29,7 @@ from app.rag.prompt_builder import (
     build_general_health_prompt,
     build_casual_prompt,
     build_document_summary_prompt,
+    PROMPT_VERSION_PREFIX,
 )
 from app.services.clinical_units import parse_report_chronology
 from app.rag.intent_router import classify_intent, QueryIntent
@@ -714,6 +715,37 @@ async def query_bot(
             if intent != QueryIntent.CASUAL:
                 yield f'event: stage\ndata: {json.dumps({"stage": "generating", "message": "Preparing your answer..."})}\n\n'
 
+            # Reconstruct active document metrics and raw text from active document
+            active_docs_metrics = []
+            raw_report_text = ""
+            active_docs = [primary_doc] if primary_doc else list(chat_docs or [])
+            for adoc in active_docs:
+                raw_cm = getattr(adoc, "cached_metrics", None)
+                if isinstance(raw_cm, str):
+                    try:
+                        raw_cm = json.loads(raw_cm)
+                    except Exception:
+                        raw_cm = []
+                if isinstance(raw_cm, dict) and "metrics" in raw_cm:
+                    raw_cm = raw_cm["metrics"]
+                if isinstance(raw_cm, list) and len(raw_cm) > 0:
+                    active_docs_metrics.append({
+                        "filename": adoc.filename,
+                        "title": adoc.title or adoc.filename,
+                        "collected_at": adoc.collected_at,
+                        "metrics": raw_cm,
+                    })
+
+            if primary_doc:
+                raw_report_text = await _reconstruct_document_text(primary_doc)
+            elif active_docs:
+                doc_texts = []
+                for adoc in active_docs:
+                    t = await _reconstruct_document_text(adoc)
+                    if t:
+                        doc_texts.append(t)
+                raw_report_text = "\n\n".join(doc_texts)
+
             # Build prompt based on intent
             if intent == QueryIntent.CASUAL:
                 system_instruction, user_content = build_casual_prompt(
@@ -738,6 +770,8 @@ async def query_bot(
                     activity_level=activity_level,
                     occupation=occupation,
                     prior_documents_metrics=prior_documents_metrics,
+                    active_docs_metrics=active_docs_metrics,
+                    raw_report_text=raw_report_text,
                 )
 
             else:
@@ -756,6 +790,9 @@ async def query_bot(
                     activity_level=activity_level,
                     occupation=occupation,
                     prior_documents_metrics=prior_documents_metrics,
+                    retrieved_docs=retrieved_chunks,
+                    active_docs_metrics=active_docs_metrics,
+                    raw_report_text=raw_report_text,
                 )
 
             # ── Gemini stream with progressive fallback across models (at least 5 attempts) ──
@@ -1189,9 +1226,11 @@ async def get_or_generate_document_summary(
     if not doc or doc.user_id != current_user.id:
         raise HTTPException(status_code=404, detail="Document not found.")
 
-    # 1. Check persistent database cache
-    if not force_refresh and doc.cached_summary is not None and doc.cached_summary.strip() != "":
-        return DocumentSummaryResponse(summary=doc.cached_summary, cached=True)
+    # 1. Check persistent database cache (valid only if prefix matches PROMPT_VERSION_PREFIX)
+    if not force_refresh and doc.cached_summary is not None and doc.cached_summary.startswith(PROMPT_VERSION_PREFIX):
+        clean_summary = doc.cached_summary[len(PROMPT_VERSION_PREFIX):]
+        if clean_summary.strip() != "":
+            return DocumentSummaryResponse(summary=clean_summary, cached=True)
 
     if getattr(doc, "index_status", None) == "failed" or is_stale_building(doc):
         raise HTTPException(
@@ -1215,7 +1254,24 @@ async def get_or_generate_document_summary(
             detail="Document index is still syncing. Please try again in a few seconds.",
             headers={"Retry-After": "2"},
         )
-    summary_prompt = build_document_summary_prompt(report_text)
+
+    raw_cm = doc.cached_metrics
+    if isinstance(raw_cm, str):
+        try:
+            raw_cm = json.loads(raw_cm)
+        except Exception:
+            raw_cm = []
+    if isinstance(raw_cm, dict) and "metrics" in raw_cm:
+        raw_cm = raw_cm["metrics"]
+    if not isinstance(raw_cm, list):
+        raw_cm = None
+
+    user_lang = getattr(current_user, "language_preference", "English") or "English"
+    summary_prompt = build_document_summary_prompt(
+        report_text,
+        cached_metrics=raw_cm,
+        language_preference=user_lang,
+    )
 
     try:
         from google.genai.types import GenerateContentConfig, ThinkingConfig
@@ -1249,7 +1305,7 @@ async def get_or_generate_document_summary(
 
         # Guard Against Caching Empty/Error Responses:
         if summary_text:
-            doc.cached_summary = summary_text
+            doc.cached_summary = f"{PROMPT_VERSION_PREFIX}{summary_text}"
             db.add(doc)
             await db.commit()
             await db.refresh(doc)

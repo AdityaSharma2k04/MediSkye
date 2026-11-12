@@ -236,9 +236,9 @@ def canonical_biomarker_key(name: str) -> str:
     if re.search(r'\b(?:c\s*-?\s*reactive\s+protein|crp|hs\s*-?\s*crp)\b', n_clean):
         return "crp"
 
-    # 11. Fasting Glucose (MUST precede general glucose)
+    # 11. Fasting Glucose (MUST precede general glucose, both resolve to 'glucose')
     if re.search(r'\b(?:fasting\s+plasma\s+glucose|fasting\s+blood\s+sugar|fasting\s+blood\s+glucose|fasting\s+glucose|fbs|fbg)\b', n_clean):
-        return "fasting_glucose"
+        return "glucose"
 
     # 12. General Glucose
     if re.search(r'\b(?:glucose|blood\s+sugar|rbs|random\s+blood\s+sugar)\b', n_clean):

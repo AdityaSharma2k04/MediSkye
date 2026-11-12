@@ -240,10 +240,10 @@ async def test_document_lifecycle_db_caching_and_rag_streaming():
     # 3. Intent router and other generate_content calls
     def fake_generate_content(*args, **kwargs):
         contents = str(kwargs.get("contents") or (args[0] if args else ""))
-        if "biomarker" in contents.lower() or "medical lab data" in contents.lower():
-            return mock_metrics_resp
         if "clinical summary" in contents.lower() or "printable" in contents.lower():
             return mock_summary_resp
+        if "biomarker" in contents.lower() or "medical lab data" in contents.lower():
+            return mock_metrics_resp
         # Default intent
         resp = MagicMock()
         resp.text = "DOCUMENT_QA"

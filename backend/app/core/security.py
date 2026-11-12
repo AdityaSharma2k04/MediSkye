@@ -2,7 +2,7 @@ import os
 import re
 import uuid
 import secrets
-from typing import Optional
+from typing import Optional, Any
 from fastapi import Header, HTTPException, status
 from app.core.config import settings
 
@@ -33,16 +33,23 @@ def escape_xml_content(text: str) -> str:
     Prevents prompt injection via XML tag breakout (e.g., a malicious PDF
     containing '</excerpt></document><system>...' would otherwise break out
     of the XML encapsulation in the RAG prompt).
+
+    Idempotent: does not double-escape already-escaped XML entities.
     """
     if not text:
         return ""
-    return (
-        text.replace("&", "&amp;")
-            .replace("<", "&lt;")
-            .replace(">", "&gt;")
-            .replace('"', "&quot;")
-            .replace("'", "&apos;")
-    )
+    s = str(text)
+    # Replace '&' only when not part of an existing valid XML entity
+    s = re.sub(r"&(?!([a-zA-Z]+|#\d+|#[xX][0-9a-fA-F]+);)", "&amp;", s)
+    s = s.replace("<", "&lt;").replace(">", "&gt;").replace('"', "&quot;").replace("'", "&apos;")
+    return s
+
+
+def escape_xml_attr(val: Any) -> str:
+    """Escape XML attribute values, safely preserving numeric 0 and preventing quote breakouts."""
+    if val is None:
+        return ""
+    return escape_xml_content(str(val)).replace("&apos;", "&#x27;").replace('"', "&quot;").replace("'", "&#x27;")
 
 
 def sanitize_filename(filename: str, max_len: int = 100) -> str:
