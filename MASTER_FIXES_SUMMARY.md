@@ -52,3 +52,27 @@ To address issues where answers named other tests as missing, used "confirming" 
 ### Rollback
 - Before merge: delete the branch (`git checkout main && git branch -D prompt-quality-pass`).
 - After merge: revert the pass-2 commits (`git revert <pass-2-commits>`).
+
+
+## Prompt Quality Pass 3 (Branch: prompt-quality-pass)
+
+### What Changed
+- **S1 (`SHARED_CORE_RULES`, STYLE):** Forbade writing out, quoting, summarising, or recreating any tagged block or its contents (such as `<extracted_report_biomarkers>` or `<analysis_hints>`) in the answer, in any format including JSON; clarified that a full walkthrough starts directly with the Short Version heading.
+- **S2 (`REPORT_WALKTHROUGH_RULES`, item 6):** Clarified that when `verified_absent_adjacent_tests` says none, name none, and strictly forbade creating such a list yourself.
+
+### Why
+The model echoed a fabricated `analysis_hints` JSON block and then named tests as absent from it.
+
+### Tests Added
+- `backend/tests/test_prompt_quality_regression.py` (`test_no_echo_of_context_blocks`).
+
+### Tests Modified
+- None.
+
+### PROMPT_VERSION
+- Unchanged at `"v3"`.
+
+### Rollback
+- Before merge: delete the branch (`git checkout main && git branch -D prompt-quality-pass`).
+- After merge: revert the pass-3 commit (`git revert <pass-3-commit>`).
+

@@ -133,3 +133,9 @@ def test_heading_rules():
 
 def test_next_steps_and_questions_do_not_presuppose_lifestyle():
     assert pb.REPORT_WALKTHROUGH_RULES.count("presuppose") >= 2
+
+
+def test_no_echo_of_context_blocks():
+    assert "Never write out, quote, summarise, or recreate any tagged block" in pb.SHARED_CORE_RULES
+    assert "Never create such a list yourself." in pb.REPORT_WALKTHROUGH_RULES
+
