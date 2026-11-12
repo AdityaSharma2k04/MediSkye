@@ -108,3 +108,28 @@ def test_build_prompt_still_assembles():
     assert "The Short Version" in system
     assert '<extracted_report_biomarkers count="21">' in user
     assert "[Flag: LOW-NORMAL" in user
+
+
+def test_absent_test_rule_is_a_closed_list():
+    r = pb.REPORT_WALKTHROUGH_RULES
+    assert "These are the only bullets allowed here." in r
+    assert "only items listed under verified_absent_adjacent_tests may be named as absent" in r
+    assert "Do not name any other test as absent" not in r
+
+
+def test_diagnosis_wording_rules_cover_variants():
+    s = pb.SHARED_CORE_RULES
+    assert "this confirms" in s
+    assert "confirming" in s
+    assert "point toward" in s
+
+
+def test_heading_rules():
+    r = pb.REPORT_WALKTHROUGH_RULES
+    assert "own section titles" in r
+    assert "plain text with no emoji" in r
+    assert "Never use a single heading when there are more than six markers." in r
+
+
+def test_next_steps_and_questions_do_not_presuppose_lifestyle():
+    assert pb.REPORT_WALKTHROUGH_RULES.count("presuppose") >= 2
