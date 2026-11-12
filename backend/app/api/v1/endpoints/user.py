@@ -9,12 +9,12 @@ from datetime import datetime, UTC
 import firebase_admin
 import firebase_admin.auth
 from fastapi import APIRouter, Depends, Request, status, HTTPException
-from sqlalchemy import func, delete, or_
+from sqlalchemy import func, delete, or_, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 
 from app.db.database import get_db
-from app.db.models import User, DependentProfile, Document, Chat, ChatDocument, PatientFact, ChatChunk, UploadJob
+from app.db.models import User, DependentProfile, Document, Chat, ChatDocument, PatientFact, ChatChunk, UploadJob, AuditLog
 from app.core.auth import (
     UserDTO,
     get_current_user,
@@ -43,6 +43,7 @@ from app.core.security import clean_filename_to_title, sanitize_text
 from app.services.patient_service import calculate_age
 from app.services.clinical_units import normalize_clinical_unit, check_is_future_date
 from app.rag.index_storage import adelete_index_artifacts
+from app.services.upload_jobs import purge_expired_sample_documents
 
 logger = logging.getLogger(__name__)
 
@@ -164,6 +165,7 @@ async def get_my_documents(
     current_user: UserDTO = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
+    await purge_expired_sample_documents(db, current_user.id)
     result = await db.execute(
         select(Document)
         .filter(Document.user_id == current_user.id)
@@ -219,6 +221,7 @@ async def get_general_chats(
     current_user: UserDTO = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
+    await purge_expired_sample_documents(db, current_user.id)
     query = select(Chat).filter(Chat.user_id == current_user.id)
     if document_id:
         try:
@@ -284,6 +287,21 @@ async def get_document_chats(
         }
         for c in chats
     ]
+
+
+@router.get("/users/me/chats/sessions")
+async def get_user_chat_sessions(
+    current_user: UserDTO = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    await purge_expired_sample_documents(db, current_user.id)
+    res = await db.execute(
+        select(Chat.session_id, Chat.session_title)
+        .filter(Chat.user_id == current_user.id, Chat.session_id.is_not(None))
+        .distinct()
+    )
+    rows = res.all()
+    return [{"session_id": r[0], "title": r[1]} for r in rows]
 
 
 @router.patch("/users/me/chats/sessions/{session_id}")
@@ -482,7 +500,8 @@ async def clear_all_chats(
     Clear all chats (both standalone and document-linked), documents, upload jobs,
     vector index artifacts, patient facts, and wipe stored clinical profile context.
     """
-    is_unscoped = (patient_id is None and dependent_id is None)
+    raw_scope = patient_id if patient_id is not None else dependent_id
+    is_unscoped = (raw_scope is None or str(raw_scope).strip().lower() in ("all", "*", ""))
     scoped_dep_id: Optional[UUID] = None
     if not is_unscoped:
         scoped_dep_id = await _resolve_patient_scope(db, current_user.id, patient_id, dependent_id)
@@ -1192,11 +1211,21 @@ async def delete_dependent(
         )
     )
 
-    # Delete the documents
+    # Delete the documents & upload jobs
     if dep_doc_ids:
+        await db.execute(
+            delete(UploadJob).where(
+                UploadJob.user_id == current_user.id,
+                UploadJob.document_id.in_([str(did) for did in dep_doc_ids]),
+            )
+        )
         await db.execute(delete(Document).where(Document.id.in_(dep_doc_ids)))
-        
-    await log_audit(db, "DEPENDENT_DELETED", current_user.id, "dependent", request.client.host if request.client else "unknown", dependent_id=dep.id)
+
+    # Set dependent_id = None on any audit logs to prevent FK constraint error when deleting dep
+    await db.execute(
+        update(AuditLog).where(AuditLog.dependent_id == dep.id).values(dependent_id=None)
+    )
+    await log_audit(db, "DEPENDENT_DELETED", current_user.id, "dependent", request.client.host if request.client else "unknown")
     await db.delete(dep)
     await db.commit()
     return None

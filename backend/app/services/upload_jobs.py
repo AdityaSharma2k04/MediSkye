@@ -201,3 +201,106 @@ async def fail_stale_building_documents(
     async with AsyncSessionLocal() as s:
         return await _run(s)
 
+
+async def purge_expired_sample_documents(db: AsyncSession, user_id: Optional[uuid.UUID] = None) -> int:
+    """
+    Finds all Document rows (for user_id if given, or globally) where is_sample_document(doc) is True
+    AND doc.created_at < datetime.now(UTC) - timedelta(hours=24) (handling naive and timezone-aware created_at).
+    Physically deletes their ChatDocument, ChatChunk, Chat, PatientFact (if any), UploadJob,
+    local/GCS index files, and Document rows, and commits.
+    Returns the count of purged sample documents.
+    """
+    from app.services.clinical_units import is_sample_document
+    from app.db.models import Document, Chat, ChatDocument, ChatChunk, PatientFact, UploadJob
+    from app.rag.index_storage import adelete_index_artifacts
+    from app.rag.retriever import evict_index_cache
+    from app.core.config import settings
+    from sqlalchemy import or_
+    import shutil
+
+    now = datetime.now(UTC)
+    cutoff = now - timedelta(hours=24)
+
+    stmt = select(Document)
+    if user_id:
+        stmt = stmt.filter(Document.user_id == user_id)
+    res = await db.execute(stmt)
+    all_docs = res.scalars().all()
+
+    expired_sample_docs = []
+    for d in all_docs:
+        if not is_sample_document(d):
+            continue
+        c_at = d.created_at
+        if c_at is None:
+            continue
+        if c_at.tzinfo is None:
+            c_at = c_at.replace(tzinfo=UTC)
+        if c_at < cutoff:
+            expired_sample_docs.append(d)
+
+    if not expired_sample_docs:
+        return 0
+
+    doc_ids = [d.id for d in expired_sample_docs]
+    doc_id_strs = [str(d) for d in doc_ids]
+
+    # Clean up index artifacts & vector cache
+    for d in expired_sample_docs:
+        if d.file_path:
+            try:
+                await adelete_index_artifacts(d.file_path)
+            except Exception as e:
+                logger.warning("Failed deleting index artifacts for expired sample doc %s: %s", d.id, e)
+        try:
+            evict_index_cache(str(d.id))
+            if d.file_path:
+                evict_index_cache(str(d.file_path))
+        except Exception:
+            pass
+        try:
+            session_cache = settings.VECTOR_CACHE_DIR / str(d.id)
+            if session_cache.is_dir():
+                shutil.rmtree(session_cache, ignore_errors=True)
+        except Exception:
+            pass
+
+    # Find chats linked to these documents
+    chats_res = await db.execute(select(Chat.id).filter(Chat.document_id.in_(doc_ids)))
+    linked_chat_ids = set(chats_res.scalars().all())
+
+    cd_res = await db.execute(select(ChatDocument.chat_id).filter(ChatDocument.document_id.in_(doc_ids)))
+    for cid in cd_res.scalars().all():
+        linked_chat_ids.add(cid)
+
+    # Delete ChatDocuments
+    cd_delete_conds = [ChatDocument.document_id.in_(doc_ids)]
+    if linked_chat_ids:
+        cd_delete_conds.append(ChatDocument.chat_id.in_(list(linked_chat_ids)))
+    await db.execute(delete(ChatDocument).where(or_(*cd_delete_conds)))
+
+    # Delete ChatChunks
+    if linked_chat_ids:
+        await db.execute(delete(ChatChunk).where(ChatChunk.chat_id.in_(list(linked_chat_ids))))
+
+    # Delete Chats
+    if linked_chat_ids:
+        await db.execute(delete(Chat).where(Chat.id.in_(list(linked_chat_ids))))
+
+    # Delete UploadJobs
+    await db.execute(delete(UploadJob).where(UploadJob.document_id.in_(doc_id_strs)))
+
+    # Delete PatientFacts if any were linked
+    fact_conds = [PatientFact.source_id.in_(doc_id_strs)]
+    if linked_chat_ids:
+        fact_conds.append(PatientFact.source_id.in_([str(cid) for cid in linked_chat_ids]))
+    await db.execute(delete(PatientFact).where(or_(*fact_conds)))
+
+    # Delete Documents
+    await db.execute(delete(Document).where(Document.id.in_(doc_ids)))
+
+    await db.commit()
+    logger.info("Purged %d expired sample documents (>24h TTL)", len(expired_sample_docs))
+    return len(expired_sample_docs)
+
+

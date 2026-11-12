@@ -21,9 +21,7 @@ import {
   getProfile,
   updateProfile,
   updateMemoryConsent,
-  getMemoryFacts,
-  deleteMemoryFact,
-  clearAllMemoryFacts,
+  clearAllChats,
   exportUserAccountData,
 } from '../services/api';
 import {
@@ -344,6 +342,7 @@ export default function SettingsModal({
   themePreference,
   setThemePreference,
   onClearAllChats,
+  onResetProfileChats,
   onDeleteAccount,
   language,
   setLanguage,
@@ -352,6 +351,8 @@ export default function SettingsModal({
   autoRead = false,
   setAutoRead,
   onOpenProfile,
+  onOpenMemoryVault,
+  dependents = [],
   selectedPatientId = 'self',
 }) {
   const { t, i18n } = useTranslation();
@@ -359,9 +360,18 @@ export default function SettingsModal({
   const [showDisclaimer, setShowDisclaimer] = useState(false);
   const [showClearConfirm, setShowClearConfirm] = useState(false);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
-  const [showClearMemoryConfirm, setShowClearMemoryConfirm] = useState(false);
+  const [showResetProfileConfirm, setShowResetProfileConfirm] = useState(false);
+  const [resetTargetProfile, setResetTargetProfile] = useState(() => selectedPatientId || 'self');
+  const [isResettingProfile, setIsResettingProfile] = useState(false);
+  const [isClearingAllChats, setIsClearingAllChats] = useState(false);
   const [showUnsavedConfirm, setShowUnsavedConfirm] = useState(false);
   const [saveError, setSaveError] = useState(null);
+
+  useEffect(() => {
+    if (selectedPatientId) {
+      setResetTargetProfile(selectedPatientId);
+    }
+  }, [selectedPatientId]);
 
   // Check if current user signed in with Google and whether they already have a password
   const providerData = auth?.currentUser?.providerData || [];
@@ -493,40 +503,41 @@ export default function SettingsModal({
     }
   };
 
-  const handleDeleteFact = async (factId) => {
-    setDeletingFactId(factId);
+  const handleResetProfileChats = async () => {
+    setIsResettingProfile(true);
+    setSaveError(null);
     try {
-      await deleteMemoryFact(factId);
-      setMemoryFacts((prev) => prev.filter((f) => f.id !== factId));
+      if (onResetProfileChats) {
+        await onResetProfileChats(resetTargetProfile);
+      } else {
+        await clearAllChats(resetTargetProfile, false);
+      }
+      setShowResetProfileConfirm(false);
+      onClose?.();
     } catch (err) {
-      console.error('Delete Failed:', err);
-      setSaveError(err.message || 'Delete Failed');
+      console.error('Reset Profile Chats Failed:', err);
+      setSaveError(err.message || 'Failed to reset profile chats');
     } finally {
-      setDeletingFactId(null);
-    }
-  };
-
-  const handleClearAllFacts = async () => {
-    try {
-      await clearAllMemoryFacts(selectedPatientId);
-      setMemoryFacts([]);
-      setShowClearMemoryConfirm(false);
-    } catch (err) {
-      console.error('Clear Failed:', err);
-      setSaveError(err.message || 'Clear Failed');
+      setIsResettingProfile(false);
     }
   };
 
   const handleClearAllConversations = async () => {
-    if (onClearAllChats) {
-      try {
+    setIsClearingAllChats(true);
+    setSaveError(null);
+    try {
+      if (onClearAllChats) {
         await onClearAllChats();
-        setShowClearConfirm(false);
-        onClose?.();
-      } catch (err) {
-        console.error('Clear All Chats Failed:', err);
-        setSaveError(err.message || 'Failed to clear conversations');
+      } else {
+        await clearAllChats(null, true);
       }
+      setShowClearConfirm(false);
+      onClose?.();
+    } catch (err) {
+      console.error('Clear All Chats Failed:', err);
+      setSaveError(err.message || 'Failed to clear conversations');
+    } finally {
+      setIsClearingAllChats(false);
     }
   };
 
@@ -788,93 +799,28 @@ export default function SettingsModal({
                   </button>
                 </div>
 
-                {/* Facts Browser */}
-                <div className={`p-3.5 rounded-xl border ${
-                  darkMode ? 'bg-obsidian border-white/[0.07]' : 'bg-zinc-50 border-zinc-200'
-                }`}>
-                  <div className="flex items-center justify-between mb-1.5">
+                {/* Dedicated Memory Vault Entry Point */}
+                <div className="pt-0.5">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      onClose();
+                      if (onOpenMemoryVault) {
+                        onOpenMemoryVault();
+                      }
+                    }}
+                    className={`w-full py-2.5 px-3.5 rounded-xl border text-xs font-medium flex items-center justify-between transition-colors ${
+                      darkMode
+                        ? 'bg-obsidian border-white/[0.12] text-ink hover:bg-slate2'
+                        : 'bg-zinc-50 border-zinc-200 text-zinc-800 hover:bg-zinc-100'
+                    }`}
+                  >
                     <div className="flex items-center gap-2">
-                      <span className="text-xs font-medium">Remembered Facts</span>
-                      <span className={`text-[10px] px-2 py-0.5 rounded-full font-medium ${
-                        darkMode ? 'bg-slate2 text-ink-soft' : 'bg-zinc-200 text-zinc-700'
-                      }`}>
-                        {memoryFacts.length}
-                      </span>
+                      <Brain className="w-3.5 h-3.5 text-cyan-400" />
+                      <span>Open Memory Vault</span>
                     </div>
-                    {memoryFacts.length > 0 && (
-                      <button
-                        type="button"
-                        onClick={() => setShowClearMemoryConfirm(true)}
-                        className="text-[11px] text-red-400 hover:text-red-300 transition-colors"
-                      >
-                        Clear memory
-                      </button>
-                    )}
-                  </div>
-                  <p className={`text-[11px] leading-tight mb-2.5 italic ${darkMode ? 'text-ink-faint' : 'text-ink-mute'}`}>
-                    Changes to the toggle or trash icons take effect immediately.
-                  </p>
-
-                  {loadingMemory ? (
-                    <div className="py-4 text-center text-xs text-ink-faint">Loading remembered facts...</div>
-                  ) : memoryFacts.length === 0 ? (
-                    <p className={`text-[11px] py-1 leading-relaxed ${darkMode ? 'text-ink-faint' : 'text-ink-mute'}`}>
-                      {memoryConsent
-                        ? 'No clinical facts remembered yet. As you consult with MediSkye or upload reports, key findings will appear here.'
-                        : 'Memory is currently disabled. Enable memory above to allow MediSkye to remember clinical context across chats.'}
-                    </p>
-                  ) : (
-                    <div className="space-y-2">
-                      {memoryFacts.map((fact) => {
-                        const catStyle = getCategoryBadgeStyle(fact.fact_type || fact.category);
-                        const dateFormatted = fact.created_at
-                          ? new Date(fact.created_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
-                          : null;
-                        return (
-                          <div
-                            key={fact.id}
-                            className={`p-2.5 rounded-lg border text-xs flex items-start justify-between gap-2.5 ${
-                              darkMode ? 'bg-graphite border-white/[0.07]' : 'bg-white border-zinc-200'
-                            }`}
-                          >
-                            <div className="space-y-1 flex-1 min-w-0">
-                              <div className="flex items-center gap-1.5 flex-wrap">
-                                <span className={`text-[10px] font-medium px-1.5 py-0.5 rounded border ${catStyle}`}>
-                                  {fact.fact_type || fact.category}
-                                </span>
-                                {fact.source_type && (
-                                  <span className="text-[10px] text-ink-faint">
-                                    • {fact.source_type.replace('_', ' ')}
-                                  </span>
-                                )}
-                                {dateFormatted && (
-                                  <span className={`text-[10px] px-1.5 py-0.5 rounded font-mono ${
-                                    darkMode ? 'bg-slate2/80 text-ink-mute border border-white/[0.12]' : 'bg-zinc-100 text-ink-faint border border-zinc-200'
-                                  }`}>
-                                    {dateFormatted}
-                                  </span>
-                                )}
-                              </div>
-                              <p className={`text-xs font-medium break-words ${darkMode ? 'text-ink' : 'text-zinc-800'}`}>
-                                {fact.fact_text || fact.fact_value}
-                              </p>
-                            </div>
-                            <button
-                              type="button"
-                              disabled={deletingFactId === fact.id}
-                              onClick={() => handleDeleteFact(fact.id)}
-                              className={`p-1 rounded-md text-ink-mute hover:text-red-400 transition-colors shrink-0 ${
-                                darkMode ? 'hover:bg-slate2' : 'hover:bg-zinc-100'
-                              }`}
-                              title="Delete fact"
-                            >
-                              <Trash2 className="w-3.5 h-3.5" />
-                            </button>
-                          </div>
-                        );
-                      })}
-                    </div>
-                  )}
+                    <span className={`text-[10px] ${darkMode ? 'text-ink-faint' : 'text-ink-mute'}`}>→</span>
+                  </button>
                 </div>
               </div>
             </Section>
@@ -930,19 +876,68 @@ export default function SettingsModal({
                   </span>
                 </button>
 
-                {/* Secondary Warning Action: Clear Conversations */}
+                {/* Per-Profile Reset: Reset Profile Chats & Memory */}
+                <div className={`p-3 rounded-xl border ${
+                  darkMode ? 'bg-obsidian border-white/[0.08]' : 'bg-zinc-50 border-zinc-200'
+                }`}>
+                  <div className="flex items-center justify-between mb-1">
+                    <span className="text-xs font-semibold">Reset Profile Chats &amp; Memory</span>
+                  </div>
+                  <p className={`text-[11px] leading-relaxed mb-2.5 ${darkMode ? 'text-ink-mute' : 'text-zinc-600'}`}>
+                    Wipe all chats, uploaded reports, and Memory Vault facts for a specific profile without deleting the profile or its clinical background.
+                  </p>
+                  <div className="space-y-2">
+                    <Field label="Select Profile" darkMode={darkMode}>
+                      <select
+                        aria-label="Select Profile to Reset"
+                        value={resetTargetProfile}
+                        onChange={(e) => setResetTargetProfile(e.target.value)}
+                        className={selectClass(darkMode)}
+                      >
+                        <option value="self">Self ({currentUser?.full_name || 'Primary User'})</option>
+                        {dependents.map((dep) => (
+                          <option key={dep.id} value={dep.id}>
+                            {dep.name || dep.full_name} ({dep.relationship || 'Dependent'})
+                          </option>
+                        ))}
+                      </select>
+                    </Field>
+                    <button
+                      type="button"
+                      data-testid="reset-profile-chats-btn"
+                      onClick={() => setShowResetProfileConfirm(true)}
+                      disabled={isResettingProfile}
+                      className={`w-full flex items-center justify-center gap-2 px-3 py-2 rounded-xl border text-xs font-medium transition-colors ${
+                        darkMode
+                          ? 'border-amber-500/30 text-amber-400 hover:bg-amber-500/10'
+                          : 'border-amber-500/40 text-amber-700 bg-amber-50/50 hover:bg-amber-100/60'
+                      }`}
+                    >
+                      <Trash2 className="w-3.5 h-3.5" />
+                      <span>{isResettingProfile ? 'Resetting...' : 'Reset Selected Profile Data'}</span>
+                    </button>
+                  </div>
+                </div>
+
+                {/* Secondary Warning Action: Clear Conversations Across Account */}
                 <div className="pt-0.5">
                   <button
                     type="button"
                     onClick={() => setShowClearConfirm(true)}
-                    className={`w-full flex items-center gap-2 px-3 py-2.5 rounded-xl border text-xs transition-colors ${
+                    disabled={isClearingAllChats}
+                    className={`w-full flex items-center justify-between px-3 py-2.5 rounded-xl border text-xs font-medium transition-colors ${
                       darkMode
                         ? 'border-amber-500/30 text-amber-400 hover:bg-amber-500/10'
                         : 'border-amber-500/40 text-amber-600 hover:bg-amber-50'
                     }`}
                   >
-                    <Trash2 className="w-3.5 h-3.5 text-amber-400" />
-                    Clear all conversations
+                    <span className="flex items-center gap-2">
+                      <Trash2 className="w-3.5 h-3.5 text-amber-400" />
+                      <span>Delete All Chats &amp; Data</span>
+                    </span>
+                    <span className={`text-[10px] px-2 py-0.5 rounded font-mono ${darkMode ? 'bg-amber-500/10 text-amber-400' : 'bg-amber-100 text-amber-700'}`}>
+                      Global
+                    </span>
                   </button>
                 </div>
 
@@ -1038,25 +1033,29 @@ export default function SettingsModal({
       />
 
       <ConfirmModal
-        isOpen={showClearConfirm}
-        onClose={() => setShowClearConfirm(false)}
-        onConfirm={handleClearAllConversations}
-        title="Clear all conversations?"
-        body="All chat history, uploaded report references, and patient context will be permanently deleted. This cannot be undone. Your account and profile will remain intact."
-        confirmLabel="Delete everything"
-        requireTyping="DELETE"
+        isOpen={showResetProfileConfirm}
+        onClose={() => setShowResetProfileConfirm(false)}
+        onConfirm={handleResetProfileChats}
+        title="Reset profile chats & memory?"
+        body={`All chat history, uploaded reports, and Memory Vault facts for ${
+          resetTargetProfile === 'self'
+            ? 'Self'
+            : (dependents.find((d) => d.id === resetTargetProfile)?.name || dependents.find((d) => d.id === resetTargetProfile)?.full_name || 'this dependent')
+        } will be permanently deleted. Demographic and clinical profile details (conditions, medications, allergies) will remain intact.`}
+        confirmLabel="Reset Profile Data"
+        requireTyping="RESET"
         closeable={false}
         darkMode={darkMode}
       />
 
       <ConfirmModal
-        isOpen={showClearMemoryConfirm}
-        onClose={() => setShowClearMemoryConfirm(false)}
-        onConfirm={handleClearAllFacts}
-        title="Clear remembered health facts?"
-        body="This will permanently delete all clinical facts remembered about you across conversations. Chat history will not be deleted, but future questions will not reference past medical history."
-        confirmLabel="Clear memory"
-        requireTyping="CLEAR"
+        isOpen={showClearConfirm}
+        onClose={() => setShowClearConfirm(false)}
+        onConfirm={handleClearAllConversations}
+        title="Delete all chats & data?"
+        body="All chat history, uploaded report references, Memory Vault facts, and cached metrics across all profiles (Self and all dependents) will be permanently deleted. This cannot be undone."
+        confirmLabel="Delete everything"
+        requireTyping="DELETE"
         closeable={false}
         darkMode={darkMode}
       />

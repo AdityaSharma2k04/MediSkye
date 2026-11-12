@@ -283,6 +283,15 @@ async def process_chat_memory_extraction(
             primary_doc = linked_docs[0] if linked_docs else None
             source_doc_name = document_name or ((primary_doc.filename or primary_doc.title) if primary_doc else None)
 
+            from app.services.clinical_units import is_sample_document
+            if (
+                any(is_sample_document(d) for d in linked_docs)
+                or (primary_doc and is_sample_document(primary_doc))
+                or is_sample_document(source_doc_name)
+            ):
+                logger.debug("Skipping chat memory extraction for sample report: session_id=%s, doc=%s", session_id, source_doc_name)
+                return
+
             # Build clinical metrics context from active_docs_metrics or linked document cached_metrics
             doc_context_items = []
             metrics_source = active_docs_metrics
@@ -387,6 +396,11 @@ async def process_document_memory_extraction(
             doc = doc_res.scalars().first()
             if not doc:
                 logger.warning("Document %s not found for memory extraction", doc_id)
+                return {"inserted": 0, "retracted": 0, "updated": 0}
+
+            from app.services.clinical_units import is_sample_document
+            if is_sample_document(doc):
+                logger.debug("Skipping document memory extraction for sample document %s", doc_id)
                 return {"inserted": 0, "retracted": 0, "updated": 0}
 
             dep_uuid = dependent_id or doc.dependent_id

@@ -305,14 +305,18 @@ async def _warm_document_metrics_cache(doc_id: uuid.UUID, user_uuid: uuid.UUID, 
                     elapsed_ms = int((time.perf_counter() - t_start) * 1000)
                     logger.info("prewarm_ok doc_id=%s kind=%s elapsed_ms=%d", doc_id, "metrics", elapsed_ms)
 
-                    # Auto-extract report facts to Memory Vault when metrics warming completes
+                    # Auto-extract report facts to Memory Vault when metrics warming completes (skip sample reports)
                     try:
-                        from app.services.fact_persistence import process_document_memory_extraction
-                        await process_document_memory_extraction(
-                            doc_id=doc_id,
-                            user_id=user_uuid,
-                            dependent_id=doc_obj.dependent_id if doc_obj else None,
-                        )
+                        from app.services.clinical_units import is_sample_document
+                        if doc_obj and is_sample_document(doc_obj):
+                            logger.info("Skipping document memory extraction for sample report: doc_id=%s", doc_id)
+                        else:
+                            from app.services.fact_persistence import process_document_memory_extraction
+                            await process_document_memory_extraction(
+                                doc_id=doc_id,
+                                user_id=user_uuid,
+                                dependent_id=doc_obj.dependent_id if doc_obj else None,
+                            )
                     except Exception as mem_err:
                         logger.warning("Document memory extraction non-fatal error for doc %s: %s", doc_id, mem_err)
 

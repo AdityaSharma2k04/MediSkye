@@ -237,12 +237,28 @@ export default function ChatApp() {
     };
   }, []);
 
-  // Clean up legacy localStorage chat caches on mount
+  // Clean up legacy localStorage chat caches and expired 24h sample report entries on mount
   useEffect(() => {
     try {
       localStorage.removeItem('mediskye_conversations');
       localStorage.removeItem('mediskye_session_id');
       localStorage.removeItem('mediskye_last_active_user');
+
+      // Expire any client-side sample report in localStorage older than 24 hours
+      const cutoff = Date.now() - 24 * 60 * 60 * 1000;
+      for (let i = 0; i < localStorage.length; i++) {
+        const key = localStorage.key(i);
+        if (key && (key.includes('sample') || key.startsWith('mediskye_sample_'))) {
+          try {
+            const raw = localStorage.getItem(key);
+            const parsed = JSON.parse(raw);
+            const ts = parsed?.timestamp || parsed?.created_at ? new Date(parsed.timestamp || parsed.created_at).getTime() : null;
+            if (ts && ts < cutoff) {
+              localStorage.removeItem(key);
+            }
+          } catch (_) {}
+        }
+      }
     } catch (e) {}
   }, []);
 
@@ -1264,7 +1280,7 @@ export default function ChatApp() {
     isSubmittingRef.current = false;
 
     try {
-      await clearAllChatSessions(selectedPatientId, true);
+      await clearAllChatSessions(null, true);
     } catch (e) {
       logger.warn('Failed clearing chats on backend:', e);
     }
@@ -1273,8 +1289,22 @@ export default function ChatApp() {
     setSessionId(newId);
     setActivePdf(null);
     setConversations([{ id: newId, title: 'New Conversation', messages: [], pdf: null, patient_id: selectedPatientId }]);
+    setPdfs([]);
+    setLabMetrics([]);
 
     try {
+      const keys = Object.keys(localStorage);
+      for (const k of keys) {
+        if (
+          k.startsWith('mediskye_conversation') ||
+          k.startsWith('mediskye_chat') ||
+          k.startsWith('mediskye_session') ||
+          k.startsWith('mediskye_pdf') ||
+          k.startsWith('mediskye_active_pdf')
+        ) {
+          localStorage.removeItem(k);
+        }
+      }
       localStorage.removeItem('mediskye_conversations');
       localStorage.removeItem('mediskye_session_id');
       if (currentUser?.id) {
@@ -1295,6 +1325,78 @@ export default function ChatApp() {
 
     setIsSettingsOpen(false);
   };
+
+  const handleResetProfileChats = async (targetProfileId = 'self') => {
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort();
+      abortControllerRef.current = null;
+    }
+    stopSpeaking();
+    setIsGenerating(false);
+    isSubmittingRef.current = false;
+
+    try {
+      await clearAllChatSessions(targetProfileId, false);
+    } catch (e) {
+      logger.warn('Failed resetting profile chats on backend:', e);
+    }
+
+    try {
+      const keys = Object.keys(localStorage);
+      for (const k of keys) {
+        if (
+          k.startsWith('mediskye_conversation') ||
+          k.startsWith('mediskye_chat') ||
+          k.startsWith('mediskye_session') ||
+          k.startsWith('mediskye_pdf')
+        ) {
+          if (targetProfileId === 'self' || targetProfileId === null) {
+            localStorage.removeItem(k);
+          } else if (k.includes(String(targetProfileId))) {
+            localStorage.removeItem(k);
+          }
+        }
+      }
+      if (targetProfileId === 'self') {
+        localStorage.removeItem('mediskye_conversations');
+        localStorage.removeItem('mediskye_session_id');
+      }
+    } catch (_) {}
+
+    if (targetProfileId === selectedPatientId || (targetProfileId === 'self' && isSelfSelected(selectedPatientId))) {
+      const newId = generateSessionId();
+      setSessionId(newId);
+      setActivePdf(null);
+      setConversations([{ id: newId, title: 'New Conversation', messages: [], pdf: null, patient_id: selectedPatientId }]);
+    } else {
+      setConversations((prev) => prev.filter((c) => c.dependent_id !== targetProfileId && c.patient_id !== targetProfileId));
+    }
+
+    await refreshDocuments();
+    await refreshPatientContext();
+    setIsSettingsOpen(false);
+  };
+
+  const handleDependentDeleted = useCallback(async (deletedDepId) => {
+    if (selectedPatientId === deletedDepId) {
+      setSelectedPatientId('self');
+      try {
+        localStorage.setItem('mediskye_patient_id', 'self');
+      } catch (_) {}
+    }
+    try {
+      const keys = Object.keys(localStorage);
+      for (const k of keys) {
+        if (k.includes(String(deletedDepId))) {
+          localStorage.removeItem(k);
+        }
+      }
+    } catch (_) {}
+    setConversations((prev) => prev.filter((c) => c.dependent_id !== deletedDepId && c.patient_id !== deletedDepId));
+    setPdfs((prev) => prev.filter((p) => p.dependent_id !== deletedDepId));
+    await refreshPatientContext();
+    await refreshDocuments();
+  }, [selectedPatientId, refreshPatientContext, refreshDocuments]);
 
   const handleDeleteChat = async (id, skipConfirm = false) => {
     try {
@@ -1777,6 +1879,11 @@ export default function ChatApp() {
         themePreference={themePreference}
         setThemePreference={setThemePreference}
         onClearAllChats={handleClearAllChats}
+        onResetProfileChats={handleResetProfileChats}
+        onOpenMemoryVault={() => {
+          setIsSettingsOpen(false);
+          setMemoryOpen(true);
+        }}
         onDeleteAccount={handleDeleteAccount}
         onProfileUpdated={(updated) => setCurrentUser(updated)}
         language={language}
@@ -1786,6 +1893,7 @@ export default function ChatApp() {
         setAutoRead={setAutoReadPersist}
         onOpenProfile={handleOpenProfile}
         selectedPatientId={selectedPatientId}
+        dependents={dependents}
       />
 
       {isProfileOpen && (
@@ -1794,6 +1902,7 @@ export default function ChatApp() {
           darkMode={darkMode}
           initialTab={profileInitialTab}
           onProfileUpdated={refreshPatientContext}
+          onDependentDeleted={handleDependentDeleted}
           profile={currentUser}
           dependents={dependents}
           selectedDependentId={selectedPatientId !== 'self' ? selectedPatientId : null}

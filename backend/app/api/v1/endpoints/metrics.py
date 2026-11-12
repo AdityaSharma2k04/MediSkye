@@ -36,6 +36,7 @@ from app.services.clinical_units import (
     convert_to_standard,
     parse_report_chronology,
     _parse_first_float,
+    is_sample_document,
 )
 
 logger = logging.getLogger(__name__)
@@ -882,7 +883,7 @@ async def get_patient_metric_trends(
 
     stmt = select(Document).filter(*filters)
     res = await db.execute(stmt)
-    docs = list(res.scalars().all())
+    docs = [d for d in res.scalars().all() if not is_sample_document(d)]
 
     if not docs:
         return MetricTrendsResponse(

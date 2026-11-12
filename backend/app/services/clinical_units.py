@@ -562,3 +562,51 @@ def compute_biomarker_delta(
 
     return (delta_abs_formatted, delta_pct, delta_alert)
 
+
+def is_sample_document(doc_or_val: Any) -> bool:
+    """
+    Returns True if the document, filename, or title represents a sample/demo report.
+    Matches:
+      - title or filename starting with / containing '[sample]' or 'sample report'
+      - filename starting with 'sample_' or 'sample-' or containing 'sample_report' / 'sample.pdf'
+      - title starting with 'sample report:' or '[sample]'
+    """
+    if doc_or_val is None:
+        return False
+
+    title = getattr(doc_or_val, "title", None)
+    filename = getattr(doc_or_val, "filename", None)
+
+    if isinstance(doc_or_val, dict):
+        title = doc_or_val.get("title") or title
+        filename = doc_or_val.get("filename") or filename
+
+    candidates = []
+    if isinstance(doc_or_val, str):
+        candidates.append(doc_or_val)
+    if title and isinstance(title, str):
+        candidates.append(title)
+    if filename and isinstance(filename, str):
+        candidates.append(filename)
+
+    for cand in candidates:
+        low = cand.strip().lower()
+        if (
+            "[sample]" in low
+            or low.startswith("sample report")
+            or low.startswith("sample_report")
+            or low.startswith("sample-report")
+            or low.startswith("sample_")
+            or low.startswith("sample-")
+            or "sample_report.pdf" in low
+            or "sample.pdf" in low
+            or "(sample)" in low
+            or "sample blood" in low
+            or "sample test" in low
+            or low == "sample"
+        ):
+            return True
+
+    return False
+
+

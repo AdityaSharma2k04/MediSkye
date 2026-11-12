@@ -776,7 +776,7 @@ export async function deleteChatSession(sessionId) {
 
 export async function clearAllChats(patientId = null, clearPatientContext = true) {
   let url = `${API_BASE}/users/me/chats?clear_patient_context=${clearPatientContext ? 'true' : 'false'}`;
-  if (patientId && patientId !== 'self') {
+  if (patientId && patientId !== 'all') {
     url += `&patient_id=${encodeURIComponent(patientId)}`;
   }
   const res = await fetch(url, {

@@ -216,32 +216,29 @@ describe('SettingsModal Account fields & Deletion', () => {
     expect(onDeleteAccount).toHaveBeenCalledTimes(1);
   });
 
-  it('fetches profile and facts on modal open, asserts toggle shows correct state and facts list renders', async () => {
-    const mockFacts = [
-      { id: 'fact-1', fact_type: 'condition', fact_text: 'Asthma diagnosed 2020', confidence: 1.0, is_user_verified: true, source_type: 'user_edit' },
-      { id: 'fact-2', fact_type: 'allergy', fact_text: 'Penicillin allergy', confidence: 1.0, is_user_verified: true, source_type: 'user_edit' },
-    ];
+  it('fetches profile on modal open, asserts toggle shows correct state and Open Memory Vault invokes callback', async () => {
+    const onOpenMemoryVault = vi.fn();
+    const onClose = vi.fn();
     api.getProfile.mockResolvedValueOnce({
       ...mockUser,
       memory_consent_granted: true,
       diet_type: 'vegan',
       activity_level: 'moderate',
     });
-    api.getMemoryFacts.mockResolvedValueOnce(mockFacts);
 
     render(
       <SettingsModal
         isOpen={true}
-        onClose={vi.fn()}
+        onClose={onClose}
         darkMode={false}
         currentUser={null}
+        onOpenMemoryVault={onOpenMemoryVault}
       />
     );
 
-    // Verify GET /users/me and GET /users/me/facts were called
+    // Verify GET /users/me was called
     await waitFor(() => {
       expect(api.getProfile).toHaveBeenCalled();
-      expect(api.getMemoryFacts).toHaveBeenCalled();
     });
 
     // Memory toggle should show 'Active'
@@ -249,9 +246,58 @@ describe('SettingsModal Account fields & Deletion', () => {
       expect(screen.getByText('Active')).toBeInTheDocument();
     });
 
-    // Facts list should render facts
-    expect(screen.getByText('Asthma diagnosed 2020')).toBeInTheDocument();
-    expect(screen.getByText('Penicillin allergy')).toBeInTheDocument();
+    // Inline facts list should NOT be rendered
+    expect(screen.queryByText('Asthma diagnosed 2020')).not.toBeInTheDocument();
+
+    // Clicking "Open Memory Vault" button invokes onOpenMemoryVault and onClose
+    const vaultBtn = screen.getByRole('button', { name: /open memory vault/i });
+    expect(vaultBtn).toBeInTheDocument();
+    fireEvent.click(vaultBtn);
+    expect(onClose).toHaveBeenCalled();
+    expect(onOpenMemoryVault).toHaveBeenCalled();
+  });
+
+  it('renders Reset Profile Chats & Memory section and initiates reset flow for selected dependent', async () => {
+    const onResetProfileChats = vi.fn().mockResolvedValue(true);
+    const mockDependents = [
+      { id: 'dep-123', full_name: 'Child User', relationship: 'Child' },
+    ];
+
+    render(
+      <SettingsModal
+        isOpen={true}
+        onClose={vi.fn()}
+        darkMode={false}
+        currentUser={mockUser}
+        dependents={mockDependents}
+        onResetProfileChats={onResetProfileChats}
+      />
+    );
+
+    expect(screen.getByText('Reset Profile Chats & Memory')).toBeInTheDocument();
+    const select = screen.getByLabelText('Select Profile to Reset');
+    expect(select).toBeInTheDocument();
+
+    // Switch to dependent profile
+    fireEvent.change(select, { target: { value: 'dep-123' } });
+
+    // Click Reset button to open confirmation dialog
+    const resetBtn = screen.getByTestId('reset-profile-chats-btn');
+    fireEvent.click(resetBtn);
+
+    expect(screen.getByText('Reset profile chats & memory?')).toBeInTheDocument();
+
+    // Type confirmation text RESET
+    const confirmInput = screen.getByPlaceholderText('RESET');
+    fireEvent.change(confirmInput, { target: { value: 'RESET' } });
+
+    const confirmBtn = screen.getByRole('button', { name: 'Reset Profile Data' });
+    expect(confirmBtn).not.toBeDisabled();
+    fireEvent.click(confirmBtn);
+
+    await waitFor(() => {
+      expect(onResetProfileChats).toHaveBeenCalledWith('dep-123');
+    });
   });
 
   it('wires change password modal to Firebase auth and shows success toast on save', async () => {
@@ -508,10 +554,10 @@ describe('SettingsModal Account fields & Deletion', () => {
       />
     );
 
-    const clearBtn = await screen.findByRole('button', { name: /clear all conversations/i });
+    const clearBtn = await screen.findByRole('button', { name: /delete all chats & data/i });
     fireEvent.click(clearBtn);
 
-    expect(screen.getByText('Clear all conversations?')).toBeInTheDocument();
+    expect(screen.getByText('Delete all chats & data?')).toBeInTheDocument();
 
     const deleteBtn = screen.getByRole('button', { name: 'Delete everything' });
     expect(deleteBtn).toBeDisabled();

@@ -107,6 +107,7 @@ export default function Profile({
   darkMode,
   initialTab = 'profile',
   onProfileUpdated,
+  onDependentDeleted,
   profile,
   dependents: propsDependents,
   selectedDependentId = null,
@@ -457,6 +458,7 @@ export default function Profile({
     try {
       await deleteDependent(depId);
       setDependents(prev => prev.filter(d => d.id !== depId));
+      if (onDependentDeleted) onDependentDeleted(depId);
       if (onProfileUpdated) onProfileUpdated();
     } catch (err) {
       console.error('Delete Failed:', err);

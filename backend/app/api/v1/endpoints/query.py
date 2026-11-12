@@ -31,7 +31,7 @@ from app.rag.prompt_builder import (
     build_document_summary_prompt,
     PROMPT_VERSION_PREFIX,
 )
-from app.services.clinical_units import parse_report_chronology
+from app.services.clinical_units import parse_report_chronology, is_sample_document
 from app.rag.intent_router import classify_intent, QueryIntent
 from app.rag.safety import append_disclaimer, get_emergency_response, is_emergency_query, detect_emergency, detect_emergency_language, EmergencyKind
 from app.rag.retriever import load_hybrid_index, retrieve_relevant_docs, dynamic_retrieval_k, get_cached_hybrid_index
@@ -592,7 +592,7 @@ async def query_bot(
 
                         prior_docs_stmt = prior_docs_stmt.order_by(Document.created_at.desc()).limit(10)
                         prior_docs_res = await hist_session.execute(prior_docs_stmt)
-                        candidate_docs = list(prior_docs_res.scalars().all())
+                        candidate_docs = [cand for cand in prior_docs_res.scalars().all() if not is_sample_document(cand)]
 
                         # Strict Chronological Ordering: ONLY select documents where candidate_collected_dt < current_collected_dt
                         if primary_doc is None and candidate_docs:
@@ -620,6 +620,10 @@ async def query_bot(
                             valid_priors.sort(key=lambda d: d.created_at, reverse=True)
                             prior_docs = valid_priors[:3]
                         else:
+                            prior_docs = []
+
+                        # Sample reports never inherit prior longitudinal history
+                        if primary_doc and is_sample_document(primary_doc):
                             prior_docs = []
 
                         for pdoc in prior_docs:
@@ -980,8 +984,13 @@ async def query_bot(
                         persist_session.add(link)
                     await persist_session.commit()
 
-                # Index chat message for cross-session retrieval (user message only, memory consent gated)
-                if current_user.memory_consent_granted and settings.PATIENT_MEMORY_ENABLED:
+                is_sample_chat = bool(
+                    (primary_doc and is_sample_document(primary_doc))
+                    or any(is_sample_document(d) for d in chat_docs or [])
+                )
+
+                # Index chat message for cross-session retrieval (user message only, memory consent gated, skip sample reports)
+                if not is_sample_chat and current_user.memory_consent_granted and settings.PATIENT_MEMORY_ENABLED:
                     try:
                         await index_chat_message(
                             chat_id=current_chat_id,
@@ -994,8 +1003,8 @@ async def query_bot(
                     except Exception as e:
                         logger.warning("Failed indexing chat message: %s", e)
 
-            # ── Trigger background fact extraction if consent granted ──
-            if current_user.memory_consent_granted and settings.PATIENT_MEMORY_ENABLED:
+            # ── Trigger background fact extraction if consent granted (skip sample reports) ──
+            if not is_sample_chat and current_user.memory_consent_granted and settings.PATIENT_MEMORY_ENABLED:
                 task = asyncio.create_task(
                     process_chat_memory_extraction(
                         chat_id=current_chat_id,
