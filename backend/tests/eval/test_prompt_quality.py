@@ -112,8 +112,8 @@ def test_build_prompt_includes_synthesis_instructions():
         occupation="Software Engineer",
     )
 
-    assert "FORMAT:" in system_instruction
-    assert "2-4 concise" in system_instruction
+    assert "FORMAT" in system_instruction
+    assert "Two to four `###` headings" in system_instruction
     assert "Explain medical terms in everyday language" in system_instruction
     assert "vegetarian" in user_content
     assert "175.0 cm" in user_content or "175 cm" in user_content

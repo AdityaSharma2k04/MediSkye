@@ -192,38 +192,35 @@ def test_prompt_builder_forbids_previously_discussed_and_enforces_exact_citation
         known_allergies="Strict Lactose Intolerance, NSAID",
         current_medications="Creatine Monohydrate 5g daily",
     )
-    assert 'NEVER write "[previously discussed]"' in sys_doc_qa
-    assert "CLINICAL DIRECTIONALITY & ZERO CONTRADICTIONS" in sys_doc_qa
+    assert 'previously discussed' in sys_doc_qa
     assert "LONGITUDINAL COMPARISONS & PRIOR REPORT HISTORY" in sys_doc_qa
     assert "Markdown table" in sys_doc_qa
     assert "| Biomarker | Prior Result (Report & Date) | Current Result (Report & Date) | Change | Reference Range | Status |" in sys_doc_qa
     assert "Keep `Reference Range` in its own dedicated column" in sys_doc_qa
     assert "specimen collection date" in sys_doc_qa
-    assert "PROACTIVE BORDERLINE & SUBCLINICAL TREND DETECTION" in sys_doc_qa
-    assert "DEEP MULTI-FACTOR PROFILE SYNTHESIS" in sys_doc_qa
 
     # Patient injected allergies/intolerances in user_content
     assert "Strict Lactose Intolerance" in user_content
     assert "NSAID" in user_content
     assert "Creatine Monohydrate" in user_content
 
-    # Universal clinical & empathy rules in system_instruction
+    # Clinical rules in system_instruction
     assert "What This Report Does Not Cover" in sys_doc_qa
-    assert "Cystatin C" in sys_doc_qa
-    assert "Methylmalonic Acid" in sys_doc_qa
-    assert "8–12 weeks" in sys_doc_qa
 
-    # De-overfitting: ensure no hardcoded Aarav Verma literals in system_instruction
+    # De-overfitting: ensure no hardcoded Aarav Verma literals or overfitted drug names in system_instruction
     assert "176 pg/mL" not in sys_doc_qa
     assert "94 mL/min" not in sys_doc_qa
     assert "24 Oct 2026" not in sys_doc_qa
     assert "Levosalbutamol" not in sys_doc_qa
+    assert "Penicillin" not in sys_doc_qa
 
-    sys_general, _ = build_general_health_prompt(user_query="Can ferritin drop without anemia?")
-    assert 'NEVER write "[previously discussed]"' in sys_general
-    assert "Never group Low" in sys_general
-    assert "Reference Range" in sys_general
-    assert "What This Report Does Not Cover" in sys_general
+    sys_general_with_report, _ = build_general_health_prompt(
+        user_query="Can ferritin drop without anemia?",
+        raw_report_text="Lab Report: Hemoglobin 14 g/dL",
+    )
+    assert "previously discussed" in sys_general_with_report
+    assert "Reference Range" in sys_general_with_report
+    assert "What This Report Does Not Cover" in sys_general_with_report
 
 
 @pytest.mark.asyncio

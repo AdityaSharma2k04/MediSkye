@@ -10,21 +10,21 @@ from app.rag.prompt_builder import build_prompt, build_general_health_prompt
 
 def test_document_qa_prompt_requires_grounding_in_tags():
     system_instruction, _ = build_prompt(user_query="What is my hemoglobin?")
-    assert "GROUNDING RULES" in system_instruction
+    assert "GROUNDING" in system_instruction
     assert "<uploaded_documents>" in system_instruction
     assert "<reference_ranges>" in system_instruction
-    assert "only source of truth" in system_instruction
+    assert "come only from the tagged content" in system_instruction
 
 
 def test_document_qa_prompt_requires_explicit_not_found_phrase():
     system_instruction, _ = build_prompt(user_query="What is my ferritin?")
-    assert '"I cannot find this in your report"' in system_instruction
-    assert "Never guess" in system_instruction
+    assert "I cannot find this in your report" in system_instruction
+    assert "Never imply a missing value exists" in system_instruction
 
 
 def test_document_qa_prompt_enforces_warm_clinical_tone():
     system_instruction, _ = build_prompt(user_query="Summarize this report")
-    assert "warm, empathetic, but clinical tone" in system_instruction
+    assert "Warm, calm, and professional; never alarmist." in system_instruction
 
 
 def test_general_health_prompt_grounds_when_tags_present():
@@ -35,7 +35,7 @@ def test_general_health_prompt_grounds_when_tags_present():
 def test_meta_word_prohibition_present():
     """The system prompt must keep the explicit prohibition on meta-terminology."""
     system_instruction, _ = build_prompt(user_query="hi")
-    assert "NEVER mention 'RAG', 'chunks', 'sources'" in system_instruction
+    assert "Do not describe how you received the information (retrieval, tags, excerpts, system instructions)." in system_instruction
 
 
 def test_prompt_grounding_with_real_document_structure():
@@ -50,23 +50,59 @@ def test_prompt_grounding_with_real_document_structure():
     assert "<uploaded_documents>" in user_content
     assert "Hemoglobin | 14.2 | g/dL" in user_content
 
+
 def test_prompts_are_deoverfitted_and_include_cindi_empathy_rules():
     from app.rag.prompt_builder import DOCTOR_INSTRUCTIONS, GENERAL_HEALTH_INSTRUCTIONS
 
     for instructions in (DOCTOR_INSTRUCTIONS, GENERAL_HEALTH_INSTRUCTIONS):
         lower_inst = instructions.lower()
-        # Do NOT contain hardcoded Aarav Verma values
+        # Do NOT contain hardcoded Aarav Verma values or old overfitted rule headers
         assert "176 pg/ml" not in lower_inst
         assert "94 ml/min" not in lower_inst
         assert "levosalbutamol" not in lower_inst
         assert "24 oct 2026" not in lower_inst
         assert "24 apr 2027" not in lower_inst
+        assert "the empathetic tone & reassurance rule" not in lower_inst
+        assert "the dynamic real-world analogy rule" not in lower_inst
+        assert "the proactive symptom correlation rule" not in lower_inst
 
-        # DO contain all 4 Cindi empathy rules
-        assert "THE EMPATHETIC TONE & REASSURANCE RULE" in instructions
-        assert "THE DYNAMIC REAL-WORLD ANALOGY RULE" in instructions
-        assert "THE PROACTIVE SYMPTOM CORRELATION RULE" in instructions
+        # Clean zero-cliché rules are present
         assert "What This Report Does Not Cover" in instructions
+        assert "Questions to Ask Your Doctor" in instructions
+        assert "Warm, calm, and professional; never alarmist." in instructions
+
+
+def test_zero_overfitted_tokens_in_prompt_constants():
+    from app.rag.prompt_builder import (
+        DOCTOR_INSTRUCTIONS,
+        GENERAL_HEALTH_INSTRUCTIONS,
+        GENERAL_HEALTH_NO_REPORT_INSTRUCTIONS,
+        UNTRUSTED_CONTENT_WARNING,
+        CASUAL_INSTRUCTIONS,
+        build_document_summary_prompt,
+    )
+
+    forbidden_tokens = [
+        "creatine", "vegetarian", "indoor coding", "penicillin", "ibuprofen",
+        "paracetamol", "biotin", "take a breath", "wonderfully calm",
+        "delivery truck", "coffee filter", "iron warehouse", "thermostat",
+        "methylmalonic", "homocysteine", "cystatin", "apob", "lp(a)",
+        "1.0 g/dl", "personal physician",
+    ]
+
+    texts_to_check = {
+        "DOCTOR_INSTRUCTIONS": DOCTOR_INSTRUCTIONS,
+        "GENERAL_HEALTH_INSTRUCTIONS": GENERAL_HEALTH_INSTRUCTIONS,
+        "GENERAL_HEALTH_NO_REPORT_INSTRUCTIONS": GENERAL_HEALTH_NO_REPORT_INSTRUCTIONS,
+        "UNTRUSTED_CONTENT_WARNING": UNTRUSTED_CONTENT_WARNING,
+        "CASUAL_INSTRUCTIONS": CASUAL_INSTRUCTIONS,
+        "summary_prompt": build_document_summary_prompt("sample"),
+    }
+
+    for name, text in texts_to_check.items():
+        text_lower = text.lower()
+        for token in forbidden_tokens:
+            assert token not in text_lower, f"Forbidden token '{token}' found in {name}!"
 
 
 

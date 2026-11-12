@@ -123,7 +123,7 @@ def test_multi_doc_prompt_cites_all_documents():
     assert 'name="Lipid_Aug_2026.pdf"' in user_content
     assert "Hemoglobin: 14.5" in user_content
     assert "Total Cholesterol: 240" in user_content
-    assert "Cite medical-report findings with the source filename" in system_instruction
+    assert "Name the report once per section or table caption when attributing values" in system_instruction
 
 
 @pytest.mark.asyncio
