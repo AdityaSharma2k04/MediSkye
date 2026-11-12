@@ -11,9 +11,9 @@
 - **P6 (`SHARED_CORE_RULES`, EVIDENCE AND SAFETY):** Instructed to state range status as fact and potential conditions as possibilities; strictly forbade "you have", "this confirms", "this indicates you have", or stating organs are underactive, overactive, or damaged unless report explicitly diagnoses it.
 - **P7 (`SHARED_CORE_RULES`, EVIDENCE AND SAFETY):** Forbade offering lifestyle factors as general possibilities for the user's own results unless present in user tags.
 - **P8 (`SHARED_CORE_RULES`, GROUNDING):** Clarified that general factor explanations follow the lifestyle safety rule.
-- **P9 (`PROMPT_VERSION`):** Bumped `PROMPT_VERSION` from `"v3"` to `"v4"` to invalidate cached document summaries.
 - **B1 (`biomarkers.py`):** Added British spelling patterns (`h(?:a)?emoglobin`, `h(?:a)?ematocrit`) to biomarker regexes.
 - **B2 (`biomarkers.py`):** Added `# 12b. Urine albumin/creatinine ratio` returning `"urine_acr"` before BUN/Creatinine to prevent serum creatinine mis-keying.
+  - Side effect: Urine ACR was previously keyed as serum creatinine, so metrics.py dedup could silently drop it and trend matching mixed the two; it is now tracked separately and falls into 'Other' until mapped to a panel.
 
 ### Why
 To prevent overfitting, eliminate dismissive language, avoid unprompted lifestyle attributions, stop false missing-test claims, recognize British spelling, and isolate urine ACR from serum creatinine.
