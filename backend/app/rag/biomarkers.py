@@ -67,10 +67,8 @@ _CLINICAL_FOLLOWUP_HINTS: Dict[str, Dict[str, Any]] = {
     "creatinine": {
         "states": {"HIGH", "HIGH-NORMAL"},
         "context": (
-            "Can be influenced by muscle mass, recent hard exercise, high meat intake, "
-            "or creatine supplements (mention supplements only if recorded in the user's saved profile). "
             "eGFR is calculated from creatinine and moves with it. Cystatin C and a urine "
-            "albumin-to-creatinine ratio are clinician options that do not depend on muscle mass."
+            "albumin-to-creatinine ratio are options a clinician may consider."
         ),
         "symptoms": "none",
         "retest": False,
@@ -78,8 +76,7 @@ _CLINICAL_FOLLOWUP_HINTS: Dict[str, Dict[str, Any]] = {
     "ast": {
         "states": {"HIGH", "HIGH-NORMAL"},
         "context": (
-            "Found in liver and muscle, and hard exercise can raise it temporarily. "
-            "A clinician may check creatine kinase and GGT, ideally after several days without heavy training."
+            "Found in liver and muscle. A clinician may check creatine kinase and GGT."
         ),
         "symptoms": "none",
         "retest": False,
