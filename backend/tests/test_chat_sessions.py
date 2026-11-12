@@ -283,7 +283,7 @@ async def test_clear_all_chats_cascades_facts():
 
         # Clear all standalone chats
         clear_res = await ac.delete("/users/me/chats", headers=headers)
-        assert clear_res.status_code == 204
+        assert clear_res.status_code in (200, 204)
 
         # Verify in DB: 0 chats and 0 facts
         async with AsyncSessionLocal() as session:

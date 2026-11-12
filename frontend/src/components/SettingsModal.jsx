@@ -517,6 +517,19 @@ export default function SettingsModal({
     }
   };
 
+  const handleClearAllConversations = async () => {
+    if (onClearAllChats) {
+      try {
+        await onClearAllChats();
+        setShowClearConfirm(false);
+        onClose?.();
+      } catch (err) {
+        console.error('Clear All Chats Failed:', err);
+        setSaveError(err.message || 'Failed to clear conversations');
+      }
+    }
+  };
+
   const modalRef = useRef(null);
   const closeRef = useRef(null);
 
@@ -1027,7 +1040,7 @@ export default function SettingsModal({
       <ConfirmModal
         isOpen={showClearConfirm}
         onClose={() => setShowClearConfirm(false)}
-        onConfirm={() => { onClearAllChats && onClearAllChats(); }}
+        onConfirm={handleClearAllConversations}
         title="Clear all conversations?"
         body="All chat history, uploaded report references, and patient context will be permanently deleted. This cannot be undone. Your account and profile will remain intact."
         confirmLabel="Delete everything"

@@ -120,6 +120,7 @@ class PatientFactCreate(BaseModel):
     source_type: Optional[str] = "user_edit"
     source_excerpt: Optional[str] = None
     dependent_id: Optional[UUID] = None
+    patient_id: Optional[str] = None
 
     @field_validator("fact_text", mode="before")
     @classmethod

@@ -1264,7 +1264,7 @@ export default function ChatApp() {
     isSubmittingRef.current = false;
 
     try {
-      await clearAllChatSessions();
+      await clearAllChatSessions(selectedPatientId, true);
     } catch (e) {
       logger.warn('Failed clearing chats on backend:', e);
     }
@@ -1273,7 +1273,27 @@ export default function ChatApp() {
     setSessionId(newId);
     setActivePdf(null);
     setConversations([{ id: newId, title: 'New Conversation', messages: [], pdf: null, patient_id: selectedPatientId }]);
+
+    try {
+      localStorage.removeItem('mediskye_conversations');
+      localStorage.removeItem('mediskye_session_id');
+      if (currentUser?.id) {
+        localStorage.removeItem(`mediskye_conversations_${currentUser.id}`);
+      }
+    } catch (_) {}
+
     await refreshDocuments();
+
+    try {
+      const freshUser = await getProfile();
+      if (freshUser) {
+        setCurrentUser(freshUser);
+      }
+    } catch (profErr) {
+      logger.warn('Failed to refresh profile after clearing chats:', profErr);
+    }
+
+    setIsSettingsOpen(false);
   };
 
   const handleDeleteChat = async (id, skipConfirm = false) => {
@@ -1729,8 +1749,10 @@ export default function ChatApp() {
         open={memoryOpen}
         onOpenChange={setMemoryOpen}
         selectedPatientId={selectedPatientId}
+        activePatientId={selectedPatientId}
         patientName={patientName}
         currentUser={currentUser}
+        dependents={dependents}
         documents={patientReports}
         onConsentChanged={(next) => setCurrentUser((u) => (u ? { ...u, memory_consent_granted: next } : u))}
       />

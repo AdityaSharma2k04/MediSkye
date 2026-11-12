@@ -494,4 +494,37 @@ describe('SettingsModal Account fields & Deletion', () => {
     fireEvent.click(privacyLink);
     expect(onClose).toHaveBeenCalled();
   });
+
+  it('calls onClearAllChats and closes modal when clearing all conversations', async () => {
+    const onClearAllChats = vi.fn().mockResolvedValue(true);
+    const onClose = vi.fn();
+    render(
+      <SettingsModal
+        isOpen={true}
+        onClose={onClose}
+        darkMode={false}
+        currentUser={mockUser}
+        onClearAllChats={onClearAllChats}
+      />
+    );
+
+    const clearBtn = await screen.findByRole('button', { name: /clear all conversations/i });
+    fireEvent.click(clearBtn);
+
+    expect(screen.getByText('Clear all conversations?')).toBeInTheDocument();
+
+    const deleteBtn = screen.getByRole('button', { name: 'Delete everything' });
+    expect(deleteBtn).toBeDisabled();
+
+    const input = screen.getByPlaceholderText('DELETE');
+    fireEvent.change(input, { target: { value: 'DELETE' } });
+    expect(deleteBtn).not.toBeDisabled();
+
+    fireEvent.click(deleteBtn);
+
+    await waitFor(() => {
+      expect(onClearAllChats).toHaveBeenCalledTimes(1);
+      expect(onClose).toHaveBeenCalled();
+    });
+  });
 });

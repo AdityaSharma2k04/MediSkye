@@ -774,8 +774,12 @@ export async function deleteChatSession(sessionId) {
   return true;
 }
 
-export async function clearAllChatSessions() {
-  const res = await fetch(`${API_BASE}/users/me/chats`, {
+export async function clearAllChats(patientId = null, clearPatientContext = true) {
+  let url = `${API_BASE}/users/me/chats?clear_patient_context=${clearPatientContext ? 'true' : 'false'}`;
+  if (patientId && patientId !== 'self') {
+    url += `&patient_id=${encodeURIComponent(patientId)}`;
+  }
+  const res = await fetch(url, {
     method: 'DELETE',
     headers: { ...getAuthHeaders() },
   });
@@ -785,6 +789,8 @@ export async function clearAllChatSessions() {
   }
   return true;
 }
+
+export const clearAllChatSessions = clearAllChats;
 
 export async function renameDocument(documentId, newTitle) {
   let res = await fetch(`${API_BASE}/users/me/documents/${documentId}/title`, {
@@ -902,10 +908,10 @@ export async function updateMemoryConsent(consent) {
   return await res.json();
 }
 
-export async function getFacts(dependentId = null) {
+export async function getFacts(patientId = null) {
   let url = `${API_BASE}/users/me/facts`;
-  if (dependentId && dependentId !== 'self') {
-    url += `?dependent_id=${dependentId}`;
+  if (patientId && patientId !== 'self') {
+    url += `?patient_id=${encodeURIComponent(patientId)}`;
   }
   const headers = await getFreshAuthHeaders();
   let res = await fetch(url, {
@@ -927,26 +933,37 @@ export async function getFacts(dependentId = null) {
 
 export const getMemoryFacts = getFacts;
 
-export async function createFact(factData) {
+export async function createFact(factData, patientId = null) {
+  let url = `${API_BASE}/users/me/facts`;
+  const resolvedPatientId = patientId || factData.patient_id || factData.dependent_id;
+  if (resolvedPatientId && resolvedPatientId !== 'self') {
+    url += `?patient_id=${encodeURIComponent(resolvedPatientId)}`;
+  }
+  const payload = {
+    ...factData,
+    ...(resolvedPatientId && resolvedPatientId !== 'self'
+      ? { patient_id: resolvedPatientId, dependent_id: resolvedPatientId }
+      : {}),
+  };
   const headers = await getFreshAuthHeaders();
-  let res = await fetch(`${API_BASE}/users/me/facts`, {
+  let res = await fetch(url, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
       ...headers,
     },
-    body: JSON.stringify(factData),
+    body: JSON.stringify(payload),
   });
   if (res.status === 401 && auth && auth.currentUser) {
     try {
       const retryHeaders = await getFreshAuthHeaders(true);
-      res = await fetch(`${API_BASE}/users/me/facts`, {
+      res = await fetch(url, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
           ...retryHeaders,
         },
-        body: JSON.stringify(factData),
+        body: JSON.stringify(payload),
       });
     } catch (e) {
       // ignore
@@ -961,9 +978,13 @@ export async function createFact(factData) {
 
 export const createMemoryFact = createFact;
 
-export async function updateFact(factId, factData) {
+export async function updateFact(factId, factData, patientId = null) {
+  let url = `${API_BASE}/users/me/facts/${factId}`;
+  if (patientId && patientId !== 'self') {
+    url += `?patient_id=${encodeURIComponent(patientId)}`;
+  }
   const headers = await getFreshAuthHeaders();
-  let res = await fetch(`${API_BASE}/users/me/facts/${factId}`, {
+  let res = await fetch(url, {
     method: 'PATCH',
     headers: {
       'Content-Type': 'application/json',
@@ -974,7 +995,7 @@ export async function updateFact(factId, factData) {
   if (res.status === 401 && auth && auth.currentUser) {
     try {
       const retryHeaders = await getFreshAuthHeaders(true);
-      res = await fetch(`${API_BASE}/users/me/facts/${factId}`, {
+      res = await fetch(url, {
         method: 'PATCH',
         headers: {
           'Content-Type': 'application/json',
@@ -993,16 +1014,20 @@ export async function updateFact(factId, factData) {
   return await res.json();
 }
 
-export async function deleteFact(factId) {
+export async function deleteFact(factId, patientId = null) {
+  let url = `${API_BASE}/users/me/facts/${factId}`;
+  if (patientId && patientId !== 'self') {
+    url += `?patient_id=${encodeURIComponent(patientId)}`;
+  }
   const headers = await getFreshAuthHeaders();
-  let res = await fetch(`${API_BASE}/users/me/facts/${factId}`, {
+  let res = await fetch(url, {
     method: 'DELETE',
     headers,
   });
   if (res.status === 401 && auth && auth.currentUser) {
     try {
       const retryHeaders = await getFreshAuthHeaders(true);
-      res = await fetch(`${API_BASE}/users/me/facts/${factId}`, {
+      res = await fetch(url, {
         method: 'DELETE',
         headers: retryHeaders,
       });
@@ -1018,10 +1043,10 @@ export async function deleteFact(factId) {
 
 export const deleteMemoryFact = deleteFact;
 
-export async function clearAllMemoryFacts(dependentId = null) {
+export async function clearAllMemoryFacts(patientId = null) {
   let url = `${API_BASE}/users/me/memory/facts`;
-  if (dependentId && dependentId !== 'self') {
-    url += `?dependent_id=${dependentId}`;
+  if (patientId && patientId !== 'self') {
+    url += `?patient_id=${encodeURIComponent(patientId)}`;
   }
   const headers = await getFreshAuthHeaders();
   let res = await fetch(url, {

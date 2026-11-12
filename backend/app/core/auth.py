@@ -120,6 +120,9 @@ def evict_token_cache_for_user(user_id: Any) -> int:
     return len(keys_to_evict)
 
 
+evict_user_from_token_cache = evict_token_cache_for_user
+
+
 def evict_token_cache_by_token(token: str) -> None:
     key = _hash_token(token)
     with _TOKEN_CACHE_LOCK:

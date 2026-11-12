@@ -1,9 +1,9 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { Brain, Search, Trash2, FileText, MessageSquare, Loader2, ShieldCheck, X } from 'lucide-react';
+import { Brain, Search, Trash2, FileText, MessageSquare, Loader2, ShieldCheck, X, User } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { cn } from '../../lib/cn';
 import Sheet from '../ui/Sheet';
-import { getFacts, deleteFact, clearAllMemoryFacts, updateMemoryConsent, updateProfile } from '../../services/api';
+import { getFacts, deleteFact, clearAllMemoryFacts, updateMemoryConsent, updateProfile, getDependents } from '../../services/api';
 import { logger } from '../../services/logger';
 import { reportLabel } from '../../lib/clinical';
 
@@ -57,8 +57,22 @@ function monthKey(ts) {
  * remembers for the active patient, with the report or chat it came from.
  * Deletions take effect immediately (server is the source of truth).
  */
-export default function MemoryVault({ open, onOpenChange, selectedPatientId = 'self', patientName, currentUser, onConsentChanged, documents = [] }) {
+export default function MemoryVault({
+  open,
+  onOpenChange,
+  selectedPatientId = 'self',
+  activePatientId,
+  patientName,
+  currentUser,
+  dependents: initialDependents = [],
+  onConsentChanged,
+  documents = [],
+}) {
   const { t } = useTranslation();
+  const effectiveInitialPatient = activePatientId || selectedPatientId || 'self';
+  const [selectedVaultPatientId, setSelectedVaultPatientId] = useState(effectiveInitialPatient);
+  const [dependentsList, setDependentsList] = useState(initialDependents || []);
+
   const [facts, setFacts] = useState([]);
   const [loading, setLoading] = useState(false);
   const [query, setQuery] = useState('');
@@ -70,14 +84,38 @@ export default function MemoryVault({ open, onOpenChange, selectedPatientId = 's
   const [consent, setConsent] = useState(Boolean(currentUser?.memory_consent_granted));
 
   useEffect(() => {
+    if (initialDependents && initialDependents.length > 0) {
+      setDependentsList(initialDependents);
+    }
+  }, [initialDependents]);
+
+  useEffect(() => {
+    if (open && (!dependentsList || dependentsList.length === 0)) {
+      getDependents()
+        .then((deps) => {
+          if (Array.isArray(deps) && deps.length > 0) {
+            setDependentsList(deps);
+          }
+        })
+        .catch((err) => logger.warn('Failed to load dependents for MemoryVault:', err));
+    }
+  }, [open, dependentsList]);
+
+  useEffect(() => {
     setConsent(Boolean(currentUser?.memory_consent_granted));
   }, [currentUser?.memory_consent_granted]);
+
+  useEffect(() => {
+    if (open) {
+      setSelectedVaultPatientId(activePatientId || selectedPatientId || 'self');
+    }
+  }, [open, activePatientId, selectedPatientId]);
 
   const load = useCallback(async () => {
     setLoading(true);
     setError('');
     try {
-      const list = await getFacts(selectedPatientId);
+      const list = await getFacts(selectedVaultPatientId);
       setFacts(Array.isArray(list) ? list : []);
     } catch (err) {
       logger.warn('Failed to load memory facts:', err);
@@ -85,7 +123,7 @@ export default function MemoryVault({ open, onOpenChange, selectedPatientId = 's
     } finally {
       setLoading(false);
     }
-  }, [selectedPatientId]);
+  }, [selectedVaultPatientId]);
 
   useEffect(() => {
     if (open) load();
@@ -94,6 +132,14 @@ export default function MemoryVault({ open, onOpenChange, selectedPatientId = 's
       setConfirmText('');
     }
   }, [open, load]);
+
+  const activeVaultPatientName = useMemo(() => {
+    if (selectedVaultPatientId === 'self') {
+      return currentUser?.full_name || 'My Profile';
+    }
+    const match = dependentsList.find((d) => String(d.id) === String(selectedVaultPatientId));
+    return match?.full_name || patientName || 'this patient';
+  }, [selectedVaultPatientId, currentUser, dependentsList, patientName]);
 
   const docTitleById = useMemo(() => {
     const m = new Map();
@@ -129,7 +175,7 @@ export default function MemoryVault({ open, onOpenChange, selectedPatientId = 's
     setDeletingId(id);
     setError('');
     try {
-      await deleteFact(id);
+      await deleteFact(id, selectedVaultPatientId);
       setFacts((prev) => prev.filter((f) => f.id !== id));
     } catch (err) {
       setError(err?.message || 'That fact could not be deleted. Try again.');
@@ -141,7 +187,7 @@ export default function MemoryVault({ open, onOpenChange, selectedPatientId = 's
   const handleClearAll = async () => {
     setError('');
     try {
-      await clearAllMemoryFacts(selectedPatientId);
+      await clearAllMemoryFacts(selectedVaultPatientId);
       setFacts([]);
       setConfirmClear(false);
       setConfirmText('');
@@ -195,7 +241,7 @@ export default function MemoryVault({ open, onOpenChange, selectedPatientId = 's
         open={open}
         onOpenChange={onOpenChange}
         title={t('workbench.memory_vault', 'Memory vault')}
-        description={`What MediSkye remembers about ${patientName || 'this patient'} across conversations. Remove anything that is wrong or outdated.`}
+        description={`What MediSkye remembers about ${activeVaultPatientName} across conversations. Remove anything that is wrong or outdated.`}
         icon={Brain}
         width={520}
         footer={
@@ -249,6 +295,33 @@ export default function MemoryVault({ open, onOpenChange, selectedPatientId = 's
         }
       >
         <div className="px-5 py-4 space-y-4" data-testid="memory-vault">
+          {/* Patient Selector */}
+          <div className="flex items-center justify-between gap-3 p-3 rounded-2xl bg-white/[0.03] border border-white/[0.08]">
+            <div className="flex items-center gap-2 min-w-0">
+              <User className="w-4 h-4 text-cyan-400 shrink-0" />
+              <label htmlFor="memory-vault-patient-select" className="text-xs font-medium text-ink-soft whitespace-nowrap">
+                {t('common.patient', 'Patient')}:
+              </label>
+            </div>
+            <select
+              id="memory-vault-patient-select"
+              aria-label="Select patient memory vault"
+              data-testid="memory-vault-patient-select"
+              value={selectedVaultPatientId}
+              onChange={(e) => setSelectedVaultPatientId(e.target.value)}
+              className="flex-1 max-w-[280px] h-8 px-2.5 text-xs font-medium rounded-xl bg-graphite border border-white/[0.14] text-white focus:outline-none focus:border-cyan-500/50 cursor-pointer truncate"
+            >
+              <option value="self">
+                {currentUser?.full_name || 'My Profile'} (Self)
+              </option>
+              {dependentsList.map((dep) => (
+                <option key={dep.id} value={dep.id}>
+                  {dep.full_name} ({dep.relationship})
+                </option>
+              ))}
+            </select>
+          </div>
+
           <div className="flex items-center justify-between gap-3 p-3.5 rounded-2xl ms-raised">
             <div className="flex items-start gap-2.5 min-w-0">
               <ShieldCheck className={cn('w-4 h-4 mt-0.5 shrink-0', consent ? 'text-emerald-400' : 'text-ink-faint')} />

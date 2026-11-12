@@ -332,70 +332,331 @@ async def rename_chat_session(
     return {"session_id": session_id, "title": title, "session_title": title}
 
 
+async def _resolve_patient_scope(
+    db: AsyncSession,
+    user_id: UUID,
+    patient_id: Optional[str] = None,
+    dependent_id: Optional[str] = None,
+) -> Optional[UUID]:
+    """
+    Resolves patient/dependent scope.
+    Returns:
+      None -> primary user ('self')
+      UUID -> verified dependent UUID belonging to user_id
+    Raises:
+      HTTPException(400) if raw id is invalid UUID
+      HTTPException(404) if dependent does not exist or belong to user_id
+    """
+    raw_id = patient_id if patient_id is not None else dependent_id
+    if raw_id is None:
+        return None
+    val = str(raw_id).strip()
+    if not val or val.lower() in ("self", "none", "", str(user_id).lower()):
+        return None
+    try:
+        dep_uuid = UUID(val)
+    except ValueError:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid dependent_id.")
+
+    res = await db.execute(
+        select(DependentProfile.id).filter(
+            DependentProfile.id == dep_uuid,
+            DependentProfile.user_id == user_id,
+        )
+    )
+    if not res.scalar_one_or_none():
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Dependent profile not found.")
+    return dep_uuid
+
+
 @router.delete("/users/me/chats/sessions/{session_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_chat_session(
     session_id: str,
     current_user: UserDTO = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    """Delete all chats in a session and cascade delete extracted patient facts."""
-    res = await db.execute(
-        select(Chat).filter(Chat.user_id == current_user.id, Chat.session_id == session_id)
-    )
-    chats = res.scalars().all()
-    if not chats:
+    """Delete all chats in a session and cascade delete extracted patient facts and documents."""
+    target_doc_uuid: Optional[UUID] = None
+    if session_id.startswith("doc-"):
         try:
-            doc_uuid = uuid.UUID(session_id)
-            doc_check = await db.execute(
-                select(Document).filter(Document.id == doc_uuid, Document.user_id == current_user.id)
-            )
-            if doc_check.scalars().first():
-                return await delete_my_document(session_id, current_user, db)
+            target_doc_uuid = uuid.UUID(session_id[4:])
         except ValueError:
             pass
-        raise HTTPException(status_code=404, detail="Chat session not found.")
+    else:
+        try:
+            target_doc_uuid = uuid.UUID(session_id)
+        except ValueError:
+            pass
+
+    chat_query = select(Chat).filter(Chat.user_id == current_user.id)
+    if target_doc_uuid:
+        chat_query = chat_query.filter(
+            or_(
+                Chat.session_id == session_id,
+                Chat.session_id == f"doc-{target_doc_uuid}",
+                Chat.document_id == target_doc_uuid,
+            )
+        )
+    else:
+        chat_query = chat_query.filter(Chat.session_id == session_id)
+
+    res = await db.execute(chat_query)
+    chats = res.scalars().all()
+
+    target_doc = None
+    if target_doc_uuid:
+        doc_res = await db.execute(
+            select(Document).filter(
+                Document.id == target_doc_uuid,
+                Document.user_id == current_user.id,
+            )
+        )
+        target_doc = doc_res.scalars().first()
+
+    if not chats and not target_doc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Chat session not found.")
 
     chat_ids = [c.id for c in chats]
     chat_id_strs = [str(cid) for cid in chat_ids]
 
-    # CASCADE DELETE EXTRACTED INSIGHTS: Physically delete PatientFact rows where source_id in chat_ids
+    source_ids_to_delete = {str(session_id), *chat_id_strs}
+    if target_doc:
+        source_ids_to_delete.add(str(target_doc.id))
+        source_ids_to_delete.add(f"doc-{target_doc.id}")
+
+    # CASCADE DELETE EXTRACTED INSIGHTS: Physically delete PatientFact rows matching session_id, chat_ids, or doc_id
     await db.execute(
         delete(PatientFact).where(
             PatientFact.user_id == current_user.id,
-            PatientFact.source_id.in_(chat_id_strs),
+            PatientFact.source_id.in_(list(source_ids_to_delete)),
         )
     )
 
-    await db.execute(delete(ChatChunk).where(ChatChunk.chat_id.in_(chat_ids)))
-    await db.execute(delete(ChatDocument).where(ChatDocument.chat_id.in_(chat_ids)))
-    await db.execute(delete(Chat).where(Chat.id.in_(chat_ids)))
+    # Delete child links first
+    if chat_ids:
+        await db.execute(delete(ChatChunk).where(ChatChunk.chat_id.in_(chat_ids)))
+        await db.execute(delete(ChatDocument).where(ChatDocument.chat_id.in_(chat_ids)))
+        await db.execute(delete(Chat).where(Chat.id.in_(chat_ids)))
+
+    if target_doc:
+        if target_doc.file_path:
+            await adelete_index_artifacts(target_doc.file_path)
+        try:
+            from app.rag.retriever import evict_index_cache
+            evict_index_cache(str(target_doc.id))
+            if target_doc.file_path:
+                evict_index_cache(str(target_doc.file_path))
+        except Exception as ev_err:
+            logger.debug("Could not evict index cache for doc %s: %s", target_doc.id, ev_err)
+
+        try:
+            from app.core.config import settings
+            session_cache = settings.VECTOR_CACHE_DIR / str(target_doc.id)
+            if session_cache.is_dir():
+                shutil.rmtree(session_cache, ignore_errors=True)
+        except Exception as e:
+            logger.error("Error removing vector cache for doc %s: %s", target_doc.id, e)
+
+        await db.execute(delete(ChatDocument).where(ChatDocument.document_id == target_doc.id))
+        await db.execute(
+            delete(UploadJob).where(
+                UploadJob.user_id == current_user.id,
+                UploadJob.document_id == str(target_doc.id),
+            )
+        )
+        await db.delete(target_doc)
+
     await db.commit()
     return None
 
 
-@router.delete("/users/me/chats", status_code=status.HTTP_204_NO_CONTENT)
+@router.delete("/users/me/chats", status_code=status.HTTP_200_OK)
 async def clear_all_chats(
+    patient_id: Optional[str] = None,
+    dependent_id: Optional[str] = None,
+    clear_patient_context: bool = True,
     current_user: UserDTO = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    """Clear all standalone chats and cascade delete associated patient facts."""
-    res = await db.execute(
-        select(Chat.id).filter(Chat.user_id == current_user.id, Chat.document_id.is_(None))
-    )
-    chat_ids = res.scalars().all()
+    """
+    Clear all chats (both standalone and document-linked), documents, upload jobs,
+    vector index artifacts, patient facts, and wipe stored clinical profile context.
+    """
+    is_unscoped = (patient_id is None and dependent_id is None)
+    scoped_dep_id: Optional[UUID] = None
+    if not is_unscoped:
+        scoped_dep_id = await _resolve_patient_scope(db, current_user.id, patient_id, dependent_id)
+
+    # 1. Query matching documents
+    doc_query = select(Document).filter(Document.user_id == current_user.id)
+    if not is_unscoped:
+        if scoped_dep_id is None:
+            doc_query = doc_query.filter(Document.dependent_id.is_(None))
+        else:
+            doc_query = doc_query.filter(Document.dependent_id == scoped_dep_id)
+
+    doc_res = await db.execute(doc_query)
+    target_docs = doc_res.scalars().all()
+    doc_ids = [d.id for d in target_docs]
+    doc_id_strs = [str(d) for d in doc_ids]
+
+    # Clean up FAISS / BM25 index artifacts, index cache and vector cache
+    from app.rag.retriever import evict_index_cache
+    from app.core.config import settings
+
+    for doc in target_docs:
+        if doc.file_path:
+            try:
+                await adelete_index_artifacts(doc.file_path)
+            except Exception as e:
+                logger.warning("Failed deleting index artifacts for doc %s: %s", doc.id, e)
+        try:
+            evict_index_cache(str(doc.id))
+            if doc.file_path:
+                evict_index_cache(str(doc.file_path))
+        except Exception:
+            pass
+        try:
+            session_cache = settings.VECTOR_CACHE_DIR / str(doc.id)
+            if session_cache.is_dir():
+                shutil.rmtree(session_cache, ignore_errors=True)
+        except Exception:
+            pass
+
+    # 2. Query matching chats
+    chat_query = select(Chat.id).filter(Chat.user_id == current_user.id)
+    if not is_unscoped:
+        if scoped_dep_id is None:
+            conds = [Chat.dependent_id.is_(None)]
+            if doc_ids:
+                conds.append(Chat.document_id.in_(doc_ids))
+            chat_query = chat_query.filter(or_(*conds))
+        else:
+            conds = [Chat.dependent_id == scoped_dep_id]
+            if doc_ids:
+                conds.append(Chat.document_id.in_(doc_ids))
+            chat_query = chat_query.filter(or_(*conds))
+
+    chat_res = await db.execute(chat_query)
+    chat_ids = chat_res.scalars().all()
+    chat_id_strs = [str(cid) for cid in chat_ids]
+
+    # 3. Delete Child Links First (Avoid FK Constraint Errors)
+    cd_conds = []
     if chat_ids:
-        chat_id_strs = [str(cid) for cid in chat_ids]
-        await db.execute(
-            delete(PatientFact).where(
-                PatientFact.user_id == current_user.id,
-                PatientFact.source_id.in_(chat_id_strs),
-            )
-        )
-        await db.execute(delete(ChatChunk).where(ChatChunk.chat_id.in_(chat_ids)))
-        await db.execute(delete(ChatDocument).where(ChatDocument.chat_id.in_(chat_ids)))
+        cd_conds.append(ChatDocument.chat_id.in_(chat_ids))
+    if doc_ids:
+        cd_conds.append(ChatDocument.document_id.in_(doc_ids))
+    if is_unscoped:
+        subq_c = select(Chat.id).filter(Chat.user_id == current_user.id)
+        subq_d = select(Document.id).filter(Document.user_id == current_user.id)
+        cd_conds.append(ChatDocument.chat_id.in_(subq_c))
+        cd_conds.append(ChatDocument.document_id.in_(subq_d))
+
+    if cd_conds:
+        await db.execute(delete(ChatDocument).where(or_(*cd_conds)))
+
+    if is_unscoped:
+        await db.execute(delete(ChatChunk).where(ChatChunk.user_id == current_user.id))
+    else:
+        chunk_conds = []
+        if scoped_dep_id is None:
+            chunk_conds.append(ChatChunk.dependent_id.is_(None))
+        else:
+            chunk_conds.append(ChatChunk.dependent_id == scoped_dep_id)
+        if chat_ids:
+            chunk_conds.append(ChatChunk.chat_id.in_(chat_ids))
+        await db.execute(delete(ChatChunk).where(ChatChunk.user_id == current_user.id, or_(*chunk_conds)))
+
+    # 4. Delete All Chats
+    if chat_ids:
         await db.execute(delete(Chat).where(Chat.id.in_(chat_ids)))
-        await db.commit()
-    return None
+    elif is_unscoped:
+        await db.execute(delete(Chat).where(Chat.user_id == current_user.id))
+
+    # 5. Delete UploadJobs & Documents
+    if is_unscoped:
+        await db.execute(delete(UploadJob).where(UploadJob.user_id == current_user.id))
+        await db.execute(delete(Document).where(Document.user_id == current_user.id))
+    else:
+        if doc_id_strs:
+            await db.execute(
+                delete(UploadJob).where(
+                    UploadJob.user_id == current_user.id,
+                    UploadJob.document_id.in_(doc_id_strs),
+                )
+            )
+        if doc_ids:
+            await db.execute(delete(Document).where(Document.id.in_(doc_ids)))
+
+    # 6. Delete Patient Facts
+    if is_unscoped:
+        fact_res = await db.execute(delete(PatientFact).where(PatientFact.user_id == current_user.id))
+        deleted_facts_count = fact_res.rowcount
+    else:
+        fact_conds = []
+        if scoped_dep_id is None:
+            fact_conds.append(PatientFact.dependent_id.is_(None))
+        else:
+            fact_conds.append(PatientFact.dependent_id == scoped_dep_id)
+        if chat_id_strs:
+            fact_conds.append(PatientFact.source_id.in_(chat_id_strs))
+        if doc_id_strs:
+            fact_conds.append(PatientFact.source_id.in_(doc_id_strs))
+        fact_res = await db.execute(
+            delete(PatientFact).where(PatientFact.user_id == current_user.id, or_(*fact_conds))
+        )
+        deleted_facts_count = fact_res.rowcount
+
+    # 7. Clear Stored Patient Profile Context
+    if clear_patient_context:
+        def _wipe_clinical_fields(obj):
+            obj.pre_existing_conditions = None
+            obj.current_medications = None
+            obj.known_allergies = None
+            obj.blood_type = None
+            obj.diet_type = None
+            obj.activity_level = None
+            obj.occupation = None
+            obj.height_cm = None
+            obj.date_of_birth = None
+            obj.biological_sex = None
+
+        if is_unscoped or scoped_dep_id is None:
+            user_res = await db.execute(select(User).filter(User.id == current_user.id))
+            user_obj = user_res.scalars().first()
+            if user_obj:
+                _wipe_clinical_fields(user_obj)
+                db.add(user_obj)
+
+        if is_unscoped:
+            dep_res = await db.execute(select(DependentProfile).filter(DependentProfile.user_id == current_user.id))
+            for dep in dep_res.scalars().all():
+                _wipe_clinical_fields(dep)
+                db.add(dep)
+        elif scoped_dep_id is not None:
+            dep_res = await db.execute(
+                select(DependentProfile).filter(
+                    DependentProfile.id == scoped_dep_id,
+                    DependentProfile.user_id == current_user.id,
+                )
+            )
+            dep_obj = dep_res.scalars().first()
+            if dep_obj:
+                _wipe_clinical_fields(dep_obj)
+                db.add(dep_obj)
+
+        evict_token_cache_for_user(current_user.id)
+
+    await db.commit()
+
+    return {
+        "status": "success",
+        "deleted_chats": len(chat_ids),
+        "deleted_documents": len(doc_ids),
+        "deleted_facts": deleted_facts_count,
+        "patient_context_cleared": clear_patient_context,
+    }
 
 
 @router.delete("/users/me/chats/{chat_id}", status_code=status.HTTP_204_NO_CONTENT)
@@ -413,7 +674,7 @@ async def delete_single_chat(
     await db.execute(
         delete(PatientFact).where(
             PatientFact.user_id == current_user.id,
-            PatientFact.source_id == str(chat_id),
+            PatientFact.source_id.in_([str(chat_id), str(chat.session_id)]),
         )
     )
     await db.execute(delete(ChatChunk).where(ChatChunk.chat_id == chat_id))
@@ -706,7 +967,10 @@ async def delete_my_document(
             chats_to_delete.append(c.id)
 
     chat_id_strs = [str(cid) for cid in chats_to_delete]
-    fact_conditions = [PatientFact.source_id == str(doc.id)]
+    fact_conditions = [
+        PatientFact.source_id == str(doc.id),
+        PatientFact.source_id == f"doc-{doc.id}",
+    ]
     if chat_id_strs:
         fact_conditions.append(PatientFact.source_id.in_(chat_id_strs))
 
@@ -717,6 +981,12 @@ async def delete_my_document(
         )
     )
 
+    await db.execute(
+        delete(UploadJob).where(
+            UploadJob.user_id == current_user.id,
+            UploadJob.document_id == str(doc.id),
+        )
+    )
     await db.execute(ChatDocument.__table__.delete().where(ChatDocument.document_id == doc.id))
     if chats_to_delete:
         await db.execute(ChatChunk.__table__.delete().where(ChatChunk.chat_id.in_(chats_to_delete)))
@@ -974,16 +1244,23 @@ async def update_memory_consent(
 @router.get("/users/me/memory/status")
 @router.get("/memory/status")
 async def get_memory_status(
+    patient_id: Optional[str] = None,
+    dependent_id: Optional[str] = None,
     current_user: UserDTO = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    """Get the current memory consent status and total number of remembered facts."""
-    res = await db.execute(
-        select(func.count(PatientFact.id)).filter(
-            PatientFact.user_id == current_user.id,
-            PatientFact.is_active.is_(True),
-        )
-    )
+    """Get the current memory consent status and total number of remembered facts for the user or dependent."""
+    dep_uuid = await _resolve_patient_scope(db, current_user.id, patient_id, dependent_id)
+    filters = [
+        PatientFact.user_id == current_user.id,
+        PatientFact.is_active.is_(True),
+    ]
+    if dep_uuid is None:
+        filters.append(PatientFact.dependent_id.is_(None))
+    else:
+        filters.append(PatientFact.dependent_id == dep_uuid)
+
+    res = await db.execute(select(func.count(PatientFact.id)).filter(*filters))
     fact_count = int(res.scalar() or 0)
     return {
         "memory_consent_granted": current_user.memory_consent_granted,
@@ -995,23 +1272,21 @@ async def get_memory_status(
 @router.get("/users/me/memory/facts", response_model=List[PatientFactResponse])
 @router.get("/memory/facts", response_model=List[PatientFactResponse])
 async def get_user_facts(
+    patient_id: Optional[str] = None,
     dependent_id: Optional[str] = None,
     current_user: UserDTO = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
     """Retrieve all active structured health facts remembered for the user or dependent."""
+    dep_uuid = await _resolve_patient_scope(db, current_user.id, patient_id, dependent_id)
     filters = [
         PatientFact.user_id == current_user.id,
         PatientFact.is_active.is_(True),
     ]
-    if dependent_id and dependent_id.lower() != "self":
-        try:
-            dep_uuid = UUID(dependent_id)
-            filters.append(PatientFact.dependent_id == dep_uuid)
-        except ValueError:
-            raise HTTPException(status_code=400, detail="Invalid dependent_id.")
-    else:
+    if dep_uuid is None:
         filters.append(PatientFact.dependent_id.is_(None))
+    else:
+        filters.append(PatientFact.dependent_id == dep_uuid)
 
     res = await db.execute(
         select(PatientFact)
@@ -1072,22 +1347,14 @@ async def get_user_facts(
 async def create_user_fact(
     body: PatientFactCreate,
     request: Request,
+    patient_id: Optional[str] = None,
+    dependent_id: Optional[str] = None,
     current_user: UserDTO = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
     """Manually add a health fact for the current user or their dependent."""
-    dep_uuid = None
-    if body.dependent_id:
-        dep_res = await db.execute(
-            select(DependentProfile).filter(
-                DependentProfile.id == body.dependent_id,
-                DependentProfile.user_id == current_user.id,
-            )
-        )
-        dep = dep_res.scalars().first()
-        if not dep:
-            raise HTTPException(status_code=404, detail="Dependent profile not found.")
-        dep_uuid = dep.id
+    raw_id = body.patient_id or (str(body.dependent_id) if body.dependent_id else None) or patient_id or dependent_id
+    dep_uuid = await _resolve_patient_scope(db, current_user.id, raw_id)
 
     now = datetime.now(UTC)
     new_fact = PatientFact(
@@ -1118,16 +1385,25 @@ async def update_user_fact(
     fact_id: UUID,
     body: PatientFactUpdate,
     request: Request,
+    patient_id: Optional[str] = None,
+    dependent_id: Optional[str] = None,
     current_user: UserDTO = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
     """Update a specific remembered health fact (auth-gated, cross-user returns 404)."""
-    res = await db.execute(
-        select(PatientFact).filter(
-            PatientFact.id == fact_id,
-            PatientFact.user_id == current_user.id,
-        )
-    )
+    filters = [
+        PatientFact.id == fact_id,
+        PatientFact.user_id == current_user.id,
+    ]
+    raw_id = patient_id if patient_id is not None else dependent_id
+    if raw_id is not None:
+        dep_uuid = await _resolve_patient_scope(db, current_user.id, patient_id, dependent_id)
+        if dep_uuid is None:
+            filters.append(PatientFact.dependent_id.is_(None))
+        else:
+            filters.append(PatientFact.dependent_id == dep_uuid)
+
+    res = await db.execute(select(PatientFact).filter(*filters))
     fact = res.scalars().first()
     if not fact:
         raise HTTPException(status_code=404, detail="Fact not found.")
@@ -1151,16 +1427,25 @@ async def update_user_fact(
 async def delete_memory_fact(
     fact_id: UUID,
     request: Request,
+    patient_id: Optional[str] = None,
+    dependent_id: Optional[str] = None,
     current_user: UserDTO = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
     """Hard delete a specific remembered health fact (auth-gated, cross-user returns 404)."""
-    res = await db.execute(
-        select(PatientFact).filter(
-            PatientFact.id == fact_id,
-            PatientFact.user_id == current_user.id,
-        )
-    )
+    filters = [
+        PatientFact.id == fact_id,
+        PatientFact.user_id == current_user.id,
+    ]
+    raw_id = patient_id if patient_id is not None else dependent_id
+    if raw_id is not None:
+        dep_uuid = await _resolve_patient_scope(db, current_user.id, patient_id, dependent_id)
+        if dep_uuid is None:
+            filters.append(PatientFact.dependent_id.is_(None))
+        else:
+            filters.append(PatientFact.dependent_id == dep_uuid)
+
+    res = await db.execute(select(PatientFact).filter(*filters))
     fact = res.scalars().first()
     if not fact:
         raise HTTPException(status_code=404, detail="Fact not found.")
@@ -1175,20 +1460,17 @@ async def delete_memory_fact(
 @router.delete("/memory/facts")
 async def clear_all_memory_facts(
     request: Request,
+    patient_id: Optional[str] = None,
     dependent_id: Optional[str] = None,
     current_user: UserDTO = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
     """Hard delete all remembered health facts for the user or dependent."""
-    filters = [PatientFact.user_id == current_user.id]
-    if dependent_id and dependent_id.lower() != "self":
-        try:
-            dep_uuid = UUID(dependent_id)
-            filters.append(PatientFact.dependent_id == dep_uuid)
-        except ValueError:
-            raise HTTPException(status_code=400, detail="Invalid dependent_id.")
+    dep_uuid = await _resolve_patient_scope(db, current_user.id, patient_id, dependent_id)
+    if dep_uuid is None:
+        filters = [PatientFact.user_id == current_user.id, PatientFact.dependent_id.is_(None)]
     else:
-        filters.append(PatientFact.dependent_id.is_(None))
+        filters = [PatientFact.user_id == current_user.id, PatientFact.dependent_id == dep_uuid]
 
     res = await db.execute(select(PatientFact).filter(*filters))
     facts = res.scalars().all()
