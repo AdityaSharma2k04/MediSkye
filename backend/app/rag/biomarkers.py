@@ -158,15 +158,15 @@ def canonical_biomarker_key(name: str) -> Optional[str]:
     n_clean = re.sub(r'\s+', ' ', n_clean).strip()
 
     # 1. HbA1c (MUST precede Hemoglobin)
-    if re.search(r'\b(?:hba1c|glycated\s+hemoglobin|glycohemoglobin|hemoglobin\s+a1c|a1c)\b', n_clean):
+    if re.search(r'\b(?:hba1c|glycated\s+h(?:a)?emoglobin|glycoh(?:a)?emoglobin|h(?:a)?emoglobin\s+a1c|a1c)\b', n_clean):
         return "hba1c"
 
     # 2. Hemoglobin variants & electrophoresis (MUST precede general Hemoglobin)
-    if re.search(r'\b(?:hb\s*electrophoresis|hemoglobin\s*electrophoresis)\b', n_clean):
+    if re.search(r'\b(?:hb\s*electrophoresis|h(?:a)?emoglobin\s*electrophoresis)\b', n_clean):
         return "hb_electrophoresis"
-    if re.search(r'\b(?:hb\s*a2|hemoglobin\s*a2)\b', n_clean):
+    if re.search(r'\b(?:hb\s*a2|h(?:a)?emoglobin\s*a2)\b', n_clean):
         return "hba2"
-    if re.search(r'\b(?:hb\s*f|fetal\s*hemoglobin)\b', n_clean):
+    if re.search(r'\b(?:hb\s*f|fetal\s*h(?:a)?emoglobin)\b', n_clean):
         return "hbf"
 
     # 3. RBC Indices MCHC, MCH, MCV (MUST precede general Hemoglobin)
@@ -178,7 +178,7 @@ def canonical_biomarker_key(name: str) -> Optional[str]:
         return "mcv"
 
     # 4. Hemoglobin (strict whole-word)
-    if re.search(r'\b(?:hemoglobin(?:\s*\(?hb\)?)?|hb|hgb)\b', n_clean):
+    if re.search(r'\b(?:h(?:a)?emoglobin(?:\s*\(?hb\)?)?|hb|hgb)\b', n_clean):
         return "hemoglobin"
 
     # 5. Non-HDL and VLDL (MUST precede HDL & Cholesterol)
@@ -188,7 +188,7 @@ def canonical_biomarker_key(name: str) -> Optional[str]:
         return "vldl"
 
     # 6. Hematocrit / PCV
-    if re.search(r'\b(?:hematocrit|pcv|packed\s+cell\s+volume|hct)\b', n_clean):
+    if re.search(r'\b(?:h(?:a)?ematocrit|pcv|packed\s+cell\s+volume|hct)\b', n_clean):
         return "hematocrit"
 
     # 7. WBC / TLC
@@ -214,6 +214,10 @@ def canonical_biomarker_key(name: str) -> Optional[str]:
     # 12. Glucose (Fasting Plasma Glucose and general Glucose both resolve to 'glucose')
     if re.search(r'\b(?:fasting\s+plasma\s+glucose|fasting\s+blood\s+sugar|fasting\s+blood\s+glucose|fasting\s+glucose|fbs|fbg|glucose|blood\s+sugar|rbs|random\s+blood\s+sugar)\b', n_clean):
         return "glucose"
+
+    # 12b. Urine albumin/creatinine ratio (MUST precede BUN and Creatinine, otherwise it is mis-keyed as serum creatinine)
+    if re.search(r'\b(?:albumin\s+(?:to\s+)?creatinine\s+ratio|uacr|acr)\b', n_clean):
+        return "urine_acr"
 
     # 13. BUN / Urea
     if re.search(r'\b(?:blood\s+urea\s+nitrogen|urea\s+nitrogen|bun)\b', n_clean):
@@ -596,8 +600,8 @@ def get_verified_absent_adjacent_tests(
     if "hemoglobin" in keys_present:
         synonyms = [
             r'\bmcv\b', r'\bmean\s+corpuscular\s+volume\b',
-            r'\bmch\b', r'\bmean\s+corpuscular\s+hemoglobin\b',
-            r'\bmchc\b', r'\bmean\s+corpuscular\s+hemoglobin\s+concentration\b',
+            r'\bmch\b', r'\bmean\s+corpuscular\s+h(?:a)?emoglobin\b',
+            r'\bmchc\b', r'\bmean\s+corpuscular\s+h(?:a)?emoglobin\s+concentration\b',
             r'\brdw\b', r'\bred\s+cell\s+distribution\s+width\b',
         ]
         any_found = any(re.search(pat, combined_text) for pat in synonyms)
