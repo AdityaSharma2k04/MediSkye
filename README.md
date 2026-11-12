@@ -618,6 +618,49 @@ The API router is mounted with `API_V1_STR` (default empty string in `backend/ap
 
 ---
 
+## 📱💻 Native Desktop (Windows `.exe`) & Mobile (Android `.apk`) Packaging
+
+MediSkye is packaged natively for both desktop and mobile platforms with direct Cloud Run API integration and native origin CORS whitelisting:
+- **Windows Desktop:** Built with **Tauri v2** (`.exe` NSIS installer & `.msi`), providing a lightweight (<15MB) native desktop application powered by Microsoft Edge WebView2.
+- **Android Mobile:** Built with **Capacitor**, providing an Android app package (`.apk` / `.aab`) with native status bar theming, splash screen, and full gesture safe-area inset adaptation.
+
+### Download Pre-Built Installers from GitHub Actions
+
+Ready-to-install packages are compiled automatically by the GitHub Actions Cloud Builder on every release and main commit:
+1. Navigate to the repository's **Actions** tab $\rightarrow$ **Build Native Apps** workflow.
+2. Select the latest successful workflow run.
+3. Under **Artifacts** at the bottom of the summary page, download:
+   - **`MediSkye-Android-APK`**: Contains `app-debug.apk` (sideload directly onto any Android device).
+   - **`MediSkye-Windows-Installer`**: Contains `MediSkye_1.0.0_x64-setup.exe` (NSIS installer) and `MediSkye_1.0.0_x64_en-US.msi`.
+
+### Local Build Commands
+
+To build native packages locally from source:
+
+```bash
+# Navigate to the frontend directory
+cd frontend
+
+# ── Android (Capacitor) ──
+# Sync the built web assets to the native Android project
+npm run cap:sync
+
+# Open Android Studio to test or sign release builds
+npm run cap:open
+
+# Compile debug APK directly with Gradle
+npm run android:build
+
+# ── Windows Desktop (Tauri v2) ──
+# Run Tauri in local desktop development mode (hot-reloaded)
+npm run tauri:dev
+
+# Build production Windows NSIS (.exe) and MSI (.msi) installers
+npm run tauri:build
+```
+
+---
+
 ## ⚠️ Medical Disclaimer
 
 *MediSkye is an informational clinical AI assistant designed for educational and health literacy purposes only. It is not a licensed medical professional and does not provide medical diagnoses or treatment plans. Always consult a qualified physician or healthcare provider regarding any medical condition or laboratory result. In case of a medical emergency, call 112 or 911 immediately.*

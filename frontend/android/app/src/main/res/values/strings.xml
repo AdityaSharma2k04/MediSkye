@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">MediSkye</string>
+    <string name="title_activity_main">MediSkye</string>
+    <string name="package_name">com.mediskye.app</string>
+    <string name="custom_url_scheme">com.mediskye.app</string>
+</resources>

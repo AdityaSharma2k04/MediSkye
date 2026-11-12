@@ -150,3 +150,19 @@ async def test_native_app_origins_allowed_for_options_and_get(native_origin: str
         assert health_res.headers.get("access-control-allow-origin") == native_origin
 
 
+def test_native_origins_always_present_in_active_origins():
+    """Verify that all 6 native origins are always in the CORS allow-list."""
+    from app.main import active_allowed_origins
+    required_native_origins = [
+        "https://localhost",
+        "http://localhost",
+        "capacitor://localhost",
+        "http://tauri.localhost",
+        "https://tauri.localhost",
+        "tauri://localhost",
+    ]
+    for origin in required_native_origins:
+        assert origin in active_allowed_origins, f"Missing native origin: {origin}"
+
+
+

@@ -156,8 +156,21 @@ app.add_middleware(SlowAPIMiddleware)
 
 # CORS Configuration with Amortized Preflight Max-Age
 # Always ensure native WebView origins (Capacitor Android & Tauri Windows) are allowed
+MANDATORY_NATIVE_ORIGINS = [
+    "https://localhost",
+    "http://localhost",
+    "capacitor://localhost",
+    "http://tauri.localhost",
+    "https://tauri.localhost",
+    "tauri://localhost",
+]
+
 active_allowed_origins = list(
-    dict.fromkeys(list(settings.ALLOWED_ORIGINS) + list(getattr(settings, "NATIVE_APP_ORIGINS", [])))
+    dict.fromkeys(
+        list(settings.ALLOWED_ORIGINS)
+        + list(getattr(settings, "NATIVE_APP_ORIGINS", []))
+        + MANDATORY_NATIVE_ORIGINS
+    )
 )
 
 app.add_middleware(

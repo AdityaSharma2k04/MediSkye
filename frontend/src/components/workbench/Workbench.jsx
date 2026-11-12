@@ -176,7 +176,13 @@ export default function Workbench(props) {
         window.removeEventListener('afterprint', cleanup);
       };
       window.addEventListener('afterprint', cleanup);
-      window.print();
+      try {
+        if (typeof window.print === 'function') {
+          window.print();
+        }
+      } catch (printErr) {
+        console.warn('Native WebView window.print not supported:', printErr);
+      }
       fallbackTimer = setTimeout(cleanup, 60000);
     }, 150);
   };

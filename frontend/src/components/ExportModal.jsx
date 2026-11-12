@@ -133,7 +133,13 @@ export default function ExportModal({
             window.removeEventListener('afterprint', cleanup);
           };
           window.addEventListener('afterprint', cleanup);
-          window.print();
+          try {
+            if (typeof window.print === 'function') {
+              window.print();
+            }
+          } catch (printErr) {
+            console.warn('Native WebView window.print not supported:', printErr);
+          }
           // Fallback for browsers that never fire afterprint.
           fallbackTimerRef.current = setTimeout(cleanup, 60000);
         }, 150);
