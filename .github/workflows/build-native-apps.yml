@@ -59,12 +59,13 @@ jobs:
         run: |
           chmod +x gradlew
           ./gradlew assembleDebug
+          cp app/build/outputs/apk/debug/app-debug.apk app/build/outputs/apk/debug/MediSkye.apk
 
       - name: Upload Android APK Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: MediSkye-Android-APK
-          path: frontend/android/app/build/outputs/apk/debug/app-debug.apk
+          name: MediSkye.apk
+          path: frontend/android/app/build/outputs/apk/debug/MediSkye.apk
           if-no-files-found: error
 
   build-windows-installer:
@@ -95,6 +96,7 @@ jobs:
 
       - name: Build Tauri Desktop Application
         working-directory: frontend
+        shell: pwsh
         env:
           VITE_API_URL: https://mediskye-1095767703249.asia-southeast1.run.app
           VITE_FIREBASE_API_KEY: ${{ secrets.VITE_FIREBASE_API_KEY || vars.VITE_FIREBASE_API_KEY }}
@@ -103,14 +105,15 @@ jobs:
           VITE_FIREBASE_STORAGE_BUCKET: ${{ secrets.VITE_FIREBASE_STORAGE_BUCKET || vars.VITE_FIREBASE_STORAGE_BUCKET }}
           VITE_FIREBASE_MESSAGING_SENDER_ID: ${{ secrets.VITE_FIREBASE_MESSAGING_SENDER_ID || vars.VITE_FIREBASE_MESSAGING_SENDER_ID }}
           VITE_FIREBASE_APP_ID: ${{ secrets.VITE_FIREBASE_APP_ID || vars.VITE_FIREBASE_APP_ID }}
-        run: npx tauri build
+        run: |
+          npx tauri build
+          $installer = Get-ChildItem "src-tauri/target/release/bundle/nsis/*-setup.exe" | Select-Object -First 1
+          Copy-Item $installer.FullName -Destination "src-tauri/target/release/bundle/nsis/MediSkye.exe" -Force
 
       - name: Upload Windows Desktop Installers Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: MediSkye-Windows-Installer
-          path: |
-            frontend/src-tauri/target/release/bundle/nsis/*.exe
-            frontend/src-tauri/target/release/bundle/msi/*.msi
+          name: MediSkye.exe
+          path: frontend/src-tauri/target/release/bundle/nsis/MediSkye.exe
           if-no-files-found: error
 

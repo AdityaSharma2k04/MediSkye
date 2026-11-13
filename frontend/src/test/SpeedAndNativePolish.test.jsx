@@ -107,3 +107,4 @@ describe('Frontend Speed & UX Polish', () => {
     expect(screen.getByText(/Offline — viewing cached data/i)).toBeInTheDocument();
   });
 });
+

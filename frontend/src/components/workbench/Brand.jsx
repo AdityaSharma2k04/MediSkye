@@ -6,20 +6,28 @@ import { cn } from '../../lib/cn';
  * language as the range bars used throughout the product.
  */
 export function BrandMark({ size = 28, className }) {
+  const borderRadius = Math.round(size * 0.26);
   return (
     <span
-      className={cn('inline-flex items-center justify-center rounded-[10px] shrink-0', className)}
+      className={cn('inline-flex items-center justify-center shrink-0 relative overflow-hidden', className)}
       style={{
         width: size,
         height: size,
-        background: 'linear-gradient(150deg, #0e7490 0%, #06b6d4 70%)',
-        boxShadow: '0 0 0 1px rgba(103,232,249,0.28), 0 6px 18px -6px rgba(6,182,212,0.65), inset 0 1px 0 rgba(255,255,255,0.25)',
+        borderRadius,
+        background: 'linear-gradient(180deg, #22d3ee 0%, #0891b2 45%, #0284c7 100%)',
+        boxShadow: '0 0 16px -2px rgba(6, 182, 212, 0.55), inset 0 0 0 1.5px rgba(165, 243, 252, 0.65)',
+        border: '1px solid rgba(103, 232, 249, 0.75)',
       }}
       aria-hidden="true"
     >
-      <svg width={size * 0.62} height={size * 0.62} viewBox="0 0 24 24" fill="none">
-        <rect x="2" y="9.5" width="20" height="5" rx="2.5" fill="rgba(3,16,22,0.22)" />
-        <path d="M2.5 13h4l2.2-6 4.6 11 2.4-5h5.8" stroke="#031016" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" />
+      <svg width={size * 0.64} height={size * 0.64} viewBox="0 0 512 512" fill="none">
+        <path
+          d="M 148 264 L 210 264 L 238 176 L 282 344 L 312 264 L 364 264"
+          stroke="#060A12"
+          strokeWidth="42"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+        />
       </svg>
     </span>
   );
