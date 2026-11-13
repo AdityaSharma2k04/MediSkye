@@ -3,6 +3,10 @@ import {
   getAuth,
   GoogleAuthProvider,
   signInWithPopup,
+  signInWithRedirect,
+  getRedirectResult,
+  setPersistence,
+  browserLocalPersistence,
   signInWithEmailAndPassword,
   createUserWithEmailAndPassword,
   sendPasswordResetEmail,
@@ -16,6 +20,7 @@ import {
   fetchSignInMethodsForEmail,
   reauthenticateWithPopup,
 } from "firebase/auth";
+import { Capacitor } from "@capacitor/core";
 
 // Uses Vite env vars if available, with project fallbacks.
 // CRITICAL: .trim() prevents trailing newlines/spaces in Cloudflare Pages env vars
@@ -33,13 +38,33 @@ const firebaseConfig = {
 
 const app = initializeApp(firebaseConfig);
 export const auth = getAuth(app);
+
+// Call setPersistence once non-blockingly on auth init so the click gesture is never lost before popup
+if (typeof window !== "undefined") {
+  try {
+    setPersistence(auth, browserLocalPersistence).catch(() => {});
+  } catch (_) {}
+}
+
 export const googleProvider = new GoogleAuthProvider();
 googleProvider.setCustomParameters({ prompt: "select_account" });
+
+export const isMobileOrCapacitor = () => {
+  if (typeof window === "undefined") return false;
+  try {
+    if (Capacitor.isNativePlatform()) return true;
+  } catch (_) {}
+  return /Android|iPhone|iPad|iPod/i.test(navigator?.userAgent || "");
+};
 
 export {
   getAuth,
   GoogleAuthProvider,
   signInWithPopup,
+  signInWithRedirect,
+  getRedirectResult,
+  setPersistence,
+  browserLocalPersistence,
   signInWithEmailAndPassword,
   createUserWithEmailAndPassword,
   sendPasswordResetEmail,

@@ -5,6 +5,9 @@ import {
   auth,
   googleProvider,
   signInWithPopup,
+  signInWithRedirect,
+  getRedirectResult,
+  isMobileOrCapacitor,
   signInWithEmailAndPassword,
   fetchSignInMethodsForEmail,
   reloadAndGetVerifiedToken,
@@ -47,6 +50,48 @@ export default function Login() {
     try {
       localStorage.setItem('theme', 'dark');
     } catch (_) {}
+  }, []);
+
+  const completeAuthSuccess = async (user) => {
+    const token = await user.getIdToken();
+    if (!token) {
+      throw new Error('Authentication failed. Please try again.');
+    }
+    const userEmail = user.email || '';
+    const lastEmail = localStorage.getItem('mediskye_user_email');
+    if (lastEmail && userEmail && lastEmail.toLowerCase() !== userEmail.toLowerCase()) {
+      localStorage.removeItem('mediskye_conversations');
+      localStorage.removeItem('mediskye_session_id');
+      localStorage.removeItem('mediskye_patient_id');
+    }
+    if (userEmail) {
+      localStorage.setItem('mediskye_user_email', userEmail);
+    }
+    navigate('/chat');
+  };
+
+  // Handle returning from a redirect login (e.g. Capacitor mobile OAuth)
+  useEffect(() => {
+    let active = true;
+    const checkRedirect = async () => {
+      try {
+        if (typeof getRedirectResult === 'function' && auth && (auth.app || auth.config)) {
+          const res = await getRedirectResult(auth);
+          if (active && res && res.user) {
+            await completeAuthSuccess(res.user);
+          }
+        }
+      } catch (err) {
+        if (active && err?.code && err.code.startsWith('auth/')) {
+          const mapped = typeof getFirebaseErrorMessage === 'function' ? getFirebaseErrorMessage(err) : '';
+          setError(mapped || "Authentication failed. Please try again.");
+        }
+      }
+    };
+    checkRedirect();
+    return () => {
+      active = false;
+    };
   }, []);
 
   const handleForgotPassword = async (e) => {
@@ -130,25 +175,27 @@ export default function Login() {
     setResendSuccess(false);
     setGoogleLoading(true);
     try {
-      const result = await signInWithPopup(auth, googleProvider);
+      let result;
+      try {
+        result = await signInWithPopup(auth, googleProvider);
+      } catch (popupErr) {
+        const isMobile = typeof isMobileOrCapacitor === 'function' ? isMobileOrCapacitor() : false;
+        const shouldFallbackToRedirect =
+          popupErr?.code === 'auth/popup-blocked' ||
+          popupErr?.code === 'auth/operation-not-supported-in-this-environment' ||
+          (isMobile && popupErr?.code === 'auth/popup-closed-by-user');
+
+        if (shouldFallbackToRedirect && typeof signInWithRedirect === 'function') {
+          await signInWithRedirect(auth, googleProvider);
+          return;
+        }
+        throw popupErr;
+      }
+
       if (!result || !result.user) {
         throw new Error('Authentication failed. Please try again.');
       }
-      const token = await result.user.getIdToken();
-      if (!token) {
-        throw new Error('Authentication failed. Please try again.');
-      }
-      const userEmail = result.user.email || '';
-      const lastEmail = localStorage.getItem('mediskye_user_email');
-      if (lastEmail && userEmail && lastEmail.toLowerCase() !== userEmail.toLowerCase()) {
-        localStorage.removeItem('mediskye_conversations');
-        localStorage.removeItem('mediskye_session_id');
-        localStorage.removeItem('mediskye_patient_id');
-      }
-      if (userEmail) {
-        localStorage.setItem('mediskye_user_email', userEmail);
-      }
-      navigate('/chat');
+      await completeAuthSuccess(result.user);
     } catch (err) {
       const mapped = typeof getFirebaseErrorMessage === 'function' ? getFirebaseErrorMessage(err) : '';
       setError(mapped || "Google authentication failed. Please try again.");
