@@ -179,7 +179,7 @@ export default function LabMetrics({
                   )}
                 >
                   {f.label}
-                  <span className={cn('ms-num text-[10px] px-1.5 rounded-full', active ? 'bg-cyan-400/20' : 'bg-white/[0.06]')}>{counts[f.value]}</span>
+                  <span className={cn('ms-num text-xs px-1.5 rounded-full', active ? 'bg-cyan-400/20' : 'bg-white/[0.06]')}>{counts[f.value]}</span>
                 </button>
               );
             })}
@@ -232,7 +232,7 @@ export default function LabMetrics({
                     <tbody key={g.key} className="divide-y divide-white/[0.045]">
                       {g.label && (
                         <tr className="bg-white/[0.015]">
-                          <td colSpan={hasPriorData ? 7 : 5} className="px-3.5 pt-3 pb-1.5 text-[11px] font-semibold text-ink-mute">
+                          <td colSpan={hasPriorData ? 7 : 5} className="px-3.5 pt-3 pb-1.5 text-xs font-semibold text-ink-mute">
                             {g.label} <span className="ms-num text-ink-faint">({g.rows.length})</span>
                           </td>
                         </tr>
@@ -264,7 +264,7 @@ export default function LabMetrics({
               {groups.map((g) => (
                 <section key={g.key} aria-label={g.label || 'Biomarkers'}>
                   {g.label && (
-                    <h3 className="px-1 mb-2 text-[11px] font-semibold text-ink-mute">
+                    <h3 className="px-1 mb-2 text-xs font-semibold text-ink-mute">
                       {g.label} <span className="ms-num text-ink-faint">({g.rows.length})</span>
                     </h3>
                   )}
@@ -289,7 +289,7 @@ export default function LabMetrics({
 }
 
 function Th({ children, className }) {
-  return <th className={cn('px-3.5 py-2.5 text-[11px] font-semibold text-ink-mute whitespace-nowrap', className)}>{children}</th>;
+  return <th className={cn('px-3.5 py-2.5 text-xs font-semibold text-ink-mute whitespace-nowrap', className)}>{children}</th>;
 }
 
 function MetricRow({ row, hasPriorData, highlighted, onAskAbout }) {
@@ -325,7 +325,7 @@ function MetricRow({ row, hasPriorData, highlighted, onAskAbout }) {
             {row.previous_value ? (
               <div>
                 <span className="font-medium text-ink-soft ms-num">{row.previous_value}</span>
-                {row.previous_date && <span className="text-[11px] text-ink-faint block">{row.previous_date}</span>}
+                {row.previous_date && <span className="text-xs text-ink-faint block">{row.previous_date}</span>}
               </div>
             ) : (
               '—'
@@ -365,7 +365,7 @@ function BiomarkerCard({ row, highlighted, onAskAbout }) {
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
           <div className="text-[14px] font-semibold text-white leading-snug">{testName}</div>
-          <div className="text-[11px] text-ink-faint mt-0.5">{organSystemOf(row).label}</div>
+          <div className="text-xs text-ink-faint mt-0.5">{organSystemOf(row).label}</div>
         </div>
         <StatusPill row={row} size="sm" className="shrink-0" />
       </div>
@@ -377,7 +377,7 @@ function BiomarkerCard({ row, highlighted, onAskAbout }) {
 
       <RangeBar row={row} showScale className="mt-2.5" />
 
-      <div className="mt-1 flex items-center justify-between gap-2 text-[11px]">
+      <div className="mt-1 flex items-center justify-between gap-2 text-xs">
         <span className="text-ink-mute truncate">
           {placement || (
             <>
@@ -393,7 +393,7 @@ function BiomarkerCard({ row, highlighted, onAskAbout }) {
           {hasPrev ? (
             <div className="min-w-0">
               <DeltaIndicator row={row} compact />
-              {row.previous_date && <div className="text-[10px] text-ink-faint mt-0.5">since {row.previous_date}</div>}
+              {row.previous_date && <div className="text-xs text-ink-faint mt-0.5">since {row.previous_date}</div>}
             </div>
           ) : (
             <span />

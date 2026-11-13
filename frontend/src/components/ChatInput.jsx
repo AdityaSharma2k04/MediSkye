@@ -262,7 +262,7 @@ const ChatInput = forwardRef(
           </div>
         </form>
 
-        <div className="mt-1.5 flex items-center justify-center gap-3 text-[11px] leading-tight text-ink-faint px-2 text-center">
+        <div className="mt-1.5 flex items-center justify-center gap-3 text-xs leading-tight text-ink-faint px-2 text-center">
           <span>{t('chat.disclaimer', 'MediSkye AI can make mistakes. Always verify critical results with a qualified healthcare professional.')}</span>
           {showKeyboardHint && (
             <span className="hidden xl:inline whitespace-nowrap text-ink-faint/80">

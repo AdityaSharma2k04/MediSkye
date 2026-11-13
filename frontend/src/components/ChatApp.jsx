@@ -1685,10 +1685,15 @@ export default function ChatApp() {
 
       <div
         data-testid="sidebar-wrapper"
-        className={`fixed inset-y-0 left-0 z-40 w-[min(300px,86vw)] lg:w-[272px] flex-shrink-0 transition-transform ease-out ${
+        className={`fixed inset-y-0 left-0 z-40 w-[min(300px,86vw)] lg:w-[272px] flex-shrink-0 transition-transform ${
           sidebarOpen ? 'translate-x-0' : '-translate-x-full'
         }`}
-        style={{ transitionDuration: '260ms' }}
+        style={{
+          transitionDuration: '220ms',
+          transitionTimingFunction: 'cubic-bezier(0.16, 1, 0.3, 1)',
+          transform: sidebarOpen ? 'translate3d(0, 0, 0)' : 'translate3d(-100%, 0, 0)',
+          willChange: 'transform',
+        }}
         aria-hidden={!sidebarOpen}
       >
         <Sidebar

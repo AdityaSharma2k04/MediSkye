@@ -139,7 +139,7 @@ export default function TrendChart({ series, height = 200, className }) {
 
       {activePt && (
         <div
-          className="pointer-events-none absolute -translate-x-1/2 -translate-y-full ms-glass rounded-lg px-2.5 py-1.5 text-[11px] whitespace-nowrap"
+          className="pointer-events-none absolute -translate-x-1/2 -translate-y-full ms-glass rounded-lg px-2.5 py-1.5 text-xs whitespace-nowrap"
           style={{ left: `${(activePt.cx / W) * 100}%`, top: `${(activePt.cy / H) * 100}%`, marginTop: -10 }}
         >
           <div className="ms-num text-white font-semibold">

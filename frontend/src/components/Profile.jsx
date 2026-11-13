@@ -563,7 +563,7 @@ export default function Profile({
           >
             <Users className="w-3.5 h-3.5" />
             Dependents ({dependents.length})
-            <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-medium ${
+            <span className={`text-xs px-1.5 py-0.5 rounded-full font-medium ${
               darkMode ? 'bg-slate2 text-ink-soft' : 'bg-zinc-200 text-zinc-700'
             }`}>
               Caregiver
@@ -1036,7 +1036,7 @@ export default function Profile({
                           <div>
                             <div className="flex items-center gap-2">
                               <span className={`font-semibold text-sm ${textPrimary}`}>{dep.full_name}</span>
-                              <span className={`text-[10px] px-2 py-0.5 rounded-full font-medium ${
+                              <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${
                                 darkMode ? 'bg-cyan-500/10 text-cyan-200 border border-cyan-500/25' : 'bg-indigo-50 text-indigo-700 border border-indigo-200'
                               }`}>
                                 {dep.relationship}
@@ -1079,25 +1079,25 @@ export default function Profile({
                       {(dep.pre_existing_conditions || dep.current_medications || dep.known_allergies || dep.diet_type || dep.activity_level || dep.occupation) && (
                         <div className="mt-3 pt-2 border-t border-white/[0.07] text-xs space-y-1">
                           {dep.pre_existing_conditions && (
-                            <div className="flex items-baseline gap-1.5 text-[11px]">
+                            <div className="flex items-baseline gap-1.5 text-xs">
                               <span className="text-ink-faint font-medium shrink-0">Conditions:</span>
                               <span className={darkMode ? 'text-ink-soft' : 'text-zinc-700'}>{dep.pre_existing_conditions}</span>
                             </div>
                           )}
                           {dep.current_medications && (
-                            <div className="flex items-baseline gap-1.5 text-[11px]">
+                            <div className="flex items-baseline gap-1.5 text-xs">
                               <span className="text-ink-faint font-medium shrink-0">Medications:</span>
                               <span className={darkMode ? 'text-ink-soft' : 'text-zinc-700'}>{dep.current_medications}</span>
                             </div>
                           )}
                           {dep.known_allergies && (
-                            <div className="flex items-baseline gap-1.5 text-[11px]">
+                            <div className="flex items-baseline gap-1.5 text-xs">
                               <span className="text-ink-faint font-medium shrink-0">Allergies:</span>
                               <span className={darkMode ? 'text-ink-soft' : 'text-zinc-700'}>{dep.known_allergies}</span>
                             </div>
                           )}
                           {(dep.diet_type || dep.activity_level || dep.occupation) && (
-                            <div className="flex items-center gap-1.5 text-[10px] text-ink-mute pt-1 flex-wrap">
+                            <div className="flex items-center gap-1.5 text-xs text-ink-mute pt-1 flex-wrap">
                               {dep.diet_type && (
                                 <span className="px-1.5 py-0.5 rounded bg-slate2/80 border border-white/[0.12]">
                                   {dep.diet_type.replace('_', ' ')}

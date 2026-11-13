@@ -21,7 +21,7 @@ export function initialsOf(name = '', fallback = 'U') {
 }
 
 export function PatientAvatar({ name, index = 0, size = 'md', className }) {
-  const sizes = { sm: 'w-6 h-6 text-[10px]', md: 'w-8 h-8 text-xs', lg: 'w-11 h-11 text-sm' };
+  const sizes = { sm: 'w-6 h-6 text-xs', md: 'w-8 h-8 text-xs', lg: 'w-11 h-11 text-sm' };
   return (
     <span className={cn('inline-flex items-center justify-center rounded-full bg-gradient-to-br ring-1 font-semibold shrink-0', AVATAR_TONES[index % AVATAR_TONES.length], sizes[size], className)}>
       {initialsOf(name)}
@@ -106,9 +106,9 @@ export default function PatientSwitcher({ currentUser, dependents = [], selected
             <span className="min-w-0 flex-1">
               <span className="flex items-center gap-1.5">
                 <span className="text-[13px] font-medium text-white truncate">{p.name}</span>
-                <span className="text-[10px] px-1.5 py-px rounded-full bg-white/[0.06] text-ink-mute shrink-0">{p.relationship}</span>
+                <span className="text-xs px-1.5 py-px rounded-full bg-white/[0.06] text-ink-mute shrink-0">{p.relationship}</span>
               </span>
-              <span className="block text-[11px] text-ink-faint mt-0.5 truncate">
+              <span className="block text-xs text-ink-faint mt-0.5 truncate">
                 {[p.meta, count ? `${count} report${count === 1 ? '' : 's'}` : 'No reports yet'].filter(Boolean).join(', ')}
               </span>
             </span>
@@ -149,7 +149,7 @@ export default function PatientSwitcher({ currentUser, dependents = [], selected
       >
         <PatientAvatar name={active?.name} index={activeIdx} size="sm" />
         {!compact && <span className="truncate text-xs font-medium text-ink">{active?.name}</span>}
-        {!compact && <span className="hidden sm:inline text-[10px] text-ink-faint shrink-0">{active?.relationship}</span>}
+        {!compact && <span className="hidden sm:inline text-xs text-ink-faint shrink-0">{active?.relationship}</span>}
         <ChevronDown className={cn('w-3.5 h-3.5 text-ink-mute shrink-0 transition-transform', open && 'rotate-180')} />
       </button>
 
@@ -176,7 +176,7 @@ export default function PatientSwitcher({ currentUser, dependents = [], selected
               transition={{ duration: 0.16, ease: [0.22, 1, 0.36, 1] }}
               className="absolute left-0 top-full mt-2 w-80 rounded-2xl ms-glass z-50 overflow-hidden"
             >
-              <div className="px-3.5 pt-3 pb-1 text-[11px] font-semibold text-ink-mute">Clinical analysis lens</div>
+              <div className="px-3.5 pt-3 pb-1 text-xs font-semibold text-ink-mute">Clinical analysis lens</div>
               {list}
               <div className="p-2 border-t border-white/[0.06]">{manage}</div>
             </motion.div>

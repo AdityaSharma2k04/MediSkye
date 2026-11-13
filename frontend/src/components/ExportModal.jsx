@@ -215,7 +215,7 @@ export default function ExportModal({
               </div>
               <div className="min-w-0">
                 <div className={`text-xs font-semibold ${darkMode ? 'text-ink' : 'text-zinc-900'}`}>Download JSON</div>
-                <div className={`text-[11px] leading-relaxed mt-0.5 ${darkMode ? 'text-ink-faint' : 'text-ink-mute'}`}>
+                <div className={`text-xs leading-relaxed mt-0.5 ${darkMode ? 'text-ink-faint' : 'text-ink-mute'}`}>
                   Raw data — full transcript, document metadata and lab metrics in machine-readable JSON.
                 </div>
               </div>
@@ -240,7 +240,7 @@ export default function ExportModal({
               </div>
               <div className="min-w-0">
                 <div className={`text-xs font-semibold ${darkMode ? 'text-ink' : 'text-zinc-900'}`}>Download PDF</div>
-                <div className={`text-[11px] leading-relaxed mt-0.5 ${darkMode ? 'text-ink-faint' : 'text-ink-mute'}`}>
+                <div className={`text-xs leading-relaxed mt-0.5 ${darkMode ? 'text-ink-faint' : 'text-ink-mute'}`}>
                   Formal document — formatted transcript, metrics table and medical disclaimer, ready to print or save.
                 </div>
               </div>

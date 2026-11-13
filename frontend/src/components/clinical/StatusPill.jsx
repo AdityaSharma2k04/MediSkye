@@ -9,7 +9,7 @@ import { classifyStatus, TONE } from '../../lib/clinical';
 export default function StatusPill({ row, size = 'md', className }) {
   const c = classifyStatus(row);
   const deltaAlert = row?.delta_alert;
-  const sizes = { sm: 'text-[10px] px-2 py-0.5', md: 'text-[11px] px-2.5 py-0.5' };
+  const sizes = { sm: 'text-xs px-2 py-0.5', md: 'text-xs px-2.5 py-0.5' };
 
   let tone = 'neutral';
   let glyph = null;

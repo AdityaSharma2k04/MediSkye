@@ -45,7 +45,7 @@ export default function SegmentedControl({ options, value, onChange, layoutId, s
             {Icon && <Icon className="w-3.5 h-3.5" aria-hidden="true" />}
             <span>{opt.label}</span>
             {opt.count !== undefined && opt.count !== null && (
-              <span className={cn('ms-num text-[10px] px-1.5 rounded-full', isActive ? 'bg-white/10 text-white' : 'bg-white/[0.05] text-ink-mute')}>
+              <span className={cn('ms-num text-xs px-1.5 rounded-full', isActive ? 'bg-white/10 text-white' : 'bg-white/[0.05] text-ink-mute')}>
                 {opt.count}
               </span>
             )}

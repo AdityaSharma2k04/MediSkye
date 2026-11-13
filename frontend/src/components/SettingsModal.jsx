@@ -110,7 +110,7 @@ function Section({ title, icon: Icon, children, darkMode }) {
 function Field({ label, children, darkMode }) {
   return (
     <div>
-      <label className={`block text-[11px] font-medium mb-1 ${darkMode ? 'text-ink-mute' : 'text-ink-faint'}`}>
+      <label className={`block text-xs font-medium mb-1 ${darkMode ? 'text-ink-mute' : 'text-ink-faint'}`}>
         {label}
       </label>
       {children}
@@ -279,7 +279,7 @@ export function ChangePasswordModal({ isOpen, onClose, darkMode, isGoogleOnly = 
               className={inputClass(darkMode)}
             />
             {confirmPassword && newPassword !== confirmPassword && (
-              <p className="text-[10px] text-red-400 mt-1">Passwords do not match</p>
+              <p className="text-xs text-red-400 mt-1">Passwords do not match</p>
             )}
           </Field>
         </div>
@@ -674,7 +674,7 @@ export default function SettingsModal({
                 <div className={`text-xs font-semibold ${darkMode ? 'text-ink' : 'text-zinc-800'}`}>
                   Health Profile &amp; Caregivers
                 </div>
-                <p className={`text-[11px] leading-relaxed ${darkMode ? 'text-ink-mute' : 'text-ink-faint'}`}>
+                <p className={`text-xs leading-relaxed ${darkMode ? 'text-ink-mute' : 'text-ink-faint'}`}>
                   Manage clinical vitals, allergies, conditions, and family dependent profiles.
                 </p>
               </div>
@@ -728,7 +728,7 @@ export default function SettingsModal({
                     <span className={`text-xs font-semibold ${darkMode ? 'text-ink' : 'text-zinc-800'}`}>
                       {t('settings.auto_read', 'Auto-read AI responses aloud')}
                     </span>
-                    <span className={`text-[10px] px-1.5 py-0.2 rounded-full font-medium border ${
+                    <span className={`text-xs px-1.5 py-0.2 rounded-full font-medium border ${
                       draftState.autoRead
                         ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20'
                         : 'bg-zinc-500/10 text-ink-mute border-zinc-500/20'
@@ -736,7 +736,7 @@ export default function SettingsModal({
                       {draftState.autoRead ? t('settings.on', 'On') : t('settings.off', 'Off')}
                     </span>
                   </div>
-                  <p className={`text-[11px] leading-relaxed ${darkMode ? 'text-ink-mute' : 'text-ink-faint'}`}>
+                  <p className={`text-xs leading-relaxed ${darkMode ? 'text-ink-mute' : 'text-ink-faint'}`}>
                     {t('settings.auto_read_desc', 'Speaks each completed answer in the selected AI language. Any new question or Stop immediately silences the reading.')}
                   </p>
                 </div>
@@ -769,7 +769,7 @@ export default function SettingsModal({
                   <div className="space-y-0.5 pr-2">
                     <div className="flex items-center gap-2">
                       <span className="text-xs font-semibold">Cross-Session Memory</span>
-                      <span className={`text-[10px] px-1.5 py-0.2 rounded-full font-medium border ${
+                      <span className={`text-xs px-1.5 py-0.2 rounded-full font-medium border ${
                         memoryConsent
                           ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20'
                           : 'bg-zinc-500/10 text-ink-mute border-zinc-500/20'
@@ -777,7 +777,7 @@ export default function SettingsModal({
                         {memoryConsent ? 'Active' : 'Disabled'}
                       </span>
                     </div>
-                    <p className={`text-[11px] leading-relaxed ${darkMode ? 'text-ink-mute' : 'text-ink-faint'}`}>
+                    <p className={`text-xs leading-relaxed ${darkMode ? 'text-ink-mute' : 'text-ink-faint'}`}>
                       Allow MediSkye to remember clinical facts across sessions (conditions, medications, lab trends, lifestyle).
                     </p>
                   </div>
@@ -819,7 +819,7 @@ export default function SettingsModal({
                       <Brain className="w-3.5 h-3.5 text-cyan-400" />
                       <span>Open Memory Vault</span>
                     </div>
-                    <span className={`text-[10px] ${darkMode ? 'text-ink-faint' : 'text-ink-mute'}`}>→</span>
+                    <span className={`text-xs ${darkMode ? 'text-ink-faint' : 'text-ink-mute'}`}>→</span>
                   </button>
                 </div>
               </div>
@@ -844,10 +844,10 @@ export default function SettingsModal({
                     <Lock className="w-3.5 h-3.5" />
                     {isGoogleOnly ? "Set password" : "Change password"}
                   </span>
-                  <span className={`text-[10px] ${darkMode ? 'text-ink-faint' : 'text-ink-mute'}`}>→</span>
+                  <span className={`text-xs ${darkMode ? 'text-ink-faint' : 'text-ink-mute'}`}>→</span>
                 </button>
                 {isGoogleOnly && (
-                  <p className={`text-[11px] leading-relaxed px-0.5 ${darkMode ? 'text-ink-mute' : 'text-ink-faint'}`}>
+                  <p className={`text-xs leading-relaxed px-0.5 ${darkMode ? 'text-ink-mute' : 'text-ink-faint'}`}>
                     You signed in with Google. You can set a password to enable email &amp; password sign-in.
                   </p>
                 )}
@@ -871,7 +871,7 @@ export default function SettingsModal({
                     <Download className="w-3.5 h-3.5 text-cyan-400" />
                     {isExporting ? 'Exporting...' : 'Export my data'}
                   </span>
-                  <span className={`text-[10px] px-2 py-0.5 rounded-md font-mono ${darkMode ? 'bg-slate2 text-ink-mute' : 'bg-zinc-200 text-zinc-600'}`}>
+                  <span className={`text-xs px-2 py-0.5 rounded-md font-mono ${darkMode ? 'bg-slate2 text-ink-mute' : 'bg-zinc-200 text-zinc-600'}`}>
                     JSON
                   </span>
                 </button>
@@ -883,7 +883,7 @@ export default function SettingsModal({
                   <div className="flex items-center justify-between mb-1">
                     <span className="text-xs font-semibold">Reset Profile Chats &amp; Memory</span>
                   </div>
-                  <p className={`text-[11px] leading-relaxed mb-2.5 ${darkMode ? 'text-ink-mute' : 'text-zinc-600'}`}>
+                  <p className={`text-xs leading-relaxed mb-2.5 ${darkMode ? 'text-ink-mute' : 'text-zinc-600'}`}>
                     Wipe all chats, uploaded reports, and Memory Vault facts for a specific profile without deleting the profile or its clinical background.
                   </p>
                   <div className="space-y-2">
@@ -935,7 +935,7 @@ export default function SettingsModal({
                       <Trash2 className="w-3.5 h-3.5 text-amber-400" />
                       <span>Delete All Chats &amp; Data</span>
                     </span>
-                    <span className={`text-[10px] px-2 py-0.5 rounded font-mono ${darkMode ? 'bg-amber-500/10 text-amber-400' : 'bg-amber-100 text-amber-700'}`}>
+                    <span className={`text-xs px-2 py-0.5 rounded font-mono ${darkMode ? 'bg-amber-500/10 text-amber-400' : 'bg-amber-100 text-amber-700'}`}>
                       Global
                     </span>
                   </button>
@@ -946,11 +946,11 @@ export default function SettingsModal({
                   darkMode ? 'border-red-500/30 bg-red-950/20' : 'border-red-200 bg-red-50/60'
                 }`}>
                   <div className="flex items-center justify-between mb-1.5">
-                    <span className="text-[11px] font-semibold text-red-400">
+                    <span className="text-xs font-semibold text-red-400">
                       Danger Zone
                     </span>
                   </div>
-                  <p className={`text-[11px] leading-relaxed mb-3 ${darkMode ? 'text-ink-mute' : 'text-zinc-600'}`}>
+                  <p className={`text-xs leading-relaxed mb-3 ${darkMode ? 'text-ink-mute' : 'text-zinc-600'}`}>
                     Permanently delete your MediSkye account, medical profiles, uploaded lab documents, and remembered facts.
                   </p>
                   <button

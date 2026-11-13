@@ -16,7 +16,7 @@ export default function DeltaIndicator({ row, compact = false, showValues = true
   const pct = d === null ? '' : formatDeltaPct(Math.abs(d)).replace('+', '');
 
   return (
-    <span className={cn('inline-flex items-baseline gap-1.5 ms-num whitespace-nowrap', compact ? 'text-[11px]' : 'text-xs', className)}>
+    <span className={cn('inline-flex items-baseline gap-1.5 ms-num whitespace-nowrap text-xs', className)}>
       {showValues && hasPrev && (
         <span className="text-ink-mute">
           {row.previous_value} <span className="text-ink-faint">→</span> <span className="text-ink-soft">{row.value}</span>

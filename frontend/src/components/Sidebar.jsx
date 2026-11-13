@@ -206,9 +206,9 @@ export default function Sidebar({
                   <span className="flex items-center gap-1.5 mt-1">
                     {dep && <PatientAvatar name={dep.name} index={dep.index} size="sm" className="!w-4 !h-4 !text-[8px]" />}
                     {chat.collected_at ? (
-                      <span className="text-[10px] ms-num px-1.5 py-px rounded-md bg-cyan-500/10 text-cyan-200/90 border border-cyan-500/15">{chat.collected_at}</span>
+                      <span className="text-xs ms-num px-1.5 py-px rounded-md bg-cyan-500/10 text-cyan-200/90 border border-cyan-500/15">{chat.collected_at}</span>
                     ) : null}
-                    {chat.created_at && <span className="text-[10px] text-ink-faint">{formatRelativeTime(chat.created_at)}</span>}
+                    {chat.created_at && <span className="text-xs text-ink-faint">{formatRelativeTime(chat.created_at)}</span>}
                   </span>
                 )}
               </span>
@@ -337,13 +337,13 @@ export default function Sidebar({
                       <MessageSquare className="w-5 h-5" />
                     </div>
                     <div className="text-xs font-semibold mb-1 text-ink-soft">{t('sidebar.no_conversations_title', 'No conversations yet')}</div>
-                    <div className="text-[11px] leading-relaxed mb-4 text-ink-faint">
+                    <div className="text-xs leading-relaxed mb-4 text-ink-faint">
                       {t('sidebar.no_conversations_subtitle', 'Upload a medical report or start a new conversation to see it here.')}
                     </div>
                     <button
                       type="button"
                       onClick={onNewChat}
-                      className="px-3 h-8 rounded-lg text-[11px] font-medium border border-white/[0.1] text-ink-soft hover:bg-white/[0.05] hover:text-white transition"
+                      className="px-3 h-8 rounded-lg text-xs font-medium border border-white/[0.1] text-ink-soft hover:bg-white/[0.05] hover:text-white transition"
                     >
                       {t('sidebar.new_consultation', 'New Conversation')}
                     </button>
@@ -358,13 +358,13 @@ export default function Sidebar({
                 <>
                   {reportChats.length > 0 && (
                     <section aria-label="Lab reports">
-                      <h3 className="px-2.5 pb-1 text-[11px] font-semibold text-ink-faint">Lab reports</h3>
+                      <h3 className="px-2.5 pb-1 text-xs font-semibold text-ink-faint">Lab reports</h3>
                       <div className="space-y-0.5">{reportChats.map(renderChat)}</div>
                     </section>
                   )}
                   {plainChats.length > 0 && (
                     <section aria-label={t('sidebar.history', 'History')}>
-                      <h3 className="px-2.5 pb-1 text-[11px] font-semibold text-ink-faint">{t('sidebar.history', 'History')}</h3>
+                      <h3 className="px-2.5 pb-1 text-xs font-semibold text-ink-faint">{t('sidebar.history', 'History')}</h3>
                       <div className="space-y-0.5">{plainChats.map(renderChat)}</div>
                     </section>
                   )}
@@ -394,9 +394,9 @@ export default function Sidebar({
 
               <div className="mt-1.5 flex items-center gap-2.5 px-2 py-2 rounded-xl bg-white/[0.02] border border-white/[0.05]">
                 <PatientAvatar name={identity} size="md" />
-                <div className="min-w-0 text-[11px]">
+                <div className="min-w-0 text-xs">
                   <div className="font-medium truncate text-ink">{identity}</div>
-                  <div className="flex items-center gap-1 text-[10px] truncate text-ink-faint">
+                  <div className="flex items-center gap-1 text-xs truncate text-ink-faint">
                     <ShieldCheck className="w-3 h-3 shrink-0 text-emerald-400/80" />
                     <span className="truncate">{t('sidebar.encrypted', 'Encrypted at rest (Fernet) • TLS 1.3 in transit')}</span>
                   </div>

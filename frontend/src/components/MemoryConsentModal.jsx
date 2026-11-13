@@ -39,7 +39,7 @@ export default function MemoryConsentModal({ isOpen, onAllow, onSkip, darkMode =
           MediSkye can remember important health information from our conversations to personalize future answers. You can see and edit what's remembered anytime in Settings.
         </p>
 
-        <div className={`p-3 rounded-xl mb-6 text-[11px] flex items-center gap-2 border ${
+        <div className={`p-3 rounded-xl mb-6 text-xs flex items-center gap-2 border ${
           darkMode ? 'bg-obsidian border-white/[0.07] text-ink-mute' : 'bg-zinc-50 border-zinc-200 text-zinc-600'
         }`}>
           <ShieldCheck className="w-4 h-4 text-emerald-500 shrink-0" />

@@ -105,8 +105,19 @@ export default function ChatWindow({
   const scrollToBottom = (behavior = 'auto') => {
     const el = scrollRef.current;
     if (!el) return;
-    if (typeof el.scrollTo === 'function') el.scrollTo({ top: el.scrollHeight, behavior });
-    else el.scrollTop = el.scrollHeight;
+    if (typeof window !== 'undefined' && window.requestAnimationFrame) {
+      window.requestAnimationFrame(() => {
+        if (!el) return;
+        if (typeof el.scrollTo === 'function' && behavior === 'smooth') {
+          el.scrollTo({ top: el.scrollHeight, behavior: 'smooth' });
+        } else {
+          el.scrollTop = el.scrollHeight;
+        }
+      });
+    } else {
+      if (typeof el.scrollTo === 'function') el.scrollTo({ top: el.scrollHeight, behavior });
+      else el.scrollTop = el.scrollHeight;
+    }
   };
 
   useLayoutEffect(() => {
@@ -160,7 +171,7 @@ export default function ChatWindow({
                   </div>
                   <div className="min-w-0 flex-1">
                     <div className="text-[13px] font-medium text-white truncate">{activePdf.filename || activePdf.name || 'Lab report'}</div>
-                    <div className="text-[11px] text-ink-mute mt-0.5">
+                    <div className="text-xs text-ink-mute mt-0.5">
                       {[reportDateLabel(activePdf) && `Collected ${reportDateLabel(activePdf)}`, triage.total ? `${triage.total} biomarkers extracted` : 'Extracting biomarkers'].filter(Boolean).join(', ')}
                     </div>
                   </div>
@@ -208,7 +219,7 @@ export default function ChatWindow({
                 )}
               </div>
 
-              <div className="mt-8 flex items-center gap-2 text-[11px] text-ink-faint">
+              <div className="mt-8 flex items-center gap-2 text-xs text-ink-faint">
                 <ShieldCheck className="w-3.5 h-3.5" />
                 <span>{t('chat.encrypted_session', 'Encrypted at rest (Fernet) • TLS 1.3 in transit')}</span>
               </div>
@@ -252,7 +263,7 @@ function Stat({ n, label, tone }) {
   return (
     <div>
       <div className={cn('ms-num text-lg font-semibold leading-none', tone)}>{n}</div>
-      <div className="text-[10px] text-ink-faint mt-1">{label}</div>
+      <div className="text-xs text-ink-faint mt-1">{label}</div>
     </div>
   );
 }

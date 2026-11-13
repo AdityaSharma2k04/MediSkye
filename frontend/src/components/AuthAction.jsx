@@ -160,10 +160,10 @@ export default function AuthAction() {
               </div>
               <div>
                 <span className="block text-base font-bold tracking-tight text-white leading-none">MediSkye</span>
-                <span className="block text-[10px] font-medium uppercase tracking-wider text-slate-400 mt-1">Clinical AI Platform</span>
+                <span className="block text-xs font-medium uppercase tracking-wider text-slate-400 mt-1">Clinical AI Platform</span>
               </div>
             </Link>
-            <span className="inline-flex items-center px-2.5 py-1 rounded-full text-[11px] font-semibold uppercase tracking-wider bg-cyan-500/10 text-cyan-300 border border-cyan-500/25">
+            <span className="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-semibold uppercase tracking-wider bg-cyan-500/10 text-cyan-300 border border-cyan-500/25">
               {isPasswordReset ? 'Password Reset' : 'Verify Account'}
             </span>
           </div>
@@ -239,7 +239,7 @@ export default function AuthAction() {
                         <div key={bar} className={`rounded-full transition-colors ${strength.level >= bar ? strength.color : 'bg-slate-800'}`} />
                       ))}
                     </div>
-                    <p className="text-[11px] text-slate-400 mt-1">{strength.label}</p>
+                    <p className="text-xs text-slate-400 mt-1">{strength.label}</p>
                   </div>
                 )}
               </div>

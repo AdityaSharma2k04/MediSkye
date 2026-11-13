@@ -58,7 +58,7 @@ export default function TrendsView({ series, loading, source, reportCount = 0, l
           <div className="flex items-start justify-between gap-3 mb-2">
             <div className="min-w-0">
               <h3 className="text-[15px] font-semibold text-white truncate">{current.name}</h3>
-              <div className="text-[11px] text-ink-mute mt-0.5">
+              <div className="text-xs text-ink-mute mt-0.5">
                 Reference <span className="ms-num">{current.range || 'not stated'}</span>
                 {current.unit ? <span className="ms-num"> {current.unit}</span> : null}
               </div>
@@ -68,12 +68,12 @@ export default function TrendsView({ series, loading, source, reportCount = 0, l
                 <div className={cn('ms-num text-lg font-semibold leading-none', Math.abs(current.change) >= 10 ? 'text-amber-300' : 'text-white')}>
                   {current.change < 0 ? '↓' : '↑'} {formatDeltaPct(Math.abs(current.change)).replace('+', '')}
                 </div>
-                <div className="text-[10px] text-ink-faint mt-1">first → latest</div>
+                <div className="text-xs text-ink-faint mt-1">first → latest</div>
               </div>
             )}
           </div>
           <TrendChart series={current} />
-          <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-[10px] text-ink-faint">
+          <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-xs text-ink-faint">
             <span className="inline-flex items-center gap-1.5"><span className="w-3 h-2 rounded-sm bg-emerald-500/25" /> Reference interval</span>
             <span className="inline-flex items-center gap-1.5"><span className="w-2 h-2 rounded-full border border-dashed border-slate-400" /> Baseline from report</span>
           </div>
@@ -81,7 +81,7 @@ export default function TrendsView({ series, loading, source, reportCount = 0, l
       )}
 
       <section aria-label="Biomarkers with history">
-        <h4 className="px-1 mb-2 text-[11px] font-semibold text-ink-mute">
+        <h4 className="px-1 mb-2 text-xs font-semibold text-ink-mute">
           {multiPoint.length} biomarker{multiPoint.length === 1 ? '' : 's'} with history
         </h4>
         <ul className="space-y-1">
@@ -102,12 +102,12 @@ export default function TrendsView({ series, loading, source, reportCount = 0, l
                 >
                   <span className="min-w-0 flex-1">
                     <span className="block text-xs font-medium text-ink truncate">{s.name}</span>
-                    <span className="block text-[10px] text-ink-faint ms-num">
+                    <span className="block text-xs text-ink-faint ms-num">
                       {s.points.length} readings, latest {formatNumber(last.value)} {s.unit}
                     </span>
                   </span>
                   <Sparkline points={s.points} />
-                  <span className={cn('ms-num text-[11px] font-semibold w-14 text-right', notable ? 'text-amber-300' : 'text-ink-mute')}>
+                  <span className={cn('ms-num text-xs font-semibold w-14 text-right', notable ? 'text-amber-300' : 'text-ink-mute')}>
                     {s.change === null ? '—' : formatDeltaPct(s.change)}
                   </span>
                 </button>
@@ -117,7 +117,7 @@ export default function TrendsView({ series, loading, source, reportCount = 0, l
         </ul>
       </section>
 
-      <p className="flex items-start gap-2 text-[11px] text-ink-faint px-1">
+      <p className="flex items-start gap-2 text-xs text-ink-faint px-1">
         <Info className="w-3.5 h-3.5 mt-px shrink-0" />
         {source === 'server'
           ? 'Series served by the MediSkye trends service.'

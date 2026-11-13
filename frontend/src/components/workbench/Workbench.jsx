@@ -5,14 +5,9 @@ import {
   Download,
   FlaskConical,
   Search,
-  MoreHorizontal,
   MessageSquare,
   Activity,
   FileText,
-  Brain,
-  Users,
-  Settings,
-  Languages,
   UploadCloud,
   X,
 } from 'lucide-react';
@@ -28,7 +23,6 @@ import { BrandMark } from './Brand';
 import SegmentedControl from '../ui/SegmentedControl';
 import IconButton from '../ui/IconButton';
 import Kbd from '../ui/Kbd';
-import Sheet from '../ui/Sheet';
 import useResizablePane from '../../hooks/useResizablePane';
 import { MOD_LABEL } from '../../hooks/useHotkeys';
 import { STORAGE_KEYS } from '../../lib/storageKeys';
@@ -116,7 +110,6 @@ export default function Workbench(props) {
   const [showPrintSummary, setShowPrintSummary] = useState(false);
   const [printMetrics, setPrintMetrics] = useState(null);
   const [printUser, setPrintUser] = useState(null);
-  const [moreOpen, setMoreOpen] = useState(false);
   const [dragActive, setDragActive] = useState(false);
   const dragDepth = useRef(0);
 
@@ -275,7 +268,7 @@ export default function Workbench(props) {
             <div className="hidden xl:flex items-center gap-2 min-w-0 pl-2 ml-1 border-l border-white/[0.07]">
               <FileText className="w-3.5 h-3.5 text-cyan-300 shrink-0" />
               <span className="text-xs text-ink-soft truncate max-w-[240px]">{`${activePdf.filename || activePdf.name || 'Lab report'}`}</span>
-              {reportDate && <span className="ms-num text-[11px] text-ink-faint shrink-0">{`Collected ${reportDate}`}</span>}
+              {reportDate && <span className="ms-num text-xs text-ink-faint shrink-0">{`Collected ${reportDate}`}</span>}
             </div>
           )}
 
@@ -332,11 +325,7 @@ export default function Workbench(props) {
               </IconButton>
             )}
 
-            {!isDesktop && (
-              <IconButton label={t('workbench.more_actions', 'More actions')} onClick={() => setMoreOpen(true)}>
-                <MoreHorizontal className="w-[18px] h-[18px]" />
-              </IconButton>
-            )}
+            {/* Mobile overflow actions removed as all options are accessible via the sidebar drawer */}
           </div>
         </div>
 
@@ -460,32 +449,7 @@ export default function Workbench(props) {
         )}
       </div>
 
-      {/* Mobile overflow actions */}
-      {!isDesktop && (
-        <Sheet open={moreOpen} onOpenChange={setMoreOpen} title="Actions" icon={MoreHorizontal} variant="center" width={420}>
-          <div className="p-3 space-y-1">
-            {activePdf && (
-              <SheetAction
-                icon={Printer}
-                label={isExportingSummary ? t('chat.preparing_summary', 'Preparing Summary...') : t('workbench.print_physician', 'Print physician summary')}
-                onClick={() => {
-                  setMoreOpen(false);
-                  setTimeout(handlePrintDoctorSummary, 250);
-                }}
-              />
-            )}
-            {onOpenExport && <SheetAction icon={Download} label={t('workbench.export_transcript', 'Export chat transcript')} onClick={() => { setMoreOpen(false); onOpenExport(); }} />}
-            <SheetAction icon={Brain} label={t('workbench.memory_vault', 'Memory vault')} onClick={() => { setMoreOpen(false); onOpenMemory?.(); }} />
-            <SheetAction icon={Users} label={t('workbench.caregiver_hub', 'Profile & caregivers')} onClick={() => { setMoreOpen(false); onOpenProfile?.(); }} />
-            <SheetAction
-              icon={Languages}
-              label={uiLanguage === 'hi' ? 'Switch to English' : 'हिंदी में बदलें (Hindi)'}
-              onClick={() => onSetUiLanguage?.(uiLanguage === 'hi' ? 'en' : 'hi')}
-            />
-            <SheetAction icon={Settings} label={t('sidebar.settings', 'Settings')} onClick={() => { setMoreOpen(false); onOpenSettings?.(); }} />
-          </div>
-        </Sheet>
-      )}
+
 
       {/* PrintableSummary — mounted only while printing */}
       {showPrintSummary && (
@@ -498,18 +462,5 @@ export default function Workbench(props) {
         />
       )}
     </div>
-  );
-}
-
-function SheetAction({ icon: Icon, label, onClick }) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      className="ms-tap w-full flex items-center gap-3 px-3 h-12 rounded-xl text-left text-sm text-ink-soft hover:bg-white/[0.05] hover:text-white transition"
-    >
-      <Icon className="w-4 h-4 text-ink-mute" />
-      {label}
-    </button>
   );
 }

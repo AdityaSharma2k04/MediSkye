@@ -67,7 +67,7 @@ const markdownComponents = {
     return (
       <td {...props}>
         {tone ? (
-          <span className={cn('inline-flex items-center px-2 py-0.5 rounded-full border text-[11px] font-semibold', TONE_CLASSES[tone])}>{children}</span>
+          <span className={cn('inline-flex items-center px-2 py-0.5 rounded-full border text-xs font-semibold', TONE_CLASSES[tone])}>{children}</span>
         ) : (
           children
         )}
@@ -181,7 +181,7 @@ export default function ChatMessage({ message, onRegenerate }) {
       <div className="min-w-0 flex-1">
         <div className="flex items-center gap-2 mb-1.5 text-xs">
           <span className="font-semibold text-ink-soft">MediSkye AI</span>
-          <span className="text-[11px] text-ink-faint">{message.timestamp || 'Just now'}</span>
+          <span className="text-xs text-ink-faint">{message.timestamp || 'Just now'}</span>
         </div>
 
         {isStreaming && !content && !message.error && (

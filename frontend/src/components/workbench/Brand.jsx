@@ -31,7 +31,7 @@ export function BrandLockup({ size = 28, className, subtitle }) {
       <BrandMark size={size} />
       <span className="min-w-0 leading-none">
         <span className="block text-[15px] font-semibold tracking-tight text-white">MediSkye</span>
-        {subtitle && <span className="block text-[10px] text-ink-faint mt-1 truncate">{subtitle}</span>}
+        {subtitle && <span className="block text-xs text-ink-faint mt-1 truncate">{subtitle}</span>}
       </span>
     </span>
   );

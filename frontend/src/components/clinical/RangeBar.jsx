@@ -19,7 +19,7 @@ export default function RangeBar({ row, size = 'md', showScale = false, showPrev
   const geo = rangeGeometry(row);
   if (!geo) {
     return (
-      <div className={cn('text-[11px] text-ink-faint italic', className)} aria-hidden="true">
+      <div className={cn('text-xs text-ink-faint italic', className)} aria-hidden="true">
         No numeric interval
       </div>
     );
@@ -72,7 +72,7 @@ export default function RangeBar({ row, size = 'md', showScale = false, showPrev
       </div>
 
       {showScale && (
-        <div className="relative h-4 mt-0.5 text-[10px] ms-num text-ink-faint" aria-hidden="true">
+        <div className="relative h-4 mt-0.5 text-xs ms-num text-ink-faint" aria-hidden="true">
           {geo.low !== null && (
             <span className="absolute -translate-x-1/2" style={{ left: `${geo.lowPct}%` }}>
               {geo.low}

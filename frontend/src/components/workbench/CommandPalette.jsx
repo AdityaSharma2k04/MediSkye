@@ -156,7 +156,7 @@ export default function CommandPalette({
                 >
                   <Languages className={iconCls} />
                   {uiLanguage === 'hi' ? 'Switch interface to English' : 'Switch interface to हिंदी (Hindi)'}
-                  <span className="ml-auto ms-num text-[10px] text-ink-faint">{uiLanguage.toUpperCase()}</span>
+                  <span className="ml-auto ms-num text-xs text-ink-faint">{uiLanguage.toUpperCase()}</span>
                 </Command.Item>
               </Command.Group>
 
@@ -168,8 +168,8 @@ export default function CommandPalette({
                       <Command.Item key={p.id} value={`patient ${p.name} ${p.relationship}`} onSelect={run(() => actions.selectPatient?.(p.id))} className={item}>
                         <PatientAvatar name={p.name} index={i} size="sm" />
                         <span className="truncate">{p.name}</span>
-                        <span className="text-[11px] text-ink-faint">{p.relationship}</span>
-                        {isActive && <span className="ml-auto text-[10px] text-emerald-300">Active</span>}
+                        <span className="text-xs text-ink-faint">{p.relationship}</span>
+                        {isActive && <span className="ml-auto text-xs text-emerald-300">Active</span>}
                       </Command.Item>
                     );
                   })}
@@ -204,7 +204,7 @@ export default function CommandPalette({
                     <Command.Item key={c.id} value={`report ${c.title || ''} ${c.pdf?.filename || ''} ${c.id}`} onSelect={run(() => actions.selectChat?.(c.id))} className={item}>
                       <FileText className={iconCls} />
                       <span className="truncate">{reportLabel({ title: c.title, filename: c.pdf?.filename })}</span>
-                      <span className="ml-auto text-[11px] text-ink-faint shrink-0">
+                      <span className="ml-auto text-xs text-ink-faint shrink-0">
                         {c.id === activeSessionId ? 'Open now' : reportDateLabel({ collected_at: c.collected_at, created_at: c.created_at })}
                       </span>
                     </Command.Item>
@@ -232,7 +232,7 @@ export default function CommandPalette({
               )}
             </Command.List>
 
-            <div className="hidden sm:flex items-center gap-4 px-4 h-10 border-t border-white/[0.07] text-[11px] text-ink-faint shrink-0">
+            <div className="hidden sm:flex items-center gap-4 px-4 h-10 border-t border-white/[0.07] text-xs text-ink-faint shrink-0">
               <span className="inline-flex items-center gap-1.5"><Kbd>↑</Kbd><Kbd>↓</Kbd> navigate</span>
               <span className="inline-flex items-center gap-1.5"><Kbd>↵</Kbd> open</span>
               <span className="ml-auto inline-flex items-center gap-1.5"><Kbd>{MOD_LABEL}</Kbd><Kbd>K</Kbd> toggle</span>

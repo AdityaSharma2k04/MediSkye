@@ -24,7 +24,7 @@ function FactText({ text }) {
       <button
         type="button"
         onClick={() => setExpanded((prev) => !prev)}
-        className="mt-1 text-[11px] font-medium text-cyan-400 hover:text-cyan-300 underline underline-offset-2"
+        className="mt-1 text-xs font-medium text-cyan-400 hover:text-cyan-300 underline underline-offset-2"
       >
         {expanded ? 'Show less' : 'Show more'}
       </button>
@@ -218,7 +218,7 @@ export default function MemoryVault({
     const src = String(f.source_type || '').toLowerCase();
     if (title || src.includes('report') || src.includes('document') || src.includes('upload')) {
       return (
-        <span className="inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded-md bg-white/[0.04] border border-white/[0.07] text-ink-mute max-w-[180px]">
+        <span className="inline-flex items-center gap-1 text-xs px-1.5 py-0.5 rounded-md bg-white/[0.04] border border-white/[0.07] text-ink-mute max-w-[180px]">
           <FileText className="w-3 h-3 shrink-0" />
           <span className="truncate">{title || 'From a lab report'}</span>
         </span>
@@ -226,7 +226,7 @@ export default function MemoryVault({
     }
     if (src) {
       return (
-        <span className="inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded-md bg-white/[0.04] border border-white/[0.07] text-ink-mute">
+        <span className="inline-flex items-center gap-1 text-xs px-1.5 py-0.5 rounded-md bg-white/[0.04] border border-white/[0.07] text-ink-mute">
           <MessageSquare className="w-3 h-3" />
           {src.includes('chat') ? 'From a conversation' : prettyCategory(src)}
         </span>
@@ -248,7 +248,7 @@ export default function MemoryVault({
           facts.length > 0 ? (
             confirmClear ? (
               <div className="space-y-2">
-                <label htmlFor="vault-clear-confirm" className="block text-[11px] text-ink-mute">
+                <label htmlFor="vault-clear-confirm" className="block text-xs text-ink-mute">
                   Type <span className="ms-num text-rose-300">CLEAR</span> to permanently delete {facts.length} remembered fact{facts.length === 1 ? '' : 's'}.
                 </label>
                 <div className="flex gap-2">
@@ -327,7 +327,7 @@ export default function MemoryVault({
               <ShieldCheck className={cn('w-4 h-4 mt-0.5 shrink-0', consent ? 'text-emerald-400' : 'text-ink-faint')} />
               <div className="min-w-0">
                 <div className="text-xs font-semibold text-white">Cross-session memory {consent ? 'on' : 'off'}</div>
-                <p className="text-[11px] text-ink-mute mt-0.5 leading-relaxed">
+                <p className="text-xs text-ink-mute mt-0.5 leading-relaxed">
                   {consent ? 'New conditions, medications and lab trends are remembered.' : 'Nothing new will be remembered until you turn this on.'}
                 </p>
               </div>
@@ -380,7 +380,7 @@ export default function MemoryVault({
                   )}
                 >
                   {c === 'all' ? 'Everything' : prettyCategory(c)}
-                  <span className="ms-num text-[10px] text-ink-faint">{n}</span>
+                  <span className="ms-num text-xs text-ink-faint">{n}</span>
                 </button>
               ))}
             </div>
@@ -408,7 +408,7 @@ export default function MemoryVault({
             <ol className="relative space-y-5">
               {timeline.map(([month, items]) => (
                 <li key={month}>
-                  <h3 className="text-[11px] font-semibold text-ink-mute mb-2 px-0.5">{month}</h3>
+                  <h3 className="text-xs font-semibold text-ink-mute mb-2 px-0.5">{month}</h3>
                   <ul className="relative border-l border-white/[0.08] ml-1.5 space-y-2">
                     {items.map((f) => {
                       const c = categoryOf(f);
@@ -420,11 +420,11 @@ export default function MemoryVault({
                             <div className="min-w-0 flex-1 space-y-1.5">
                               <FactText text={f.fact_text || f.fact_value} />
                               <div className="flex flex-wrap items-center gap-1.5">
-                                <span className={cn('text-[10px] font-medium px-1.5 py-0.5 rounded-md border', CATEGORY_STYLES[c] || 'bg-white/[0.04] text-ink-mute border-white/[0.08]')}>
+                                <span className={cn('text-xs font-medium px-1.5 py-0.5 rounded-md border', CATEGORY_STYLES[c] || 'bg-white/[0.04] text-ink-mute border-white/[0.08]')}>
                                   {prettyCategory(c)}
                                 </span>
                                 {sourceBadge(f)}
-                                {date && <span className="ms-num text-[10px] text-ink-faint">{date}</span>}
+                                {date && <span className="ms-num text-xs text-ink-faint">{date}</span>}
                               </div>
                             </div>
                             <button

@@ -31,7 +31,7 @@ export default function AuthShell({ children }) {
           </p>
 
           <div className="rounded-3xl ms-glass p-5 space-y-4" aria-hidden="true">
-            <div className="flex items-center justify-between text-[11px] text-ink-faint">
+            <div className="flex items-center justify-between text-xs text-ink-faint">
               <span>Follow-up panel, 04 Nov 2026</span>
               <span className="ms-num">3 of 24 shown</span>
             </div>
@@ -45,7 +45,7 @@ export default function AuthShell({ children }) {
                   <span className="ms-num text-lg text-white">
                     {row.value} <span className="text-xs text-ink-mute">{row.unit}</span>
                   </span>
-                  {row.previous_value ? <DeltaIndicator row={row} compact showValues={false} /> : <span className="ms-num text-[11px] text-ink-faint">ref {row.range}</span>}
+                  {row.previous_value ? <DeltaIndicator row={row} compact showValues={false} /> : <span className="ms-num text-xs text-ink-faint">ref {row.range}</span>}
                 </div>
                 <RangeBar row={row} size="sm" />
               </div>
@@ -53,7 +53,7 @@ export default function AuthShell({ children }) {
           </div>
         </div>
 
-        <div className="relative z-[1] flex items-center gap-5 text-[11px] text-ink-faint">
+        <div className="relative z-[1] flex items-center gap-5 text-xs text-ink-faint">
           <span className="inline-flex items-center gap-1.5"><Lock className="w-3.5 h-3.5" /> Fernet encryption at rest, TLS 1.3 in transit</span>
           <span className="inline-flex items-center gap-1.5"><ShieldCheck className="w-3.5 h-3.5" /> Never used to train public models</span>
         </div>

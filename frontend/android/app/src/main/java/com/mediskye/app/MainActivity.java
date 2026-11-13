@@ -5,6 +5,7 @@ import android.app.Dialog;
 import android.content.DialogInterface;
 import android.os.Bundle;
 import android.os.Message;
+import android.view.View;
 import android.view.ViewGroup;
 import android.webkit.CookieManager;
 import android.webkit.WebChromeClient;
@@ -42,6 +43,10 @@ public class MainActivity extends BridgeActivity {
             }
             final String finalUserAgent = ua;
             settings.setUserAgentString(finalUserAgent);
+
+            // Hardware-acceleration & overscroll optimization for 120 FPS
+            webView.setLayerType(View.LAYER_TYPE_HARDWARE, null);
+            webView.setOverScrollMode(View.OVER_SCROLL_NEVER);
 
             webView.setWebChromeClient(new BridgeWebChromeClient(this.bridge) {
                 @Override

@@ -57,9 +57,9 @@ export default function UploadStepper({ upload, onDismiss, className }) {
           {isError ? t('workbench.upload_failed', 'Upload failed') : isReady ? t('workbench.upload_report_ready', 'Report ready') : t('workbench.upload_processing', 'Processing report...')}
           {upload.fileName ? <span className="text-ink-mute font-normal"> {upload.fileName}</span> : null}
         </span>
-        {elapsed !== null && <span className="ms-num text-[11px] text-ink-faint shrink-0">{elapsed.toFixed(1)}s</span>}
+        {elapsed !== null && <span className="ms-num text-xs text-ink-faint shrink-0">{elapsed.toFixed(1)}s</span>}
         {upload.warming && isReady && (
-          <span className="inline-flex items-center gap-1 text-[10px] font-medium px-2 py-0.5 rounded-full bg-amber-500/10 text-amber-200 border border-amber-500/20 shrink-0">
+          <span className="inline-flex items-center gap-1 text-xs font-medium px-2 py-0.5 rounded-full bg-amber-500/10 text-amber-200 border border-amber-500/20 shrink-0">
             <Flame className="w-3 h-3" /> {t('workbench.warming_cache', 'Warming summary cache')}
           </span>
         )}
@@ -87,7 +87,7 @@ export default function UploadStepper({ upload, onDismiss, className }) {
                   {done && <div className="absolute inset-0 bg-emerald-500/80" />}
                   {running && <div className="absolute inset-0 bg-cyan-400/80 animate-stage-sweep" />}
                 </div>
-                <div className={cn('mt-1.5 flex items-center gap-1 text-[10px] sm:text-[11px] leading-tight', done ? 'text-emerald-200' : running ? 'text-white' : 'text-ink-faint')}>
+                <div className={cn('mt-1.5 flex items-center gap-1 text-xs leading-tight', done ? 'text-emerald-200' : running ? 'text-white' : 'text-ink-faint')}>
                   {done ? <Check className="w-3 h-3 shrink-0" /> : running ? <Loader2 className="w-3 h-3 shrink-0 animate-spin" /> : <Icon className="w-3 h-3 shrink-0" />}
                   <span className="truncate hidden sm:inline" title={t(step.i18n, step.label)}>{t(step.i18n, step.label)}</span>
                   <span className="truncate sm:hidden">{step.i18nShort ? t(step.i18nShort, step.short) : t(step.i18n, step.label)}</span>

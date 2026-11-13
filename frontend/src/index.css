@@ -946,3 +946,37 @@
   overflow: hidden;
   text-overflow: ellipsis;
 }
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   Mobile & Android WebView Performance Optimizations (120 FPS Target)
+   ═══════════════════════════════════════════════════════════════════════════ */
+@media (max-width: 768px) {
+  /* Replace stacked GPU-expensive backdrop-blur with opaque obsidian surfaces */
+  header,
+  nav,
+  [class*="backdrop-blur"] {
+    backdrop-filter: none !important;
+    -webkit-backdrop-filter: none !important;
+    background-color: rgba(10, 15, 28, 0.96) !important;
+  }
+
+  /* Eliminate mobile tap delay & gray selection flash */
+  button,
+  a,
+  input,
+  select,
+  textarea,
+  [role="button"] {
+    touch-action: manipulation;
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  /* Hardware-accelerated smooth scrolling with pull-to-refresh prevention */
+  .overflow-y-auto,
+  .overflow-y-scroll,
+  .chat-messages-container {
+    -webkit-overflow-scrolling: touch;
+    overscroll-behavior-y: contain;
+  }
+}
+

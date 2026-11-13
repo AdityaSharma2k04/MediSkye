@@ -54,7 +54,7 @@ export default function OrganSystemsOverview({ metrics = [], onSelectMetric, onA
             <div key={s.key} style={{ width: `${(s.n / triage.total) * 100}%`, background: TONE[s.key].hex }} className="h-full first:rounded-l-full last:rounded-r-full opacity-90" />
           ))}
         </div>
-        <ul className="mt-2.5 flex flex-wrap gap-x-4 gap-y-1 text-[11px] text-ink-mute">
+        <ul className="mt-2.5 flex flex-wrap gap-x-4 gap-y-1 text-xs text-ink-mute">
           {segments.map((s) => (
             <li key={s.key} className="inline-flex items-center gap-1.5">
               <span className={cn('w-2 h-2 rounded-full', TONE[s.key].dot)} />
@@ -89,7 +89,7 @@ function QuickFilter({ label, n, onClick, tone, icon: Icon }) {
       className="ms-tap text-left rounded-xl px-3 py-2 bg-white/[0.025] border border-white/[0.07] hover:border-white/[0.16] hover:bg-white/[0.05] transition"
     >
       <div className={cn('ms-num text-lg font-semibold leading-none', tone === 'amber' && n > 0 ? 'text-amber-300' : 'text-white')}>{n}</div>
-      <div className="mt-1 text-[11px] text-ink-mute flex items-center gap-1">
+      <div className="mt-1 text-xs text-ink-mute flex items-center gap-1">
         {Icon && <Icon className="w-3 h-3" />}
         {label}
       </div>
@@ -108,7 +108,7 @@ function SystemCard({ system, onSelectMetric }) {
           <span className={cn('w-1.5 h-4 rounded-full', TONE[worstTone].dot)} aria-hidden="true" />
           <h4 className="text-[13px] font-semibold text-white truncate">{system.label}</h4>
         </div>
-        <span className={cn('text-[11px] ms-num px-2 py-0.5 rounded-full border', system.flagged ? `${TONE[worstTone].bg} ${TONE[worstTone].text} ${TONE[worstTone].border}` : 'bg-white/[0.04] text-ink-mute border-white/[0.08]')}>
+        <span className={cn('text-xs ms-num px-2 py-0.5 rounded-full border', system.flagged ? `${TONE[worstTone].bg} ${TONE[worstTone].text} ${TONE[worstTone].border}` : 'bg-white/[0.04] text-ink-mute border-white/[0.08]')}>
           {system.flagged ? `${system.flagged} flagged` : `${system.metrics.length} in range`}
         </span>
       </header>
@@ -133,7 +133,7 @@ function SystemCard({ system, onSelectMetric }) {
         <button
           type="button"
           onClick={() => onSelectMetric?.(system.metrics[shown.length], system)}
-          className="mt-1.5 inline-flex items-center gap-1 text-[11px] text-ink-mute hover:text-white"
+          className="mt-1.5 inline-flex items-center gap-1 text-xs text-ink-mute hover:text-white"
         >
           {rest} more in {system.label} <ChevronRight className="w-3 h-3" />
         </button>
