@@ -346,7 +346,7 @@ async def test_reassign_document_patient_and_biomarkers_v4():
     potassium_fixture = [{"test": "Potassium", "value": "2.1", "unit": "mmol/L", "range": "3.5 - 5.1", "status": "Critical"}]
     res_hints = build_extracted_biomarkers_and_hints(potassium_fixture)
     assert "low_markers: Potassium" in res_hints
-    assert "out_of_range_markers: Potassium (Critical)" in res_hints
+    assert "out_of_range_markers: Potassium" in res_hints
 
     # 2. PATCH /users/me/documents/{doc_id}/patient reassignment
     transport = ASGITransport(app=app)

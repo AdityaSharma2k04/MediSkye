@@ -110,22 +110,86 @@ export function setCachedDocuments(docs, patientId = 'self', uid = getCurrentUid
   } catch (_) {}
 }
 
+const FIFTEEN_DAYS_MS = 15 * 24 * 60 * 60 * 1000;
+
+function isWithinFifteenDays() {
+  try {
+    const lastActive = localStorage.getItem('mediskye_auth_last_active');
+    if (!lastActive) return true;
+    return Date.now() - Number(lastActive) <= FIFTEEN_DAYS_MS;
+  } catch (_) {
+    return true;
+  }
+}
+
+export async function getAuthToken() {
+  let token = localStorage.getItem('token') || localStorage.getItem('mediskye_auth_id_token');
+  if (auth) {
+    if (auth.currentUser) {
+      try {
+        const fresh = await auth.currentUser.getIdToken();
+        if (fresh) {
+          token = fresh;
+          localStorage.setItem('token', fresh);
+          localStorage.setItem('mediskye_auth_id_token', fresh);
+        }
+      } catch (_) {}
+    } else if (typeof auth.authStateReady === 'function') {
+      const snap = localStorage.getItem('mediskye_auth_user_snapshot');
+      if (snap && isWithinFifteenDays()) {
+        try {
+          await auth.authStateReady();
+          if (auth.currentUser) {
+            const fresh = await auth.currentUser.getIdToken();
+            if (fresh) {
+              token = fresh;
+              localStorage.setItem('token', fresh);
+              localStorage.setItem('mediskye_auth_id_token', fresh);
+            }
+          }
+        } catch (_) {}
+      }
+    }
+  }
+  return token || null;
+}
+
 export function getAuthHeaders() {
-  const token = localStorage.getItem('token');
+  const token = localStorage.getItem('token') || localStorage.getItem('mediskye_auth_id_token');
   return token ? { 'Authorization': `Bearer ${token}` } : {};
 }
 
 export async function getFreshAuthHeaders(forceRefresh = false) {
-  let token = localStorage.getItem('token');
-  if (auth && auth.currentUser) {
-    try {
-      const freshToken = await auth.currentUser.getIdToken(forceRefresh);
-      if (freshToken) {
-        token = freshToken;
-        localStorage.setItem('token', freshToken);
+  let token = localStorage.getItem('token') || localStorage.getItem('mediskye_auth_id_token');
+  if (auth) {
+    if (auth.currentUser) {
+      try {
+        const freshToken = await auth.currentUser.getIdToken(forceRefresh);
+        if (freshToken) {
+          token = freshToken;
+          localStorage.setItem('token', freshToken);
+          localStorage.setItem('mediskye_auth_id_token', freshToken);
+        }
+      } catch (e) {
+        logger.warn('Failed to refresh Firebase auth token:', e);
       }
-    } catch (e) {
-      logger.warn('Failed to refresh Firebase auth token:', e);
+    } else if (typeof auth.authStateReady === 'function') {
+      const snap = localStorage.getItem('mediskye_auth_user_snapshot');
+      if (snap && isWithinFifteenDays()) {
+        try {
+          await auth.authStateReady();
+          if (auth.currentUser) {
+            const freshToken = await auth.currentUser.getIdToken(forceRefresh);
+            if (freshToken) {
+              token = freshToken;
+              localStorage.setItem('token', freshToken);
+              localStorage.setItem('mediskye_auth_id_token', freshToken);
+            }
+          }
+        } catch (e) {
+          logger.warn('Failed to resolve authStateReady for fresh headers:', e);
+        }
+      }
     }
   }
   return token ? { 'Authorization': `Bearer ${token}` } : {};
@@ -188,16 +252,25 @@ export async function apiFetch(url, options = {}, timeoutMs = 30000) {
   }
 
   // 401 Interceptor: retry with fresh token if available
-  if (res.status === 401 && auth && auth.currentUser) {
+  if (res.status === 401 && auth) {
     try {
-      const freshToken = await auth.currentUser.getIdToken(true);
-      if (freshToken) {
-        localStorage.setItem('token', freshToken);
-        const retryHeaders = {
-          ...headers,
-          'Authorization': `Bearer ${freshToken}`,
-        };
-        res = await fetch(url, { ...fetchOptions, headers: retryHeaders });
+      if (!auth.currentUser && typeof auth.authStateReady === 'function') {
+        const snap = localStorage.getItem('mediskye_auth_user_snapshot');
+        if (snap && isWithinFifteenDays()) {
+          await auth.authStateReady();
+        }
+      }
+      if (auth.currentUser) {
+        const freshToken = await auth.currentUser.getIdToken(true);
+        if (freshToken) {
+          localStorage.setItem('token', freshToken);
+          localStorage.setItem('mediskye_auth_id_token', freshToken);
+          const retryHeaders = {
+            ...headers,
+            'Authorization': `Bearer ${freshToken}`,
+          };
+          res = await fetch(url, { ...fetchOptions, headers: retryHeaders });
+        }
       }
     } catch (refreshErr) {
       logger.warn('Token auto-refresh failed:', refreshErr);
@@ -208,6 +281,7 @@ export async function apiFetch(url, options = {}, timeoutMs = 30000) {
 
   if (res.status === 401) {
     localStorage.removeItem('token');
+    localStorage.removeItem('mediskye_auth_id_token');
     if (typeof window !== 'undefined') {
       window.dispatchEvent(new Event('auth:expired'));
     }

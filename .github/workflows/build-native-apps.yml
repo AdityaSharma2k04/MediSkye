@@ -5,9 +5,12 @@ on:
   push:
     branches: [main]
     paths:
+      - 'frontend/src/**'
+      - 'frontend/index.html'
+      - 'frontend/package.json'
+      - 'frontend/capacitor.config.json'
       - 'frontend/src-tauri/**'
       - 'frontend/android/**'
-      - 'frontend/capacitor.config.json'
       - '.github/workflows/build-native-apps.yml'
     tags:
       - 'v*'

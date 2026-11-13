@@ -31,9 +31,8 @@ _CLINICAL_FOLLOWUP_HINTS: Dict[str, Dict[str, Any]] = {
     "vitamin_b12": {
         "states": {"LOW", "LOW-NORMAL"},
         "context": (
-            "Can be associated with low intake of animal-source foods, reduced absorption "
-            "or some medicines. A clinician may consider methylmalonic acid or homocysteine "
-            "to assess functional B12 status."
+            "Can be associated with reduced absorption or some medicines. "
+            "A clinician may consider methylmalonic acid or homocysteine to assess functional B12 status."
         ),
         "symptoms": "fatigue, brain fog, tingling or numbness in hands or feet",
         "retest": True,
@@ -50,8 +49,7 @@ _CLINICAL_FOLLOWUP_HINTS: Dict[str, Dict[str, Any]] = {
     "vitamin_d": {
         "states": {"LOW", "LOW-NORMAL"},
         "context": (
-            "Can be associated with limited sun exposure, season, skin tone and diet. "
-            "Supports bone and muscle health."
+            "Supports bone and muscle health. May be evaluated alongside calcium and parathyroid hormone."
         ),
         "symptoms": "bone or muscle aches, fatigue",
         "retest": True,
@@ -67,8 +65,7 @@ _CLINICAL_FOLLOWUP_HINTS: Dict[str, Dict[str, Any]] = {
     "creatinine": {
         "states": {"HIGH", "HIGH-NORMAL"},
         "context": (
-            "eGFR is calculated from creatinine and moves with it. Cystatin C and a urine "
-            "albumin-to-creatinine ratio are options a clinician may consider."
+            "eGFR is calculated from creatinine and moves with it. Cystatin C is an option a clinician may consider."
         ),
         "symptoms": "none",
         "retest": False,
@@ -136,7 +133,7 @@ _CLINICAL_FOLLOWUP_HINTS: Dict[str, Dict[str, Any]] = {
     },
     "uric_acid": {
         "states": {"HIGH", "HIGH-NORMAL"},
-        "context": "Can be influenced by diet, alcohol, hydration and some medicines.",
+        "context": "Can be influenced by kidney clearance, metabolic factors and some medicines.",
         "symptoms": "joint pain or swelling, especially in the big toe or ankle",
         "retest": False,
     },
@@ -156,6 +153,30 @@ def canonical_biomarker_key(name: str) -> Optional[str]:
     n = name.lower().strip()
     n_clean = re.sub(r'[\(\)\[\]:,/]', ' ', n)
     n_clean = re.sub(r'\s+', ' ', n_clean).strip()
+
+    # 0a. Urine Albumin-to-Creatinine Ratio (MUST precede urinalysis exclusions and individual renal markers)
+    if re.search(r'\b(?:albumin\s+(?:to\s+)?creatinine\s+ratio|uacr|acr)\b', n_clean):
+        return "urine_acr"
+
+    # 0b. Urinalysis Dipstick & Microscopy Exclusions (return None so they NEVER collide with blood markers like WBC or RBC)
+    if re.search(r'\b(?:leukocyte\s+esterase|leucocyte\s+esterase|pus\s+cells?|epithelial\s+cells?|urinary|urine(?!\s*acr|\s*albumin)|specific\s+gravity|urobilinogen|nitrites?|ketones?|casts|crystals|bacteria|yeast|mucus)\b', n_clean):
+        return None
+
+    # 0c. Explicit Ratios (MUST precede individual lipid, renal, or liver markers so e.g. TC/HDL ratio never matches HDL)
+    if re.search(r'\b(?:tc\s*/?\s*hdl(?:\s+ratio)?|total\s+cholesterol\s*/?\s*hdl(?:\s+ratio)?)\b', n_clean):
+        return "tc_hdl_ratio"
+    if re.search(r'\b(?:ldl\s*/?\s*hdl(?:\s+ratio)?)\b', n_clean):
+        return "ldl_hdl_ratio"
+    if re.search(r'\b(?:tg\s*/?\s*hdl(?:\s+ratio)?|triglycerides?\s*/?\s*hdl(?:\s+ratio)?)\b', n_clean):
+        return "tg_hdl_ratio"
+    if re.search(r'\b(?:bun\s*/?\s*creatinine(?:\s+ratio)?|urea\s*/?\s*creatinine(?:\s+ratio)?)\b', n_clean):
+        return "bun_creatinine_ratio"
+    if re.search(r'\b(?:ast\s*/?\s*alt(?:\s+ratio)?|sgot\s*/?\s*sgpt(?:\s+ratio)?|de\s+ritis(?:\s+ratio)?)\b', n_clean):
+        return "ast_alt_ratio"
+    if re.search(r'\b(?:a[\s/]*g\s+ratio|ag\s+ratio|albumin\s+globulin\s+ratio)\b', n_clean):
+        return "ag_ratio"
+    if re.search(r'\bratio\b', n_clean):
+        return None
 
     # 1. HbA1c (MUST precede Hemoglobin)
     if re.search(r'\b(?:hba1c|glycated\s+h(?:a)?emoglobin|glycoh(?:a)?emoglobin|h(?:a)?emoglobin\s+a1c|a1c)\b', n_clean):
@@ -261,8 +282,8 @@ def canonical_biomarker_key(name: str) -> Optional[str]:
     if re.search(r'\b(?:anti[\s-]*thyroglobulin|anti[\s-]*tg|thyroglobulin\s+antibod(?:y|ies)|atg)\b', n_clean):
         return "anti_tg"
 
-    # 22. Triglycerides
-    if re.search(r'\b(?:triglycerides?|tg)\b', n_clean):
+    # 22. Triglycerides (requires word boundary, anti-tg exclusion safe)
+    if re.search(r'\b(?:triglycerides?|(?<!anti\s)(?<!anti-)tg)\b', n_clean):
         return "triglycerides"
 
     # 23. Thyroid
@@ -690,13 +711,13 @@ def build_extracted_biomarkers_and_hints(
         )
 
         # Deterministic status bucketing (matches Lab Metrics UI 100%)
+        direction = None
         if final_status == "Normal":
             in_range_markers.append(test_name)
         elif final_status == "Unclassified":
             unclassified_analytes.append(test_name)
         else:
-            out_of_range_markers.append(f"{test_name} ({final_status})")
-            direction = None
+            out_of_range_markers.append(test_name)
             if final_status == "Low":
                 direction = "Low"
             elif final_status == "High":
@@ -752,7 +773,7 @@ def build_extracted_biomarkers_and_hints(
         )
 
         # Follow-up context check
-        eff_state = nb_flag[0] if nb_flag else final_status.upper()
+        eff_state = nb_flag[0] if nb_flag else (direction.upper() if direction else final_status.upper())
         if c_key in _CLINICAL_FOLLOWUP_HINTS:
             hint_cfg = _CLINICAL_FOLLOWUP_HINTS[c_key]
             if eff_state in hint_cfg["states"]:
@@ -772,6 +793,10 @@ def build_extracted_biomarkers_and_hints(
     high_count = len(high_markers)
     low_count = len(low_markers)
 
+    out_breakdown = f"High: {high_count}; Low: {low_count}"
+    if other_flagged_markers:
+        out_breakdown += f"; Other Flagged: {len(other_flagged_markers)}"
+
     xml_parts = [
         f'<extracted_report_biomarkers count="{count}">',
         "\n".join(metric_lines),
@@ -779,21 +804,21 @@ def build_extracted_biomarkers_and_hints(
         '<analysis_hints>',
         "status_summary:",
         f"  total_measured: {count}",
-        f"  out_of_range_count: {out_count} (High: {high_count}; Low: {low_count})",
+        f"  out_of_range_count: {out_count} ({out_breakdown})",
         f"  in_range_count: {in_count} (including {len(near_boundaries)} near-boundary)",
     ]
 
     if out_of_range_markers:
-        xml_parts.append("  out_of_range_markers: " + ", ".join(escape_xml_content(x) for x in out_of_range_markers))
+        xml_parts.append("  out_of_range_markers: " + " | ".join(escape_xml_content(x) for x in out_of_range_markers))
     else:
         xml_parts.append("  out_of_range_markers: none (all measured markers are within standard reference ranges)")
 
     if high_markers:
-        xml_parts.append("  high_markers: " + ", ".join(escape_xml_content(x) for x in high_markers))
+        xml_parts.append("  high_markers: " + " | ".join(escape_xml_content(x) for x in high_markers))
     if low_markers:
-        xml_parts.append("  low_markers: " + ", ".join(escape_xml_content(x) for x in low_markers))
+        xml_parts.append("  low_markers: " + " | ".join(escape_xml_content(x) for x in low_markers))
     if other_flagged_markers:
-        xml_parts.append("  other_flagged_markers: " + ", ".join(escape_xml_content(x) for x in other_flagged_markers))
+        xml_parts.append("  other_flagged_markers: " + " | ".join(escape_xml_content(x) for x in other_flagged_markers))
 
     if status_mismatches:
         xml_parts.append("\nstatus_mismatches:")

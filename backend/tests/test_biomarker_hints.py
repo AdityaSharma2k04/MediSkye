@@ -292,3 +292,70 @@ def test_verified_absent_adjacent_tests():
     assert any("Iron panel" in l for l in lines_suppressed)
     assert any("Thyroid hormones" in l for l in lines_suppressed)
 
+
+def test_urinalysis_exclusions_and_ratio_precedence():
+    from app.services.clinical_units import canonical_biomarker_key as cu_canonical_key
+
+    # 1. Urine ACR precedes exclusions and creatinine
+    assert canonical_biomarker_key("Urine Albumin to Creatinine Ratio") == "urine_acr"
+    assert canonical_biomarker_key("uACR") == "urine_acr"
+    assert cu_canonical_key("Urine Albumin to Creatinine Ratio") == "urine_acr"
+    assert cu_canonical_key("uACR") == "urine_acr"
+
+    # 2. Urinalysis dipstick & microscopy rows return None / ""
+    urine_markers = [
+        "Leucocyte Esterase", "Leukocyte Esterase", "Pus Cells", "Epithelial Cells",
+        "Specific Gravity", "Urobilinogen", "Nitrites", "Ketones", "Urinary Casts",
+        "Crystals", "Bacteria", "Yeast", "Mucus"
+    ]
+    for um in urine_markers:
+        assert canonical_biomarker_key(um) is None, f"{um} did not return None in biomarkers.py"
+        assert cu_canonical_key(um) == "", f"{um} did not return '' in clinical_units.py"
+
+    # 3. Explicit ratios return specific ratio keys or None / "" for generic ratio
+    assert canonical_biomarker_key("TC/HDL Ratio") == "tc_hdl_ratio"
+    assert canonical_biomarker_key("LDL/HDL Ratio") == "ldl_hdl_ratio"
+    assert canonical_biomarker_key("TG/HDL Ratio") == "tg_hdl_ratio"
+    assert canonical_biomarker_key("BUN/Creatinine Ratio") == "bun_creatinine_ratio"
+    assert canonical_biomarker_key("AST/ALT Ratio") == "ast_alt_ratio"
+    assert canonical_biomarker_key("A/G Ratio") == "ag_ratio"
+    assert canonical_biomarker_key("Random Ratio") is None
+
+    assert cu_canonical_key("TC/HDL Ratio") == "tc_hdl_ratio"
+    assert cu_canonical_key("LDL/HDL Ratio") == "ldl_hdl_ratio"
+    assert cu_canonical_key("TG/HDL Ratio") == "tg_hdl_ratio"
+    assert cu_canonical_key("BUN/Creatinine Ratio") == "bun_creatinine_ratio"
+    assert cu_canonical_key("AST/ALT Ratio") == "ast_alt_ratio"
+    assert cu_canonical_key("A/G Ratio") == "ag_ratio"
+    assert cu_canonical_key("Random Ratio") == ""
+
+
+def test_pipe_delimited_output_and_clean_followup_hints():
+    # Build a multi-flag fixture
+    fixture = [
+        {"test": "Serum Creatinine", "value": "1.6", "unit": "mg/dL", "range": "0.7 - 1.2", "status": "High"},
+        {"test": "Potassium", "value": "2.8", "unit": "mmol/L", "range": "3.5 - 5.1", "status": "Low"},
+        {"test": "Total Leukocyte Count (WBC)", "value": "13500", "unit": "/uL", "range": "4000 - 11000", "status": "High"},
+        {"test": "Urinary Sediment", "value": "Abnormal", "unit": "", "range": "Normal", "status": "Abnormal"},
+    ]
+    res = build_extracted_biomarkers_and_hints(fixture)
+
+    # 1. Pipe-delimited raw test names without status suffixes
+    assert "out_of_range_markers: Serum Creatinine | Potassium | Total Leukocyte Count (WBC) | Urinary Sediment" in res
+    assert "high_markers: Serum Creatinine | Total Leukocyte Count (WBC)" in res
+    assert "low_markers: Potassium" in res
+    assert "other_flagged_markers: Urinary Sediment" in res
+
+    # 2. Status breakdown includes other flagged count
+    assert "out_of_range_count: 4 (High: 2; Low: 1; Other Flagged: 1)" in res
+
+    # 3. Clean followup hints: zero lifestyle assumptions
+    for forbidden in ["exercise", "meat intake", "sun exposure", "purine"]:
+        assert forbidden not in res.lower()
+
+    # Creatinine hint should NOT contain uACR / urine albumin-to-creatinine ratio
+    creatinine_hint = [l for l in res.split("\n") if "Serum Creatinine" in l and "Cystatin C" in l]
+    assert len(creatinine_hint) == 1
+    assert "albumin-to-creatinine" not in creatinine_hint[0].lower()
+    assert "uacr" not in creatinine_hint[0].lower()
+

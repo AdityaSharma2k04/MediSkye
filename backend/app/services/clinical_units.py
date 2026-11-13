@@ -178,6 +178,30 @@ def canonical_biomarker_key(name: str) -> str:
     n_clean = re.sub(r'[\(\)\[\]:,/]', ' ', n)
     n_clean = re.sub(r'\s+', ' ', n_clean).strip()
 
+    # 0a. Urine Albumin-to-Creatinine Ratio (MUST precede urinalysis exclusions and individual renal markers)
+    if re.search(r'\b(?:albumin\s+(?:to\s+)?creatinine\s+ratio|uacr|acr)\b', n_clean):
+        return "urine_acr"
+
+    # 0b. Urinalysis Dipstick & Microscopy Exclusions (return "" so they NEVER collide with blood markers like WBC or RBC)
+    if re.search(r'\b(?:leukocyte\s+esterase|leucocyte\s+esterase|pus\s+cells?|epithelial\s+cells?|urinary|urine(?!\s*acr|\s*albumin)|specific\s+gravity|urobilinogen|nitrites?|ketones?|casts|crystals|bacteria|yeast|mucus)\b', n_clean):
+        return ""
+
+    # 0c. Explicit Ratios (MUST precede individual lipid, renal, or liver markers)
+    if re.search(r'\b(?:tc\s*/?\s*hdl(?:\s+ratio)?|total\s+cholesterol\s*/?\s*hdl(?:\s+ratio)?)\b', n_clean):
+        return "tc_hdl_ratio"
+    if re.search(r'\b(?:ldl\s*/?\s*hdl(?:\s+ratio)?)\b', n_clean):
+        return "ldl_hdl_ratio"
+    if re.search(r'\b(?:tg\s*/?\s*hdl(?:\s+ratio)?|triglycerides?\s*/?\s*hdl(?:\s+ratio)?)\b', n_clean):
+        return "tg_hdl_ratio"
+    if re.search(r'\b(?:bun\s*/?\s*creatinine(?:\s+ratio)?|urea\s*/?\s*creatinine(?:\s+ratio)?)\b', n_clean):
+        return "bun_creatinine_ratio"
+    if re.search(r'\b(?:ast\s*/?\s*alt(?:\s+ratio)?|sgot\s*/?\s*sgpt(?:\s+ratio)?|de\s+ritis(?:\s+ratio)?)\b', n_clean):
+        return "ast_alt_ratio"
+    if re.search(r'\b(?:a[\s/]*g\s+ratio|ag\s+ratio|albumin\s+globulin\s+ratio)\b', n_clean):
+        return "ag_ratio"
+    if re.search(r'\bratio\b', n_clean):
+        return ""
+
     # 1. HbA1c (MUST precede Hemoglobin)
     if re.search(r'\b(?:hba1c|glycated\s+hemoglobin|glycohemoglobin|hemoglobin\s+a1c|a1c)\b', n_clean):
         return "hba1c"
@@ -377,7 +401,7 @@ def canonical_biomarker_key(name: str) -> str:
         return "ldl"
     if re.search(r'\b(?:hdl\s+cholesterol|hdl(?:\s*-\s*c)?)\b', n_clean):
         return "hdl"
-    if re.search(r'\b(?:triglycerides?|tg)\b', n_clean):
+    if re.search(r'\b(?:triglycerides?|(?<!anti\s)(?<!anti-)tg)\b', n_clean):
         return "triglycerides"
     if re.search(r'\b(?:total\s+cholesterol|cholesterol\s+total|cholesterol)\b', n_clean):
         return "cholesterol"
