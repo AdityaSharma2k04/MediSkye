@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { getMetricTrends } from '../services/api';
+import { getMetricTrends, getCachedTrends } from '../services/api';
 import { loadMetricsFor } from './useLabMetrics';
 import { buildTrendSeries, parseClinicalDate, normalizeName } from '../lib/clinical';
 
@@ -59,9 +59,6 @@ function seriesFromServer(payload) {
  * @param {{patientId: string, reports: Array<{id,title,filename,collected_at,created_at}>, enabled: boolean}} args
  */
 export default function useTrendData({ patientId, reports, enabled }) {
-  const [state, setState] = useState({ key: '', series: new Map(), loading: false, source: null, reportCount: 0 });
-  const reqRef = useRef(0);
-
   const reportList = useMemo(() => {
     const list = Array.isArray(reports) ? reports.filter((r) => r && r.id) : [];
     return list
@@ -72,12 +69,40 @@ export default function useTrendData({ patientId, reports, enabled }) {
 
   const signature = `${patientId || 'self'}::${reportList.map((r) => r.id).join(',')}`;
 
+  const [state, setState] = useState(() => {
+    const cached = getCachedTrends(patientId);
+    if (cached && Array.isArray(cached.series) && cached.series.length) {
+      return {
+        key: signature,
+        series: seriesFromServer(cached),
+        loading: false,
+        source: 'cache',
+        reportCount: (cached.reports || []).length,
+      };
+    }
+    return { key: '', series: new Map(), loading: false, source: null, reportCount: 0 };
+  });
+  const reqRef = useRef(0);
+
   useEffect(() => {
     if (!enabled) return undefined;
-    if (state.key === signature && !state.loading) return undefined;
+    if (state.key === signature && !state.loading && state.series.size > 0) return undefined;
     const reqId = ++reqRef.current;
     const controller = typeof AbortController !== 'undefined' ? new AbortController() : null;
-    setState({ key: signature, series: new Map(), loading: true, source: null, reportCount: 0 });
+
+    const cached = getCachedTrends(patientId);
+    const initialSeries =
+      cached && Array.isArray(cached.series) && cached.series.length
+        ? seriesFromServer(cached)
+        : new Map();
+
+    setState((prev) => ({
+      key: signature,
+      series: prev.series.size > 0 ? prev.series : initialSeries,
+      loading: prev.series.size === 0 && initialSeries.size === 0,
+      source: prev.series.size > 0 ? prev.source : (initialSeries.size > 0 ? 'cache' : null),
+      reportCount: (cached?.reports || []).length,
+    }));
 
     (async () => {
       let server = null;

@@ -12,6 +12,8 @@ vi.mock('../services/api', () => ({
   updateMemoryConsent: vi.fn(),
   updateProfile: vi.fn(),
   getDependents: vi.fn(),
+  getCachedMemoryFacts: vi.fn().mockReturnValue([]),
+  setCachedMemoryFacts: vi.fn(),
 }));
 
 describe('MemoryVault Independent Patient Selector', () => {

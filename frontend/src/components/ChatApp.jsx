@@ -41,6 +41,9 @@ import {
   getCachedDependents,
   getCachedDocuments,
   setCachedDocuments,
+  getCachedConversations,
+  setCachedConversations,
+  prewarmPatientLocalCache,
 } from '../services/api';
 import { useNavigate } from 'react-router-dom';
 import { logger } from '../services/logger';
@@ -270,6 +273,10 @@ export default function ChatApp() {
   // In-memory conversation state (Neon DB is the single source of truth, hydrated from local cache)
   const [conversations, setConversations] = useState(() => {
     const initPatId = localStorage.getItem('mediskye_patient_id') || 'self';
+    const cachedConvs = typeof getCachedConversations === 'function' ? getCachedConversations(initPatId) : null;
+    if (Array.isArray(cachedConvs) && cachedConvs.length > 0) {
+      return cachedConvs;
+    }
     const cachedDocs = typeof getCachedDocuments === 'function' ? getCachedDocuments(initPatId) : null;
     const base = [
       { id: initialSessionId, title: 'New Conversation', messages: [], pdf: null, patient_id: initPatId },
@@ -509,10 +516,17 @@ export default function ChatApp() {
         );
 
         const allConvs = [...syncedDocConvs, ...serverStandaloneConvs, ...localNonDocConvs];
-        if (allConvs.length === 0) {
-          return [{ id: sessionIdRef.current, title: 'New Conversation', messages: [], pdf: null, patient_id: 'self' }];
-        }
-        return allConvs;
+        const finalConvs =
+          allConvs.length === 0
+            ? [{ id: sessionIdRef.current, title: 'New Conversation', messages: [], pdf: null, patient_id: 'self' }]
+            : allConvs;
+
+        try {
+          const currentPat = localStorage.getItem('mediskye_patient_id') || 'self';
+          setCachedConversations(finalConvs, currentPat);
+        } catch (_) {}
+
+        return finalConvs;
       });
 
       return docs;
@@ -550,11 +564,14 @@ export default function ChatApp() {
           setActivePdf(null);
           loadChatHistory(null, sessionIdRef.current);
         }
+        // Pre-warm local cache for active patient in background
+        const activePat = localStorage.getItem('mediskye_patient_id') || 'self';
+        prewarmPatientLocalCache(activePat, dependents || [], docs || []);
       }).catch(() => {
         setActivePdf(null);
       });
     }
-  }, [currentUser, refreshDocuments, loadChatHistory]);
+  }, [currentUser, refreshDocuments, loadChatHistory, dependents]);
 
   // ── Enforce permanent dark theme on the DOM ──
   useEffect(() => {
@@ -627,6 +644,11 @@ export default function ChatApp() {
     setViewMode('chat');
     setIsProfileOpen(false);
 
+    // Pre-warm local cache for target profile in background
+    setTimeout(() => {
+      prewarmPatientLocalCache(targetPatientId, dependents || []);
+    }, 50);
+
     // Check if the currently open conversation belongs to a different patient
     const currentPatient = currentChat.patient_id || 'self';
     const stagedPdf = activePdf || currentChat.pdf;
@@ -657,6 +679,19 @@ export default function ChatApp() {
       // Invalidate metrics cache so new profile's metrics recalculate
       if (pdfDocId) invalidateMetrics(pdfDocId);
       return;
+    }
+
+    // Hydrate cached conversations for target patient if available
+    const cachedTargetConvs = getCachedConversations(targetPatientId);
+    if (Array.isArray(cachedTargetConvs) && cachedTargetConvs.length > 0) {
+      setConversations(cachedTargetConvs);
+      const firstTargetChat = cachedTargetConvs[0];
+      if (firstTargetChat) {
+        setSessionId(firstTargetChat.id);
+        setActivePdf(firstTargetChat.pdf || null);
+        loadChatHistory(firstTargetChat.document_id || null, firstTargetChat.id);
+        return;
+      }
     }
 
     const hasContent = (currentChat.messages && currentChat.messages.length > 0) || currentChat.pdf || currentChat.document_id;

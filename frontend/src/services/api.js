@@ -59,54 +59,156 @@ export function getCurrentUid() {
   return null;
 }
 
+export function safeStorageSet(key, value) {
+  if (typeof window === 'undefined' || !key) return;
+  const strVal = typeof value === 'string' ? value : JSON.stringify(value);
+  try {
+    localStorage.setItem(key, strVal);
+  } catch (err) {
+    // Quota exceeded: clean up old cached document summaries, metrics, and trends (LRU / temporary cache keys)
+    try {
+      const keysToClean = new Set();
+      try {
+        for (let i = 0; i < localStorage.length; i++) {
+          const k = localStorage.key(i);
+          if (k) keysToClean.add(k);
+        }
+      } catch (_) {}
+      try {
+        Object.keys(localStorage).forEach((k) => keysToClean.add(k));
+      } catch (_) {}
+
+      keysToClean.forEach((k) => {
+        if (
+          k &&
+          (k.startsWith('mediskye_cached_doc_') ||
+            k.startsWith('mediskye_cached_trends_') ||
+            k.startsWith('mediskye_sample_'))
+        ) {
+          try {
+            localStorage.removeItem(k);
+          } catch (_) {}
+        }
+      });
+      localStorage.setItem(key, strVal);
+    } catch (_) {}
+  }
+}
+
+export function safeStorageGet(key, fallback = null) {
+  if (typeof window === 'undefined' || !key) return fallback;
+  try {
+    const raw = localStorage.getItem(key);
+    return raw ? JSON.parse(raw) : fallback;
+  } catch (_) {
+    return fallback;
+  }
+}
+
 export function getCachedProfile(uid = getCurrentUid()) {
   if (!uid) return null;
-  try {
-    const raw = localStorage.getItem(`mediskye_cached_profile_${uid}`);
-    return raw ? JSON.parse(raw) : null;
-  } catch (_) {
-    return null;
-  }
+  return safeStorageGet(`mediskye_cached_profile_${uid}`, null);
 }
 
 export function setCachedProfile(profile, uid = getCurrentUid()) {
   if (!uid || !profile) return;
-  try {
-    localStorage.setItem(`mediskye_cached_profile_${uid}`, JSON.stringify(profile));
-  } catch (_) {}
+  safeStorageSet(`mediskye_cached_profile_${uid}`, profile);
 }
 
 export function getCachedDependents(uid = getCurrentUid()) {
   if (!uid) return [];
-  try {
-    const raw = localStorage.getItem(`mediskye_cached_dependents_${uid}`);
-    return raw ? JSON.parse(raw) : [];
-  } catch (_) {
-    return [];
-  }
+  return safeStorageGet(`mediskye_cached_dependents_${uid}`, []);
 }
 
 export function setCachedDependents(dependents, uid = getCurrentUid()) {
   if (!uid) return;
-  try {
-    localStorage.setItem(`mediskye_cached_dependents_${uid}`, JSON.stringify(dependents || []));
-  } catch (_) {}
+  safeStorageSet(`mediskye_cached_dependents_${uid}`, dependents || []);
 }
 
 export function getCachedDocuments(patientId = 'self', uid = getCurrentUid()) {
   if (!uid) return [];
-  try {
-    const raw = localStorage.getItem(`mediskye_cached_documents_${uid}_${patientId || 'self'}`);
-    return raw ? JSON.parse(raw) : [];
-  } catch (_) {
-    return [];
-  }
+  return safeStorageGet(`mediskye_cached_documents_${uid}_${patientId || 'self'}`, []);
 }
 
 export function setCachedDocuments(docs, patientId = 'self', uid = getCurrentUid()) {
   if (!uid) return;
+  safeStorageSet(`mediskye_cached_documents_${uid}_${patientId || 'self'}`, docs || []);
+}
+
+// ── Per-Document Metrics & Summary ──
+
+export function getCachedDocMetrics(docId) {
+  if (!docId) return null;
+  return safeStorageGet(`mediskye_cached_doc_metrics_${docId}`, null);
+}
+
+export function setCachedDocMetrics(docId, metrics) {
+  if (!docId || !metrics) return;
+  safeStorageSet(`mediskye_cached_doc_metrics_${docId}`, metrics);
+}
+
+export function getCachedDocSummary(docId) {
+  if (!docId) return null;
+  return safeStorageGet(`mediskye_cached_doc_summary_${docId}`, null);
+}
+
+export function setCachedDocSummary(docId, summary) {
+  if (!docId || !summary) return;
+  safeStorageSet(`mediskye_cached_doc_summary_${docId}`, summary);
+}
+
+// ── Memory Vault Facts Cache ──
+
+export function getCachedMemoryFacts(patientId = 'self', uid = getCurrentUid()) {
+  if (!uid) return [];
+  return safeStorageGet(`mediskye_cached_facts_${uid}_${patientId || 'self'}`, []);
+}
+
+export function setCachedMemoryFacts(facts, patientId = 'self', uid = getCurrentUid()) {
+  if (!uid) return;
+  safeStorageSet(`mediskye_cached_facts_${uid}_${patientId || 'self'}`, facts || []);
+}
+
+// ── Longitudinal Biomarker Trends Cache ──
+
+export function getCachedTrends(patientId = 'self', uid = getCurrentUid()) {
+  if (!uid) return null;
+  return safeStorageGet(`mediskye_cached_trends_${uid}_${patientId || 'self'}`, null);
+}
+
+export function setCachedTrends(trends, patientId = 'self', uid = getCurrentUid()) {
+  if (!uid || !trends) return;
+  safeStorageSet(`mediskye_cached_trends_${uid}_${patientId || 'self'}`, trends);
+}
+
+// ── Persistent Chat Sessions Cache ──
+
+export function getCachedConversations(patientId = 'self', uid = getCurrentUid()) {
+  if (!uid) return null;
+  return safeStorageGet(`mediskye_conversations_${uid}_${patientId || 'self'}`, null);
+}
+
+export function setCachedConversations(conversations, patientId = 'self', uid = getCurrentUid()) {
+  if (!uid || !conversations) return;
+  safeStorageSet(`mediskye_conversations_${uid}_${patientId || 'self'}`, conversations);
+}
+
+export function purgePatientLocalCache(patientId = 'self', uid = getCurrentUid()) {
+  if (!uid) return;
   try {
-    localStorage.setItem(`mediskye_cached_documents_${uid}_${patientId || 'self'}`, JSON.stringify(docs || []));
+    const patKey = patientId || 'self';
+    localStorage.removeItem(`mediskye_cached_documents_${uid}_${patKey}`);
+    localStorage.removeItem(`mediskye_cached_facts_${uid}_${patKey}`);
+    localStorage.removeItem(`mediskye_cached_trends_${uid}_${patKey}`);
+    localStorage.removeItem(`mediskye_conversations_${uid}_${patKey}`);
+  } catch (_) {}
+}
+
+export function purgeDocumentLocalCache(docId) {
+  if (!docId) return;
+  try {
+    localStorage.removeItem(`mediskye_cached_doc_metrics_${docId}`);
+    localStorage.removeItem(`mediskye_cached_doc_summary_${docId}`);
   } catch (_) {}
 }
 
@@ -662,9 +764,16 @@ export async function fetchLabMetrics(documentId, forceRefresh = false) {
     list.is_future_collection_date = data.is_future_collection_date;
     list.prior_document_id = data.prior_document_id;
     list.prior_document_date = data.prior_document_date;
+    if (documentId && list.length > 0) {
+      setCachedDocMetrics(documentId, list);
+    }
     return list;
   } catch (err) {
     logger.error('Failed to fetch metrics:', err);
+    const cached = getCachedDocMetrics(documentId);
+    if (Array.isArray(cached) && cached.length > 0) {
+      return cached;
+    }
     const list = [];
     list._error = err.message || 'Failed to fetch metrics';
     return list;
@@ -696,7 +805,12 @@ export async function getDocumentSummary(documentId, forceRefresh = false) {
 
   const data = await res.json().catch(() => ({}));
   if (!res.ok) {
+    const cached = getCachedDocSummary(documentId);
+    if (cached) return cached;
     throw new Error(data.detail || 'Failed to fetch document summary');
+  }
+  if (documentId && data) {
+    setCachedDocSummary(documentId, data);
   }
   return data;
 }
@@ -860,6 +974,7 @@ export async function deleteDependent(id) {
   }
   const currentCached = getCachedDependents();
   setCachedDependents(currentCached.filter((d) => d.id !== id));
+  purgePatientLocalCache(id);
 }
 
 export async function getUserDocuments() {
@@ -919,7 +1034,18 @@ export async function renameChatSession(sessionId, title) {
   return await res.json();
 }
 
-export async function deleteChatSession(sessionId) {
+export async function deleteChatSession(sessionId, patientId = 'self') {
+  // Purge from cached conversations for patient
+  try {
+    const cached = getCachedConversations(patientId);
+    if (Array.isArray(cached)) {
+      setCachedConversations(
+        cached.filter((c) => c.id !== sessionId && c.sessionId !== sessionId),
+        patientId
+      );
+    }
+  } catch (_) {}
+
   let res = await fetch(`${API_BASE}/users/me/chats/sessions/${encodeURIComponent(sessionId)}`, {
     method: 'DELETE',
     headers: { ...getAuthHeaders() },
@@ -938,6 +1064,9 @@ export async function clearAllChats(patientId = null, clearPatientContext = true
   let url = `${API_BASE}/users/me/chats?clear_patient_context=${clearPatientContext ? 'true' : 'false'}`;
   if (patientId && patientId !== 'all') {
     url += `&patient_id=${encodeURIComponent(patientId)}`;
+    setCachedConversations([], patientId);
+  } else if (patientId === 'all') {
+    setCachedConversations([], 'self');
   }
   const res = await fetch(url, {
     method: 'DELETE',
@@ -1091,6 +1220,7 @@ export async function updateMemoryConsent(consent) {
 }
 
 export async function getFacts(patientId = null) {
+  const patKey = patientId || 'self';
   let url = `${API_BASE}/users/me/facts`;
   if (patientId && patientId !== 'self') {
     url += `?patient_id=${encodeURIComponent(patientId)}`;
@@ -1109,8 +1239,14 @@ export async function getFacts(patientId = null) {
       // ignore
     }
   }
-  if (!res.ok) return [];
-  return await res.json();
+  if (!res.ok) {
+    const cached = getCachedMemoryFacts(patKey);
+    return Array.isArray(cached) ? cached : [];
+  }
+  const data = await res.json();
+  const list = Array.isArray(data) ? data : [];
+  setCachedMemoryFacts(list, patKey);
+  return list;
 }
 
 export const getMemoryFacts = getFacts;
@@ -1118,6 +1254,7 @@ export const getMemoryFacts = getFacts;
 export async function createFact(factData, patientId = null) {
   let url = `${API_BASE}/users/me/facts`;
   const resolvedPatientId = patientId || factData.patient_id || factData.dependent_id;
+  const patKey = resolvedPatientId || 'self';
   if (resolvedPatientId && resolvedPatientId !== 'self') {
     url += `?patient_id=${encodeURIComponent(resolvedPatientId)}`;
   }
@@ -1155,12 +1292,18 @@ export async function createFact(factData, patientId = null) {
     const errData = await res.json().catch(() => ({}));
     throw new Error(errData.detail || 'Failed to save health fact');
   }
-  return await res.json();
+  const created = await res.json();
+  if (created && created.id) {
+    const current = getCachedMemoryFacts(patKey);
+    setCachedMemoryFacts([created, ...current.filter((f) => f.id !== created.id)], patKey);
+  }
+  return created;
 }
 
 export const createMemoryFact = createFact;
 
 export async function updateFact(factId, factData, patientId = null) {
+  const patKey = patientId || 'self';
   let url = `${API_BASE}/users/me/facts/${factId}`;
   if (patientId && patientId !== 'self') {
     url += `?patient_id=${encodeURIComponent(patientId)}`;
@@ -1193,10 +1336,20 @@ export async function updateFact(factId, factData, patientId = null) {
     const errData = await res.json().catch(() => ({}));
     throw new Error(errData.detail || 'Failed to update health fact');
   }
-  return await res.json();
+  const updated = await res.json();
+  if (updated && updated.id) {
+    const current = getCachedMemoryFacts(patKey);
+    setCachedMemoryFacts(current.map((f) => (f.id === updated.id ? updated : f)), patKey);
+  }
+  return updated;
 }
 
 export async function deleteFact(factId, patientId = null) {
+  const patKey = patientId || 'self';
+  // Immediate write-through cache purge
+  const current = getCachedMemoryFacts(patKey);
+  setCachedMemoryFacts(current.filter((f) => f.id !== factId), patKey);
+
   let url = `${API_BASE}/users/me/facts/${factId}`;
   if (patientId && patientId !== 'self') {
     url += `?patient_id=${encodeURIComponent(patientId)}`;
@@ -1218,7 +1371,8 @@ export async function deleteFact(factId, patientId = null) {
     }
   }
   if (!res.ok) {
-    throw new Error('Failed to delete memory fact');
+    const errData = await res.json().catch(() => ({}));
+    throw new Error(errData.detail || 'Failed to delete health fact');
   }
   return await res.json();
 }
@@ -1226,6 +1380,8 @@ export async function deleteFact(factId, patientId = null) {
 export const deleteMemoryFact = deleteFact;
 
 export async function clearAllMemoryFacts(patientId = null) {
+  const patKey = patientId || 'self';
+  setCachedMemoryFacts([], patKey);
   let url = `${API_BASE}/users/me/memory/facts`;
   if (patientId && patientId !== 'self') {
     url += `?patient_id=${encodeURIComponent(patientId)}`;
@@ -1351,6 +1507,7 @@ export default api;
  * See REDESIGN_CHANGELOG.md §3 for the exact response contract.
  */
 export async function getMetricTrends(patientId = null, options = {}) {
+  const patKey = patientId || 'self';
   let url = `${API_BASE}/users/me/metrics/trends`;
   if (patientId && patientId !== 'self') {
     url += `?patient_id=${encodeURIComponent(patientId)}`;
@@ -1360,14 +1517,60 @@ export async function getMetricTrends(patientId = null, options = {}) {
       headers: getAuthHeaders(),
       signal: options.signal,
     });
-    if (!res.ok) return null;
+    if (!res.ok) {
+      return getCachedTrends(patKey);
+    }
     const data = await res.json().catch(() => null);
-    if (!data || !Array.isArray(data.series)) return null;
+    if (!data || !Array.isArray(data.series)) {
+      return getCachedTrends(patKey);
+    }
+    setCachedTrends(data, patKey);
     return data;
   } catch (err) {
     if (err?.name !== 'AbortError') {
-      logger.info('Trends endpoint unavailable; using client-side computation.');
+      logger.info('Trends endpoint unavailable; using client-side computation or cached trends.');
     }
-    return null;
+    return getCachedTrends(patKey);
   }
+}
+
+/**
+ * Background Pre-Downloader
+ * Pre-warms Memory Vault facts, longitudinal trends, and top document metrics
+ * for the given patient without blocking the UI thread.
+ */
+export async function prewarmPatientLocalCache(patientId = 'self', dependents = [], documents = []) {
+  if (typeof window === 'undefined') return;
+  const targetPatient = patientId || 'self';
+
+  // 1. Pre-warm Memory Vault facts for active profile if not already cached
+  try {
+    const cachedFacts = getCachedMemoryFacts(targetPatient);
+    if (!cachedFacts || cachedFacts.length === 0) {
+      await getFacts(targetPatient);
+    }
+  } catch (_) {}
+
+  // 2. Pre-warm longitudinal trends if not already cached
+  try {
+    const cachedTrends = getCachedTrends(targetPatient);
+    if (!cachedTrends) {
+      await getMetricTrends(targetPatient);
+    }
+  } catch (_) {}
+
+  // 3. Pre-warm up to top 5 documents' lab metrics without blocking
+  try {
+    const docs =
+      Array.isArray(documents) && documents.length > 0
+        ? documents
+        : getCachedDocuments(targetPatient);
+    const toPrewarm = (docs || []).slice(0, 5);
+    for (const doc of toPrewarm) {
+      const docId = doc.id || doc.document_id;
+      if (docId && !getCachedDocMetrics(docId)) {
+        await fetchLabMetrics(docId).catch(() => {});
+      }
+    }
+  } catch (_) {}
 }

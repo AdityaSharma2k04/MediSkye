@@ -3,7 +3,15 @@ import { Brain, Search, Trash2, FileText, MessageSquare, Loader2, ShieldCheck, X
 import { useTranslation } from 'react-i18next';
 import { cn } from '../../lib/cn';
 import Sheet from '../ui/Sheet';
-import { getFacts, deleteFact, clearAllMemoryFacts, updateMemoryConsent, updateProfile, getDependents } from '../../services/api';
+import {
+  getFacts,
+  deleteFact,
+  clearAllMemoryFacts,
+  updateMemoryConsent,
+  updateProfile,
+  getDependents,
+  getCachedMemoryFacts,
+} from '../../services/api';
 import { logger } from '../../services/logger';
 import { reportLabel } from '../../lib/clinical';
 
@@ -73,7 +81,10 @@ export default function MemoryVault({
   const [selectedVaultPatientId, setSelectedVaultPatientId] = useState(effectiveInitialPatient);
   const [dependentsList, setDependentsList] = useState(initialDependents || []);
 
-  const [facts, setFacts] = useState([]);
+  const [facts, setFacts] = useState(() => {
+    const cached = getCachedMemoryFacts(effectiveInitialPatient);
+    return Array.isArray(cached) ? cached : [];
+  });
   const [loading, setLoading] = useState(false);
   const [query, setQuery] = useState('');
   const [category, setCategory] = useState('all');
@@ -107,19 +118,32 @@ export default function MemoryVault({
 
   useEffect(() => {
     if (open) {
-      setSelectedVaultPatientId(activePatientId || selectedPatientId || 'self');
+      const targetId = activePatientId || selectedPatientId || 'self';
+      setSelectedVaultPatientId(targetId);
+      const cached = getCachedMemoryFacts(targetId);
+      if (Array.isArray(cached) && cached.length > 0) {
+        setFacts(cached);
+      }
     }
   }, [open, activePatientId, selectedPatientId]);
 
   const load = useCallback(async () => {
-    setLoading(true);
+    const cached = getCachedMemoryFacts(selectedVaultPatientId);
+    if (Array.isArray(cached) && cached.length > 0) {
+      setFacts(cached);
+      setLoading(false);
+    } else {
+      setLoading(true);
+    }
     setError('');
     try {
       const list = await getFacts(selectedVaultPatientId);
       setFacts(Array.isArray(list) ? list : []);
     } catch (err) {
       logger.warn('Failed to load memory facts:', err);
-      setFacts([]);
+      if (!cached || cached.length === 0) {
+        setFacts([]);
+      }
     } finally {
       setLoading(false);
     }

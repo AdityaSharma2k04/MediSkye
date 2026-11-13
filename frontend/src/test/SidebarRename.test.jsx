@@ -40,6 +40,17 @@ vi.mock('../services/api', () => ({
   setCachedDocuments: vi.fn(),
   setCachedProfile: vi.fn(),
   setCachedDependents: vi.fn(),
+  getCachedConversations: vi.fn().mockReturnValue(null),
+  setCachedConversations: vi.fn(),
+  getCachedMemoryFacts: vi.fn().mockReturnValue([]),
+  setCachedMemoryFacts: vi.fn(),
+  getCachedDocMetrics: vi.fn().mockReturnValue(null),
+  setCachedDocMetrics: vi.fn(),
+  getCachedDocSummary: vi.fn().mockReturnValue(null),
+  setCachedDocSummary: vi.fn(),
+  getCachedTrends: vi.fn().mockReturnValue(null),
+  setCachedTrends: vi.fn(),
+  prewarmPatientLocalCache: vi.fn(),
 }));
 
 vi.mock('../services/speech', () => ({

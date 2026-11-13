@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { fetchLabMetrics } from '../services/api';
+import { fetchLabMetrics, getCachedDocMetrics } from '../services/api';
 import { logger } from '../services/logger';
 
 /**
@@ -25,6 +25,10 @@ export async function loadMetricsFor(docId, { force = false } = {}) {
     } catch (err) {
       logger.warn('Lab metrics unavailable:', err);
       cache.delete(docId);
+      const cached = getCachedDocMetrics(docId);
+      if (Array.isArray(cached) && cached.length > 0) {
+        return cached;
+      }
       const errList = [];
       errList._error = err.message || 'Lab metrics unavailable';
       return errList;
@@ -43,7 +47,16 @@ export async function loadMetricsFor(docId, { force = false } = {}) {
  * @param {{enabled?: boolean}} options  set enabled=false to defer the request
  */
 export default function useLabMetrics(documentId, { enabled = true } = {}) {
-  const [state, setState] = useState({ docId: null, metrics: [], loading: false, loaded: false, error: null });
+  const [state, setState] = useState(() => {
+    const cached = documentId ? getCachedDocMetrics(documentId) : null;
+    return {
+      docId: documentId,
+      metrics: Array.isArray(cached) ? cached : [],
+      loading: !cached && Boolean(enabled && documentId),
+      loaded: Boolean(cached && cached.length > 0),
+      error: null,
+    };
+  });
   const reqRef = useRef(0);
 
   const load = useCallback(
@@ -53,13 +66,17 @@ export default function useLabMetrics(documentId, { enabled = true } = {}) {
         return [];
       }
       const reqId = ++reqRef.current;
-      setState((s) => ({
-        docId: documentId,
-        metrics: s.docId === documentId ? s.metrics : [],
-        loading: true,
-        loaded: s.docId === documentId && s.loaded,
-        error: null,
-      }));
+      setState((s) => {
+        const cached = s.docId === documentId ? s.metrics : (getCachedDocMetrics(documentId) || []);
+        const hasData = Boolean(cached && cached.length > 0);
+        return {
+          docId: documentId,
+          metrics: cached,
+          loading: !hasData || force,
+          loaded: hasData,
+          error: null,
+        };
+      });
       try {
         const metrics = await loadMetricsFor(documentId, { force });
         if (reqId === reqRef.current) {
@@ -69,7 +86,14 @@ export default function useLabMetrics(documentId, { enabled = true } = {}) {
         return metrics;
       } catch (err) {
         if (reqId === reqRef.current) {
-          setState({ docId: documentId, metrics: [], loading: false, loaded: true, error: err?.message || 'Failed to load metrics' });
+          const cached = getCachedDocMetrics(documentId) || [];
+          setState({
+            docId: documentId,
+            metrics: cached,
+            loading: false,
+            loaded: true,
+            error: cached.length > 0 ? null : (err?.message || 'Failed to load metrics'),
+          });
         }
         return [];
       }
