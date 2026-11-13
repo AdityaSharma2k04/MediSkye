@@ -101,6 +101,7 @@ export default function Workbench(props) {
     uiLanguage,
     onSetUiLanguage,
     printSignal,
+    isOnline = true,
   } = props;
 
   const { t } = useTranslation();
@@ -269,6 +270,18 @@ export default function Workbench(props) {
               <FileText className="w-3.5 h-3.5 text-cyan-300 shrink-0" />
               <span className="text-xs text-ink-soft truncate max-w-[240px]">{`${activePdf.filename || activePdf.name || 'Lab report'}`}</span>
               {reportDate && <span className="ms-num text-xs text-ink-faint shrink-0">{`Collected ${reportDate}`}</span>}
+            </div>
+          )}
+
+          {!isOnline && (
+            <div
+              className="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-amber-500/10 border border-amber-500/25 text-amber-300 text-xs font-medium shrink-0 animate-fade-in"
+              role="status"
+              aria-label="Offline mode"
+            >
+              <span className="w-1.5 h-1.5 rounded-full bg-amber-400 animate-pulse" />
+              <span className="hidden sm:inline">Offline — viewing cached data</span>
+              <span className="sm:hidden">Offline</span>
             </div>
           )}
 

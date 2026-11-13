@@ -980,3 +980,10 @@
   }
 }
 
+/* Content-visibility optimization for completed chat messages: skip off-screen layout/paint during 120fps scrolling */
+.ms-message-contain {
+  content-visibility: auto;
+  contain-intrinsic-size: auto 140px;
+}
+
+

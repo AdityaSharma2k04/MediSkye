@@ -198,10 +198,13 @@ export default function MemoryVault({
   const handleDelete = async (id) => {
     setDeletingId(id);
     setError('');
+    const previousFacts = facts;
+    // 0ms Optimistic local removal
+    setFacts((prev) => prev.filter((f) => f.id !== id));
     try {
       await deleteFact(id, selectedVaultPatientId);
-      setFacts((prev) => prev.filter((f) => f.id !== id));
     } catch (err) {
+      setFacts(previousFacts);
       setError(err?.message || 'That fact could not be deleted. Try again.');
     } finally {
       setDeletingId(null);
@@ -210,12 +213,15 @@ export default function MemoryVault({
 
   const handleClearAll = async () => {
     setError('');
+    const previousFacts = facts;
+    // 0ms Optimistic clear
+    setFacts([]);
+    setConfirmClear(false);
+    setConfirmText('');
     try {
       await clearAllMemoryFacts(selectedVaultPatientId);
-      setFacts([]);
-      setConfirmClear(false);
-      setConfirmText('');
     } catch (err) {
+      setFacts(previousFacts);
       setError(err?.message || 'Memory could not be cleared. Try again.');
     }
   };

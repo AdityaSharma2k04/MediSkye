@@ -59,6 +59,17 @@ export function getCurrentUid() {
   return null;
 }
 
+export function warmBackendConnection() {
+  if (typeof window === 'undefined') return;
+  try {
+    fetch(`${API_BASE}/health`, {
+      method: 'GET',
+      mode: 'cors',
+      credentials: 'omit',
+    }).catch(() => {});
+  } catch (_) {}
+}
+
 export function safeStorageSet(key, value) {
   if (typeof window === 'undefined' || !key) return;
   const strVal = typeof value === 'string' ? value : JSON.stringify(value);

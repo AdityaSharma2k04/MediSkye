@@ -82,7 +82,25 @@ const markdownComponents = {
   ),
 };
 
-export default function ChatMessage({ message, onRegenerate }) {
+function areMessagePropsEqual(prevProps, nextProps) {
+  if (prevProps.onRegenerate !== nextProps.onRegenerate) return false;
+  const p = prevProps.message;
+  const n = nextProps.message;
+  if (p === n) return true;
+  if (!p || !n) return false;
+  return (
+    p.id === n.id &&
+    p.text === n.text &&
+    p.sender === n.sender &&
+    p.role === n.role &&
+    p.timestamp === n.timestamp &&
+    p.status === n.status &&
+    p.error === n.error &&
+    p.isStreaming === n.isStreaming
+  );
+}
+
+export function ChatMessage({ message, onRegenerate }) {
   const [copied, setCopied] = useState(false);
   const [speaking, setSpeaking] = useState(false);
   const [liked, setLiked] = useState(null);
@@ -299,3 +317,6 @@ export default function ChatMessage({ message, onRegenerate }) {
     </div>
   );
 }
+
+const MemoizedChatMessage = React.memo(ChatMessage, areMessagePropsEqual);
+export default MemoizedChatMessage;

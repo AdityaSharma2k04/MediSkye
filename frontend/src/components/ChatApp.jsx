@@ -1,15 +1,11 @@
-import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
+import React, { useState, useEffect, useCallback, useRef, useMemo, lazy, Suspense } from 'react';
 import { useTranslation } from 'react-i18next';
 import Sidebar from './Sidebar';
 import DocumentModal from './DocumentModal';
-import SettingsModal from './SettingsModal';
-import Profile from './Profile';
 import MemoryConsentModal from './MemoryConsentModal';
-import ExportModal from './ExportModal';
 import Workbench from './workbench/Workbench';
 import NavRail from './workbench/NavRail';
 import CommandPalette from './workbench/CommandPalette';
-import MemoryVault from './workbench/MemoryVault';
 import { buildPatients, isSelfSelected } from './workbench/PatientSwitcher';
 import useViewport from '../hooks/useViewport';
 import useHotkeys from '../hooks/useHotkeys';
@@ -18,6 +14,19 @@ import useTrendData from '../hooks/useTrendData';
 import { STORAGE_KEYS, readStorage, writeStorage } from '../lib/storageKeys';
 import { metricKey, metricName } from '../lib/clinical';
 import { cn } from '../lib/cn';
+
+// Lazy-loaded modal chunks for fast initial boot + 0ms idle preloading
+const SettingsModal = lazy(() => import('./SettingsModal'));
+const Profile = lazy(() => import('./Profile'));
+const ExportModal = lazy(() => import('./ExportModal'));
+const MemoryVault = lazy(() => import('./workbench/MemoryVault'));
+
+function preloadModals() {
+  import('./SettingsModal');
+  import('./Profile');
+  import('./ExportModal');
+  import('./workbench/MemoryVault');
+}
 import {
   uploadPdfReport,
   getUploadStatus,
@@ -195,6 +204,7 @@ export default function ChatApp() {
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [isProfileOpen, setIsProfileOpen] = useState(false);
   const [isExportOpen, setIsExportOpen] = useState(false);
+  const [memoryOpen, setMemoryOpen] = useState(false);
   const [selectedSource, setSelectedSource] = useState(null);
 
   const [activePdf, setActivePdf] = useState(null);
@@ -228,6 +238,75 @@ export default function ChatApp() {
       }
     };
   }, []);
+
+  const [isOnline, setIsOnline] = useState(() => (typeof navigator !== 'undefined' ? navigator.onLine : true));
+
+  useEffect(() => {
+    const handleOnline = () => setIsOnline(true);
+    const handleOffline = () => setIsOnline(false);
+
+    window.addEventListener('online', handleOnline);
+    window.addEventListener('offline', handleOffline);
+
+    return () => {
+      window.removeEventListener('online', handleOnline);
+      window.removeEventListener('offline', handleOffline);
+    };
+  }, []);
+
+  // Preload lazy modal chunks in background idle time
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      if ('requestIdleCallback' in window) {
+        window.requestIdleCallback(() => preloadModals(), { timeout: 1200 });
+      } else {
+        setTimeout(preloadModals, 1200);
+      }
+    }
+  }, []);
+
+  // Android hardware back button & popstate overlay navigation
+  useEffect(() => {
+    window.__mediskyeHandleBack = () => {
+      if (isExportOpen) {
+        setIsExportOpen(false);
+        return true;
+      }
+      if (memoryOpen) {
+        setMemoryOpen(false);
+        return true;
+      }
+      if (isSettingsOpen) {
+        setIsSettingsOpen(false);
+        return true;
+      }
+      if (isProfileOpen) {
+        setIsProfileOpen(false);
+        return true;
+      }
+      if (selectedSource) {
+        setSelectedSource(null);
+        return true;
+      }
+      if (sidebarOpen && (typeof window !== 'undefined' && window.innerWidth < 1024)) {
+        setSidebarOpen(false);
+        return true;
+      }
+      return false;
+    };
+
+    const handlePopState = (e) => {
+      if (window.__mediskyeHandleBack && window.__mediskyeHandleBack()) {
+        e.preventDefault?.();
+      }
+    };
+    window.addEventListener('popstate', handlePopState);
+
+    return () => {
+      delete window.__mediskyeHandleBack;
+      window.removeEventListener('popstate', handlePopState);
+    };
+  }, [isExportOpen, memoryOpen, isSettingsOpen, isProfileOpen, selectedSource, sidebarOpen]);
 
   // ── Connection status watcher ──
   useEffect(() => {
@@ -1497,36 +1576,38 @@ export default function ChatApp() {
   }, [selectedPatientId, refreshPatientContext, refreshDocuments]);
 
   const handleDeleteChat = async (id, skipConfirm = false) => {
+    const chat = conversations.find((c) => c.id === id);
+    const targetDocId = chat?.document_id || (chat?.pdf ? id : null);
+
+    // 0ms Optimistic UI update: immediately remove from state and advance active session
+    setConversations((prev) => {
+      const newConversations = prev.filter((c) => c.id !== id && (!targetDocId || c.document_id !== targetDocId));
+      if (newConversations.length === 0) {
+        const newId = generateSessionId();
+        setSessionId(newId);
+        setActivePdf(null);
+        return [{ id: newId, title: 'New Conversation', messages: [], pdf: null, patient_id: selectedPatientId }];
+      }
+      if (id === sessionId || (targetDocId && targetDocId === sessionId)) {
+        const nextChat = newConversations[0];
+        setSessionId(nextChat.id);
+        setActivePdf(nextChat.pdf || null);
+        const nextDocId = nextChat.document_id || (nextChat.pdf ? nextChat.id : null);
+        loadChatHistory(nextDocId, nextChat.id);
+      }
+      return newConversations;
+    });
+
     try {
-      const chat = conversations.find((c) => c.id === id);
-      const targetDocId = chat?.document_id || (chat?.pdf ? id : null);
       if (targetDocId) {
         await deleteDocument(targetDocId);
       } else {
-        await deleteChatSession(id);
+        await deleteChatSession(id, selectedPatientId);
       }
-
-      setConversations((prev) => {
-        const newConversations = prev.filter((c) => c.id !== id && c.document_id !== targetDocId);
-        if (newConversations.length === 0) {
-          const newId = generateSessionId();
-          setSessionId(newId);
-          setActivePdf(null);
-          return [{ id: newId, title: 'New Conversation', messages: [], pdf: null, patient_id: selectedPatientId }];
-        }
-        if (id === sessionId || (targetDocId && targetDocId === sessionId)) {
-          const nextChat = newConversations[0];
-          setSessionId(nextChat.id);
-          setActivePdf(nextChat.pdf || null);
-          const nextDocId = nextChat.document_id || (nextChat.pdf ? nextChat.id : null);
-          loadChatHistory(nextDocId, nextChat.id);
-        }
-        return newConversations;
-      });
-
-      await refreshDocuments();
+      refreshDocuments().catch(() => {});
     } catch (err) {
       logger.error('Delete failed:', err);
+      refreshDocuments().catch(() => {});
     }
   };
 
@@ -1608,7 +1689,6 @@ export default function ChatApp() {
   const [metricsSearch, setMetricsSearch] = useState('');
   const [highlightKey, setHighlightKey] = useState(null);
   const [paletteOpen, setPaletteOpen] = useState(false);
-  const [memoryOpen, setMemoryOpen] = useState(false);
   const [printSignal, setPrintSignal] = useState(0);
   const uiLanguage = (i18n?.language || 'en').startsWith('hi') ? 'hi' : 'en';
 
@@ -1911,6 +1991,7 @@ export default function ChatApp() {
           uiLanguage={uiLanguage}
           onSetUiLanguage={handleSetUiLanguage}
           printSignal={printSignal}
+          isOnline={isOnline}
         />
       </main>
 
@@ -1950,67 +2031,69 @@ export default function ChatApp() {
         />
       )}
 
-      <MemoryVault
-        open={memoryOpen}
-        onOpenChange={setMemoryOpen}
-        selectedPatientId={selectedPatientId}
-        activePatientId={selectedPatientId}
-        patientName={patientName}
-        currentUser={currentUser}
-        dependents={dependents}
-        documents={patientReports}
-        onConsentChanged={(next) => setCurrentUser((u) => (u ? { ...u, memory_consent_granted: next } : u))}
-      />
-
-      <DocumentModal source={selectedSource} onClose={() => setSelectedSource(null)} />
-
-      <ExportModal
-        isOpen={isExportOpen}
-        onClose={() => setIsExportOpen(false)}
-        darkMode={darkMode}
-        documentId={currentChat.document_id || null}
-        documentTitle={currentChat.title || (activePdf ? activePdf.name : null)}
-        messages={messages}
-        user={activePatient}
-      />
-
-      <SettingsModal
-        isOpen={isSettingsOpen}
-        onClose={() => setIsSettingsOpen(false)}
-        darkMode={darkMode}
-        setDarkMode={handleSetDarkMode}
-        themePreference={themePreference}
-        setThemePreference={setThemePreference}
-        onClearAllChats={handleClearAllChats}
-        onResetProfileChats={handleResetProfileChats}
-        onOpenMemoryVault={() => {
-          setIsSettingsOpen(false);
-          setMemoryOpen(true);
-        }}
-        onDeleteAccount={handleDeleteAccount}
-        onProfileUpdated={(updated) => setCurrentUser(updated)}
-        language={language}
-        setLanguage={setLanguage}
-        currentUser={currentUser}
-        autoRead={autoRead}
-        setAutoRead={setAutoReadPersist}
-        onOpenProfile={handleOpenProfile}
-        selectedPatientId={selectedPatientId}
-        dependents={dependents}
-      />
-
-      {isProfileOpen && (
-        <Profile
-          onClose={() => setIsProfileOpen(false)}
-          darkMode={darkMode}
-          initialTab={profileInitialTab}
-          onProfileUpdated={refreshPatientContext}
-          onDependentDeleted={handleDependentDeleted}
-          profile={currentUser}
+      <Suspense fallback={null}>
+        <MemoryVault
+          open={memoryOpen}
+          onOpenChange={setMemoryOpen}
+          selectedPatientId={selectedPatientId}
+          activePatientId={selectedPatientId}
+          patientName={patientName}
+          currentUser={currentUser}
           dependents={dependents}
-          selectedDependentId={selectedPatientId !== 'self' ? selectedPatientId : null}
+          documents={patientReports}
+          onConsentChanged={(next) => setCurrentUser((u) => (u ? { ...u, memory_consent_granted: next } : u))}
         />
-      )}
+
+        <DocumentModal source={selectedSource} onClose={() => setSelectedSource(null)} />
+
+        <ExportModal
+          isOpen={isExportOpen}
+          onClose={() => setIsExportOpen(false)}
+          darkMode={darkMode}
+          documentId={currentChat.document_id || null}
+          documentTitle={currentChat.title || (activePdf ? activePdf.name : null)}
+          messages={messages}
+          user={activePatient}
+        />
+
+        <SettingsModal
+          isOpen={isSettingsOpen}
+          onClose={() => setIsSettingsOpen(false)}
+          darkMode={darkMode}
+          setDarkMode={handleSetDarkMode}
+          themePreference={themePreference}
+          setThemePreference={setThemePreference}
+          onClearAllChats={handleClearAllChats}
+          onResetProfileChats={handleResetProfileChats}
+          onOpenMemoryVault={() => {
+            setIsSettingsOpen(false);
+            setMemoryOpen(true);
+          }}
+          onDeleteAccount={handleDeleteAccount}
+          onProfileUpdated={(updated) => setCurrentUser(updated)}
+          language={language}
+          setLanguage={setLanguage}
+          currentUser={currentUser}
+          autoRead={autoRead}
+          setAutoRead={setAutoReadPersist}
+          onOpenProfile={handleOpenProfile}
+          selectedPatientId={selectedPatientId}
+          dependents={dependents}
+        />
+
+        {isProfileOpen && (
+          <Profile
+            onClose={() => setIsProfileOpen(false)}
+            darkMode={darkMode}
+            initialTab={profileInitialTab}
+            onProfileUpdated={refreshPatientContext}
+            onDependentDeleted={handleDependentDeleted}
+            profile={currentUser}
+            dependents={dependents}
+            selectedDependentId={selectedPatientId !== 'self' ? selectedPatientId : null}
+          />
+        )}
+      </Suspense>
 
       <MemoryConsentModal
         isOpen={showMemoryConsentModal}

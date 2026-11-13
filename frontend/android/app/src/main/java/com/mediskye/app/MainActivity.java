@@ -97,6 +97,29 @@ public class MainActivity extends BridgeActivity {
         });
     }
 
+    @Override
+    public void onBackPressed() {
+        if (this.bridge != null && this.bridge.getWebView() != null) {
+            final WebView webView = this.bridge.getWebView();
+            webView.evaluateJavascript(
+                "(function(){ return !!(window.__mediskyeHandleBack && window.__mediskyeHandleBack()); })()",
+                value -> {
+                    if ("true".equalsIgnoreCase(value)) {
+                        // Handled by MediSkye React UI (closed open modal or drawer)
+                        return;
+                    }
+                    if (webView.canGoBack()) {
+                        webView.goBack();
+                    } else {
+                        MainActivity.super.onBackPressed();
+                    }
+                }
+            );
+            return;
+        }
+        super.onBackPressed();
+    }
+
     private synchronized int startLoopbackServerIfNeeded() {
         if (activeLoopbackPort != 0 && serverSocket != null && !serverSocket.isClosed()) {
             return activeLoopbackPort;

@@ -226,13 +226,18 @@ export default function ChatWindow({
             </div>
           ) : (
             <div className="py-2" role="log" aria-label="Conversation" aria-live="off">
-              {messages.map((msg, index) => (
-                <ChatMessage
-                  key={msg.id || index}
-                  message={msg}
-                  onRegenerate={index === messages.length - 1 && msg.sender === 'assistant' ? onRegenerate : null}
-                />
-              ))}
+              {messages.map((msg, index) => {
+                const isLatest = index === messages.length - 1;
+                const isCompleted = !isLatest || !isGenerating;
+                return (
+                  <div key={msg.id || index} className={cn(isCompleted && 'ms-message-contain')}>
+                    <ChatMessage
+                      message={msg}
+                      onRegenerate={isLatest && msg.sender === 'assistant' ? onRegenerate : null}
+                    />
+                  </div>
+                );
+              })}
             </div>
           )}
           <div className="sr-only" role="status" aria-live="polite">

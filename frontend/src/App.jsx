@@ -6,6 +6,7 @@ import {
   signInWithCredential,
   saveAuthSnapshot,
 } from './services/firebase';
+import { warmBackendConnection } from './services/api';
 
 const Login = lazy(() => import('./components/Login'));
 const Register = lazy(() => import('./components/Register'));
@@ -207,9 +208,26 @@ const GlobalAuthListener = () => {
     };
     window.addEventListener('mediskye-native-google-auth', handleNativeGoogleAuth);
 
+    // Warm up Cloud Run container on initial mount & after >2 min inactivity
+    warmBackendConnection();
+    let lastActive = Date.now();
+    const handleVisibility = () => {
+      if (document.visibilityState === 'visible') {
+        const inactiveMs = Date.now() - lastActive;
+        if (inactiveMs > 2 * 60 * 1000) {
+          warmBackendConnection();
+        }
+        lastActive = Date.now();
+      } else {
+        lastActive = Date.now();
+      }
+    };
+    document.addEventListener('visibilitychange', handleVisibility);
+
     return () => {
       window.removeEventListener('auth:expired', handleAuthExpired);
       window.removeEventListener('mediskye-native-google-auth', handleNativeGoogleAuth);
+      document.removeEventListener('visibilitychange', handleVisibility);
     };
   }, [navigate]);
   return null;
