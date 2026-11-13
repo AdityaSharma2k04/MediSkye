@@ -107,6 +107,13 @@ vi.mock('../services/api', () => ({
   clearAllMemoryFacts: vi.fn(),
   sendCustomVerification: vi.fn(),
   sendCustomPasswordReset: (...args) => mockApiPost('/auth/send-custom-password-reset', { email: args[0] }),
+  reassignDocumentPatient: vi.fn().mockResolvedValue({ status: 'ok' }),
+  getCachedProfile: vi.fn().mockReturnValue(null),
+  getCachedDependents: vi.fn().mockReturnValue([]),
+  getCachedDocuments: vi.fn().mockReturnValue([]),
+  setCachedDocuments: vi.fn(),
+  setCachedProfile: vi.fn(),
+  setCachedDependents: vi.fn(),
   api: {
     post: (...args) => mockApiPost(...args),
     get: vi.fn(),

@@ -182,6 +182,10 @@ class RenameDocumentRequest(BaseModel):
     title: str = Field(..., min_length=1, max_length=60, description="New document title (max 60 chars)")
 
 
+class ReassignDocumentPatientRequest(BaseModel):
+    patient_id: str = Field(..., description="'self' or dependent UUID string")
+
+
 class CustomVerificationRequest(BaseModel):
     email: EmailStr
 

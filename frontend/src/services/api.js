@@ -39,6 +39,77 @@ export function formatApiError(data, fallback = 'Something went wrong on our end
   return fallback;
 }
 
+export function getCurrentUid() {
+  if (auth && auth.currentUser) return auth.currentUser.uid;
+  try {
+    const rawSnap = localStorage.getItem('mediskye_auth_user_snapshot');
+    if (rawSnap) {
+      const snap = JSON.parse(rawSnap);
+      if (snap?.uid) return snap.uid;
+    }
+    const token = localStorage.getItem('token');
+    if (token) {
+      const parts = token.split('.');
+      if (parts.length >= 2) {
+        const payload = JSON.parse(atob(parts[1].replace(/-/g, '+').replace(/_/g, '/')));
+        return payload.user_id || payload.sub || null;
+      }
+    }
+  } catch (_) {}
+  return null;
+}
+
+export function getCachedProfile(uid = getCurrentUid()) {
+  if (!uid) return null;
+  try {
+    const raw = localStorage.getItem(`mediskye_cached_profile_${uid}`);
+    return raw ? JSON.parse(raw) : null;
+  } catch (_) {
+    return null;
+  }
+}
+
+export function setCachedProfile(profile, uid = getCurrentUid()) {
+  if (!uid || !profile) return;
+  try {
+    localStorage.setItem(`mediskye_cached_profile_${uid}`, JSON.stringify(profile));
+  } catch (_) {}
+}
+
+export function getCachedDependents(uid = getCurrentUid()) {
+  if (!uid) return [];
+  try {
+    const raw = localStorage.getItem(`mediskye_cached_dependents_${uid}`);
+    return raw ? JSON.parse(raw) : [];
+  } catch (_) {
+    return [];
+  }
+}
+
+export function setCachedDependents(dependents, uid = getCurrentUid()) {
+  if (!uid) return;
+  try {
+    localStorage.setItem(`mediskye_cached_dependents_${uid}`, JSON.stringify(dependents || []));
+  } catch (_) {}
+}
+
+export function getCachedDocuments(patientId = 'self', uid = getCurrentUid()) {
+  if (!uid) return [];
+  try {
+    const raw = localStorage.getItem(`mediskye_cached_documents_${uid}_${patientId || 'self'}`);
+    return raw ? JSON.parse(raw) : [];
+  } catch (_) {
+    return [];
+  }
+}
+
+export function setCachedDocuments(docs, patientId = 'self', uid = getCurrentUid()) {
+  if (!uid) return;
+  try {
+    localStorage.setItem(`mediskye_cached_documents_${uid}_${patientId || 'self'}`, JSON.stringify(docs || []));
+  } catch (_) {}
+}
+
 export function getAuthHeaders() {
   const token = localStorage.getItem('token');
   return token ? { 'Authorization': `Bearer ${token}` } : {};
@@ -576,7 +647,9 @@ export async function getProfile() {
   if (!res.ok) {
     throw new Error('Failed to fetch profile');
   }
-  return await res.json();
+  const prof = await res.json();
+  setCachedProfile(prof);
+  return prof;
 }
 
 export async function updateProfile(data) {
@@ -607,7 +680,9 @@ export async function updateProfile(data) {
   if (!res.ok) {
     throw new Error('Failed to update profile');
   }
-  return await res.json();
+  const updated = await res.json();
+  setCachedProfile(updated);
+  return updated;
 }
 
 /**
@@ -658,7 +733,9 @@ export async function getDependents() {
   if (!res.ok) {
     throw new Error('Failed to fetch dependents');
   }
-  return await res.json();
+  const deps = await res.json();
+  setCachedDependents(deps);
+  return deps;
 }
 
 export async function createDependent(data) {
@@ -674,7 +751,10 @@ export async function createDependent(data) {
     const errData = await res.json().catch(() => ({}));
     throw new Error(errData.detail || 'Failed to create dependent profile');
   }
-  return await res.json();
+  const created = await res.json();
+  const currentCached = getCachedDependents();
+  setCachedDependents([...currentCached.filter((d) => d.id !== created.id), created]);
+  return created;
 }
 
 export async function updateDependent(id, data) {
@@ -690,7 +770,10 @@ export async function updateDependent(id, data) {
     const errData = await res.json().catch(() => ({}));
     throw new Error(errData.detail || 'Failed to update dependent profile');
   }
-  return await res.json();
+  const updated = await res.json();
+  const currentCached = getCachedDependents();
+  setCachedDependents(currentCached.map((d) => (d.id === id ? updated : d)));
+  return updated;
 }
 
 export async function deleteDependent(id) {
@@ -701,6 +784,8 @@ export async function deleteDependent(id) {
   if (!res.ok) {
     throw new Error('Failed to delete dependent profile');
   }
+  const currentCached = getCachedDependents();
+  setCachedDependents(currentCached.filter((d) => d.id !== id));
 }
 
 export async function getUserDocuments() {
@@ -708,7 +793,8 @@ export async function getUserDocuments() {
     headers: getAuthHeaders(),
   });
   if (!res.ok) return [];
-  return await res.json();
+  const docs = await res.json();
+  return docs;
 }
 
 export async function getDocumentChats(docId, sessionId = null) {
@@ -819,6 +905,28 @@ export async function renameDocument(documentId, newTitle) {
       documentId,
     });
     throw new Error(errData.detail || 'Failed to rename chat');
+  }
+  return await res.json();
+}
+
+export async function reassignDocumentPatient(documentId, patientId) {
+  const res = await apiFetch(`${API_BASE}/users/me/documents/${documentId}/patient`, {
+    method: 'PATCH',
+    headers: {
+      'Content-Type': 'application/json',
+      ...getAuthHeaders(),
+    },
+    body: JSON.stringify({ patient_id: patientId || 'self' }),
+  });
+  if (!res.ok) {
+    const errData = await res.json().catch(() => ({}));
+    logger.warn('Failed to reassign document patient on server:', {
+      status: res.status,
+      body: errData,
+      documentId,
+      patientId,
+    });
+    throw new Error(errData.detail || 'Failed to reassign document to patient profile');
   }
   return await res.json();
 }

@@ -362,6 +362,11 @@ export const ORGAN_SYSTEMS = [
     match: /(glucose|\bfbs\b|\bfbg\b|\bppbs\b|\brbs\b|blood sugar|\bsugar\b|hba1c|\ba1c\b|glycated|insulin|c-peptide|c.?peptide|\bhoma\b|lactate|fructosamine)/i,
   },
   {
+    key: 'thyroid',
+    label: 'Thyroid & Endocrine / Hormones',
+    match: /(anti.?tpo|anti.?tg|thyroglobulin|\btsh\b|thyroid|thyro|\bt3\b|\bt4\b|ft3|ft4|cortisol|\bacth\b|testosterone|estradiol|estrogen|progesterone|prolactin|\bfsh\b|\blh\b|\bdhea\b|\bshbg\b|\bpsa\b|\bpth\b|parathyroid)/i,
+  },
+  {
     key: 'lipids',
     label: 'Lipids & Cardiovascular',
     match: /(cholesterol|triglyceride|triglycer|\btg\b|\bhdl\b|\bldl\b|vldl|non.?hdl|apob|\bapo\s*b\b|\bapo\s*a\b|\bapo\b|lipoprotein|lp\(a\)|troponin|\bbnp\b|nt.?probnp|ck.?mb|homocysteine)/i,
@@ -375,11 +380,6 @@ export const ORGAN_SYSTEMS = [
     key: 'renal',
     label: 'Kidney / Renal & Electrolytes',
     match: /(creatinine|\bbun\b|\burea\b|egfr|\bgfr\b|uric acid|uric|urate|cystatin|uacr|microalbumin|albumin.?creatinine|\bacr\b|sodium|\bna\b|potassium|\bk\b|chloride|bicarbonate|\bhco3\b|\bco2\b|calcium|magnesium|phosphorus|phosphate|phosph|osmolal)/i,
-  },
-  {
-    key: 'thyroid',
-    label: 'Thyroid & Endocrine / Hormones',
-    match: /(\btsh\b|thyroid|thyro|\bt3\b|\bt4\b|ft3|ft4|anti.?tpo|thyroglobulin|cortisol|\bacth\b|testosterone|estradiol|estrogen|progesterone|prolactin|\bfsh\b|\blh\b|\bdhea\b|\bshbg\b|\bpsa\b|\bpth\b|parathyroid)/i,
   },
   {
     key: 'vitamins',

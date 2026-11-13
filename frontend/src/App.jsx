@@ -118,24 +118,47 @@ const LandingSkeleton = () => (
   </div>
 );
 
+const FIFTEEN_DAYS_MS = 15 * 24 * 60 * 60 * 1000;
+
 const ProtectedRoute = ({ children }) => {
-  const token = localStorage.getItem('token');
+  const token = localStorage.getItem('token') || localStorage.getItem('mediskye_auth_id_token');
+  const lastActive = localStorage.getItem('mediskye_auth_last_active');
+
+  // If user was inactive for > 15 days, purge auth and force login
+  if (lastActive && Date.now() - Number(lastActive) > FIFTEEN_DAYS_MS) {
+    for (let i = localStorage.length - 1; i >= 0; i--) {
+      const k = localStorage.key(i);
+      if (k && (k.startsWith('mediskye_auth_') || k.startsWith('mediskye_cached_') || k === 'token')) {
+        localStorage.removeItem(k);
+      }
+    }
+    return <Navigate to="/login" replace />;
+  }
+
   if (!token) {
     return <Navigate to="/login" replace />;
   }
+
+  // Touch last active on route access
+  localStorage.setItem('mediskye_auth_last_active', String(Date.now()));
 
   try {
     const parts = token.split('.');
     if (parts.length < 2) {
       localStorage.removeItem('token');
+      localStorage.removeItem('mediskye_auth_id_token');
       return <Navigate to="/login" replace />;
     }
     const base64Url = parts[1];
     const base64 = base64Url.replace(/-/g, '+').replace(/_/g, '/');
     const payload = JSON.parse(atob(base64));
+    // If JWT expired but within 15-day inactivity window, don't boot user — let Firebase refresh in background
     if (payload.exp && payload.exp * 1000 < Date.now()) {
-      localStorage.removeItem('token');
-      return <Navigate to="/login" replace />;
+      if (!lastActive || Date.now() - Number(lastActive) > FIFTEEN_DAYS_MS) {
+        localStorage.removeItem('token');
+        return <Navigate to="/login" replace />;
+      }
+      // Within 15 days: allow component to render immediately
     }
   } catch (e) {
     localStorage.removeItem('token');

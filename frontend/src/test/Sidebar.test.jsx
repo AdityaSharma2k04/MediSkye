@@ -28,6 +28,13 @@ vi.mock('../services/api', () => ({
   getMemoryStatus: vi.fn().mockResolvedValue({ memory_consent_granted: true }),
   getMemoryFacts: vi.fn().mockResolvedValue([]),
   getFacts: vi.fn().mockResolvedValue([]),
+  reassignDocumentPatient: vi.fn().mockResolvedValue({ status: 'ok' }),
+  getCachedProfile: vi.fn().mockReturnValue(null),
+  getCachedDependents: vi.fn().mockReturnValue([]),
+  getCachedDocuments: vi.fn().mockReturnValue([]),
+  setCachedDocuments: vi.fn(),
+  setCachedProfile: vi.fn(),
+  setCachedDependents: vi.fn(),
 }));
 
 describe('Sidebar DeepSeek-style Slide Collapse Animation', () => {

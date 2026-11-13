@@ -244,7 +244,7 @@ def canonical_biomarker_key(name: str) -> Optional[str]:
         return "ast"
 
     # 19. Total Cholesterol
-    if re.search(r'\btotal\s+cholesterol\b', n_clean):
+    if re.search(r'\b(?:total\s+cholesterol|cholesterol\s+total)\b', n_clean):
         return "total_cholesterol"
 
     # 20. HDL
@@ -254,6 +254,12 @@ def canonical_biomarker_key(name: str) -> Optional[str]:
     # 21. LDL
     if re.search(r'\b(?:ldl\s+cholesterol(?:\s*\(?calculated\)?)?|ldl)\b', n_clean):
         return "ldl"
+
+    # 21b. Thyroid Autoantibodies (MUST precede Triglycerides to avoid \btg\b false positives)
+    if re.search(r'\b(?:anti[\s-]*tpo|thyroid\s+peroxidase|tpo\s+antibod(?:y|ies)|microsomal\s+antibod(?:y|ies))\b', n_clean):
+        return "anti_tpo"
+    if re.search(r'\b(?:anti[\s-]*thyroglobulin|anti[\s-]*tg|thyroglobulin\s+antibod(?:y|ies)|atg)\b', n_clean):
+        return "anti_tg"
 
     # 22. Triglycerides
     if re.search(r'\b(?:triglycerides?|tg)\b', n_clean):
@@ -653,6 +659,12 @@ def build_extracted_biomarkers_and_hints(
         return ""
 
     status_mismatches: List[str] = []
+    unclassified_analytes: List[str] = []
+    out_of_range_markers: List[str] = []
+    high_markers: List[str] = []
+    low_markers: List[str] = []
+    other_flagged_markers: List[str] = []
+    in_range_markers: List[str] = []
     near_boundaries: List[Dict[str, Any]] = []
     followup_hints: List[str] = []
     metric_lines: List[str] = []
@@ -676,6 +688,39 @@ def build_extracted_biomarkers_and_hints(
             test_name=test_name,
             status_mismatches=status_mismatches,
         )
+
+        # Deterministic status bucketing (matches Lab Metrics UI 100%)
+        if final_status == "Normal":
+            in_range_markers.append(test_name)
+        elif final_status == "Unclassified":
+            unclassified_analytes.append(test_name)
+        else:
+            out_of_range_markers.append(f"{test_name} ({final_status})")
+            direction = None
+            if final_status == "Low":
+                direction = "Low"
+            elif final_status == "High":
+                direction = "High"
+            else:
+                num_v = parse_numeric_value(val_str)
+                r_info = parse_reference_range(range_str)
+                if num_v is not None and r_info is not None:
+                    if r_info["type"] == "bounded":
+                        if num_v < r_info["low"]:
+                            direction = "Low"
+                        elif num_v > r_info["high"]:
+                            direction = "High"
+                    elif r_info["type"] == "upper" and num_v > r_info["high"]:
+                        direction = "High"
+                    elif r_info["type"] == "lower" and num_v < r_info["low"]:
+                        direction = "Low"
+
+            if direction == "Low":
+                low_markers.append(test_name)
+            elif direction == "High" or final_status in {"High", "Critical"}:
+                high_markers.append(test_name)
+            else:
+                other_flagged_markers.append(test_name)
 
         nb_flag = None
         if final_status == "Normal" and test_name not in [sm.split(":")[0] for sm in status_mismatches]:
@@ -722,19 +767,45 @@ def build_extracted_biomarkers_and_hints(
 
     # Format XML output
     count = len(metric_lines)
+    out_count = len(out_of_range_markers)
+    in_count = len(in_range_markers)
+    high_count = len(high_markers)
+    low_count = len(low_markers)
+
     xml_parts = [
         f'<extracted_report_biomarkers count="{count}">',
         "\n".join(metric_lines),
         '</extracted_report_biomarkers>',
         '<analysis_hints>',
+        "status_summary:",
+        f"  total_measured: {count}",
+        f"  out_of_range_count: {out_count} (High: {high_count}; Low: {low_count})",
+        f"  in_range_count: {in_count} (including {len(near_boundaries)} near-boundary)",
     ]
 
-    if status_mismatches:
-        xml_parts.append("status_mismatches:")
-        for sm in status_mismatches:
-            xml_parts.append(f"  - {sm}")
+    if out_of_range_markers:
+        xml_parts.append("  out_of_range_markers: " + ", ".join(escape_xml_content(x) for x in out_of_range_markers))
+    else:
+        xml_parts.append("  out_of_range_markers: none (all measured markers are within standard reference ranges)")
 
-    xml_parts.append("near_boundary_markers:")
+    if high_markers:
+        xml_parts.append("  high_markers: " + ", ".join(escape_xml_content(x) for x in high_markers))
+    if low_markers:
+        xml_parts.append("  low_markers: " + ", ".join(escape_xml_content(x) for x in low_markers))
+    if other_flagged_markers:
+        xml_parts.append("  other_flagged_markers: " + ", ".join(escape_xml_content(x) for x in other_flagged_markers))
+
+    if status_mismatches:
+        xml_parts.append("\nstatus_mismatches:")
+        for sm in status_mismatches:
+            xml_parts.append(f"  - {escape_xml_content(sm)}")
+
+    if unclassified_analytes:
+        xml_parts.append("\nunclassified_analytes:")
+        for ua in unclassified_analytes:
+            xml_parts.append(f"  - {escape_xml_content(ua)}")
+
+    xml_parts.append("\nnear_boundary_markers:")
     if near_boundaries:
         for nb in near_boundaries:
             u_suffix = f" {nb['unit']}" if nb['unit'] else ""

@@ -7,6 +7,7 @@ import {
   getRedirectResult,
   setPersistence,
   browserLocalPersistence,
+  indexedDBLocalPersistence,
   signInWithEmailAndPassword,
   createUserWithEmailAndPassword,
   sendPasswordResetEmail,
@@ -39,11 +40,68 @@ const firebaseConfig = {
 const app = initializeApp(firebaseConfig);
 export const auth = getAuth(app);
 
-// Call setPersistence once non-blockingly on auth init so the click gesture is never lost before popup
+// 15-Day Rolling Permanent Login & Inactive Purge Configuration
+export const FIFTEEN_DAYS_MS = 15 * 24 * 60 * 60 * 1000;
+
+export function touchLastActive() {
+  if (typeof window !== "undefined") {
+    try {
+      localStorage.setItem("mediskye_auth_last_active", String(Date.now()));
+    } catch (_) { }
+  }
+}
+
+export function saveAuthSnapshot(user, token = null) {
+  if (typeof window !== "undefined" && user) {
+    try {
+      const snap = {
+        uid: user.uid,
+        email: user.email,
+        displayName: user.displayName || user.email?.split("@")[0] || "",
+        photoURL: user.photoURL || null,
+      };
+      localStorage.setItem("mediskye_auth_user_snapshot", JSON.stringify(snap));
+      touchLastActive();
+      if (token) {
+        localStorage.setItem("mediskye_auth_id_token", token);
+      }
+    } catch (_) { }
+  }
+}
+
+export function checkAndPurgeIfInactive() {
+  if (typeof window !== "undefined") {
+    try {
+      const lastActive = localStorage.getItem("mediskye_auth_last_active");
+      if (lastActive) {
+        const elapsed = Date.now() - Number(lastActive);
+        if (elapsed > FIFTEEN_DAYS_MS) {
+          // Inactive for >15 days: purge everything and force re-login
+          for (let i = localStorage.length - 1; i >= 0; i--) {
+            const k = localStorage.key(i);
+            if (k && (k.startsWith("mediskye_auth_") || k.startsWith("mediskye_cached_") || k === "token")) {
+              localStorage.removeItem(k);
+            }
+          }
+          if (auth && typeof signOut === "function") {
+            signOut(auth).catch(() => { });
+          }
+          return true; // was purged
+        }
+      }
+    } catch (_) { }
+  }
+  return false;
+}
+
+// Call setPersistence once non-blockingly on auth init with indexedDB + browserLocal fallback
 if (typeof window !== "undefined") {
   try {
-    setPersistence(auth, browserLocalPersistence).catch(() => {});
-  } catch (_) {}
+    checkAndPurgeIfInactive();
+    setPersistence(auth, indexedDBLocalPersistence)
+      .catch(() => setPersistence(auth, browserLocalPersistence))
+      .catch(() => { });
+  } catch (_) { }
 }
 
 export const googleProvider = new GoogleAuthProvider();
@@ -53,7 +111,7 @@ export const isMobileOrCapacitor = () => {
   if (typeof window === "undefined") return false;
   try {
     if (Capacitor.isNativePlatform()) return true;
-  } catch (_) {}
+  } catch (_) { }
   return /Android|iPhone|iPad|iPod/i.test(navigator?.userAgent || "");
 };
 
@@ -65,6 +123,7 @@ export {
   getRedirectResult,
   setPersistence,
   browserLocalPersistence,
+  indexedDBLocalPersistence,
   signInWithEmailAndPassword,
   createUserWithEmailAndPassword,
   sendPasswordResetEmail,
@@ -150,9 +209,11 @@ if (typeof window !== "undefined") {
       try {
         const token = await user.getIdToken();
         localStorage.setItem("token", token);
+        localStorage.setItem("mediskye_auth_id_token", token);
         if (user.email) {
           localStorage.setItem("mediskye_user_email", user.email);
         }
+        saveAuthSnapshot(user, token);
       } catch (e) {
         // Token refresh failure (e.g. offline)
       }
@@ -162,11 +223,11 @@ if (typeof window !== "undefined") {
   if (typeof onAuthStateChanged === "function") {
     try {
       onAuthStateChanged(auth, syncUserToken);
-    } catch (_) {}
+    } catch (_) { }
   }
   if (typeof onIdTokenChanged === "function") {
     try {
       onIdTokenChanged(auth, syncUserToken);
-    } catch (_) {}
+    } catch (_) { }
   }
 }

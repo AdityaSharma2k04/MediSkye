@@ -322,3 +322,100 @@ async def test_sample_report_never_adds_facts_and_expires_after_24_hours():
         assert str(sample_doc_id) not in doc_ids_returned
         # The real document (>24h) MUST be preserved
         assert str(real_doc_id) in doc_ids_returned
+
+
+@pytest.mark.asyncio
+async def test_reassign_document_patient_and_biomarkers_v4():
+    """
+    Test PATCH /users/me/documents/{doc_id}/patient reassigns document, chats, and facts,
+    and verify biomarker canonicalization and critical low potassium bucketing.
+    """
+    from app.rag.biomarkers import (
+        canonical_biomarker_key,
+        build_extracted_biomarkers_and_hints,
+    )
+    from app.services.clinical_units import canonical_biomarker_key as cu_canonical_key
+
+    # 1. Biomarkers v4 verification
+    assert canonical_biomarker_key("Anti-TG Antibodies") == "anti_tg"
+    assert cu_canonical_key("Anti-TG Antibodies") == "anti_tg"
+    assert canonical_biomarker_key("Cholesterol, Total") == "total_cholesterol"
+    assert cu_canonical_key("Cholesterol, Total") == "cholesterol"
+
+    # Critical low potassium (2.1 on 3.5 - 5.1) bucketed under low_markers
+    potassium_fixture = [{"test": "Potassium", "value": "2.1", "unit": "mmol/L", "range": "3.5 - 5.1", "status": "Critical"}]
+    res_hints = build_extracted_biomarkers_and_hints(potassium_fixture)
+    assert "low_markers: Potassium" in res_hints
+    assert "out_of_range_markers: Potassium (Critical)" in res_hints
+
+    # 2. PATCH /users/me/documents/{doc_id}/patient reassignment
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as ac:
+        email = f"reassign_{uuid.uuid4().hex[:8]}@test.com"
+        headers, user_id = await create_user_and_headers(ac, email)
+
+        dep_a_id = uuid.uuid4()
+        dep_b_id = uuid.uuid4()
+        doc_id = uuid.uuid4()
+        chat_id = uuid.uuid4()
+        fact_id = uuid.uuid4()
+
+        async with AsyncSessionLocal() as session:
+            dep_a = DependentProfile(id=dep_a_id, user_id=user_id, full_name="Person A", relationship="Spouse")
+            dep_b = DependentProfile(id=dep_b_id, user_id=user_id, full_name="Person B", relationship="Child")
+            doc = Document(id=doc_id, user_id=user_id, dependent_id=dep_b_id, filename="thyroid_panel.pdf", title="Thyroid Panel")
+            chat = Chat(id=chat_id, user_id=user_id, dependent_id=dep_b_id, document_id=doc_id, message="Explain Anti-TG", role="user")
+            fact = PatientFact(
+                id=fact_id,
+                user_id=user_id,
+                dependent_id=dep_b_id,
+                source_id=str(doc_id),
+                fact_text="Anti-TG elevated",
+                fact_type="measurement",
+                confidence=0.95,
+                is_active=True,
+                source_type="report",
+            )
+            session.add_all([dep_a, dep_b, doc, chat, fact])
+            await session.commit()
+
+        # Reassign from Person B to Person A
+        patch_res = await ac.patch(
+            f"/users/me/documents/{doc_id}/patient",
+            headers=headers,
+            json={"patient_id": str(dep_a_id)},
+        )
+        assert patch_res.status_code == 200
+        patch_data = patch_res.json()
+        assert patch_data["id"] == str(doc_id)
+        assert patch_data["dependent_id"] == str(dep_a_id)
+
+        # Verify DB state
+        async with AsyncSessionLocal() as session:
+            d_updated = await session.get(Document, doc_id)
+            c_updated = await session.get(Chat, chat_id)
+            f_updated = await session.get(PatientFact, fact_id)
+
+            assert d_updated.dependent_id == dep_a_id
+            assert c_updated.dependent_id == dep_a_id
+            assert f_updated.dependent_id == dep_a_id
+
+        # Reassign from Person A to Self ("self")
+        patch_self = await ac.patch(
+            f"/users/me/documents/{doc_id}/patient",
+            headers=headers,
+            json={"patient_id": "self"},
+        )
+        assert patch_self.status_code == 200
+        assert patch_self.json()["dependent_id"] is None
+
+        # Verify DB state for self
+        async with AsyncSessionLocal() as session:
+            d_self = await session.get(Document, doc_id)
+            c_self = await session.get(Chat, chat_id)
+            f_self = await session.get(PatientFact, fact_id)
+
+            assert d_self.dependent_id is None
+            assert c_self.dependent_id is None
+            assert f_self.dependent_id is None
+

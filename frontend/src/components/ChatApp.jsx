@@ -36,6 +36,11 @@ import {
   deleteAccount,
   updateProfile,
   getDocumentSummary,
+  reassignDocumentPatient,
+  getCachedProfile,
+  getCachedDependents,
+  getCachedDocuments,
+  setCachedDocuments,
 } from '../services/api';
 import { useNavigate } from 'react-router-dom';
 import { logger } from '../services/logger';
@@ -124,8 +129,8 @@ export default function ChatApp() {
   const activeChatFetchRef = useRef(null);
 
   // ── Patient Context & User State ──
-  const [currentUser, setCurrentUser] = useState(null);
-  const [dependents, setDependents] = useState([]);
+  const [currentUser, setCurrentUser] = useState(() => (typeof getCachedProfile === 'function' ? getCachedProfile() : null));
+  const [dependents, setDependents] = useState(() => (typeof getCachedDependents === 'function' ? getCachedDependents() || [] : []));
   const [selectedPatientId, setSelectedPatientId] = useState(() => {
     return localStorage.getItem('mediskye_patient_id') || 'self';
   });
@@ -262,10 +267,35 @@ export default function ChatApp() {
     } catch (e) {}
   }, []);
 
-  // In-memory conversation state (Neon DB is the single source of truth)
-  const [conversations, setConversations] = useState(() => [
-    { id: initialSessionId, title: 'New Conversation', messages: [], pdf: null, patient_id: 'self' },
-  ]);
+  // In-memory conversation state (Neon DB is the single source of truth, hydrated from local cache)
+  const [conversations, setConversations] = useState(() => {
+    const initPatId = localStorage.getItem('mediskye_patient_id') || 'self';
+    const cachedDocs = typeof getCachedDocuments === 'function' ? getCachedDocuments(initPatId) : null;
+    const base = [
+      { id: initialSessionId, title: 'New Conversation', messages: [], pdf: null, patient_id: initPatId },
+    ];
+    if (Array.isArray(cachedDocs) && cachedDocs.length > 0) {
+      const docConvs = cachedDocs.map((doc) => ({
+        id: doc.id,
+        document_id: doc.id,
+        title: doc.title || doc.filename || 'Medical Report',
+        messages: [],
+        pdf: {
+          id: doc.id,
+          name: doc.filename,
+          filename: doc.filename,
+          title: doc.title,
+          collected_at: doc.collected_at,
+          is_future_collection_date: doc.is_future_collection_date,
+          size: 8192,
+        },
+        patient_id: initPatId,
+        created_at: doc.created_at,
+      }));
+      return [...docConvs, ...base];
+    }
+    return base;
+  });
 
   // Load chat history from backend with race condition protection
   const loadChatHistory = useCallback(async (targetDocId, targetSessionId) => {
@@ -355,6 +385,9 @@ export default function ChatApp() {
       ]);
       const docs = Array.isArray(docsRes) ? docsRes : [];
       let effectiveDocs = [...docs];
+      if (typeof setCachedDocuments === 'function') {
+        setCachedDocuments(effectiveDocs, selectedPatientId);
+      }
 
       // Group standalone chats by session_id
       const generalChats = Array.isArray(generalChatsRes) ? generalChatsRes : [];
@@ -582,7 +615,7 @@ export default function ChatApp() {
 
   const messages = currentChat.messages || [];
 
-  const handlePatientSelect = (patientId) => {
+  const handlePatientSelect = async (patientId) => {
     abortControllerRef.current?.abort();
     abortControllerRef.current = null;
     stopSpeaking();
@@ -594,8 +627,38 @@ export default function ChatApp() {
     setViewMode('chat');
     setIsProfileOpen(false);
 
-    // Check if the currently open conversation belongs to a different patient and has content
+    // Check if the currently open conversation belongs to a different patient
     const currentPatient = currentChat.patient_id || 'self';
+    const stagedPdf = activePdf || currentChat.pdf;
+    const userMsgCount = (currentChat.messages || []).filter(
+      (m) => m.role === 'user' || m.sender === 'user'
+    ).length;
+
+    // TASK 1: If current conversation has an uploaded staged PDF with 0 user messages, carry it over!
+    if (currentPatient !== targetPatientId && stagedPdf && userMsgCount === 0) {
+      const pdfDocId = stagedPdf.id || stagedPdf.document_id || currentChat.document_id;
+      if (pdfDocId) {
+        try {
+          await reassignDocumentPatient(pdfDocId, targetPatientId);
+        } catch (err) {
+          logger.warn('Failed to reassign staged document patient on profile switch:', err);
+        }
+      }
+      // Reassign current conversation & active pdf to the new patient
+      const updatedPdf = { ...stagedPdf, dependent_id: targetPatientId === 'self' ? null : targetPatientId, patient_id: targetPatientId };
+      setActivePdf(updatedPdf);
+      setConversations((prev) =>
+        prev.map((c) =>
+          c.id === sessionId
+            ? { ...c, patient_id: targetPatientId, pdf: updatedPdf, document_id: pdfDocId || c.document_id }
+            : c
+        )
+      );
+      // Invalidate metrics cache so new profile's metrics recalculate
+      if (pdfDocId) invalidateMetrics(pdfDocId);
+      return;
+    }
+
     const hasContent = (currentChat.messages && currentChat.messages.length > 0) || currentChat.pdf || currentChat.document_id;
 
     if (currentPatient !== targetPatientId && hasContent) {

@@ -23,6 +23,13 @@ vi.mock('../services/api', () => ({
   detachChatDocument: vi.fn(),
   getDocumentSummary: vi.fn(),
   exportDocumentData: vi.fn(),
+  reassignDocumentPatient: vi.fn().mockResolvedValue({ status: 'ok' }),
+  getCachedProfile: vi.fn().mockReturnValue(null),
+  getCachedDependents: vi.fn().mockReturnValue([]),
+  getCachedDocuments: vi.fn().mockReturnValue([]),
+  setCachedDocuments: vi.fn(),
+  setCachedProfile: vi.fn(),
+  setCachedDependents: vi.fn(),
 }));
 
 vi.mock('../services/speech', () => ({

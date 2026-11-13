@@ -11,6 +11,7 @@ from pathlib import Path
 from fastapi import APIRouter, Depends, Request, HTTPException, status
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
+from sqlalchemy import func, update, or_
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 
@@ -20,7 +21,7 @@ from app.core.limiter import limiter
 from app.core.audit import log_audit
 from app.core.security import generate_title_from_query, sanitize_text
 from app.db.database import get_db, AsyncSessionLocal
-from app.db.models import Document, Chat, ChatDocument, DependentProfile, User
+from app.db.models import Document, Chat, ChatDocument, DependentProfile, User, PatientFact
 from app.llm.gemini_client import GeminiUnavailableError, get_genai_client, call_gemini_with_retry, get_fallback_models
 from app.rag.index_storage import aensure_index_local
 from app.schemas.query import QueryRequest
@@ -358,7 +359,44 @@ async def query_bot(
             active_profile = db_user
 
     if body.patient_id and any(d.dependent_id != active_dep_id for d in chat_docs):
-        raise HTTPException(status_code=409, detail="This report belongs to a different patient profile.")
+        # Check if the mismatched documents have 0 prior user Chat messages (i.e. very first question about d!)
+        mismatched_docs = [d for d in chat_docs if d.dependent_id != active_dep_id]
+        can_auto_reassign = True
+        for m_doc in mismatched_docs:
+            prior_chats_res = await db.execute(
+                select(func.count(Chat.id)).filter(
+                    Chat.user_id == current_user.id,
+                    or_(
+                        Chat.document_id == m_doc.id,
+                        Chat.id.in_(select(ChatDocument.chat_id).filter(ChatDocument.document_id == m_doc.id)),
+                    ),
+                    Chat.role == "user",
+                )
+            )
+            prior_count = prior_chats_res.scalar() or 0
+            if prior_count > 0:
+                can_auto_reassign = False
+                break
+
+        if can_auto_reassign:
+            logger.info("Auto-reassigning %d unqueried document(s) to patient %s", len(mismatched_docs), active_dep_id)
+            for m_doc in mismatched_docs:
+                m_doc.dependent_id = active_dep_id
+                db.add(m_doc)
+                # Also reassign any extracted PatientFacts for this document
+                await db.execute(
+                    update(PatientFact)
+                    .where(
+                        PatientFact.user_id == current_user.id,
+                        PatientFact.source_id == str(m_doc.id),
+                    )
+                    .values(dependent_id=active_dep_id)
+                )
+            await db.commit()
+            for m_doc in mismatched_docs:
+                await db.refresh(m_doc)
+        else:
+            raise HTTPException(status_code=409, detail="This report belongs to a different patient profile.")
 
     await log_audit(
         db,

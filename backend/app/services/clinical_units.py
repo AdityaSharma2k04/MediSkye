@@ -366,6 +366,12 @@ def canonical_biomarker_key(name: str) -> str:
     if re.search(r'\b(?:creatine\s+kinase|ck|cpk)\b', n_clean):
         return "ck"
 
+    # 23b. Thyroid Antibodies (MUST precede Triglycerides to avoid \btg\b false positives)
+    if re.search(r'\b(?:anti[\s-]*tpo|thyroid\s+peroxidase|tpo\s+antibod(?:y|ies))\b', n_clean):
+        return "anti_tpo"
+    if re.search(r'\b(?:anti[\s-]*thyroglobulin|anti[\s-]*tg|thyroglobulin\s+antibod(?:y|ies)|atg)\b', n_clean):
+        return "anti_tg"
+
     # 24. Lipids (LDL, HDL, Triglycerides, Total Cholesterol)
     if re.search(r'\b(?:ldl\s+cholesterol|ldl(?:\s*-\s*c)?)\b', n_clean):
         return "ldl"
@@ -373,7 +379,7 @@ def canonical_biomarker_key(name: str) -> str:
         return "hdl"
     if re.search(r'\b(?:triglycerides?|tg)\b', n_clean):
         return "triglycerides"
-    if re.search(r'\b(?:total\s+cholesterol|cholesterol)\b', n_clean):
+    if re.search(r'\b(?:total\s+cholesterol|cholesterol\s+total|cholesterol)\b', n_clean):
         return "cholesterol"
 
     # Fallback normalization

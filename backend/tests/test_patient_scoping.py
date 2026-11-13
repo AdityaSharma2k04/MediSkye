@@ -94,11 +94,11 @@ async def test_query_document_and_patient_mismatch_returns_409():
             await s.refresh(dep_a)
             await s.refresh(dep_b)
 
-            doc = Document(user_id=user.id, dependent_id=dep_a.id, filename="report_a.pdf", title="Child A Report")
-            s.add(doc)
+            doc_id = uuid.uuid4()
+            doc = Document(id=doc_id, user_id=user.id, dependent_id=dep_a.id, filename="report_a.pdf", title="Child A Report")
+            chat = Chat(id=uuid.uuid4(), user_id=user.id, dependent_id=dep_a.id, document_id=doc_id, message="Prior query under Child A", role="user")
+            s.add_all([doc, chat])
             await s.commit()
-            await s.refresh(doc)
-            doc_id = doc.id
             dep_b_id = dep_b.id
 
         login = await ac.post("/login", data={"username": email, "password": TEST_PASSWORD})

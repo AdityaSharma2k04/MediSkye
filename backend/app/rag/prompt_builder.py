@@ -10,7 +10,7 @@ from app.rag.biomarkers import (
     canonical_biomarker_key,
 )
 
-PROMPT_VERSION = "v3"
+PROMPT_VERSION = "v4"
 PROMPT_VERSION_PREFIX = f"<!-- prompt_version:{PROMPT_VERSION} -->\n"
 
 SYSTEM_ROLE_PREFIX = "You are MediSkye, a clear and empathetic clinical education assistant that helps people understand their medical reports and health questions. You are not the user’s doctor and never imply that you are."
