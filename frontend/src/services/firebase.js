@@ -20,6 +20,7 @@ import {
   confirmPasswordReset,
   fetchSignInMethodsForEmail,
   reauthenticateWithPopup,
+  signInWithCredential,
 } from "firebase/auth";
 import { Capacitor } from "@capacitor/core";
 
@@ -136,6 +137,7 @@ export {
   confirmPasswordReset,
   fetchSignInMethodsForEmail,
   reauthenticateWithPopup,
+  signInWithCredential,
 };
 
 /**

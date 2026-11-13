@@ -155,6 +155,26 @@ export default function Register() {
 
   const handleGoogleSignIn = async () => {
     setError('');
+
+    // 1-Tap Native External Browser OAuth Loopback for Windows (Tauri) and Android (Capacitor)
+    const isExternalAuthPage = typeof window !== 'undefined' &&
+      new URLSearchParams(window.location.search).get('native_google_auth') === '1';
+
+    if (
+      typeof window !== 'undefined' &&
+      window.MediskyeNativeAuth?.startGoogleLogin &&
+      !isExternalAuthPage
+    ) {
+      setGoogleLoading(true);
+      setError('');
+      try {
+        window.MediskyeNativeAuth.startGoogleLogin();
+        return;
+      } catch (nativeErr) {
+        console.warn('Native Google Auth launcher failed, falling back to popup:', nativeErr);
+      }
+    }
+
     setGoogleLoading(true);
     try {
       let result;

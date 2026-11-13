@@ -1,5 +1,11 @@
 import React, { useEffect, lazy, Suspense } from 'react';
 import { BrowserRouter, Routes, Route, Navigate, useNavigate } from 'react-router-dom';
+import {
+  auth,
+  GoogleAuthProvider,
+  signInWithCredential,
+  saveAuthSnapshot,
+} from './services/firebase';
 
 const Login = lazy(() => import('./components/Login'));
 const Register = lazy(() => import('./components/Register'));
@@ -7,6 +13,7 @@ const AuthAction = lazy(() => import('./components/AuthAction'));
 const ChatApp = lazy(() => import('./components/ChatApp'));
 const LandingPage = lazy(() => import('./components/LandingPage'));
 const PrivacyPolicy = lazy(() => import('./components/PrivacyPolicy'));
+const ExternalAuthLanding = lazy(() => import('./components/ExternalAuthLanding'));
 
 const LandingSkeleton = () => (
   <div className="min-h-screen bg-obsidian text-ink font-sans flex flex-col justify-between overflow-hidden animate-pulse" aria-label="Loading MediSkye">
@@ -170,17 +177,56 @@ const ProtectedRoute = ({ children }) => {
 
 const GlobalAuthListener = () => {
   const navigate = useNavigate();
+
   useEffect(() => {
     const handleAuthExpired = () => {
       navigate('/login', { replace: true });
     };
     window.addEventListener('auth:expired', handleAuthExpired);
-    return () => window.removeEventListener('auth:expired', handleAuthExpired);
+
+    const handleNativeGoogleAuth = async (e) => {
+      try {
+        const { idToken, accessToken } = e?.detail || {};
+        if (idToken || accessToken) {
+          const credential = GoogleAuthProvider.credential(idToken || null, accessToken || null);
+          const result = await signInWithCredential(auth, credential);
+          if (result?.user) {
+            const token = await result.user.getIdToken();
+            localStorage.setItem('token', token);
+            localStorage.setItem('mediskye_auth_id_token', token);
+            if (result.user.email) {
+              localStorage.setItem('mediskye_user_email', result.user.email);
+            }
+            saveAuthSnapshot(result.user, token);
+            navigate('/chat', { replace: true });
+          }
+        }
+      } catch (err) {
+        console.error('Failed to sign in with native Google credential:', err);
+      }
+    };
+    window.addEventListener('mediskye-native-google-auth', handleNativeGoogleAuth);
+
+    return () => {
+      window.removeEventListener('auth:expired', handleAuthExpired);
+      window.removeEventListener('mediskye-native-google-auth', handleNativeGoogleAuth);
+    };
   }, [navigate]);
   return null;
 };
 
 export default function App() {
+  const isExternalGoogleAuth = typeof window !== 'undefined' &&
+    new URLSearchParams(window.location.search).get('native_google_auth') === '1';
+
+  if (isExternalGoogleAuth) {
+    return (
+      <Suspense fallback={<LandingSkeleton />}>
+        <ExternalAuthLanding />
+      </Suspense>
+    );
+  }
+
   return (
     <BrowserRouter>
       <GlobalAuthListener />

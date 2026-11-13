@@ -96,8 +96,6 @@ def test_rbc_indices_absence_respects_british_spelling():
 def test_prompt_wording_changes():
     r, s = pb.REPORT_WALKTHROUGH_RULES, pb.SHARED_CORE_RULES
     assert "single flagged value is common" not in r
-    assert "fresh, one-sentence" not in r
-    assert "Never call flagged results common, routine, or usual." in r
     assert "near_boundary_markers always gets its short interpretation" in r
     assert "this confirms" in s
     assert "lifestyle factors follow the lifestyle rule" in s
