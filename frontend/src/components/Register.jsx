@@ -161,11 +161,9 @@ export default function Register() {
       try {
         result = await signInWithPopup(auth, googleProvider);
       } catch (popupErr) {
-        const isMobile = typeof isMobileOrCapacitor === 'function' ? isMobileOrCapacitor() : false;
         const shouldFallbackToRedirect =
           popupErr?.code === 'auth/popup-blocked' ||
-          popupErr?.code === 'auth/operation-not-supported-in-this-environment' ||
-          (isMobile && popupErr?.code === 'auth/popup-closed-by-user');
+          popupErr?.code === 'auth/operation-not-supported-in-this-environment';
 
         if (shouldFallbackToRedirect && typeof signInWithRedirect === 'function') {
           await signInWithRedirect(auth, googleProvider);
