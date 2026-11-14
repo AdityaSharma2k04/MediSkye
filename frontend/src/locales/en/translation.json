@@ -18,6 +18,7 @@
   },
   "chat": {
     "upload_title": "Upload Medical Report (PDF)",
+    "take_photo_title": "Take photo of report with camera",
     "upload_subtitle": "Drag & drop or click to select file • Supports files up to 50MB",
     "input_placeholder": "Ask a medical question about your report...",
     "input_placeholder_report": "Ask about this report...",

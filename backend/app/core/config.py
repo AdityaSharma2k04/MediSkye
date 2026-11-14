@@ -80,7 +80,7 @@ class Settings(BaseSettings):
     # File Upload Limits
     MEDISKYE_MAX_UPLOAD_MB: int = 50
     MAX_PDF_PAGES: int = 100
-    ALLOWED_EXTENSIONS: List[str] = [".pdf", ".jpg", ".jpeg", ".png"]
+    ALLOWED_EXTENSIONS: List[str] = [".pdf", ".jpg", ".jpeg", ".png", ".webp"]
 
     # Rate Limits
     RATE_LIMIT_UPLOAD: str = "10/minute"

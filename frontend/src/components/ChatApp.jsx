@@ -1235,9 +1235,10 @@ export default function ChatApp() {
 
     const isValidType =
       file.type === 'application/pdf' ||
-      file.name.match(/\.(pdf|jpg|jpeg|png)$/i);
+      file.type?.startsWith('image/') ||
+      file.name.match(/\.(pdf|jpg|jpeg|png|webp|heic|heif)$/i);
     if (!isValidType) {
-      console.error('Invalid File Format: Please upload a PDF, JPG, or PNG file.');
+      console.error('Invalid File Format: Please upload a PDF, JPG, PNG, or WEBP file.');
       setUploadError('Invalid file type or size.');
       return null;
     }

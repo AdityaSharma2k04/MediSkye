@@ -87,8 +87,8 @@ def validate_file_upload(content: bytes, filename: str = "report.pdf") -> None:
                 except Exception:
                     pass
 
-    # 4. Image Validation (.png, .jpg, .jpeg)
-    if ext_with_dot in [".png", ".jpg", ".jpeg"]:
+    # 4. Image Validation (.png, .jpg, .jpeg, .webp)
+    if ext_with_dot in [".png", ".jpg", ".jpeg", ".webp"]:
         if ext_with_dot == ".png" and not content.startswith(PNG_MAGIC):
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
@@ -98,6 +98,11 @@ def validate_file_upload(content: bytes, filename: str = "report.pdf") -> None:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="File content header invalid. Must be a valid JPEG image.",
+            )
+        if ext_with_dot == ".webp" and not (content.startswith(b"RIFF") and len(content) >= 12 and content[8:12] == b"WEBP"):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="File content header invalid. Must be a valid WebP image.",
             )
 
         try:

@@ -5,7 +5,6 @@ import {
   MessageSquare,
   FileText,
   Settings,
-  ShieldCheck,
   Users,
   Trash2,
   MoreHorizontal,
@@ -397,10 +396,6 @@ export default function Sidebar({
                 <PatientAvatar name={identity} size="md" />
                 <div className="min-w-0 text-xs">
                   <div className="font-medium truncate text-ink">{identity}</div>
-                  <div className="flex items-center gap-1 text-xs truncate text-ink-faint">
-                    <ShieldCheck className="w-3 h-3 shrink-0 text-emerald-400/80" />
-                    <span className="truncate">{t('sidebar.encrypted', 'Encrypted at rest (Fernet) • TLS 1.3 in transit')}</span>
-                  </div>
                 </div>
               </div>
             </div>

@@ -393,7 +393,7 @@ async def extract_text_from_file(file_path: str, filename: str) -> list[Document
     Enhanced extraction pipeline for PDFs and images.
     """
     ext = os.path.splitext(filename)[1].lower()
-    if ext in [".jpg", ".jpeg", ".png"]:
+    if ext in [".jpg", ".jpeg", ".png", ".webp"]:
         def _read_image():
             with open(file_path, "rb") as f:
                 return f.read()

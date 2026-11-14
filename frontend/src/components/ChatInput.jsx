@@ -1,9 +1,34 @@
 import React, { useRef, useState, useEffect, forwardRef, useImperativeHandle } from 'react';
-import { Paperclip, ArrowUp, Mic, MicOff, Square, X, FileText } from 'lucide-react';
+import { Paperclip, Camera, ArrowUp, Mic, MicOff, Square, X, FileText } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { startSpeechRecognition } from '../services/speech';
 import { cn } from '../lib/cn';
 import { stripOuterQuotes } from '../lib/clinical';
+
+export function normalizeCameraFile(file) {
+  if (!file) return file;
+  const isGeneric =
+    !file.name ||
+    file.name === 'blob' ||
+    file.name === 'image.jpg' ||
+    /^(image|photo|camera|capture|img_\d+|pic|scan)[\w.-]*\.(jpe?g|png|webp|heic|heif)$/i.test(file.name);
+  if (isGeneric && (file.type?.startsWith('image/') || /\.(jpe?g|png|webp|heic|heif)$/i.test(file.name))) {
+    const today = new Date().toISOString().slice(0, 10);
+    const extMatch = file.name?.match(/\.([a-zA-Z0-9]+)$/);
+    const rawExt = extMatch ? extMatch[1].toLowerCase() : (file.type?.split('/')[1] || 'jpg');
+    const ext = rawExt === 'jpeg' ? 'jpg' : rawExt;
+    const newName = `Lab_Report_Photo_${today}.${ext}`;
+    try {
+      return new File([file], newName, { type: file.type || 'image/jpeg', lastModified: file.lastModified || Date.now() });
+    } catch (_) {
+      try {
+        Object.defineProperty(file, 'name', { value: newName, configurable: true });
+      } catch (_) {}
+      return file;
+    }
+  }
+  return file;
+}
 
 export function isTouchOrMobileDevice() {
   if (typeof window === 'undefined') return false;
@@ -39,6 +64,7 @@ const ChatInput = forwardRef(
     const recognitionRef = useRef(null);
     const textareaRef = useRef(null);
     const fileInputRef = useRef(null);
+    const cameraInputRef = useRef(null);
     const isSubmittingRef = useRef(false);
 
     useEffect(() => {
@@ -64,6 +90,9 @@ const ChatInput = forwardRef(
     useImperativeHandle(ref, () => ({
       openFileUpload: () => {
         if (fileInputRef.current) fileInputRef.current.click();
+      },
+      openCamera: () => {
+        if (cameraInputRef.current) cameraInputRef.current.click();
       },
       focus: () => textareaRef.current?.focus(),
       insertText: (value) => {
@@ -133,10 +162,22 @@ const ChatInput = forwardRef(
 
     const handleFileChange = (e) => {
       if (e.target.files && e.target.files.length > 0) {
-        const file = e.target.files[0];
+        const file = normalizeCameraFile(e.target.files[0]);
         onAttachFile(file);
       }
       // Allow re-selecting the same file
+      try {
+        e.target.value = '';
+      } catch {
+        /* read-only in some browsers */
+      }
+    };
+
+    const handleCameraChange = (e) => {
+      if (e.target.files && e.target.files.length > 0) {
+        const file = normalizeCameraFile(e.target.files[0]);
+        onAttachFile(file);
+      }
       try {
         e.target.value = '';
       } catch {
@@ -161,13 +202,18 @@ const ChatInput = forwardRef(
             <div className="flex flex-wrap items-center gap-1.5 px-3 pt-3">
               {effectiveDocs.map((doc, idx) => {
                 const docName = doc.name || doc.filename || 'report.pdf';
-                const displayName = docName.replace(/\.pdf$/i, '');
+                const isImage = /\.(jpe?g|png|webp|heic|heif)$/i.test(docName) || (doc.type && doc.type.startsWith('image/'));
+                const displayName = docName.replace(/\.(pdf|jpe?g|png|webp|heic|heif)$/i, '');
                 return (
                   <div
                     key={doc.id || idx}
                     className="inline-flex items-center gap-2 rounded-xl bg-white/[0.05] border border-white/[0.08] pl-2 pr-1 h-8 text-xs text-ink max-w-full"
                   >
-                    <FileText className="w-3.5 h-3.5 text-cyan-300 shrink-0" />
+                    {isImage ? (
+                      <Camera className="w-3.5 h-3.5 text-cyan-300 shrink-0" />
+                    ) : (
+                      <FileText className="w-3.5 h-3.5 text-cyan-300 shrink-0" />
+                    )}
                     <span className="truncate max-w-[160px] sm:max-w-[260px]">{displayName}</span>
                     <button
                       type="button"
@@ -192,7 +238,16 @@ const ChatInput = forwardRef(
               type="file"
               ref={fileInputRef}
               onChange={handleFileChange}
-              accept=".pdf,.jpg,.jpeg,.png"
+              accept="application/pdf,image/jpeg,image/png,image/webp,image/heic,image/heif,.pdf,.jpg,.jpeg,.png,.webp,.heic,.heif"
+              className="hidden"
+              tabIndex={-1}
+            />
+            <input
+              type="file"
+              ref={cameraInputRef}
+              onChange={handleCameraChange}
+              accept="image/*"
+              capture="environment"
               className="hidden"
               tabIndex={-1}
             />
@@ -204,6 +259,15 @@ const ChatInput = forwardRef(
               className="ms-tap w-10 h-10 rounded-full text-ink-mute hover:text-white hover:bg-white/[0.06] flex items-center justify-center transition shrink-0 active:scale-95"
             >
               <Paperclip className="w-[18px] h-[18px]" />
+            </button>
+            <button
+              type="button"
+              onClick={() => cameraInputRef.current?.click()}
+              title={t('chat.take_photo_title', 'Take photo of report with camera')}
+              aria-label="Take Photo"
+              className="ms-tap w-10 h-10 rounded-full text-ink-mute hover:text-white hover:bg-white/[0.06] flex items-center justify-center transition shrink-0 active:scale-95"
+            >
+              <Camera className="w-[18px] h-[18px]" />
             </button>
 
             <textarea

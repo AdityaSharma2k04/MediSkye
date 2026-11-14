@@ -59,6 +59,20 @@ def test_image_validation_rejects_oversized_pixel_dimensions():
         assert "exceed maximum allowed pixels" in exc_info.value.detail
 
 
+def test_image_validation_accepts_valid_jpeg_and_webp():
+    """Verify valid JPEG and WebP image formats pass validation without errors."""
+    img = Image.new("RGB", (100, 100), color="blue")
+    buf_jpg = io.BytesIO()
+    img.save(buf_jpg, format="JPEG")
+    valid_jpg_bytes = buf_jpg.getvalue()
+    validate_file_upload(valid_jpg_bytes, filename="lab_camera_shot.jpg")
+
+    buf_webp = io.BytesIO()
+    img.save(buf_webp, format="WEBP")
+    valid_webp_bytes = buf_webp.getvalue()
+    validate_file_upload(valid_webp_bytes, filename="lab_camera_shot.webp")
+
+
 @pytest.mark.asyncio
 async def test_mock_redis_ttl_expiry_and_eviction():
     """Verify MockRedis monotonic TTL expiry and eviction."""
