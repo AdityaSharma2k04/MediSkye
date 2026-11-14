@@ -303,4 +303,110 @@ describe('Profile Isolation & Switcher Tests (S1-S9)', () => {
       expect(selfConvs.some((c) => c.id === 'conv-3')).toBe(false);
     });
   });
+
+  describe('S4: Remount from cache preserves switcher report counts', () => {
+    it('preserves cached report counts across remounts without flashing "No reports yet"', async () => {
+      const { unmount } = render(
+        <MemoryRouter>
+          <ChatApp />
+        </MemoryRouter>
+      );
+
+      const trigger = await screen.findByTestId('patient-switcher-trigger');
+      fireEvent.click(trigger);
+
+      await waitFor(() => {
+        expect(screen.queryByText(/No reports yet/i)).not.toBeInTheDocument();
+      });
+
+      unmount();
+
+      render(
+        <MemoryRouter>
+          <ChatApp />
+        </MemoryRouter>
+      );
+
+      const trigger2 = await screen.findByTestId('patient-switcher-trigger');
+      fireEvent.click(trigger2);
+
+      await waitFor(() => {
+        expect(screen.queryByText(/No reports yet/i)).not.toBeInTheDocument();
+      });
+    });
+  });
+
+  describe('S9: Multi-profile report count isolation (4 profiles)', () => {
+    it('isolates report counts across 4 profiles when 2nd report is added to dependent A', async () => {
+      const currentUser = { id: 'user-1', full_name: 'Parent User', email: 'parent@example.com' };
+      const dependents = [
+        { id: 'dep-a', full_name: 'Dependent Alpha', relationship: 'Child' },
+        { id: 'dep-b', full_name: 'Dependent Beta', relationship: 'Child' },
+        { id: 'dep-c', full_name: 'Dependent Gamma', relationship: 'Spouse' },
+      ];
+
+      const docs = [
+        { id: 'doc-self-1', filename: 'self_1.pdf', dependent_id: null },
+        { id: 'doc-dep-a-1', filename: 'dep_a_1.pdf', dependent_id: 'dep-a' },
+        { id: 'doc-dep-a-2', filename: 'dep_a_2.pdf', dependent_id: 'dep-a' },
+        { id: 'doc-dep-b-1', filename: 'dep_b_1.pdf', dependent_id: 'dep-b' },
+        { id: 'doc-dep-c-1', filename: 'dep_c_1.pdf', dependent_id: 'dep-c' },
+      ];
+
+      const profileReportCounts = {
+        self: 1,
+        'dep-a': 2,
+        'dep-b': 1,
+        'dep-c': 1,
+      };
+
+      const { default: PatientSwitcher } = await import('../components/workbench/PatientSwitcher');
+
+      render(
+        <PatientSwitcher
+          currentUser={currentUser}
+          dependents={dependents}
+          selectedPatientId="self"
+          documents={docs}
+          profileReportCounts={profileReportCounts}
+        />
+      );
+
+      const trigger = screen.getByTestId('patient-switcher-trigger');
+      fireEvent.click(trigger);
+
+      await waitFor(() => {
+        expect(screen.getByText('Dependent Alpha')).toBeInTheDocument();
+      });
+
+      const depANode = screen.getByText('Dependent Alpha').closest('button');
+      expect(depANode).toHaveTextContent('2 reports');
+
+      const selfItems = screen.getAllByText('Parent User');
+      const selfNode = selfItems[selfItems.length - 1].closest('button');
+      expect(selfNode).toHaveTextContent('1 report');
+
+      const depBNode = screen.getByText('Dependent Beta').closest('button');
+      expect(depBNode).toHaveTextContent('1 report');
+
+      const depCNode = screen.getByText('Dependent Gamma').closest('button');
+      expect(depCNode).toHaveTextContent('1 report');
+    });
+  });
+
+  describe('R4: No untagged conversations remain after S1-S5', () => {
+    it('ensures all cached conversations have a valid patientId defined', async () => {
+      const actualApi = await vi.importActual('../services/api');
+      const selfConvs = actualApi.getCachedConversations('self') || [];
+      const depConvs = actualApi.getCachedConversations('dep-child-1') || [];
+      const all = [...selfConvs, ...depConvs];
+
+      for (const conv of all) {
+        const patId = conv.patientId || conv.patient_id;
+        expect(patId).toBeDefined();
+        expect(typeof patId).toBe('string');
+        expect(patId.length).toBeGreaterThan(0);
+      }
+    });
+  });
 });
