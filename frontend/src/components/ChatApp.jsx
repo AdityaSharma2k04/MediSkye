@@ -266,10 +266,17 @@ export default function ChatApp() {
     };
   }, []);
 
+  const handleManualCloudSyncRef = useRef(null);
+
   const [isOnline, setIsOnline] = useState(() => (typeof navigator !== 'undefined' ? navigator.onLine : true));
 
   useEffect(() => {
-    const handleOnline = () => setIsOnline(true);
+    const handleOnline = () => {
+      setIsOnline(true);
+      if (typeof handleManualCloudSyncRef.current === 'function') {
+        handleManualCloudSyncRef.current().catch(() => {});
+      }
+    };
     const handleOffline = () => setIsOnline(false);
 
     window.addEventListener('online', handleOnline);
@@ -463,6 +470,53 @@ export default function ChatApp() {
       }
     }
   }, []);
+
+  // Background pre-warmer: pre-downloads full message histories for unvisited sidebar conversations
+  const prewarmMessageHistories = useCallback(async (convsToPrewarm, targetPatientId) => {
+    if (typeof window === 'undefined' || (typeof navigator !== 'undefined' && !navigator.onLine)) return;
+    const patId = targetPatientId || selectedPatientId || 'self';
+    const candidateConvs = (convsToPrewarm || [])
+      .filter((c) => !c.messages || c.messages.length === 0)
+      .slice(0, 15);
+
+    if (candidateConvs.length === 0) return;
+
+    for (const conv of candidateConvs) {
+      if (typeof navigator !== 'undefined' && !navigator.onLine) break;
+      const targetDocId = conv.document_id || conv.pdf?.id || null;
+      const targetSid = conv.sessionId || conv.id;
+      try {
+        const chats = targetDocId
+          ? await getDocumentChats(targetDocId)
+          : await getDocumentChats(null, targetSid);
+
+        if (Array.isArray(chats) && chats.length > 0) {
+          const formatted = chats.map((c) => ({
+            id: c.id,
+            sender: c.role === 'ai' ? 'assistant' : 'user',
+            text: c.role === 'ai' ? c.message : (c.message || '').replace(/^["'“”‘’]+|["'“”‘’]+$/g, '').trim(),
+            timestamp: c.created_at
+              ? new Date(c.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+              : '',
+          }));
+          setConversations((prev) => {
+            const next = prev.map((item) => {
+              const isTarget = item.id === targetSid || (targetDocId && (item.id === targetDocId || item.document_id === targetDocId));
+              if (!isTarget) return item;
+              if (item.messages && item.messages.length > 0) return item;
+              return { ...item, messages: formatted };
+            });
+            try {
+              if (typeof setCachedConversations === 'function') {
+                setCachedConversations(next, patId);
+              }
+            } catch (_) {}
+            return next;
+          });
+        }
+      } catch (_) {}
+    }
+  }, [selectedPatientId]);
 
   // Load User, Dependents, and Documents simultaneously on Mount (Bug 10 & Bug 1)
   const refreshPatientContext = useCallback(async (optimisticUser = null) => {
@@ -694,6 +748,12 @@ export default function ChatApp() {
             setCachedConversations(finalConvs, activePatId);
           }
         } catch (_) {}
+
+        if (typeof navigator !== 'undefined' && navigator.onLine) {
+          setTimeout(() => {
+            prewarmMessageHistories(finalConvs, activePatId);
+          }, 50);
+        }
 
         return finalConvs;
       });
@@ -1880,6 +1940,11 @@ export default function ChatApp() {
         targetDocId && labMetrics?.reload ? labMetrics.reload().catch(() => null) : Promise.resolve(null),
       ]);
 
+      // 5. Pre-warm unvisited message histories for offline reading
+      setTimeout(() => {
+        prewarmMessageHistories(conversations, patId);
+      }, 50);
+
       setSyncToast('Synced with cloud');
       setTimeout(() => setSyncToast(null), 2000);
     } catch (err) {
@@ -1887,7 +1952,9 @@ export default function ChatApp() {
     } finally {
       setIsSyncing(false);
     }
-  }, [isSyncing, currentUser, activePdf, currentChat, sessionId, selectedPatientId, refreshDocuments, loadChatHistory, labMetrics]);
+  }, [isSyncing, currentUser, activePdf, currentChat, sessionId, selectedPatientId, refreshDocuments, loadChatHistory, labMetrics, prewarmMessageHistories, conversations]);
+
+  handleManualCloudSyncRef.current = handleManualCloudSync;
 
   const reportCounts = useMemo(() => {
     const counts = {};

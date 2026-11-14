@@ -26,6 +26,10 @@ import {
   getDependents,
   getUserDocuments,
   getDocuments,
+  getDocumentChats,
+  getGeneralChats,
+  getCachedChatMessages,
+  setCachedChatMessages,
 } from '../services/api';
 
 describe('Local-First Cache Manager (api.js)', () => {
@@ -195,6 +199,65 @@ describe('Local-First Cache Manager (api.js)', () => {
         const resDocs = await getDocuments('self');
         expect(resUserDocs).toEqual(docs);
         expect(resDocs).toEqual(docs);
+      } finally {
+        Object.defineProperty(navigator, 'onLine', { value: originalOnLine, configurable: true });
+      }
+    });
+
+    it('getDocumentChats and getGeneralChats persist message histories when online and return cached messages when offline', async () => {
+      const mockDocMessages = [
+        { id: 'msg-1', role: 'user', message: 'What is my glucose?' },
+        { id: 'msg-2', role: 'ai', message: 'Your glucose is 92 mg/dL.' },
+      ];
+      const mockGeneralMessages = [
+        { id: 'msg-3', role: 'user', message: 'How much water should I drink?' },
+        { id: 'msg-4', role: 'ai', message: 'Around 2 to 3 liters daily.' },
+      ];
+
+      localStorage.setItem('mediskye_last_uid', 'test-chat-uid');
+
+      // 1. Online: fetch succeeds and stores messages in localStorage
+      const originalFetch = globalThis.fetch;
+      const fetchSpy = vi.fn().mockImplementation((url) => {
+        if (url.includes('/documents/doc-abc/chats')) {
+          return Promise.resolve({
+            ok: true,
+            status: 200,
+            json: () => Promise.resolve(mockDocMessages),
+          });
+        }
+        if (url.includes('/users/me/chats?session_id=sess-xyz')) {
+          return Promise.resolve({
+            ok: true,
+            status: 200,
+            json: () => Promise.resolve(mockGeneralMessages),
+          });
+        }
+        return Promise.resolve({ ok: false, status: 404 });
+      });
+      globalThis.fetch = fetchSpy;
+
+      try {
+        const docChats = await getDocumentChats('doc-abc');
+        expect(docChats).toEqual(mockDocMessages);
+        expect(getCachedChatMessages('doc_doc-abc')).toEqual(mockDocMessages);
+
+        const genChats = await getGeneralChats('sess-xyz');
+        expect(genChats).toEqual(mockGeneralMessages);
+        expect(getCachedChatMessages('session_sess-xyz')).toEqual(mockGeneralMessages);
+      } finally {
+        globalThis.fetch = originalFetch;
+      }
+
+      // 2. Offline: navigator.onLine = false returns cached messages without network
+      const originalOnLine = navigator.onLine;
+      try {
+        Object.defineProperty(navigator, 'onLine', { value: false, configurable: true });
+        const offlineDocChats = await getDocumentChats('doc-abc');
+        expect(offlineDocChats).toEqual(mockDocMessages);
+
+        const offlineGenChats = await getGeneralChats('sess-xyz');
+        expect(offlineGenChats).toEqual(mockGeneralMessages);
       } finally {
         Object.defineProperty(navigator, 'onLine', { value: originalOnLine, configurable: true });
       }

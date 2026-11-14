@@ -128,6 +128,7 @@ export function safeStorageSet(key, value) {
           k &&
           (k.startsWith('mediskye_cached_doc_') ||
             k.startsWith('mediskye_cached_trends_') ||
+            k.startsWith('mediskye_cached_msgs_') ||
             k.startsWith('mediskye_sample_'))
         ) {
           try {
@@ -251,6 +252,20 @@ export function setCachedConversations(conversations, patientId = 'self', uid = 
   const stableUid = getStableCacheUid(uid);
   if (!conversations) return;
   safeStorageSet(`mediskye_conversations_${stableUid}_${patientId || 'self'}`, conversations);
+}
+
+// ── Per-Chat Message History Cache ──
+
+export function getCachedChatMessages(chatKey, uid = getStableCacheUid()) {
+  if (!chatKey) return [];
+  const stableUid = getStableCacheUid(uid);
+  return safeStorageGet(`mediskye_cached_msgs_${stableUid}_${chatKey}`, []);
+}
+
+export function setCachedChatMessages(chatKey, messages, uid = getStableCacheUid()) {
+  if (!chatKey || !messages) return;
+  const stableUid = getStableCacheUid(uid);
+  safeStorageSet(`mediskye_cached_msgs_${stableUid}_${chatKey}`, messages);
 }
 
 export function purgePatientLocalCache(patientId = 'self', uid = getStableCacheUid()) {
@@ -1064,27 +1079,55 @@ export async function getUserDocuments(patientId = 'self') {
 export const getDocuments = getUserDocuments;
 
 export async function getDocumentChats(docId, sessionId = null) {
-  let url = docId ? `${API_BASE}/users/me/documents/${docId}/chats` : `${API_BASE}/users/me/chats`;
-  if (!docId && sessionId) {
-    url += `?session_id=${encodeURIComponent(sessionId)}`;
+  const chatKey = docId ? `doc_${docId}` : (sessionId ? `session_${sessionId}` : null);
+  if (typeof navigator !== 'undefined' && !navigator.onLine) {
+    return chatKey ? getCachedChatMessages(chatKey) : [];
   }
-  const res = await fetch(url, {
-    headers: getAuthHeaders(),
-  });
-  if (!res.ok) return [];
-  return await res.json();
+  try {
+    let url = docId ? `${API_BASE}/users/me/documents/${docId}/chats` : `${API_BASE}/users/me/chats`;
+    if (!docId && sessionId) {
+      url += `?session_id=${encodeURIComponent(sessionId)}`;
+    }
+    const res = await fetch(url, {
+      headers: getAuthHeaders(),
+    });
+    if (!res.ok) {
+      return chatKey ? getCachedChatMessages(chatKey) : [];
+    }
+    const messages = await res.json();
+    if (Array.isArray(messages) && chatKey) {
+      setCachedChatMessages(chatKey, messages);
+    }
+    return Array.isArray(messages) ? messages : [];
+  } catch (_) {
+    return chatKey ? getCachedChatMessages(chatKey) : [];
+  }
 }
 
 export async function getGeneralChats(sessionId = null) {
-  let url = `${API_BASE}/users/me/chats`;
-  if (sessionId) {
-    url += `?session_id=${encodeURIComponent(sessionId)}`;
+  const chatKey = sessionId ? `session_${sessionId}` : 'general_all';
+  if (typeof navigator !== 'undefined' && !navigator.onLine) {
+    return getCachedChatMessages(chatKey);
   }
-  const res = await fetch(url, {
-    headers: getAuthHeaders(),
-  });
-  if (!res.ok) return [];
-  return await res.json();
+  try {
+    let url = `${API_BASE}/users/me/chats`;
+    if (sessionId) {
+      url += `?session_id=${encodeURIComponent(sessionId)}`;
+    }
+    const res = await fetch(url, {
+      headers: getAuthHeaders(),
+    });
+    if (!res.ok) {
+      return getCachedChatMessages(chatKey);
+    }
+    const messages = await res.json();
+    if (Array.isArray(messages)) {
+      setCachedChatMessages(chatKey, messages);
+    }
+    return Array.isArray(messages) ? messages : [];
+  } catch (_) {
+    return getCachedChatMessages(chatKey);
+  }
 }
 
 export async function renameChatSession(sessionId, title) {
