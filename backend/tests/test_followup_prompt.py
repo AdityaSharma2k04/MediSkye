@@ -254,3 +254,128 @@ def test_comparison_aware_followup_turn():
     assert "### 🟢 The Short Version" in sys_init
     assert "LONGITUDINAL COMPARISONS" in sys_init
 
+
+@pytest.mark.asyncio
+async def test_route_followup_emergency_disclaimer_preservation():
+    """
+    Route-level test of follow-up turn on a document session:
+    - Control: Ordinary follow-up ('what about my platelets') has ZERO Disclaimer:.
+    - Emergency: Medical emergency query ('severe chest pain... is my hemoglobin okay')
+      sets emergency_banner, reaches LLM, and preserves EXACTLY ONE Disclaimer:.
+    """
+    import pymupdf as fitz
+    from httpx import AsyncClient, ASGITransport
+    from unittest.mock import MagicMock, AsyncMock, patch
+    from sqlalchemy.future import select
+    from app.main import app
+    from app.db.database import AsyncSessionLocal
+    from app.db.models import User, Chat
+    from app.core.auth import get_password_hash
+    from tests.conftest import TEST_PASSWORD
+    from tests.test_query_stream import FakeEmbedder
+    import asyncio
+    import uuid
+
+    transport = ASGITransport(app=app)
+
+    def fake_stream(*args, **kwargs):
+        chunk = MagicMock()
+        chunk.text = "Your hemoglobin is 14.2 g/dL, which is within normal limits."
+        return [chunk]
+
+    mock_client = MagicMock()
+    mock_client.models.generate_content_stream.side_effect = fake_stream
+    mock_client.models.generate_content.side_effect = lambda *args, **kwargs: MagicMock(text="DOCUMENT_QA")
+
+    with (
+        patch("app.rag.retriever.get_embedder", return_value=FakeEmbedder()),
+        patch("app.services.chat_indexer.get_embedder", return_value=FakeEmbedder()),
+        patch("app.rag.embedder.get_embedder", return_value=FakeEmbedder()),
+        patch("google.genai.Client", return_value=mock_client),
+        patch("app.api.v1.endpoints.query.process_chat_memory_extraction", new=AsyncMock()),
+    ):
+        async with AsyncClient(transport=transport, base_url="http://test") as ac:
+            email = f"emerg_followup_{uuid.uuid4().hex[:8]}@test.com"
+            async with AsyncSessionLocal() as session:
+                user = User(
+                    email=email,
+                    hashed_password=get_password_hash(TEST_PASSWORD),
+                    phi_consent_granted=True,
+                    memory_consent_granted=True,
+                )
+                session.add(user)
+                await session.commit()
+                await session.refresh(user)
+                user_id = user.id
+
+            login_res = await ac.post("/login", data={"username": email, "password": TEST_PASSWORD})
+            assert login_res.status_code == 200
+            token = login_res.json()["access_token"]
+            headers = {"Authorization": f"Bearer {token}"}
+
+            # Upload a PDF
+            doc = fitz.open()
+            page = doc.new_page()
+            page.insert_text(
+                (50, 72),
+                "Complete Blood Count Report. Patient: Jane Doe. Hemoglobin: 14.2 g/dL (ref 12.0 - 15.5) Normal. Glucose: 95 mg/dL (ref 70 - 99) Normal. Platelet count 250000 /uL. All other hematology parameters within normal limits."
+            )
+            pdf_bytes = doc.tobytes()
+
+            up_res = await ac.post("/upload", files={"file": ("report.pdf", pdf_bytes, "application/pdf")}, headers=headers)
+            assert up_res.status_code == 202
+            job_id = up_res.json()["job_id"]
+            doc_id = None
+            for _ in range(50):
+                st_res = await ac.get(f"/upload/status/{job_id}", headers=headers)
+                if st_res.status_code == 200 and st_res.json()["status"] == "completed":
+                    doc_id = st_res.json()["document_id"]
+                    break
+                await asyncio.sleep(0.05)
+            assert doc_id is not None, f"Document upload must complete: {st_res.json()}"
+
+            # Turn 1: Initial document overview query
+            res1 = await ac.post("/query", json={"session_id": str(doc_id), "query": "Explain my lab report"}, headers=headers)
+            assert res1.status_code == 200
+
+            # Turn 2: Control - ordinary follow-up query
+            res_ctrl = await ac.post("/query", json={"session_id": str(doc_id), "query": "What about my platelets?"}, headers=headers)
+            assert res_ctrl.status_code == 200
+            assert "Disclaimer:" not in res_ctrl.text, "Ordinary follow-up must NOT have any disclaimer"
+
+            # Turn 3: Emergency follow-up query that sets emergency_banner but continues to LLM
+            res_emerg = await ac.post(
+                "/query",
+                json={
+                    "session_id": str(doc_id),
+                    "query": "I am having severe chest pain and pressure. Is my hemoglobin okay?",
+                },
+                headers=headers,
+            )
+            assert res_emerg.status_code == 200
+            assert "EMERGENCY WARNING" in res_emerg.text
+            # Assert exactly one Disclaimer: in final text
+            assert res_emerg.text.count("Disclaimer:") == 1, (
+                f"Emergency follow-up must preserve exactly one disclaimer, found {res_emerg.text.count('Disclaimer:')}"
+            )
+
+            # Also check persisted AI chat message in DB
+            async with AsyncSessionLocal() as session:
+                chats = (
+                    await session.execute(
+                        select(Chat)
+                        .filter(Chat.user_id == user_id, Chat.role == "ai")
+                        .order_by(Chat.created_at.desc())
+                    )
+                ).scalars().all()
+                latest_ai_chat = chats[0]
+                assert latest_ai_chat.message.count("Disclaimer:") == 1
+
+            from app.api.v1.endpoints.upload import _background_warm_tasks
+            if _background_warm_tasks:
+                await asyncio.gather(*list(_background_warm_tasks), return_exceptions=True)
+            from app.api.v1.endpoints.query import _background_tasks
+            if _background_tasks:
+                await asyncio.gather(*list(_background_tasks), return_exceptions=True)
+
+

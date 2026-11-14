@@ -1166,7 +1166,8 @@ async def query_bot(
                 raise GeminiUnavailableError("All fallback models failed to generate a response.")
 
             is_safe_fallback_text = (SAFE_FALLBACK in visible_text)
-            preserve_disclaimer = (not is_followup_turn) or is_safe_fallback_text
+            has_critical = bool(emergency_banner) or is_safe_fallback_text
+            preserve_disclaimer = (not is_followup_turn) or has_critical
 
             if intent != QueryIntent.CASUAL and preserve_disclaimer:
                 has_existing_disclaimer = bool(re.search(r'(?im)^\s*\*{0,2}Disclaimer:\*{0,2}', visible_text))
@@ -1176,7 +1177,7 @@ async def query_bot(
                     visible_text += disclaimer
 
             # Post-process visible text to enforce disclaimer rules (single disclaimer on first overview only, stripped on follow-ups unless critical/SAFE_FALLBACK)
-            visible_text = _clean_disclaimers(visible_text, is_followup_turn, has_critical_alert=is_safe_fallback_text)
+            visible_text = _clean_disclaimers(visible_text, is_followup_turn, has_critical_alert=has_critical)
 
             # ── Output filter scan ──
             is_safe, reason = scan_output(visible_text)
