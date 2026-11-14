@@ -56,6 +56,8 @@ jobs:
 
       - name: Build Debug APK with Gradle
         working-directory: frontend/android
+        env:
+          JAVA_TOOL_OPTIONS: "-Djava.net.preferIPv4Stack=true"
         run: |
           chmod +x gradlew
           ./gradlew assembleDebug

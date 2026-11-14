@@ -15,6 +15,7 @@ which preserves exact lab values that text extractors often scramble.
 import os
 import asyncio
 import logging
+from typing import Optional
 
 from langchain_core.documents import Document
 from pypdf import PdfReader
