@@ -32,7 +32,7 @@ export function emitConnectivityStatus(isOnline) {
           detail: { online: Boolean(isOnline) },
         })
       );
-    } catch (_) {}
+    } catch (_) { }
   }
 }
 
@@ -42,7 +42,7 @@ export async function checkConnectivity() {
       const nativeOnline = Boolean(window.MediskyeNativeAuth.isOnline());
       emitConnectivityStatus(nativeOnline);
       return nativeOnline;
-    } catch (_) {}
+    } catch (_) { }
   }
   if (typeof navigator !== 'undefined' && !navigator.onLine) {
     emitConnectivityStatus(false);
@@ -78,10 +78,10 @@ if (typeof window !== 'undefined' && auth && typeof onAuthStateChanged === 'func
           localStorage.setItem('mediskye_auth_id_token', token);
           touchAuthActivity();
           saveAuthSession(user, token);
-        } catch (_) {}
+        } catch (_) { }
       }
     });
-  } catch (_) {}
+  } catch (_) { }
 }
 
 export function formatApiError(data, fallback = 'Something went wrong on our end. Please try again.') {
@@ -114,7 +114,7 @@ export function getStableCacheUid(explicitUid) {
       const uid = auth.currentUser.uid;
       try {
         localStorage.setItem('mediskye_last_uid', uid);
-      } catch (_) {}
+      } catch (_) { }
       return uid;
     }
     const rawSnap = localStorage.getItem('mediskye_auth_user_snapshot');
@@ -123,7 +123,7 @@ export function getStableCacheUid(explicitUid) {
       if (snap?.uid) {
         try {
           localStorage.setItem('mediskye_last_uid', snap.uid);
-        } catch (_) {}
+        } catch (_) { }
         return snap.uid;
       }
     }
@@ -139,7 +139,7 @@ export function getStableCacheUid(explicitUid) {
         if (tokenUid) return tokenUid;
       }
     }
-  } catch (_) {}
+  } catch (_) { }
   return 'default';
 }
 
@@ -166,7 +166,7 @@ export function warmBackendConnection() {
           emitConnectivityStatus(false);
         }
       });
-  } catch (_) {}
+  } catch (_) { }
 }
 
 export function safeStorageSet(key, value) {
@@ -183,10 +183,10 @@ export function safeStorageSet(key, value) {
           const k = localStorage.key(i);
           if (k) keysToClean.add(k);
         }
-      } catch (_) {}
+      } catch (_) { }
       try {
         Object.keys(localStorage).forEach((k) => keysToClean.add(k));
-      } catch (_) {}
+      } catch (_) { }
 
       keysToClean.forEach((k) => {
         if (
@@ -198,11 +198,11 @@ export function safeStorageSet(key, value) {
         ) {
           try {
             localStorage.removeItem(k);
-          } catch (_) {}
+          } catch (_) { }
         }
       });
       localStorage.setItem(key, strVal);
-    } catch (_) {}
+    } catch (_) { }
   }
 }
 
@@ -493,7 +493,7 @@ export function getCachedConversations(patientId = 'self', uid = getStableCacheU
           safeStorageSet(k, sanitizedKeyConvs);
         }
       }
-    } catch (_) {}
+    } catch (_) { }
   }
 
   if (!foundAnyMatchingCache) {
@@ -556,7 +556,7 @@ export function purgePatientLocalCache(patientId = 'self', uid = getStableCacheU
     localStorage.removeItem(`mediskye_cached_facts_${stableUid}_${patKey}`);
     localStorage.removeItem(`mediskye_cached_trends_${stableUid}_${patKey}`);
     localStorage.removeItem(`mediskye_conversations_${stableUid}_${patKey}`);
-  } catch (_) {}
+  } catch (_) { }
 }
 
 export function purgeDocumentLocalCache(docId) {
@@ -564,7 +564,7 @@ export function purgeDocumentLocalCache(docId) {
   try {
     localStorage.removeItem(`mediskye_cached_doc_metrics_${docId}`);
     localStorage.removeItem(`mediskye_cached_doc_summary_${docId}`);
-  } catch (_) {}
+  } catch (_) { }
 }
 
 export function isJwtExpiredOrExpiringSoon(jwtString, bufferSeconds = 300) {
@@ -595,7 +595,7 @@ export async function getAuthToken(forceRefresh = false) {
       if (snap && isWithinFifteenDays()) {
         try {
           await auth.authStateReady();
-        } catch (_) {}
+        } catch (_) { }
       }
     }
 
@@ -749,7 +749,7 @@ export async function login(email, password) {
     headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
     body: formData,
   });
-  
+
   const data = await res.json().catch(() => null);
   if (!res.ok) {
     throw new Error(formatApiError(data, 'Login failed'));
@@ -762,13 +762,13 @@ export async function register(email, password, phi_consent_granted) {
   const res = await fetch(`${API_BASE}/register`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ 
-      email: normalizedEmail, 
-      password, 
-      phi_consent_granted: Boolean(phi_consent_granted) 
+    body: JSON.stringify({
+      email: normalizedEmail,
+      password,
+      phi_consent_granted: Boolean(phi_consent_granted)
     }),
   });
-  
+
   const data = await res.json().catch(() => null);
   if (!res.ok) {
     throw new Error(formatApiError(data, 'Registration failed'));
@@ -944,7 +944,7 @@ export async function sendQueryStream(queryText, documentId, language = 'English
           if (errorData && (errorData.detail || errorData.error)) {
             errorDetail = errorData.detail || errorData.error;
           }
-        } catch (e) {}
+        } catch (e) { }
 
         const err = new Error(errorDetail);
         err.status = res.status;
@@ -1132,22 +1132,35 @@ export async function fetchLabMetrics(documentId, forceRefresh = false) {
   }
 }
 
-export async function getDocumentSummary(documentId, forceRefresh = false) {
-  const query = forceRefresh ? '?force_refresh=true' : '';
-  let res = await apiFetch(`${API_BASE}/users/me/documents/${documentId}/summary${query}`, {
+export async function getDocumentSummary(documentId, optionsOrForceRefresh = false) {
+  let forceRefresh = false;
+  let cachedOnly = false;
+  if (typeof optionsOrForceRefresh === 'boolean') {
+    forceRefresh = optionsOrForceRefresh;
+  } else if (optionsOrForceRefresh && typeof optionsOrForceRefresh === 'object') {
+    forceRefresh = !!optionsOrForceRefresh.forceRefresh;
+    cachedOnly = !!optionsOrForceRefresh.cachedOnly;
+  }
+
+  const params = new URLSearchParams();
+  if (forceRefresh) params.append('force_refresh', 'true');
+  if (cachedOnly) params.append('cached_only', 'true');
+  const qs = params.toString() ? `?${params.toString()}` : '';
+
+  let res = await apiFetch(`${API_BASE}/users/me/documents/${documentId}/summary${qs}`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
     },
   }, 60000);
 
-  // Transparent retry for 503 / 425 / 429 with Retry-After honoring
-  if (res.status === 503 || res.status === 425 || res.status === 429) {
+  // Transparent retry for 503 / 425 / 429 with Retry-After honoring (only when not cached_only)
+  if (!cachedOnly && (res.status === 503 || res.status === 425 || res.status === 429)) {
     const retryAfter = parseInt(res.headers?.get?.('Retry-After') || '2', 10);
     const waitMs = Math.max(isNaN(retryAfter) ? 2 : retryAfter, 2) * 1000;
     logger.info(`Received ${res.status} from summary. Transparent retry after ${waitMs}ms...`);
     await new Promise((resolve) => setTimeout(resolve, waitMs));
-    res = await apiFetch(`${API_BASE}/users/me/documents/${documentId}/summary${query}`, {
+    res = await apiFetch(`${API_BASE}/users/me/documents/${documentId}/summary${qs}`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -1157,11 +1170,15 @@ export async function getDocumentSummary(documentId, forceRefresh = false) {
 
   const data = await res.json().catch(() => ({}));
   if (!res.ok) {
+    if (cachedOnly) {
+      return { summary: null, cached: false };
+    }
     const cached = getCachedDocSummary(documentId);
     if (cached) return cached;
     throw new Error(data.detail || 'Failed to fetch document summary');
   }
-  if (documentId && data) {
+  // Only cache if summary is non-empty
+  if (documentId && data && data.summary) {
     setCachedDocSummary(documentId, data);
   }
   return data;
@@ -1259,7 +1276,7 @@ export async function changePassword(currentPassword, newPassword) {
     try {
       const errData = await res.json();
       errorDetail = errData.detail || errorDetail;
-    } catch (e) {}
+    } catch (e) { }
     throw new Error(errorDetail);
   }
   return await res.json();
@@ -1501,7 +1518,7 @@ export async function deleteChatSession(sessionId, patientId = 'self') {
         patientId
       );
     }
-  } catch (_) {}
+  } catch (_) { }
 
   let res = await fetch(`${API_BASE}/users/me/chats/sessions/${encodeURIComponent(sessionId)}`, {
     method: 'DELETE',
@@ -1610,7 +1627,7 @@ export async function deleteDocument(documentId, patientId = 'self') {
     if (typeof localStorage !== 'undefined') {
       localStorage.removeItem(`mediskye_cached_doc_metrics_${documentId}`);
     }
-  } catch (_) {}
+  } catch (_) { }
 
   const res = await fetch(`${API_BASE}/users/me/documents/${documentId}`, {
     method: 'DELETE',
@@ -2015,7 +2032,7 @@ export async function prewarmPatientLocalCache(patientId = 'self', dependents = 
     if (!cachedFacts || cachedFacts.length === 0) {
       await getFacts(targetPatient);
     }
-  } catch (_) {}
+  } catch (_) { }
 
   // 2. Pre-warm longitudinal trends if not already cached
   try {
@@ -2023,7 +2040,7 @@ export async function prewarmPatientLocalCache(patientId = 'self', dependents = 
     if (!cachedTrends) {
       await getMetricTrends(targetPatient);
     }
-  } catch (_) {}
+  } catch (_) { }
 
   // 3. Pre-warm up to top 5 documents' lab metrics without blocking
   try {
@@ -2035,10 +2052,10 @@ export async function prewarmPatientLocalCache(patientId = 'self', dependents = 
     for (const doc of toPrewarm) {
       const docId = doc.id || doc.document_id;
       if (docId && !getCachedDocMetrics(docId)) {
-        await fetchLabMetrics(docId).catch(() => {});
+        await fetchLabMetrics(docId).catch(() => { });
       }
     }
-  } catch (_) {}
+  } catch (_) { }
 }
 
 export const getPatientTrends = getMetricTrends;
@@ -2196,7 +2213,7 @@ export async function syncSingleProfileToLocalCache(patientId = 'self', options 
           reportCount: safeDocs.length,
           conversations: mergedConvs,
         });
-      } catch (_) {}
+      } catch (_) { }
     }
 
     // 5. Concurrently fetch and cache full chat messages for all conversations of pid
@@ -2215,7 +2232,7 @@ export async function syncSingleProfileToLocalCache(patientId = 'self', options 
             target.messages = reconcileMessagesWithServer(target.messages, formatted, false);
           }
         }
-      } catch (_) {}
+      } catch (_) { }
     });
 
     const standaloneChatPromises = Array.from(standaloneChatsBySession.keys()).map(async (sid) => {
@@ -2233,7 +2250,7 @@ export async function syncSingleProfileToLocalCache(patientId = 'self', options 
             target.messages = reconcileMessagesWithServer(target.messages, formatted, false);
           }
         }
-      } catch (_) {}
+      } catch (_) { }
     });
 
     await Promise.allSettled([...docChatPromises, ...standaloneChatPromises]);
@@ -2242,7 +2259,7 @@ export async function syncSingleProfileToLocalCache(patientId = 'self', options 
     if (typeof options?.onConversationsUpdated === 'function') {
       try {
         options.onConversationsUpdated(mergedConvs);
-      } catch (_) {}
+      } catch (_) { }
     }
 
     // 6. Concurrently pre-fetch lab metrics, summaries, facts, and trends
@@ -2251,10 +2268,10 @@ export async function syncSingleProfileToLocalCache(patientId = 'self', options 
       const docId = doc.id;
       if (docId) {
         if (!getCachedDocMetrics(docId)) {
-          prefetchPromises.push(fetchLabMetrics(docId).catch(() => {}));
+          prefetchPromises.push(fetchLabMetrics(docId).catch(() => { }));
         }
         if (!getCachedDocSummary(docId)) {
-          prefetchPromises.push(getDocumentSummary(docId).catch(() => {}));
+          prefetchPromises.push(getDocumentSummary(docId, { cachedOnly: true }).catch(() => { }));
         }
       }
     }

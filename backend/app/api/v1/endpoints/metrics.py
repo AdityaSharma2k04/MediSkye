@@ -9,6 +9,8 @@ from pydantic import BaseModel
 from fastapi import APIRouter, Depends, Header, Request, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
+from sqlalchemy import update
+from sqlalchemy.orm.exc import StaleDataError
 from sqlalchemy.orm.attributes import flag_modified
 from langchain_community.vectorstores import FAISS
 
@@ -22,7 +24,7 @@ from app.services.upload_jobs import is_stale_building
 from app.rag.retriever import retrieve_relevant_docs, get_cached_hybrid_index, load_hybrid_index
 from app.rag.index_storage import aensure_index_local
 from app.rag.embedder import get_embedder
-from app.llm.gemini_client import call_gemini_with_retry
+from app.llm.gemini_client import call_gemini_with_retry, GeminiUnavailableError
 from google.genai.types import GenerateContentConfig, ThinkingConfig
 
 from typing import Optional, List, Dict, Any, Union, Tuple
@@ -425,10 +427,15 @@ async def extract_and_cache_metrics(
         return []
 
     if not combined_text.strip():
-        doc.cached_metrics = []
-        flag_modified(doc, "cached_metrics")
-        db.add(doc)
-        await db.commit()
+        try:
+            doc.cached_metrics = []
+            flag_modified(doc, "cached_metrics")
+            db.add(doc)
+            await db.commit()
+        except StaleDataError:
+            await db.rollback()
+            logger.info("Document %s was deleted while metrics extraction was in-flight; discarding result.", doc_id)
+            return []
         return []
 
     windows = []
@@ -540,16 +547,31 @@ Report text:
         if not any_success and len(windows) > 0:
             return None
 
-        doc.cached_metrics = raw_metrics
-        flag_modified(doc, "cached_metrics")
-        db.add(doc)
-        await db.commit()
-        await db.refresh(doc)
-        return raw_metrics
+        try:
+            doc.cached_metrics = raw_metrics
+            flag_modified(doc, "cached_metrics")
+            db.add(doc)
+            await db.commit()
+            try:
+                await db.refresh(doc)
+            except Exception:
+                pass
+            return raw_metrics
+        except StaleDataError:
+            await db.rollback()
+            logger.info("Document %s was deleted while metrics extraction was in-flight; discarding result.", doc_id)
+            return []
     except HTTPException:
         raise
+    except StaleDataError:
+        await db.rollback()
+        logger.info("Document %s was deleted while metrics extraction was in-flight; discarding result.", doc_id)
+        return []
     except Exception as err:
-        logger.error("Metrics extraction error (will retry on-demand): %s", err)
+        if isinstance(err, (StaleDataError, GeminiUnavailableError, asyncio.TimeoutError, TimeoutError)) or "timeout" in str(err).lower() or "disconnect" in str(err).lower():
+            logger.warning("Metrics extraction transient error (will retry on-demand): %s", err)
+        else:
+            logger.warning("Metrics extraction error (will retry on-demand): %s", err)
         return None
 
 
@@ -757,22 +779,43 @@ async def _get_or_extract_metrics(
                 detail="Metrics extraction temporarily unavailable. Please retry in 2 seconds.",
                 headers={"Retry-After": "2"},
             )
+        # Check if doc was deleted during extraction
+        res = await db.execute(select(Document).filter(Document.id == doc_id, Document.user_id == current_user.id))
+        fresh_doc = res.scalars().first()
+        if not fresh_doc:
+            logger.info("Document %s was deleted while metrics extraction was in-flight; discarding result.", doc_id)
+            return MetricsResponse(
+                metrics=[],
+                collected_at=None,
+                is_future_collection_date=False,
+            )
         raw_copy = copy.deepcopy(raw_metrics)
-        items, p_id, p_date = await _apply_longitudinal_deltas(doc, raw_copy, current_user, db)
+        items, p_id, p_date = await _apply_longitudinal_deltas(fresh_doc, raw_copy, current_user, db)
         return MetricsResponse(
             metrics=items,
-            collected_at=doc.collected_at,
-            is_future_collection_date=is_future,
+            collected_at=fresh_doc.collected_at,
+            is_future_collection_date=check_is_future_date(fresh_doc.collected_at),
             prior_document_id=p_id,
             prior_document_date=p_date,
         )
     except HTTPException:
         raise
-    except Exception as err:
-        logger.error("Metrics extraction error: %s", err)
+    except StaleDataError:
+        await db.rollback()
+        logger.info("Document %s was deleted while metrics extraction was in-flight; discarding result.", doc_id)
         return MetricsResponse(
             metrics=[],
-            collected_at=doc.collected_at,
+            collected_at=None,
+            is_future_collection_date=False,
+        )
+    except Exception as err:
+        if isinstance(err, (StaleDataError, GeminiUnavailableError, asyncio.TimeoutError, TimeoutError)) or "timeout" in str(err).lower() or "disconnect" in str(err).lower():
+            logger.warning("Metrics extraction transient error: %s", err)
+        else:
+            logger.warning("Metrics extraction error: %s", err)
+        return MetricsResponse(
+            metrics=[],
+            collected_at=getattr(doc, "collected_at", None),
             is_future_collection_date=is_future,
         )
 

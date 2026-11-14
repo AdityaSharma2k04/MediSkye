@@ -206,6 +206,8 @@ Compiled via Vite 5.4.21 (`npm run build`):
 | `FINAL-SHIP-04` | Backend Async / Sync | Fast Parallel Cloud Sync & Full-Screen Workspace Hydration Screen | `frontend/src/services/api.js`, `frontend/src/components/ChatApp.jsx` | `FinalShipPolish.test.jsx` (5 passed) |
 | `FINAL-SHIP-05` | Frontend / Offline Sync | Compact Broken Wi-Fi Icon Badge (`WifiOff`) & Android Debounced Network State | `frontend/src/components/workbench/Workbench.jsx`, `MainActivity.java`, `frontend/src/services/api.js`, `frontend/src/components/ChatApp.jsx` | `FinalShipPolish.test.jsx` (5 passed) |
 | `FIX-STREAM-CACHE-01` | Frontend / Offline Sync & Backend Async | Stuck Streaming Skeleton Prevention & Server History Reconciliation | `frontend/src/services/api.js`, `frontend/src/components/ChatApp.jsx`, `frontend/src/test/ChatSessionSync.test.jsx` | `ChatSessionSync.test.jsx` (3 passed) |
+| `SENTRY-FIX-01` | Backend Async / DB | Concurrent Document Deletion `StaleDataError` Guard | `backend/app/api/v1/endpoints/metrics.py`, `backend/app/api/v1/endpoints/upload.py` | `test_sentry_stale_data_recovery.py` (2 passed) |
+| `SENTRY-FIX-02` | RAG & Prompt Speed / Sync | `cached_only=true` Background Sync & Resilient Document Summary | `backend/app/api/v1/endpoints/query.py`, `frontend/src/services/api.js` | `test_sentry_stale_data_recovery.py` (2 passed), `test_document_caching.py` (5 passed) |
 
 ### Detailed Fix Logs
 
@@ -264,6 +266,31 @@ Compiled via Vite 5.4.21 (`npm run build`):
   5. In `handleSendMessage` `finally` block, guaranteed all streaming bot messages are finalized (`isStreaming: false, status: null, statusText: null`), provided fallback text if empty, and immediately flushed to `localStorage`.
 - **Before vs. After Verification Proof:**
   Added regression test `Stuck Streaming Skeleton Recovery on App Restart: immediately cleans up stuck skeleton and reconciles with server assistant reply` in `frontend/src/test/ChatSessionSync.test.jsx`. Verified with Vitest (`3 passed`). Verified that reopening the app with an orphaned loading skeleton immediately drops the skeleton, reconciles with the server assistant response, and cleans up `localStorage`.
+
+#### SENTRY-FIX-01: Concurrent Document Deletion StaleDataError Guard
+- **Category:** `Backend Async / DB & Clinical Safety`
+- **Symptom:** When a document was deleted or profile reset while metrics extraction or prewarming was in-flight, mutating `doc.cached_metrics` and committing triggered `sqlalchemy.orm.exc.StaleDataError: UPDATE statement on table 'documents' expected to update 1 row(s); 0 were matched`. This was logged with `logger.error`, firing high-priority alerts in Sentry.
+- **Root Cause:** In `backend/app/api/v1/endpoints/metrics.py` (`extract_and_cache_metrics`, `_get_or_extract_metrics`) and `backend/app/api/v1/endpoints/upload.py` (`_warm_document_metrics_cache`), `await db.commit()` executed against an in-memory `Document` row that had already been deleted from PostgreSQL by another request.
+- **The Fix & Code Changes:**
+  1. Wrapped `await db.commit()` in `try ... except StaleDataError:` blocks across `metrics.py` and `upload.py`.
+  2. On `StaleDataError`, executed `await db.rollback()`, logged at `logger.info("Document %s was deleted while metrics extraction was in-flight; discarding result.", doc_id)`, and returned cleanly.
+  3. Downgraded expected on-demand retryable/transient errors (`StaleDataError`, `GeminiUnavailableError`, timeouts, client disconnects) from `logger.error` to `logger.warning`.
+- **Proof:** `test_sentry_stale_data_recovery.py::test_metrics_extraction_handles_deleted_document_stale_data_gracefully` verifies that concurrent deletion rolls back cleanly, returns 200 OK, logs at INFO, and triggers 0 ERROR log records.
+
+#### SENTRY-FIX-02: cached_only=true Background Sync & Resilient Document Summary
+- **Category:** `RAG & Prompt Speed / Frontend Offline Sync`
+- **Symptom:** Background sync in `frontend/src/services/api.js` (`syncSingleProfileToLocalCache`) called `getDocumentSummary(doc.id)` for every document across all profiles. If a document had no cached summary or was still syncing/building, this triggered 10 concurrent heavy Gemini LLM calls and raised `503 HTTPException` (or `StaleDataError` on commit if the document was deleted), flooding Sentry with production alerts.
+- **Root Cause:**
+  1. `backend/app/api/v1/endpoints/query.py` (`get_or_generate_document_summary`) unconditionally invoked Gemini if `doc.cached_summary` was `None`, and raised 503 if document chunks were not ready.
+  2. `frontend/src/services/api.js` (`syncSingleProfileToLocalCache`) called `getDocumentSummary` without a `cached_only` filter.
+- **The Fix & Code Changes:**
+  1. In `query.py`, added query parameter `cached_only: bool = False` to `/users/me/documents/{document_id}/summary`.
+  2. If `cached_only=True` and `cached_summary` is missing, returns `{"summary": None, "cached": False}` with HTTP 200 OK immediately in 0ms without invoking Gemini.
+  3. If `doc.index_status == "building"`, returns `DocumentSummaryResponse(summary=None, cached=False, status="building")` gracefully.
+  4. Guarded `await db.commit()` against `StaleDataError` during on-demand summary generation: rolls back, logs at INFO, and returns the generated summary cleanly without a 500 crash.
+  5. Downgraded `GeminiUnavailableError` and transient errors from `logger.error` to `logger.warning` with clean 503 HTTP responses.
+  6. In `frontend/src/services/api.js`, added `{ cachedOnly = false }` support to `getDocumentSummary` and updated `syncSingleProfileToLocalCache` to pass `{ cachedOnly: true }`.
+- **Proof:** `test_sentry_stale_data_recovery.py::test_document_summary_cached_only_and_stale_data_safety` proves that `GET /summary?cached_only=true` returns 200 OK with `summary=None` and 0 Gemini calls, and that concurrent deletion during on-demand generation returns the summary cleanly with 200 OK and 0 ERROR logs.
 
 ---
 

@@ -29,6 +29,7 @@ from app.rag.index_storage import asave_index_artifacts, asave_index_artifacts_w
 from app.api.v1.endpoints.metrics import extract_and_cache_metrics
 from app.services.clinical_units import extract_specimen_collection_date
 from app.rag.prompt_builder import build_document_summary_prompt, PROMPT_VERSION_PREFIX
+from sqlalchemy.orm.exc import StaleDataError
 from langchain_core.documents import Document as LCDocument
 
 logger = logging.getLogger(__name__)
@@ -304,7 +305,12 @@ async def _warm_document_metrics_cache(doc_id: uuid.UUID, user_uuid: uuid.UUID, 
                         doc_obj.cached_metrics = raw_extracted
                         flag_modified(doc_obj, "cached_metrics")
                         db.add(doc_obj)
-                        await db.commit()
+                        try:
+                            await db.commit()
+                        except StaleDataError:
+                            await db.rollback()
+                            logger.info("Document %s was deleted while metrics prewarming was in-flight; discarding result.", doc_id)
+                            return
                     elapsed_ms = int((time.perf_counter() - t_start) * 1000)
                     logger.info("prewarm_ok doc_id=%s kind=%s elapsed_ms=%d", doc_id, "metrics", elapsed_ms)
 
@@ -383,9 +389,17 @@ async def _warm_document_summary_cache(doc_id: uuid.UUID, user_uuid: uuid.UUID, 
                 if summary_text:
                     doc_obj.cached_summary = f"{PROMPT_VERSION_PREFIX}{summary_text}"
                     db.add(doc_obj)
-                    await db.commit()
+                    try:
+                        await db.commit()
+                    except StaleDataError:
+                        await db.rollback()
+                        logger.info("Document %s was deleted while summary prewarming was in-flight; discarding result.", doc_id)
+                        return
             elapsed_ms = int((time.perf_counter() - t_start) * 1000)
             logger.info("prewarm_ok doc_id=%s kind=%s elapsed_ms=%d", doc_id, "summary", elapsed_ms)
+            return
+        except StaleDataError:
+            logger.info("Document %s was deleted during summary prewarming; discarding.", doc_id)
             return
         except Exception as e:
             if attempt == 0:

@@ -12,6 +12,7 @@ from fastapi import APIRouter, Depends, Request, HTTPException, status
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 from sqlalchemy import func, update, or_
+from sqlalchemy.orm.exc import StaleDataError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 
@@ -1372,8 +1373,9 @@ async def query_bot(
 # ─── Task 3: Dedicated Cached Document Summary ──────────────────────────────
 
 class DocumentSummaryResponse(BaseModel):
-    summary: str
-    cached: bool
+    summary: Optional[str] = None
+    cached: bool = False
+    status: Optional[str] = None
 
 
 EMOJI_PATTERN = re.compile(
@@ -1451,6 +1453,7 @@ async def get_or_generate_document_summary(
     request: Request,
     document_id: str,
     force_refresh: bool = False,
+    cached_only: bool = False,
     current_user: UserDTO = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
@@ -1471,17 +1474,18 @@ async def get_or_generate_document_summary(
         if clean_summary.strip() != "":
             return DocumentSummaryResponse(summary=clean_summary, cached=True)
 
-    if getattr(doc, "index_status", None) == "failed" or is_stale_building(doc):
+    # Fast return for background sync: never invoke Gemini when cached_only is requested
+    if cached_only:
+        return DocumentSummaryResponse(summary=None, cached=False)
+
+    doc_index_status = getattr(doc, "index_status", None) or getattr(doc, "status", None)
+    if doc_index_status == "building":
+        return DocumentSummaryResponse(summary=None, cached=False, status="building")
+
+    if doc_index_status == "failed" or is_stale_building(doc):
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail="This document could not be processed. Please upload a different file or re-upload.",
-        )
-
-    if getattr(doc, "index_status", None) == "building":
-        raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="Document index is still building. Please retry in 2 seconds.",
-            headers={"Retry-After": "2"},
         )
 
     # 2. Reconstruct document text from stored chunks/content ordered by chunk index
@@ -1546,13 +1550,33 @@ async def get_or_generate_document_summary(
         if summary_text:
             doc.cached_summary = f"{PROMPT_VERSION_PREFIX}{summary_text}"
             db.add(doc)
-            await db.commit()
-            await db.refresh(doc)
+            try:
+                await db.commit()
+                try:
+                    await db.refresh(doc)
+                except Exception:
+                    pass
+            except StaleDataError:
+                await db.rollback()
+                logger.info("Document %s was deleted while summary generation was in-flight; discarding cache write.", document_id)
+                return DocumentSummaryResponse(summary=summary_text, cached=False)
             return DocumentSummaryResponse(summary=summary_text, cached=False)
         else:
             return DocumentSummaryResponse(summary="", cached=False)
+    except HTTPException:
+        raise
+    except StaleDataError:
+        await db.rollback()
+        logger.info("Document %s was deleted while summary generation was in-flight.", document_id)
+        return DocumentSummaryResponse(summary=None, cached=False)
+    except GeminiUnavailableError as err:
+        logger.warning("Gemini unavailable while generating summary for doc %s: %s", document_id, err)
+        raise HTTPException(status_code=503, detail="Summary generation temporarily unavailable. Please retry shortly.")
     except Exception as err:
-        logger.error("Error generating document summary: %s", err)
+        if "timeout" in str(err).lower() or "unavailable" in str(err).lower() or "503" in str(err) or "resource" in str(err).lower():
+            logger.warning("Transient error generating document summary for doc %s: %s", document_id, err)
+            raise HTTPException(status_code=503, detail="Summary generation temporarily unavailable. Please retry shortly.")
+        logger.warning("Error generating document summary: %s", err)
         raise HTTPException(status_code=500, detail="Failed to generate document summary.")
 
 
