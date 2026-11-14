@@ -106,7 +106,7 @@ async def test_query_document_and_patient_mismatch_returns_409():
 
         res = await ac.post("/query", json={"query": "Explain this report", "document_id": str(doc_id), "patient_id": str(dep_b_id)}, headers=headers)
         assert res.status_code == 409
-        assert "This report belongs to a different patient profile." in res.json()["detail"]
+        assert "This report belongs to a different patient profile" in res.json()["detail"]
 
 
 @pytest.mark.asyncio

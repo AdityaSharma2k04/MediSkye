@@ -28,6 +28,8 @@ public class MainActivity extends BridgeActivity {
     private static final String TAG = "MediSkyeNativeAuth";
     private static volatile int activeLoopbackPort = 0;
     private static volatile ServerSocket serverSocket = null;
+    private volatile String pendingAuthIdToken = null;
+    private volatile String pendingAuthAccessToken = null;
 
     @SuppressLint("SetJavaScriptEnabled")
     @Override
@@ -84,6 +86,8 @@ public class MainActivity extends BridgeActivity {
     }
 
     private void dispatchAuthTokensToWebView(final String idToken, final String accessToken) {
+        pendingAuthIdToken = idToken;
+        pendingAuthAccessToken = accessToken;
         runOnUiThread(new Runnable() {
             @Override
             public void run() {
@@ -95,6 +99,23 @@ public class MainActivity extends BridgeActivity {
                 }
             }
         });
+    }
+
+    @Override
+    protected void onResume() {
+        super.onResume();
+        if (pendingAuthIdToken != null || pendingAuthAccessToken != null) {
+            final String id = pendingAuthIdToken;
+            final String access = pendingAuthAccessToken;
+            if (this.bridge != null && this.bridge.getWebView() != null) {
+                this.bridge.getWebView().postDelayed(new Runnable() {
+                    @Override
+                    public void run() {
+                        dispatchAuthTokensToWebView(id, access);
+                    }
+                }, 500);
+            }
+        }
     }
 
     @Override
@@ -135,8 +156,16 @@ public class MainActivity extends BridgeActivity {
                 public void run() {
                     while (serverSocket != null && !serverSocket.isClosed()) {
                         try {
-                            Socket client = serverSocket.accept();
-                            handleClientSocket(client);
+                            final Socket client = serverSocket.accept();
+                            try {
+                                client.setSoTimeout(3000);
+                            } catch (Exception ignored) {}
+                            new Thread(new Runnable() {
+                                @Override
+                                public void run() {
+                                    handleClientSocket(client);
+                                }
+                            }).start();
                         } catch (Exception e) {
                             if (serverSocket == null || serverSocket.isClosed()) {
                                 break;

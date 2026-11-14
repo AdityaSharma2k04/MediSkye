@@ -62,53 +62,58 @@ fn start_loopback_server(app_handle: tauri::AppHandle) -> u16 {
         Err(_) => continue,
       };
 
-      let mut buf = [0u8; 8192];
-      let bytes_read = match stream.read(&mut buf) {
-        Ok(n) => n,
-        Err(_) => continue,
-      };
-      if bytes_read == 0 {
-        continue;
-      }
+      let handle = handle_clone.clone();
+      std::thread::spawn(move || {
+        let _ = stream.set_read_timeout(Some(std::time::Duration::from_millis(3000)));
+        let _ = stream.set_write_timeout(Some(std::time::Duration::from_millis(3000)));
 
-      let req_str = String::from_utf8_lossy(&buf[..bytes_read]);
-      let first_line = req_str.lines().next().unwrap_or("");
-      let parts: Vec<&str> = first_line.split_whitespace().collect();
-      if parts.len() < 2 {
-        continue;
-      }
+        let mut buf = [0u8; 8192];
+        let bytes_read = match stream.read(&mut buf) {
+          Ok(n) => n,
+          Err(_) => return,
+        };
+        if bytes_read == 0 {
+          return;
+        }
 
-      let raw_path = parts[1];
-      let (path, query) = match raw_path.split_once('?') {
-        Some((p, q)) => (p, q),
-        None => (raw_path, ""),
-      };
+        let req_str = String::from_utf8_lossy(&buf[..bytes_read]);
+        let first_line = req_str.lines().next().unwrap_or("");
+        let parts: Vec<&str> = first_line.split_whitespace().collect();
+        if parts.len() < 2 {
+          return;
+        }
 
-      if path == "/__native_auth_done" {
-        let mut id_token = String::new();
-        let mut access_token = String::new();
-        for param in query.split('&') {
-          if let Some((k, v)) = param.split_once('=') {
-            if k == "id_token" {
-              id_token = percent_decode(v);
-            } else if k == "access_token" {
-              access_token = percent_decode(v);
+        let raw_path = parts[1];
+        let (path, query) = match raw_path.split_once('?') {
+          Some((p, q)) => (p, q),
+          None => (raw_path, ""),
+        };
+
+        if path == "/__native_auth_done" {
+          let mut id_token = String::new();
+          let mut access_token = String::new();
+          for param in query.split('&') {
+            if let Some((k, v)) = param.split_once('=') {
+              if k == "id_token" {
+                id_token = percent_decode(v);
+              } else if k == "access_token" {
+                access_token = percent_decode(v);
+              }
             }
           }
-        }
 
-        if let Some(main_win) = handle_clone.get_webview_window("main") {
-          let js = format!(
-            "window.dispatchEvent(new CustomEvent('mediskye-native-google-auth', {{ detail: {{ idToken: {:?}, accessToken: {:?} }} }}));",
-            id_token, access_token
-          );
-          let _ = main_win.eval(&js);
-          let _ = main_win.unminimize();
-          let _ = main_win.show();
-          let _ = main_win.set_focus();
-        }
+          if let Some(main_win) = handle.get_webview_window("main") {
+            let js = format!(
+              "window.dispatchEvent(new CustomEvent('mediskye-native-google-auth', {{ detail: {{ idToken: {:?}, accessToken: {:?} }} }}));",
+              id_token, access_token
+            );
+            let _ = main_win.eval(&js);
+            let _ = main_win.unminimize();
+            let _ = main_win.show();
+            let _ = main_win.set_focus();
+          }
 
-        let body = r#"<!DOCTYPE html>
+          let body = r#"<!DOCTYPE html>
 <html>
 <head>
   <meta charset="utf-8">
@@ -150,50 +155,51 @@ fn start_loopback_server(app_handle: tauri::AppHandle) -> u16 {
 </body>
 </html>"#;
 
-        let response = format!(
-          "HTTP/1.1 200 OK\r\nContent-Type: text/html; charset=utf-8\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
-          body.len(),
-          body
-        );
-        let _ = stream.write_all(response.as_bytes());
-        let _ = stream.flush();
-        continue;
-      }
-
-      // Serve static frontend assets from Tauri asset resolver
-      let mut asset_path = path.trim_start_matches('/');
-      if asset_path.is_empty() {
-        asset_path = "index.html";
-      }
-
-      let (content_type, asset_data) = match handle_clone.asset_resolver().get(asset_path.to_string()) {
-        Some(asset) => {
-          let ct = asset.mime_type.to_string();
-          (ct, asset.bytes.to_vec())
+          let response = format!(
+            "HTTP/1.1 200 OK\r\nContent-Type: text/html; charset=utf-8\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+            body.len(),
+            body
+          );
+          let _ = stream.write_all(response.as_bytes());
+          let _ = stream.flush();
+          return;
         }
-        None => {
-          // Fallback to index.html for SPA client-side routing
-          match handle_clone.asset_resolver().get("index.html".to_string()) {
-            Some(fallback) => (
-              "text/html; charset=utf-8".to_string(),
-              fallback.bytes.to_vec(),
-            ),
-            None => (
-              "text/plain".to_string(),
-              b"Not Found".to_vec(),
-            ),
+
+        // Serve static frontend assets from Tauri asset resolver
+        let mut asset_path = path.trim_start_matches('/');
+        if asset_path.is_empty() {
+          asset_path = "index.html";
+        }
+
+        let (content_type, asset_data) = match handle.asset_resolver().get(asset_path.to_string()) {
+          Some(asset) => {
+            let ct = asset.mime_type.to_string();
+            (ct, asset.bytes.to_vec())
           }
-        }
-      };
+          None => {
+            // Fallback to index.html for SPA client-side routing
+            match handle.asset_resolver().get("index.html".to_string()) {
+              Some(fallback) => (
+                "text/html; charset=utf-8".to_string(),
+                fallback.bytes.to_vec(),
+              ),
+              None => (
+                "text/plain".to_string(),
+                b"Not Found".to_vec(),
+              ),
+            }
+          }
+        };
 
-      let response_header = format!(
-        "HTTP/1.1 200 OK\r\nContent-Type: {}\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
-        content_type,
-        asset_data.len()
-      );
-      let _ = stream.write_all(response_header.as_bytes());
-      let _ = stream.write_all(&asset_data);
-      let _ = stream.flush();
+        let response_header = format!(
+          "HTTP/1.1 200 OK\r\nContent-Type: {}\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+          content_type,
+          asset_data.len()
+        );
+        let _ = stream.write_all(response_header.as_bytes());
+        let _ = stream.write_all(&asset_data);
+        let _ = stream.flush();
+      });
     }
   });
 

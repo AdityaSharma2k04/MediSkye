@@ -53,6 +53,8 @@ import {
   getCachedConversations,
   setCachedConversations,
   prewarmPatientLocalCache,
+  getMemoryFacts,
+  getMetricTrends,
 } from '../services/api';
 import { useNavigate } from 'react-router-dom';
 import { logger } from '../services/logger';
@@ -222,6 +224,8 @@ export default function ChatApp() {
   };
   useEffect(() => () => clearUploadTimers(), []);
   const [uploadError, setUploadError] = useState(null);
+  const [isSyncing, setIsSyncing] = useState(false);
+  const [syncToast, setSyncToast] = useState(null);
   const abortControllerRef = useRef(null);
   const isSubmittingRef = useRef(false);
   const isMountedRef = useRef(true);
@@ -728,65 +732,39 @@ export default function ChatApp() {
       prewarmPatientLocalCache(targetPatientId, dependents || []);
     }, 50);
 
-    // Check if the currently open conversation belongs to a different patient
+    // Hard profile lock: never auto-reassign staged documents or conversations across patients
     const currentPatient = currentChat.patient_id || 'self';
-    const stagedPdf = activePdf || currentChat.pdf;
-    const userMsgCount = (currentChat.messages || []).filter(
-      (m) => m.role === 'user' || m.sender === 'user'
-    ).length;
 
-    // TASK 1: If current conversation has an uploaded staged PDF with 0 user messages, carry it over!
-    if (currentPatient !== targetPatientId && stagedPdf && userMsgCount === 0) {
-      const pdfDocId = stagedPdf.id || stagedPdf.document_id || currentChat.document_id;
-      if (pdfDocId) {
-        try {
-          await reassignDocumentPatient(pdfDocId, targetPatientId);
-        } catch (err) {
-          logger.warn('Failed to reassign staged document patient on profile switch:', err);
-        }
-      }
-      // Reassign current conversation & active pdf to the new patient
-      const updatedPdf = { ...stagedPdf, dependent_id: targetPatientId === 'self' ? null : targetPatientId, patient_id: targetPatientId };
-      setActivePdf(updatedPdf);
-      setConversations((prev) =>
-        prev.map((c) =>
-          c.id === sessionId
-            ? { ...c, patient_id: targetPatientId, pdf: updatedPdf, document_id: pdfDocId || c.document_id }
-            : c
-        )
-      );
-      // Invalidate metrics cache so new profile's metrics recalculate
-      if (pdfDocId) invalidateMetrics(pdfDocId);
-      return;
-    }
-
-    // Hydrate cached conversations for target patient if available
-    const cachedTargetConvs = getCachedConversations(targetPatientId);
-    if (Array.isArray(cachedTargetConvs) && cachedTargetConvs.length > 0) {
-      setConversations(cachedTargetConvs);
-      const firstTargetChat = cachedTargetConvs[0];
-      if (firstTargetChat) {
-        setSessionId(firstTargetChat.id);
-        setActivePdf(firstTargetChat.pdf || null);
-        loadChatHistory(firstTargetChat.document_id || null, firstTargetChat.id);
-        return;
-      }
-    }
-
-    const hasContent = (currentChat.messages && currentChat.messages.length > 0) || currentChat.pdf || currentChat.document_id;
-
-    if (currentPatient !== targetPatientId && hasContent) {
+    if (currentPatient !== targetPatientId) {
+      // Find candidate conversation for target profile
       const candidate = conversations.find(
         (c) => (c.patient_id || 'self') === targetPatientId && c.id !== sessionId
       );
       if (candidate) {
         setSessionId(candidate.id);
+        sessionIdRef.current = candidate.id;
         setActivePdf(candidate.pdf || null);
         loadChatHistory(candidate.document_id || null, candidate.id);
         return;
       }
+
+      // Hydrate cached conversations for target patient if available
+      const cachedTargetConvs = getCachedConversations(targetPatientId);
+      if (Array.isArray(cachedTargetConvs) && cachedTargetConvs.length > 0) {
+        const firstTargetChat = cachedTargetConvs[0];
+        if (firstTargetChat) {
+          setSessionId(firstTargetChat.id);
+          sessionIdRef.current = firstTargetChat.id;
+          setActivePdf(firstTargetChat.pdf || null);
+          loadChatHistory(firstTargetChat.document_id || null, firstTargetChat.id);
+          return;
+        }
+      }
+
+      // Switch to a fresh empty consultation for the newly selected profile
       const newId = generateSessionId();
       setSessionId(newId);
+      sessionIdRef.current = newId;
       setActivePdf(null);
       setConversations((prev) => {
         const cleaned = prev.filter(
@@ -800,7 +778,7 @@ export default function ChatApp() {
       return;
     }
 
-    if (!currentChat.patient_id || currentChat.patient_id !== targetPatientId) {
+    if (!currentChat.pdf && !currentChat.document_id && (!currentChat.messages || currentChat.messages.length === 0)) {
       setConversations((prev) =>
         prev.map((c) => (c.id === sessionId ? { ...c, patient_id: targetPatientId } : c))
       );
@@ -1051,7 +1029,10 @@ export default function ChatApp() {
       return newDocId;
     } catch (err) {
       logger.error('Upload Failed:', err);
-      setUploadState((prev) => ({ ...(prev || { fileName: file.name }), phase: 'error', finishedAt: Date.now(), error: err?.message || 'Upload failed. Please try again.' }));
+      const errMsg = err?.response?.data?.detail || err?.message || 'Upload failed. Please try again.';
+      setUploadError(errMsg);
+      setUploadState((prev) => ({ ...(prev || { fileName: file.name }), phase: 'error', finishedAt: Date.now(), error: errMsg }));
+      setActivePdf(null);
       return null;
     } finally {
       setUploadProgress(null);
@@ -1761,6 +1742,60 @@ export default function ChatApp() {
     enabled: Boolean(activeDocId) && inspectorTab === 'trends' && (inspectorVisible || analyticsVisible),
   });
 
+  const patientFilteredConversations = useMemo(() => {
+    const active = selectedPatientId || 'self';
+    return (conversations || []).filter(
+      (c) => (c.patient_id || 'self') === active
+    );
+  }, [conversations, selectedPatientId]);
+
+  const handleManualCloudSync = useCallback(async () => {
+    if (isSyncing) return;
+    setIsSyncing(true);
+    try {
+      const patId = selectedPatientId || 'self';
+      // 1. Fetch fresh profile & dependents and update React state + local cache
+      const [freshProfile, freshDeps] = await Promise.all([
+        getProfile().catch(() => null),
+        getDependents().catch(() => null),
+      ]);
+      if (freshProfile) {
+        setCurrentUser(freshProfile);
+        setCachedProfile(currentUser?.id || freshProfile.id, freshProfile);
+      }
+      if (Array.isArray(freshDeps)) {
+        setDependents(freshDeps);
+        setCachedDependents(currentUser?.id || freshProfile?.id, freshDeps);
+      }
+
+      // 2. Refresh documents & chats from Neon DB
+      await refreshDocuments();
+
+      // 3. Update active conversation's messages in place if attached
+      const targetDocId = activePdf?.id || currentChat?.document_id || null;
+      const targetSid = sessionId || currentChat?.id || null;
+      if (targetDocId) {
+        await loadChatHistory(targetDocId, targetSid);
+      } else if (targetSid) {
+        await loadChatHistory(null, targetSid);
+      }
+
+      // 4. Re-fetch memory facts, patient trends, and lab metrics
+      await Promise.all([
+        getMemoryFacts(patId).catch(() => []),
+        getMetricTrends(patId).catch(() => ({})),
+        targetDocId && labMetrics?.reload ? labMetrics.reload().catch(() => null) : Promise.resolve(null),
+      ]);
+
+      setSyncToast('Synced with cloud');
+      setTimeout(() => setSyncToast(null), 2000);
+    } catch (err) {
+      logger.warn('Manual cloud sync failed:', err);
+    } finally {
+      setIsSyncing(false);
+    }
+  }, [isSyncing, currentUser, activePdf, currentChat, sessionId, selectedPatientId, refreshDocuments, loadChatHistory, labMetrics]);
+
   const reportCounts = useMemo(() => {
     const counts = {};
     conversations.forEach((c) => {
@@ -1877,7 +1912,7 @@ export default function ChatApp() {
         <Sidebar
           isOpen={sidebarOpen}
           onToggle={toggleSidebar}
-          conversations={conversations}
+          conversations={patientFilteredConversations}
           activeSessionId={sessionId}
           onSelectChat={(id) => {
             closeSidebarOnSmallScreens();
@@ -1992,14 +2027,22 @@ export default function ChatApp() {
           onSetUiLanguage={handleSetUiLanguage}
           printSignal={printSignal}
           isOnline={isOnline}
+          onManualSync={handleManualCloudSync}
+          isSyncing={isSyncing}
         />
+        {syncToast && (
+          <div className="fixed top-16 right-6 z-50 flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-slate-900/95 border border-cyan-500/40 text-cyan-300 text-xs shadow-xl animate-fade-in backdrop-blur-md">
+            <span className="w-1.5 h-1.5 rounded-full bg-cyan-400 animate-pulse" />
+            <span>{syncToast}</span>
+          </div>
+        )}
       </main>
 
       {paletteOpen && (
         <CommandPalette
           open={paletteOpen}
           onOpenChange={setPaletteOpen}
-          conversations={conversations}
+          conversations={patientFilteredConversations}
           activeSessionId={sessionId}
           metrics={labMetrics.metrics}
           currentUser={currentUser}

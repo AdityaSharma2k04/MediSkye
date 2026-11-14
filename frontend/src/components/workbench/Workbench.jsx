@@ -5,6 +5,7 @@ import {
   Download,
   FlaskConical,
   Search,
+  RefreshCw,
   MessageSquare,
   Activity,
   FileText,
@@ -102,6 +103,8 @@ export default function Workbench(props) {
     onSetUiLanguage,
     printSignal,
     isOnline = true,
+    onManualSync,
+    isSyncing = false,
   } = props;
 
   const { t } = useTranslation();
@@ -118,7 +121,9 @@ export default function Workbench(props) {
 
   // When the active report goes away, return mobile users to the conversation
   useEffect(() => {
-    if (!activePdf && viewMode !== 'chat') onViewModeChange('chat');
+    if (!activePdf && viewMode !== 'chat' && typeof onViewModeChange === 'function') {
+      onViewModeChange('chat');
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activePdf]);
 
@@ -302,6 +307,17 @@ export default function Workbench(props) {
                 <Search className="w-[18px] h-[18px]" />
               </IconButton>
             )}
+
+            <button
+              type="button"
+              onClick={onManualSync}
+              disabled={isSyncing}
+              title="Sync latest chats & reports from cloud"
+              aria-label="Sync latest chats and reports from cloud"
+              className="ms-tap inline-flex items-center justify-center w-9 h-9 rounded-xl bg-white/[0.03] border border-white/[0.08] text-ink-mute hover:text-white hover:border-white/[0.14] transition disabled:opacity-50"
+            >
+              <RefreshCw size={16} className={cn(isSyncing && "animate-spin text-sky-400")} />
+            </button>
 
             {isDesktop && activePdf && (
               <button
