@@ -393,10 +393,12 @@ export async function apiFetch(url, options = {}, timeoutMs = 30000) {
     ...(options.headers || {}),
   };
 
+  const isGet = !options.method || options.method.toUpperCase() === 'GET';
   const fetchOptions = {
     ...options,
     headers,
     signal: combinedSignal,
+    ...(isGet && !options.cache ? { cache: 'no-store' } : {}),
   };
 
   let res;
@@ -869,6 +871,7 @@ export async function getProfile() {
     let res = await fetch(`${API_BASE}/users/me`, {
       method: 'GET',
       headers,
+      cache: 'no-store',
     });
     if (res.status === 401 && auth && auth.currentUser) {
       try {
@@ -876,6 +879,7 @@ export async function getProfile() {
         res = await fetch(`${API_BASE}/users/me`, {
           method: 'GET',
           headers: retryHeaders,
+          cache: 'no-store',
         });
       } catch (e) {
         // ignore retry error
@@ -978,6 +982,7 @@ export async function getDependents() {
     const res = await fetch(`${API_BASE}/users/me/dependents`, {
       method: 'GET',
       headers: getAuthHeaders(),
+      cache: 'no-store',
     });
     if (!res.ok) {
       const cached = getCachedDependents();
@@ -1060,6 +1065,7 @@ export async function getUserDocuments(patientId = 'self') {
     }
     const res = await fetch(url, {
       headers: getAuthHeaders(),
+      cache: 'no-store',
     });
     if (!res.ok) {
       const cached = getCachedDocuments(patKey);
@@ -1090,6 +1096,7 @@ export async function getDocumentChats(docId, sessionId = null) {
     }
     const res = await fetch(url, {
       headers: getAuthHeaders(),
+      cache: 'no-store',
     });
     if (!res.ok) {
       return chatKey ? getCachedChatMessages(chatKey) : [];
@@ -1116,6 +1123,7 @@ export async function getGeneralChats(sessionId = null) {
     }
     const res = await fetch(url, {
       headers: getAuthHeaders(),
+      cache: 'no-store',
     });
     if (!res.ok) {
       return getCachedChatMessages(chatKey);
@@ -1127,6 +1135,27 @@ export async function getGeneralChats(sessionId = null) {
     return Array.isArray(messages) ? messages : [];
   } catch (_) {
     return getCachedChatMessages(chatKey);
+  }
+}
+
+export async function getChatSessions(patientId = 'self') {
+  if (typeof navigator !== 'undefined' && !navigator.onLine) {
+    return [];
+  }
+  try {
+    let url = `${API_BASE}/users/me/chats/sessions`;
+    if (patientId && patientId !== 'self') {
+      url += `?patient_id=${encodeURIComponent(patientId)}`;
+    }
+    const res = await fetch(url, {
+      headers: getAuthHeaders(),
+      cache: 'no-store',
+    });
+    if (!res.ok) return [];
+    const sessions = await res.json();
+    return Array.isArray(sessions) ? sessions : [];
+  } catch (_) {
+    return [];
   }
 }
 

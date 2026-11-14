@@ -11,6 +11,7 @@ vi.mock('../services/api', () => ({
   getProfile: vi.fn(),
   getDependents: vi.fn(),
   getUserDocuments: vi.fn(),
+  getChatSessions: vi.fn().mockResolvedValue([]),
   getDocumentChats: vi.fn(),
   getGeneralChats: vi.fn().mockResolvedValue([]),
   renameDocument: vi.fn(),

@@ -85,6 +85,7 @@ export function cleanGreetingName(name) {
 }
 
 export default function ChatWindow({
+  conversationId,
   messages,
   isGenerating,
   loadingHistory = false,
@@ -120,16 +121,36 @@ export default function ChatWindow({
     }
   };
 
+  const scrollToBottomImmediate = () => {
+    const el = scrollRef.current;
+    if (!el) return;
+    el.scrollTop = el.scrollHeight;
+    if (typeof window !== 'undefined') {
+      if (window.requestAnimationFrame) {
+        window.requestAnimationFrame(() => {
+          if (el) el.scrollTop = el.scrollHeight;
+        });
+      }
+      setTimeout(() => {
+        if (el) el.scrollTop = el.scrollHeight;
+      }, 50);
+    }
+  };
+
   useLayoutEffect(() => {
     if (stickRef.current) scrollToBottom();
   }, [messages, isGenerating]);
 
-  // New conversation / switched chat: always land at the bottom
-  const firstId = messages?.[0]?.id;
-  useEffect(() => {
-    stickRef.current = true;
-    scrollToBottom();
-  }, [firstId]);
+  // Whenever the user switches to an existing conversation (conversationId changes)
+  // or when that conversation's messages array populates from history (messages.length > 0),
+  // immediately scroll the messages container to the bottom inside useLayoutEffect
+  // AND inside a follow-up requestAnimationFrame + setTimeout(..., 50)
+  useLayoutEffect(() => {
+    if (conversationId || (messages && messages.length > 0)) {
+      stickRef.current = true;
+      scrollToBottomImmediate();
+    }
+  }, [conversationId, messages?.length]);
 
   const handleScroll = () => {
     const el = scrollRef.current;
@@ -229,10 +250,13 @@ export default function ChatWindow({
               {messages.map((msg, index) => {
                 const isLatest = index === messages.length - 1;
                 const isCompleted = !isLatest || !isGenerating;
+                const firstAssistantIndex = messages.findIndex((m) => m.sender === 'assistant' || m.role === 'ai');
+                const isFollowupTurn = firstAssistantIndex !== -1 && index > firstAssistantIndex;
                 return (
                   <div key={msg.id || index} className={cn(isCompleted && 'ms-message-contain')}>
                     <ChatMessage
                       message={msg}
+                      isFollowupTurn={isFollowupTurn}
                       onRegenerate={isLatest && msg.sender === 'assistant' ? onRegenerate : null}
                     />
                   </div>

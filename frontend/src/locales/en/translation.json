@@ -39,7 +39,7 @@
     "ask_report_title": "Ask about this report",
     "ask_report_subtitle": "No questions yet — start with one of these, or ask your own question below.",
     "encrypted_session": "Encrypted at rest (Fernet) • TLS 1.3 in transit",
-    "disclaimer": "MediSkye AI can make mistakes. Always verify critical results with a qualified healthcare professional.",
+    "disclaimer": "Mediskye is AI and can make mistake. Always verify critical results with a qualified healthcare professional.",
     "listening": "Listening...",
     "speak_question": "Speak your medical question",
     "stop_generation": "Stop generation",

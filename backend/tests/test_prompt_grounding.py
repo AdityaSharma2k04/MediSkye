@@ -348,7 +348,7 @@ def test_tag_order_in_built_prompt():
 
 
 def test_followup_turn_includes_instruction_and_session_history():
-    """Scenario 1: Follow-up question on same PDF includes followup_turn_instruction forbidding repeating The Short Version."""
+    """Scenario 1: Follow-up question on same PDF includes followup_turn_instruction forbidding repeating The Short Version and forbidding disclaimers."""
     history = "User: Explain my report\nAssistant: Here is the short version..."
     system_instruction, user_content = build_prompt(
         user_query="what should i take care about to stay health",
@@ -360,6 +360,7 @@ def test_followup_turn_includes_instruction_and_session_history():
     assert "<followup_turn_instruction>" in user_content
     assert 'DO NOT repeat the 7-section report walkthrough: do NOT output "### 🟢/🟡/🔴 The Short Version"' in user_content
     assert "Directly answer the user's new question" in user_content
+    assert "DO NOT output any Disclaimer: block, medical disclaimer, or closing disclaimer paragraph" in user_content
 
 
 def test_new_pdf_walkthrough_does_not_include_followup_instruction():
@@ -373,3 +374,31 @@ def test_new_pdf_walkthrough_does_not_include_followup_instruction():
     assert "The Short Version" in system_instruction
     assert "### 🔍 What This Report Does Not Cover" in system_instruction
     assert "### 💬 Questions to Ask Your Doctor" in system_instruction
+    assert "Conclude initial report walkthroughs and full overviews (is_followup_turn=False) with a single closing disclaimer" in system_instruction
+
+
+def test_clean_disclaimers_strips_on_followup_and_deduplicates_on_initial():
+    """Verify _clean_disclaimers removes disclaimers on follow-up and deduplicates on initial."""
+    from app.api.v1.endpoints.query import _clean_disclaimers
+    from app.rag.safety import DISCLAIMER_TEXT
+
+    # Follow-up turn: strips any trailing disclaimer
+    resp_followup = (
+        "Here are tips to stay healthy: drink water and sleep well.\n\n"
+        "**Disclaimer:** This explanation is for educational purposes only."
+    )
+    cleaned_followup = _clean_disclaimers(resp_followup, is_followup_turn=True)
+    assert "Disclaimer:" not in cleaned_followup
+    assert "drink water and sleep well." in cleaned_followup
+
+    # Initial overview: deduplicates multiple disclaimers
+    resp_initial_double = (
+        "### 🟢 The Short Version\nEverything is normal.\n\n"
+        "**Disclaimer:** First disclaimer.\n\n"
+        "***\n\n"
+        "**Disclaimer:** This explanation is for educational purposes only."
+    )
+    cleaned_initial = _clean_disclaimers(resp_initial_double, is_followup_turn=False)
+    # Must only have one disclaimer block
+    assert cleaned_initial.count("**Disclaimer:**") == 1
+    assert DISCLAIMER_TEXT.strip() in cleaned_initial

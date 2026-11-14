@@ -34,7 +34,15 @@ from app.rag.prompt_builder import (
 )
 from app.services.clinical_units import parse_report_chronology, is_sample_document
 from app.rag.intent_router import classify_intent, QueryIntent
-from app.rag.safety import append_disclaimer, get_emergency_response, is_emergency_query, detect_emergency, detect_emergency_language, EmergencyKind
+from app.rag.safety import (
+    append_disclaimer,
+    get_emergency_response,
+    is_emergency_query,
+    detect_emergency,
+    detect_emergency_language,
+    EmergencyKind,
+    DISCLAIMER_TEXT,
+)
 from app.rag.retriever import load_hybrid_index, retrieve_relevant_docs, dynamic_retrieval_k, get_cached_hybrid_index
 from app.rag.output_filter import scan_output, SAFE_FALLBACK
 from app.services.patient_service import calculate_age
@@ -118,6 +126,28 @@ async def rename_document_title(
     return {"id": str(doc.id), "title": doc.title}
 
 
+
+
+def _clean_disclaimers(text: str, is_followup_turn: bool) -> str:
+    """
+    Cleans disclaimers in visible response text:
+    - If is_followup_turn is True: strips trailing Disclaimer: paragraphs completely.
+    - If is_followup_turn is False: deduplicates multiple Disclaimer: paragraphs into a single disclaimer at the end.
+    """
+    if not text:
+        return text
+
+    disclaimer_pattern = r'(?is)(?:\n\s*(?:\*\*\*|---|___)\s*)?(?:\n\s*)?\*{0,2}Disclaimer:\*{0,2}[^\n]*(?:\n(?!\s*#{1,6}\s)[^\n]+)*'
+
+    if is_followup_turn:
+        cleaned = re.sub(disclaimer_pattern, '', text).rstrip()
+        return cleaned
+    else:
+        matches = list(re.finditer(disclaimer_pattern, text))
+        if len(matches) > 1:
+            cleaned = re.sub(disclaimer_pattern, '', text).rstrip()
+            return f"{cleaned}\n\n{DISCLAIMER_TEXT.strip()}"
+        return text
 
 
 async def link_chat_documents_batch(
@@ -714,9 +744,12 @@ async def query_bot(
                         for t in last_turns:
                             sender = "User" if t.role == "user" else "Assistant"
                             msg = t.message or ""
+                            # Strip any Disclaimer: lines from history so LLM never copies disclaimers
+                            msg = re.sub(r'(?is)\n*\s*(?:\*\*\*|---|___)?\s*\*{0,2}Disclaimer:\*{0,2}.*$', '', msg).strip()
                             if t.role == "ai" and len(msg) > 450:
                                 msg = msg[:450].rsplit(" ", 1)[0] + "..."
-                            history_lines.append(f"{sender}: {msg}")
+                            if msg:
+                                history_lines.append(f"{sender}: {msg}")
                         current_session_history = "\n".join(history_lines)
 
                     recent_filters = [
@@ -1020,18 +1053,24 @@ async def query_bot(
                     raise last_stream_exception
                 raise GeminiUnavailableError("All fallback models failed to generate a response.")
 
-            if intent != QueryIntent.CASUAL:
-                disclaimer = "\n\n" + append_disclaimer("", intent=intent.value if hasattr(intent, "value") else str(intent)).strip()
-                yield f'data: {json.dumps({"chunk": disclaimer})}\n\n'
-                visible_text += disclaimer
+            if intent != QueryIntent.CASUAL and not is_followup_turn:
+                has_existing_disclaimer = bool(re.search(r'(?i)\*{0,2}Disclaimer:\*{0,2}', visible_text))
+                if not has_existing_disclaimer:
+                    disclaimer = "\n\n" + append_disclaimer("", intent=intent.value if hasattr(intent, "value") else str(intent)).strip()
+                    yield f'data: {json.dumps({"chunk": disclaimer})}\n\n'
+                    visible_text += disclaimer
+
+            # Post-process visible text to enforce disclaimer rules (single disclaimer on first overview only, stripped on follow-ups)
+            visible_text = _clean_disclaimers(visible_text, is_followup_turn)
 
             # ── Output filter scan ──
             is_safe, reason = scan_output(visible_text)
             if not is_safe:
                 logger.warning("Output filter blocked response: %s | user_id=%s", reason, current_user.id)
                 visible_text = SAFE_FALLBACK
-                if intent != QueryIntent.CASUAL:
+                if intent != QueryIntent.CASUAL and not is_followup_turn:
                     visible_text = append_disclaimer(visible_text, intent=intent.value if hasattr(intent, "value") else str(intent))
+                visible_text = _clean_disclaimers(visible_text, is_followup_turn)
                 yield f'data: {json.dumps({"replace": visible_text})}\n\n'
 
             # ── Record AI response in database ──

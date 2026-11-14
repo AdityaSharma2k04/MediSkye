@@ -1,7 +1,7 @@
 import { describe, it, expect, vi } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
 import React from 'react';
-import ChatMessage, { stripAbnormalFlags } from '../components/ChatMessage';
+import ChatMessage, { stripAbnormalFlags, cleanMessageText } from '../components/ChatMessage';
 
 describe('ChatMessage rendering', () => {
   it('renders markdown tables correctly', () => {
@@ -174,6 +174,30 @@ describe('ChatMessage rendering', () => {
       expect(screen.getByText(/Your eosinophil count is high/)).toBeInTheDocument();
       expect(container.textContent).not.toContain('abnormal_flags');
       expect(container.textContent).not.toContain('```json');
+    });
+
+    it('deduplicates multiple disclaimers on first overview (isFollowupTurn=false)', () => {
+      const message = {
+        sender: 'assistant',
+        text: '### 🟢 The Short Version\nNormal results.\n\n**Disclaimer:** First disclaimer.\n\n***\n\n**Disclaimer:** Second disclaimer.',
+      };
+
+      const { container } = render(<ChatMessage message={message} isFollowupTurn={false} />);
+      const text = container.textContent;
+      const count = (text.match(/Disclaimer:/g) || []).length;
+      expect(count).toBe(1);
+      expect(text).toContain('Second disclaimer.');
+    });
+
+    it('hides trailing disclaimer completely on follow-up turns (isFollowupTurn=true)', () => {
+      const message = {
+        sender: 'assistant',
+        text: 'Drink water to stay hydrated.\n\n**Disclaimer:** This is for educational purposes only.',
+      };
+
+      const { container } = render(<ChatMessage message={message} isFollowupTurn={true} />);
+      expect(screen.getByText(/Drink water to stay hydrated/)).toBeInTheDocument();
+      expect(container.textContent).not.toContain('Disclaimer:');
     });
   });
 });

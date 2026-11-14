@@ -263,7 +263,7 @@ const ChatInput = forwardRef(
         </form>
 
         <div className="mt-1.5 flex items-center justify-center gap-3 text-xs leading-tight text-ink-faint px-2 text-center">
-          <span>{t('chat.disclaimer', 'MediSkye AI can make mistakes. Always verify critical results with a qualified healthcare professional.')}</span>
+          <span>{t('chat.disclaimer', 'Mediskye is AI and can make mistake. Always verify critical results with a qualified healthcare professional.')}</span>
           {showKeyboardHint && (
             <span className="hidden xl:inline whitespace-nowrap text-ink-faint/80">
               <span className="ms-num">Shift+Enter</span> for a new line

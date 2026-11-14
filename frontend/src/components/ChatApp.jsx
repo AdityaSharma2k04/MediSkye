@@ -35,6 +35,7 @@ import {
   getProfile,
   getDependents,
   getUserDocuments,
+  getChatSessions,
   getDocumentChats,
   getGeneralChats,
   renameDocument,
@@ -111,6 +112,24 @@ function generateSessionId() {
   });
 }
 
+export const createFreshDraftConversation = (patientId = 'self') => {
+  const normId = patientId || 'self';
+  const draftId = `new_${normId}_${Date.now()}`;
+  return {
+    id: draftId,
+    title: 'New Consultation',
+    timestamp: 'Just now',
+    messages: [],
+    pdf: null,
+    docId: null,
+    document_id: null,
+    sessionId: draftId,
+    patientId: normId,
+    patient_id: normId,
+    isDraft: true,
+  };
+};
+
 export default function ChatApp() {
   const navigate = useNavigate();
   const userLoadedRef = useRef(null);
@@ -125,29 +144,38 @@ export default function ChatApp() {
     setCurrentUser(null);
     setDependents([]);
     setSelectedPatientId('self');
-    const freshId = generateSessionId();
-    setSessionId(freshId);
-    setConversations([{ id: freshId, title: 'New Conversation', messages: [], pdf: null }]);
+    const freshChat = createFreshDraftConversation('self');
+    setSessionId(freshChat.id);
+    sessionIdRef.current = freshChat.id;
+    setConversations([freshChat]);
     setActivePdf(null);
     setIsSettingsOpen(false);
     setIsProfileOpen(false);
     navigate('/login', { replace: true });
   };
 
-  const [initialSessionId] = useState(() => generateSessionId());
-  const [sessionId, setSessionId] = useState(initialSessionId);
+  const [initialDraft] = useState(() => createFreshDraftConversation('self'));
+  const [sessionId, setSessionId] = useState(initialDraft.id);
   const sessionIdRef = useRef(sessionId);
   sessionIdRef.current = sessionId;
+  const currentConvId = sessionId;
+  const setCurrentConvId = useCallback((id) => {
+    setSessionId(id);
+    sessionIdRef.current = id;
+  }, []);
   const [loadingHistory, setLoadingHistory] = useState(false);
   const activeChatFetchRef = useRef(null);
 
   // ── Patient Context & User State ──
   const [currentUser, setCurrentUser] = useState(() => (typeof getCachedProfile === 'function' ? getCachedProfile() : null));
   const [dependents, setDependents] = useState(() => (typeof getCachedDependents === 'function' ? getCachedDependents() || [] : []));
-  const [selectedPatientId, setSelectedPatientId] = useState(() => {
-    return localStorage.getItem('mediskye_patient_id') || 'self';
-  });
+  const [selectedPatientId, setSelectedPatientId] = useState('self');
   const [profileInitialTab, setProfileInitialTab] = useState('profile');
+
+  // Default to primary ('self') profile on initial launch/mount
+  useEffect(() => {
+    localStorage.setItem('mediskye_patient_id', 'self');
+  }, []);
 
   // Cross-Tab Patient Profile Sync
   useEffect(() => {
@@ -208,30 +236,7 @@ export default function ChatApp() {
   const [memoryOpen, setMemoryOpen] = useState(false);
   const [selectedSource, setSelectedSource] = useState(null);
 
-  const [activePdf, setActivePdf] = useState(() => {
-    try {
-      const initPatId = localStorage.getItem('mediskye_patient_id') || 'self';
-      const cachedConvs = typeof getCachedConversations === 'function' ? getCachedConversations(initPatId) : null;
-      if (Array.isArray(cachedConvs)) {
-        const found = cachedConvs.find((c) => c.pdf || c.document_id);
-        if (found?.pdf) return found.pdf;
-      }
-      const cachedDocs = typeof getCachedDocuments === 'function' ? getCachedDocuments(initPatId) : null;
-      if (Array.isArray(cachedDocs) && cachedDocs.length > 0) {
-        const doc = cachedDocs[0];
-        return {
-          id: doc.id,
-          name: doc.filename,
-          filename: doc.filename,
-          title: doc.title,
-          collected_at: doc.collected_at,
-          is_future_collection_date: doc.is_future_collection_date,
-          size: 8192,
-        };
-      }
-    } catch (_) { }
-    return null;
-  });
+  const [activePdf, setActivePdf] = useState(null);
   const [viewMode, setViewMode] = useState('chat');
   const [isGenerating, setIsGenerating] = useState(false);
   const [isExportingSummary, setIsExportingSummary] = useState(false);
@@ -384,15 +389,16 @@ export default function ChatApp() {
 
   // In-memory conversation state (Neon DB is the single source of truth, hydrated from local cache)
   const [conversations, setConversations] = useState(() => {
-    const initPatId = localStorage.getItem('mediskye_patient_id') || 'self';
+    const initPatId = 'self';
+    const freshChat = initialDraft;
     const cachedConvs = typeof getCachedConversations === 'function' ? getCachedConversations(initPatId) : null;
     if (Array.isArray(cachedConvs) && cachedConvs.length > 0) {
-      return cachedConvs;
+      const filtered = cachedConvs.filter(
+        (c) => String(c.patientId || c.patient_id || 'self') === String(initPatId) && !c.isDraft
+      );
+      return [freshChat, ...filtered];
     }
     const cachedDocs = typeof getCachedDocuments === 'function' ? getCachedDocuments(initPatId) : null;
-    const base = [
-      { id: initialSessionId, title: 'New Conversation', messages: [], pdf: null, patient_id: initPatId },
-    ];
     if (Array.isArray(cachedDocs) && cachedDocs.length > 0) {
       const docConvs = cachedDocs.map((doc) => ({
         id: doc.id,
@@ -409,11 +415,13 @@ export default function ChatApp() {
           size: 8192,
         },
         patient_id: initPatId,
+        patientId: initPatId,
         created_at: doc.created_at,
+        isDraft: false,
       }));
-      return [...docConvs, ...base];
+      return [freshChat, ...docConvs];
     }
-    return base;
+    return [freshChat];
   });
 
   // Load chat history from backend with race condition protection
@@ -572,12 +580,12 @@ export default function ChatApp() {
     if (typeof navigator !== 'undefined' && !navigator.onLine) {
       const cachedDocs = typeof getCachedDocuments === 'function' ? getCachedDocuments(activePatId) : [];
       const cachedConvs = typeof getCachedConversations === 'function' ? getCachedConversations(activePatId) : null;
-      if (Array.isArray(cachedConvs) && cachedConvs.length > 0) {
-        setConversations(cachedConvs);
-        const firstDocConv = cachedConvs.find((c) => c.pdf || c.document_id);
-        if (firstDocConv?.pdf) {
-          setActivePdf(firstDocConv.pdf);
-        }
+      const filteredCached = (Array.isArray(cachedConvs) ? cachedConvs : []).filter(
+        (c) => String(c.patientId || c.patient_id || 'self') === String(activePatId) && !c.isDraft
+      );
+      const freshDraft = createFreshDraftConversation(activePatId);
+      if (filteredCached.length > 0) {
+        setConversations([freshDraft, ...filteredCached]);
       } else if (Array.isArray(cachedDocs) && cachedDocs.length > 0) {
         const docConvs = cachedDocs.map((doc) => ({
           id: doc.id,
@@ -594,20 +602,24 @@ export default function ChatApp() {
             size: 8192,
           },
           patient_id: doc.dependent_id || activePatId,
+          patientId: doc.dependent_id || activePatId,
           created_at: doc.created_at,
+          isDraft: false,
         }));
-        setConversations(docConvs);
-        if (docConvs[0]?.pdf) {
-          setActivePdf(docConvs[0].pdf);
-        }
+        setConversations([freshDraft, ...docConvs]);
+      } else {
+        setConversations([freshDraft]);
       }
+      setSessionId(freshDraft.id);
+      sessionIdRef.current = freshDraft.id;
       return Array.isArray(cachedDocs) ? cachedDocs : [];
     }
 
     try {
-      const [docsRes, generalChatsRes] = await Promise.all([
-        getUserDocuments(activePatId).catch(() => []),
-        getGeneralChats().catch(() => []),
+      const [docsRes, chatSessionsRes, generalChatsRes] = await Promise.all([
+        typeof getUserDocuments === 'function' ? getUserDocuments(activePatId).catch(() => []) : [],
+        typeof getChatSessions === 'function' ? getChatSessions(activePatId).catch(() => []) : [],
+        typeof getGeneralChats === 'function' ? getGeneralChats().catch(() => []) : [],
       ]);
       const docs = Array.isArray(docsRes) ? docsRes : [];
       let effectiveDocs = [...docs];
@@ -627,6 +639,25 @@ export default function ChatApp() {
           standaloneChatsBySession.get(sid).push(c);
         }
       });
+
+      // Also merge any standalone sessions returned by getChatSessions
+      if (Array.isArray(chatSessionsRes)) {
+        chatSessionsRes.forEach((s) => {
+          if (s.session_id && !standaloneChatsBySession.has(s.session_id)) {
+            standaloneChatsBySession.set(s.session_id, [
+              {
+                id: `stub_${s.session_id}`,
+                session_id: s.session_id,
+                session_title: s.title || 'New Conversation',
+                dependent_id: activePatId === 'self' ? null : activePatId,
+                role: 'ai',
+                message: '',
+                created_at: null,
+              },
+            ]);
+          }
+        });
+      }
 
       setConversations((prev) => {
         if (activeDocId && !effectiveDocs.some((d) => d.id === activeDocId)) {
@@ -663,20 +694,23 @@ export default function ChatApp() {
             ? overrideTitle
             : doc.title;
 
-          let messages = (existing?.messages && existing.messages.length > 0)
+          let msgs = (existing?.messages && existing.messages.length > 0)
             ? existing.messages
             : [];
+
+          const docPat = doc.dependent_id || existing?.patient_id || existing?.patientId || activePatId;
 
           if (existing) {
             return {
               ...existing,
               id: doc.id,
               document_id: doc.id,
-              patient_id: doc.dependent_id || existing.patient_id || 'self',
-              title: resolvedDocTitle || (existing.title && existing.title !== 'New Conversation' && existing.title !== 'New chat'
+              patient_id: docPat,
+              patientId: docPat,
+              title: resolvedDocTitle || (existing.title && existing.title !== 'New Conversation' && existing.title !== 'New chat' && existing.title !== 'New Consultation'
                 ? existing.title
                 : 'New Chat'),
-              messages,
+              messages: msgs,
               pdf: existing.pdf || pdfMeta,
               documents: Array.isArray(existing.documents) && existing.documents.length > 0
                 ? existing.documents
@@ -684,20 +718,23 @@ export default function ChatApp() {
               created_at: existing.created_at || doc.created_at,
               collected_at: doc.collected_at || existing?.collected_at,
               is_future_collection_date: doc.is_future_collection_date,
+              isDraft: false,
             };
           }
 
           return {
             id: doc.id,
             document_id: doc.id,
-            patient_id: doc.dependent_id || 'self',
+            patient_id: docPat,
+            patientId: docPat,
             title: resolvedDocTitle || 'New Chat',
-            messages,
+            messages: msgs,
             pdf: pdfMeta,
             documents: [pdfMeta],
             created_at: doc.created_at,
             collected_at: doc.collected_at,
             is_future_collection_date: doc.is_future_collection_date,
+            isDraft: false,
           };
         });
 
@@ -705,42 +742,91 @@ export default function ChatApp() {
         const serverStandaloneConvs = [];
         standaloneChatsBySession.forEach((messagesList, sid) => {
           const existing = existingMap.get(sid);
-          const title = existing?.title && existing.title !== 'New Conversation'
+          const title = existing?.title && existing.title !== 'New Conversation' && existing.title !== 'New chat' && existing.title !== 'New Consultation'
             ? existing.title
             : (messagesList[0]?.session_title || 'New Conversation');
 
-          const formattedMessages = messagesList.map((c) => ({
-            id: c.id,
-            sender: c.role === 'ai' ? 'assistant' : 'user',
-            text: c.role === 'ai' ? c.message : (c.message || '').replace(/^["'“”‘’]+|["'“”‘’]+$/g, '').trim(),
-            timestamp: c.created_at
-              ? new Date(c.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
-              : '',
-          }));
+          const formattedMessages = messagesList
+            .filter((c) => c.message)
+            .map((c) => ({
+              id: c.id,
+              sender: c.role === 'ai' ? 'assistant' : 'user',
+              text: c.role === 'ai' ? c.message : (c.message || '').replace(/^["'“”‘’]+|["'“”‘’]+$/g, '').trim(),
+              timestamp: c.created_at
+                ? new Date(c.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+                : '',
+            }));
+
+          const standPat = messagesList[0]?.dependent_id || existing?.patient_id || existing?.patientId || activePatId;
 
           serverStandaloneConvs.push({
             id: sid,
             document_id: null,
-            patient_id: messagesList[0]?.dependent_id || existing?.patient_id || 'self',
+            patient_id: standPat,
+            patientId: standPat,
             title,
             messages: (existing?.messages && existing.messages.length > formattedMessages.length)
               ? existing.messages
               : (formattedMessages.length > 0 ? formattedMessages : (existing?.messages || [])),
             pdf: null,
             created_at: messagesList[0]?.created_at || null,
+            isDraft: false,
           });
         });
 
-        // 3. Retain local non-document conversations with messages if not yet on server
+        // 3. Retain local non-document conversations with messages if not yet on server, strictly matching activePatId
         const localNonDocConvs = prev.filter(
-          (c) => !c.document_id && !c.pdf && !effectiveDocs.some((d) => d.id === c.id) && !standaloneChatsBySession.has(c.id)
+          (c) =>
+            !c.document_id &&
+            !c.pdf &&
+            !effectiveDocs.some((d) => d.id === c.id) &&
+            !standaloneChatsBySession.has(c.id) &&
+            String(c.patientId || c.patient_id || 'self') === String(activePatId) &&
+            !c.isDraft &&
+            (c.messages && c.messages.length > 0)
         );
 
-        const allConvs = [...syncedDocConvs, ...serverStandaloneConvs, ...localNonDocConvs];
-        const finalConvs =
-          allConvs.length === 0
-            ? [{ id: sessionIdRef.current, title: 'New Conversation', messages: [], pdf: null, patient_id: 'self' }]
-            : allConvs;
+        // Filter all reconstructed items strictly by activePatId
+        const filteredDocs = syncedDocConvs.filter(
+          (c) => String(c.patientId || c.patient_id || 'self') === String(activePatId)
+        );
+        const filteredStandalone = serverStandaloneConvs.filter(
+          (c) => String(c.patientId || c.patient_id || 'self') === String(activePatId)
+        );
+        const cloudMerged = [...filteredDocs, ...filteredStandalone, ...localNonDocConvs];
+
+        // Check if currently on an empty fresh draft
+        const currentActiveItem = prev.find((c) => c.id === sessionIdRef.current);
+        const isOnEmptyDraft =
+          !activePdf &&
+          (!currentActiveItem ||
+            (currentActiveItem.isDraft &&
+              (!currentActiveItem.messages || currentActiveItem.messages.length === 0)));
+
+        const freshDraft =
+          currentActiveItem?.isDraft && String(currentActiveItem.patientId || currentActiveItem.patient_id || 'self') === String(activePatId)
+            ? currentActiveItem
+            : createFreshDraftConversation(activePatId);
+
+        let finalConvs;
+        if (cloudMerged.length === 0) {
+          // If server returns 0 documents and 0 chats for targetPatientId, set conversations to [freshDraft]
+          finalConvs = [freshDraft];
+          setSessionId(freshDraft.id);
+          sessionIdRef.current = freshDraft.id;
+        } else if (isOnEmptyDraft) {
+          // If user is currently on empty draft, keep freshDraft at the top and selected as currentConvId
+          finalConvs = [freshDraft, ...cloudMerged];
+          setSessionId(freshDraft.id);
+          sessionIdRef.current = freshDraft.id;
+        } else {
+          const hasActiveInMerged = cloudMerged.some((c) => c.id === sessionIdRef.current);
+          if (hasActiveInMerged) {
+            finalConvs = cloudMerged;
+          } else {
+            finalConvs = [freshDraft, ...cloudMerged];
+          }
+        }
 
         try {
           if (typeof setCachedConversations === 'function') {
@@ -770,36 +856,16 @@ export default function ChatApp() {
       if (userLoadedRef.current === currentUser.id) return;
       userLoadedRef.current = currentUser.id;
 
-      refreshDocuments().then((docs) => {
-        if (docs && docs.length > 0) {
-          const targetDoc = docs[0];
-          const pdfMeta = {
-            id: targetDoc.id,
-            name: targetDoc.filename,
-            filename: targetDoc.filename,
-            title: targetDoc.title,
-            collected_at: targetDoc.collected_at,
-            is_future_collection_date: targetDoc.is_future_collection_date,
-            size: 8192,
-          };
-          setActivePdf(pdfMeta);
-          setSessionId(targetDoc.id);
-          if (targetDoc.patient_id) {
-            setSelectedPatientId(targetDoc.patient_id);
-          }
-          loadChatHistory(targetDoc.id, targetDoc.id);
-        } else {
-          setActivePdf(null);
-          loadChatHistory(null, sessionIdRef.current);
-        }
-        // Pre-warm local cache for active patient in background
-        const activePat = localStorage.getItem('mediskye_patient_id') || 'self';
-        prewarmPatientLocalCache(activePat, dependents || [], docs || []);
+      refreshDocuments('self').then((docs) => {
+        // Always start on a fresh empty New Chat under self
+        setActivePdf(null);
+        // Pre-warm local cache for primary patient in background
+        prewarmPatientLocalCache('self', dependents || [], docs || []);
       }).catch(() => {
         setActivePdf(null);
       });
     }
-  }, [currentUser, refreshDocuments, loadChatHistory, dependents]);
+  }, [currentUser?.id, refreshDocuments, dependents]);
 
   // ── Enforce permanent dark theme on the DOM ──
   useEffect(() => {
@@ -839,24 +905,31 @@ export default function ChatApp() {
     setShowMemoryConsentModal(false);
   };
 
-  // Restore active PDF state if present in current chat
+  const normActivePatient = selectedPatientId || 'self';
+
+  // Restore active PDF state if present in current chat of active patient
   useEffect(() => {
-    const current = conversations.find((c) => c.id === sessionId);
-    if (current && Array.isArray(current.documents) && current.documents.length > 0) {
+    const current = conversations.find(
+      (c) => c.id === sessionId && String(c.patientId || c.patient_id || 'self') === String(normActivePatient)
+    );
+    if (!current) {
+      setActivePdf(null);
+    } else if (current && Array.isArray(current.documents) && current.documents.length > 0) {
       setActivePdf(current.documents[0]);
     } else if (current && current.pdf) {
       setActivePdf(current.pdf);
     } else if (current && !current.pdf) {
       setActivePdf(null);
     }
-  }, [sessionId, conversations]);
+  }, [sessionId, conversations, normActivePatient]);
 
-  const currentChat = conversations.find((c) => c.id === sessionId) || {
-    id: sessionId,
-    title: 'New Conversation',
-    messages: [],
-    documents: [],
-  };
+  const currentChat = useMemo(() => {
+    const found = conversations.find(
+      (c) => c.id === sessionId && String(c.patientId || c.patient_id || 'self') === String(normActivePatient)
+    );
+    if (found) return found;
+    return createFreshDraftConversation(normActivePatient);
+  }, [conversations, sessionId, normActivePatient]);
 
   const messages = currentChat.messages || [];
 
@@ -866,68 +939,34 @@ export default function ChatApp() {
     stopSpeaking();
     setIsGenerating(false);
     isSubmittingRef.current = false;
-    const targetPatientId = patientId || 'self';
-    setSelectedPatientId(targetPatientId);
-    localStorage.setItem('mediskye_patient_id', targetPatientId);
+    const normTarget = patientId || 'self';
+    setSelectedPatientId(normTarget);
+    localStorage.setItem('mediskye_patient_id', normTarget);
     setViewMode('chat');
     setIsProfileOpen(false);
 
+    // Immediately and unconditionally clear activePdf
+    setActivePdf(null);
+
+    // Read cached conversations strictly for normTarget
+    const cachedForTarget = (
+      typeof getCachedConversations === 'function' ? getCachedConversations(normTarget) || [] : []
+    ).filter((c) => String(c.patientId || c.patient_id || 'self') === String(normTarget) && !c.isDraft);
+
+    const freshChat = createFreshDraftConversation(normTarget);
+    setSessionId(freshChat.id);
+    sessionIdRef.current = freshChat.id;
+
+    // Even when cachedForTarget is empty ([]), unconditionally call:
+    setConversations([freshChat, ...cachedForTarget]);
+
     // Pre-warm local cache for target profile in background
     setTimeout(() => {
-      prewarmPatientLocalCache(targetPatientId, dependents || []);
+      prewarmPatientLocalCache(normTarget, dependents || []);
     }, 50);
 
-    // Hard profile lock: never auto-reassign staged documents or conversations across patients
-    const currentPatient = currentChat.patient_id || 'self';
-
-    if (currentPatient !== targetPatientId) {
-      // Find candidate conversation for target profile
-      const candidate = conversations.find(
-        (c) => (c.patient_id || 'self') === targetPatientId && c.id !== sessionId
-      );
-      if (candidate) {
-        setSessionId(candidate.id);
-        sessionIdRef.current = candidate.id;
-        setActivePdf(candidate.pdf || null);
-        loadChatHistory(candidate.document_id || null, candidate.id);
-        return;
-      }
-
-      // Hydrate cached conversations for target patient if available
-      const cachedTargetConvs = getCachedConversations(targetPatientId);
-      if (Array.isArray(cachedTargetConvs) && cachedTargetConvs.length > 0) {
-        const firstTargetChat = cachedTargetConvs[0];
-        if (firstTargetChat) {
-          setSessionId(firstTargetChat.id);
-          sessionIdRef.current = firstTargetChat.id;
-          setActivePdf(firstTargetChat.pdf || null);
-          loadChatHistory(firstTargetChat.document_id || null, firstTargetChat.id);
-          return;
-        }
-      }
-
-      // Switch to a fresh empty consultation for the newly selected profile
-      const newId = generateSessionId();
-      setSessionId(newId);
-      sessionIdRef.current = newId;
-      setActivePdf(null);
-      setConversations((prev) => {
-        const cleaned = prev.filter(
-          (c) => (c.messages && c.messages.length > 0) || c.pdf || c.document_id
-        );
-        return [
-          { id: newId, title: 'New Conversation', messages: [], pdf: null, patient_id: targetPatientId },
-          ...cleaned,
-        ];
-      });
-      return;
-    }
-
-    if (!currentChat.pdf && !currentChat.document_id && (!currentChat.messages || currentChat.messages.length === 0)) {
-      setConversations((prev) =>
-        prev.map((c) => (c.id === sessionId ? { ...c, patient_id: targetPatientId } : c))
-      );
-    }
+    // Populate sidebar with past chats and reports for newly selected profile
+    refreshDocuments(null, null, normTarget);
   };
 
   const handleOpenDependents = () => {
@@ -1505,8 +1544,9 @@ export default function ChatApp() {
       return;
     }
 
-    const newId = generateSessionId();
-    setSessionId(newId);
+    const freshChat = createFreshDraftConversation(selectedPatientId);
+    setSessionId(freshChat.id);
+    sessionIdRef.current = freshChat.id;
     setActivePdf(null);
     setViewMode('chat');
     setIsProfileOpen(false);
@@ -1515,10 +1555,7 @@ export default function ChatApp() {
       const cleaned = prev.filter(
         (c) => (c.messages && c.messages.length > 0) || c.pdf || c.document_id
       );
-      return [
-        { id: newId, title: 'New Conversation', messages: [], pdf: null, patient_id: selectedPatientId },
-        ...cleaned,
-      ];
+      return [freshChat, ...cleaned];
     });
   };
 
@@ -1937,14 +1974,14 @@ export default function ChatApp() {
       }
 
       // 2. Refresh documents & chats from Neon DB
-      await refreshDocuments();
+      await refreshDocuments(null, null, patId);
 
       // 3. Update active conversation's messages in place if attached
       const targetDocId = activePdf?.id || currentChat?.document_id || null;
       const targetSid = sessionId || currentChat?.id || null;
       if (targetDocId) {
         await loadChatHistory(targetDocId, targetSid);
-      } else if (targetSid) {
+      } else if (targetSid && !currentChat?.isDraft) {
         await loadChatHistory(null, targetSid);
       }
 
@@ -2147,6 +2184,7 @@ export default function ChatApp() {
           activePatient={activePatient}
           patientName={patientName}
           reportCounts={reportCounts}
+          conversationId={sessionId}
           messages={messages}
           isGenerating={isGenerating}
           loadingHistory={loadingHistory}

@@ -25,6 +25,25 @@ export const stripAbnormalFlags = (text) => {
     .trim();
 };
 
+export const cleanMessageText = (text, isFollowupTurn = false) => {
+  if (!text) return '';
+  let cleaned = stripAbnormalFlags(text);
+  if (isFollowupTurn) {
+    // Hide trailing Disclaimer block completely on follow-up turns
+    cleaned = cleaned.replace(/(?:\n\s*(?:\*\*\*|---|___)\s*)?(?:\n\s*)?\*{0,2}Disclaimer:\*{0,2}[\s\S]*$/i, '').trim();
+  } else {
+    // Deduplicate repeated Disclaimer: blocks inside a message
+    const disclaimerRegex = /(?:\n\s*(?:\*\*\*|---|___)\s*)?(?:\n\s*)?\*{0,2}Disclaimer:\*{0,2}[^\n]*(?:\n(?!\s*#{1,6}\s)[^\n]+)*/gi;
+    const matches = cleaned.match(disclaimerRegex);
+    if (matches && matches.length > 1) {
+      cleaned = cleaned.replace(disclaimerRegex, '').trim();
+      const lastDisclaimer = matches[matches.length - 1].trim();
+      cleaned = cleaned + '\n\n' + lastDisclaimer;
+    }
+  }
+  return cleaned;
+};
+
 const nodeText = (children) => {
   if (children === null || children === undefined) return '';
   if (typeof children === 'string' || typeof children === 'number') return String(children);
@@ -84,6 +103,7 @@ const markdownComponents = {
 
 function areMessagePropsEqual(prevProps, nextProps) {
   if (prevProps.onRegenerate !== nextProps.onRegenerate) return false;
+  if (prevProps.isFollowupTurn !== nextProps.isFollowupTurn) return false;
   const p = prevProps.message;
   const n = nextProps.message;
   if (p === n) return true;
@@ -100,7 +120,7 @@ function areMessagePropsEqual(prevProps, nextProps) {
   );
 }
 
-export function ChatMessage({ message, onRegenerate }) {
+export function ChatMessage({ message, onRegenerate, isFollowupTurn = false }) {
   const [copied, setCopied] = useState(false);
   const [speaking, setSpeaking] = useState(false);
   const [liked, setLiked] = useState(null);
@@ -108,8 +128,8 @@ export function ChatMessage({ message, onRegenerate }) {
   const speakTokenRef = useRef(null);
 
   const isUser = message?.sender === 'user';
-  // Hide the abnormal_flags JSON block from the user interface
-  const content = stripAbnormalFlags(message?.text || '');
+  // Hide the abnormal_flags JSON block and handle disclaimer deduplication/hiding
+  const content = cleanMessageText(message?.text || message?.message || '', isFollowupTurn);
 
   // Keep the Listen button in sync with speech started/stopped anywhere in the app.
   useEffect(() => {

@@ -11,6 +11,7 @@ vi.mock('../services/api', () => ({
   getProfile: vi.fn(),
   getDependents: vi.fn(),
   getUserDocuments: vi.fn(),
+  getChatSessions: vi.fn().mockResolvedValue([]),
   getDocumentChats: vi.fn(),
   getGeneralChats: vi.fn().mockResolvedValue([]),
   renameDocument: vi.fn(),
@@ -22,6 +23,7 @@ vi.mock('../services/api', () => ({
   updateProfile: vi.fn(),
   detachChatDocument: vi.fn(),
   getDocumentSummary: vi.fn(),
+  fetchLabMetrics: vi.fn().mockResolvedValue([]),
   reassignDocumentPatient: vi.fn().mockResolvedValue({ status: 'ok' }),
   getCachedProfile: vi.fn().mockReturnValue(null),
   getCachedDependents: vi.fn().mockReturnValue([]),
@@ -405,6 +407,10 @@ describe('ChatApp — deletion and rename persistence', () => {
     render(<ChatApp />);
     await waitFor(() => expect(api.getProfile).toHaveBeenCalled());
 
+    // Select the document chat from the sidebar to open it
+    const chatItem = await screen.findByText('Lab Report');
+    fireEvent.click(chatItem);
+
     const detachBtn = await screen.findByLabelText('Detach lab.pdf');
     fireEvent.click(detachBtn);
 
@@ -438,6 +444,10 @@ describe('ChatApp — deletion and rename persistence', () => {
 
     render(<ChatApp />);
     await waitFor(() => expect(api.getProfile).toHaveBeenCalled());
+
+    // Select the document chat from the sidebar to open it
+    const chatItem = await screen.findByText('Lab Report');
+    fireEvent.click(chatItem);
 
     const exportBtn = await screen.findByRole('button', { name: /Export Summary/i });
     expect(exportBtn).toBeInTheDocument();
@@ -503,6 +513,64 @@ describe('ChatApp — deletion and rename persistence', () => {
     // The header/sidebar active patient name updates to the child profile
     await waitFor(() => {
       expect(screen.getByText('Alex Morgan')).toBeInTheDocument();
+    });
+  });
+
+  it('starts on a fresh empty New Chat under self on launch while keeping cached conversations in sidebar', async () => {
+    const existingDocChat = {
+      id: SERVER_DOC_ID,
+      document_id: SERVER_DOC_ID,
+      title: 'Prior Complete Blood Count',
+      patient_id: 'self',
+      messages: [{ id: 'm1', sender: 'assistant', text: 'Prior analysis' }],
+      pdf: { id: SERVER_DOC_ID, filename: 'cbc.pdf', name: 'cbc.pdf', title: 'Prior Complete Blood Count' },
+    };
+    api.getCachedConversations.mockReturnValue([existingDocChat]);
+    api.getUserDocuments.mockResolvedValue([{ id: SERVER_DOC_ID, filename: 'cbc.pdf', title: 'Prior Complete Blood Count' }]);
+
+    render(<ChatApp />);
+    await waitFor(() => expect(api.getProfile).toHaveBeenCalled());
+
+    // 1. Sidebar contains the prior report/chat
+    await waitFor(() => {
+      expect(screen.getByText('Prior Complete Blood Count')).toBeInTheDocument();
+    });
+
+    // 2. Active workspace starts on empty New Chat (not auto-opening the prior report)
+    expect(screen.queryByText('Prior analysis')).not.toBeInTheDocument();
+
+    // 3. Profile switcher trigger is unlocked (does not have aria-disabled="true")
+    const switcherTrigger = screen.getByTestId('patient-switcher-trigger');
+    expect(switcherTrigger).not.toHaveAttribute('aria-disabled', 'true');
+  });
+
+  it('prevents profile switch chat bleed-over when switching to a profile with zero chats', async () => {
+    const depId = 'dep-empty-profile';
+    api.getDependents.mockResolvedValue([
+      { id: depId, full_name: 'Baby Jane', relationship: 'child' },
+    ]);
+    api.getCachedDependents.mockReturnValue([
+      { id: depId, full_name: 'Baby Jane', relationship: 'child' },
+    ]);
+    api.getUserDocuments.mockImplementation((pId) => {
+      if (pId === depId) return Promise.resolve([]);
+      return Promise.resolve([]);
+    });
+
+    render(<ChatApp />);
+    await waitFor(() => expect(api.getProfile).toHaveBeenCalled());
+
+    // Switch to Baby Jane via patient switcher
+    const switcherTrigger = screen.getByTestId('patient-switcher-trigger');
+    fireEvent.click(switcherTrigger);
+
+    const depOption = await screen.findByText('Baby Jane');
+    fireEvent.click(depOption);
+
+    // After switching, center view must be on fresh empty screen, zero bleed-over
+    await waitFor(() => {
+      expect(screen.getByText('Baby Jane')).toBeInTheDocument();
+      expect(screen.getByText('Where should we start?')).toBeInTheDocument();
     });
   });
 });

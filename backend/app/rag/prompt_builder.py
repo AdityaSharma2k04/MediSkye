@@ -65,6 +65,9 @@ REPORT_WALKTHROUGH_RULES = """FORMAT
   5. Numbered next steps, only when relevant. Mention urgency only when the information supports it. Give repeat-testing timing only when <analysis_hints> provides it. End with a reassuring note only when the findings support one. Next steps may say a clinician could consider additional tests, but mention ONLY the specific follow-up tests explicitly named in followup_context or verified_absent_adjacent_tests inside <analysis_hints>—do not introduce other test names (such as a urine albumin-to-creatinine ratio or specialized panels) from general knowledge. Must not say or imply that any test is missing from or not included in this report unless it is listed under verified_absent_adjacent_tests. Next steps may discuss management only in general terms: do not name specific supplements, medications, or diet changes as options (the retest wording supplied in <analysis_hints> is fine), and do not presuppose any medication, supplement, diet, or activity that is not in the user’s tags.
   6. `### 🔍 What This Report Does Not Cover` with two or three short bullets: lab tests do not assess physical examination findings, blood pressure, heart rhythm, or imaging; if <analysis_hints> lists verified_absent_adjacent_tests, name one or two of them; reference ranges are population averages that a clinician interprets alongside symptoms and history. These are the only bullets allowed here. Never state that any named test or marker is not measured, not included, or missing from the report; only items listed under verified_absent_adjacent_tests may be named as absent, and when that list says none, name none. Never create such a list yourself.
   7. `### 💬 Questions to Ask Your Doctor` with three or four quoted questions specific to this user’s flagged or near-boundary findings (or about overall interpretation when there are none). A question must not presuppose a medication, supplement, diet, or activity that is not in the user’s tags.
+  8. Conclude initial report walkthroughs and full overviews (is_followup_turn=False) with a single closing disclaimer on its own line:
+**Disclaimer:** This explanation is for educational purposes only and is not a substitute for professional medical advice, diagnosis, or treatment. Always consult a qualified healthcare provider with any questions regarding a medical condition.
+Never output this disclaimer line on follow-up turns or focused questions (is_followup_turn=True).
 - Use bullets for several measurements, one finding per bullet, with the reported value in bold.
 - Length scales with the report: be complete on markers and brief in prose, and avoid repetition. There is no fixed word cap."""
 
@@ -483,6 +486,7 @@ def build_prompt(
             f'1. Directly answer the user\'s new question ("{escape_xml_content(user_query)}") right from sentence one.\n'
             f'2. DO NOT repeat the 7-section report walkthrough: do NOT output "### 🟢/🟡/🔴 The Short Version", do NOT re-list all in-range biomarkers panel-by-panel, and do NOT output "### 🔍 What This Report Does Not Cover".\n'
             f"3. Focus ONLY on the specific health guidance, biomarkers, or mechanisms relevant to what the user just asked, referencing their exact numbers and saved health profile naturally without repeating the entire report dump.\n"
+            f"4. DO NOT output any Disclaimer: block, medical disclaimer, or closing disclaimer paragraph at the end of your response.\n"
             f"</followup_turn_instruction>"
         )
 
@@ -592,6 +596,7 @@ def build_general_health_prompt(
             f'1. Directly answer the user\'s new question ("{escape_xml_content(user_query)}") right from sentence one.\n'
             f'2. DO NOT repeat the 7-section report walkthrough: do NOT output "### 🟢/🟡/🔴 The Short Version", do NOT re-list all in-range biomarkers panel-by-panel, and do NOT output "### 🔍 What This Report Does Not Cover".\n'
             f"3. Focus ONLY on the specific health guidance, biomarkers, or mechanisms relevant to what the user just asked, referencing their exact numbers and saved health profile naturally without repeating the entire report dump.\n"
+            f"4. DO NOT output any Disclaimer: block, medical disclaimer, or closing disclaimer paragraph at the end of your response.\n"
             f"</followup_turn_instruction>"
         )
 

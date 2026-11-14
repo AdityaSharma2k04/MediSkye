@@ -55,6 +55,7 @@ export default function Workbench(props) {
     activePatient,
     patientName,
     reportCounts,
+    conversationId,
     messages,
     isGenerating,
     loadingHistory,
@@ -391,6 +392,7 @@ export default function Workbench(props) {
           onDrop={onDrop}
         >
           <ChatWindow
+            conversationId={conversationId || documentId}
             messages={messages}
             isGenerating={isGenerating}
             loadingHistory={loadingHistory}
