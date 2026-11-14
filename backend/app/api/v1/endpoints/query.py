@@ -192,18 +192,21 @@ async def rename_document_title(
 
 
 
-def _clean_disclaimers(text: str, is_followup_turn: bool) -> str:
+def _clean_disclaimers(text: str, is_followup_turn: bool, has_critical_alert: bool = False) -> str:
     """
     Cleans disclaimers in visible response text:
-    - If is_followup_turn is True: strips trailing Disclaimer: paragraphs completely.
-    - If is_followup_turn is False: deduplicates multiple Disclaimer: paragraphs into a single disclaimer at the end.
+    - If is_followup_turn is True and NOT (has_critical_alert or SAFE_FALLBACK in text):
+        strips trailing Disclaimer: paragraphs completely.
+    - If is_followup_turn is False (or critical / SAFE_FALLBACK follow-up):
+        deduplicates multiple Disclaimer: paragraphs into a single disclaimer at the end.
     """
     if not text:
         return text
 
     disclaimer_pattern = r'(?is)(?:\n\s*(?:\*\*\*|---|___)\s*)?(?:\n\s*)?\*{0,2}Disclaimer:\*{0,2}[^\n]*(?:\n(?!\s*#{1,6}\s)[^\n]+)*'
 
-    if is_followup_turn:
+    is_critical_or_safe_fallback = has_critical_alert or (SAFE_FALLBACK in text)
+    if is_followup_turn and not is_critical_or_safe_fallback:
         cleaned = re.sub(disclaimer_pattern, '', text).rstrip()
         return cleaned
     else:
@@ -1162,24 +1165,28 @@ async def query_bot(
                     raise last_stream_exception
                 raise GeminiUnavailableError("All fallback models failed to generate a response.")
 
-            if intent != QueryIntent.CASUAL and not is_followup_turn:
-                has_existing_disclaimer = bool(re.search(r'(?i)\*{0,2}Disclaimer:\*{0,2}', visible_text))
+            is_safe_fallback_text = (SAFE_FALLBACK in visible_text)
+            preserve_disclaimer = (not is_followup_turn) or is_safe_fallback_text
+
+            if intent != QueryIntent.CASUAL and preserve_disclaimer:
+                has_existing_disclaimer = bool(re.search(r'(?im)^\s*\*{0,2}Disclaimer:\*{0,2}', visible_text))
                 if not has_existing_disclaimer:
-                    disclaimer = "\n\n" + append_disclaimer("", intent=intent.value if hasattr(intent, "value") else str(intent)).strip()
+                    disclaimer = "\n\n" + append_disclaimer("", intent=intent.value if hasattr(intent, "value") else str(intent), is_followup_turn=False).strip()
                     yield f'data: {json.dumps({"chunk": disclaimer})}\n\n'
                     visible_text += disclaimer
 
-            # Post-process visible text to enforce disclaimer rules (single disclaimer on first overview only, stripped on follow-ups)
-            visible_text = _clean_disclaimers(visible_text, is_followup_turn)
+            # Post-process visible text to enforce disclaimer rules (single disclaimer on first overview only, stripped on follow-ups unless critical/SAFE_FALLBACK)
+            visible_text = _clean_disclaimers(visible_text, is_followup_turn, has_critical_alert=is_safe_fallback_text)
 
             # ── Output filter scan ──
             is_safe, reason = scan_output(visible_text)
             if not is_safe:
                 logger.warning("Output filter blocked response: %s | user_id=%s", reason, current_user.id)
                 visible_text = SAFE_FALLBACK
-                if intent != QueryIntent.CASUAL and not is_followup_turn:
-                    visible_text = append_disclaimer(visible_text, intent=intent.value if hasattr(intent, "value") else str(intent))
-                visible_text = _clean_disclaimers(visible_text, is_followup_turn)
+                if intent != QueryIntent.CASUAL:
+                    # DECISION_2: KEEP disclaimer on SAFE_FALLBACK follow-up
+                    visible_text = append_disclaimer(visible_text, intent=intent.value if hasattr(intent, "value") else str(intent), is_followup_turn=False)
+                visible_text = _clean_disclaimers(visible_text, is_followup_turn, has_critical_alert=True)
                 yield f'data: {json.dumps({"replace": visible_text})}\n\n'
 
             # ── Record AI response in database ──

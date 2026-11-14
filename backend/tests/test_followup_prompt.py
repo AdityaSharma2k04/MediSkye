@@ -169,31 +169,48 @@ def test_4_history_condensing():
 
 def test_5_safety_double_disclaimer_guard():
     """
-    Test 5: Given a response that already contains 'Disclaimer:' or educational disclaimer text,
-    the post-generation safety filter does not append a second disclaimer.
-    Also, when is_followup_turn=True, append_disclaimer must not add a disclaimer.
+    Test 5: Safety disclaimer detection and DECISION_2 behavior:
+    - Model-written **Disclaimer:** at line start -> server does NOT append.
+    - Mid-sentence 'the footer of the report says Disclaimer: ...' -> server DOES append.
+    - Educational mention without a standalone disclaimer line -> server DOES append.
+    - Standard follow-up turn -> server suppresses disclaimer.
+    - Critical follow-up turn (has_critical_alert=True or critical wording) -> server KEEPS disclaimer.
+    - Follow-up with SAFE_FALLBACK -> server KEEPS disclaimer.
     """
+    from app.rag.output_filter import SAFE_FALLBACK
+
+    # 1. Model-written disclaimer at line start
     text_with_prompt_disclaimer = (
         "Your hemoglobin is 14.5 g/dL, which is in the normal range.\n\n"
         "**Disclaimer:** This explanation is for educational purposes only and is not a substitute for "
-        "professional medical advice, diagnosis, or treatment. Always consult a qualified healthcare provider "
-        "with any questions regarding a medical condition."
+        "professional medical advice, diagnosis, or treatment."
     )
+    res_line_start = append_disclaimer(text_with_prompt_disclaimer)
+    assert res_line_start.count("Disclaimer:") == 1
 
-    filtered = append_disclaimer(text_with_prompt_disclaimer)
-    # Count occurrences of "Disclaimer:"
-    disclaimer_count = len(re.findall(r"(?i)disclaimer:", filtered))
-    assert disclaimer_count == 1, f"Expected exactly 1 disclaimer, found {disclaimer_count}: {filtered}"
+    # 2. Mid-sentence mentions
+    text_mid_sentence = "The footer of the report says Disclaimer: for clinical reference only."
+    res_mid = append_disclaimer(text_mid_sentence)
+    assert "**Disclaimer:** This explanation is for educational purposes only" in res_mid
 
-    # Text containing generic educational disclaimer
-    text_with_generic = "All markers look good. This information is for educational purposes only."
-    filtered_generic = append_disclaimer(text_with_generic)
-    assert len(re.findall(r"(?i)disclaimer:", filtered_generic)) <= 1
+    # 3. Educational mention without disclaimer line
+    text_educational = "This educational explanation should be discussed with a qualified healthcare provider."
+    res_edu = append_disclaimer(text_educational)
+    assert "**Disclaimer:** This explanation is for educational purposes only" in res_edu
 
-    # On follow-up turns, no disclaimer should be appended if is_followup_turn=True
+    # 4. Standard follow-up turn: suppressed
     text_followup = "Your platelets are 250,000 /mcL, well within normal limits."
-    filtered_followup = append_disclaimer(text_followup, is_followup_turn=True)
-    assert "Disclaimer:" not in filtered_followup
+    res_followup = append_disclaimer(text_followup, is_followup_turn=True)
+    assert "Disclaimer:" not in res_followup
+
+    # 5. DECISION_2: Critical follow-up: KEEP disclaimer
+    text_critical = "Your potassium is 6.8 mmol/L, which is critically high."
+    res_critical = append_disclaimer(text_critical, is_followup_turn=True, has_critical_alert=True)
+    assert "Disclaimer:" in res_critical
+
+    # 6. DECISION_2: SAFE_FALLBACK follow-up: KEEP disclaimer
+    res_safe_fallback = append_disclaimer(SAFE_FALLBACK, is_followup_turn=True)
+    assert "Disclaimer:" in res_safe_fallback
 
 
 def test_comparison_aware_followup_turn():
