@@ -110,31 +110,61 @@ def test_followup_logging_caplog(caplog):
 
 def test_4_history_condensing():
     """
-    Test 4: When chat history has > 4 messages (or > 2 turns), older turns are compressed
-    to single-line summaries '[User asked X; Doctor explained Y with key finding Z]',
-    preserving exact numbers from recent turns.
+    Test 4: History condenser (prompt_builder.py:condense_chat_history)
+    - Strips ### headings, markdown table rows, JSON code blocks, and disclaimers.
+    - Caps assistant text at <= 350 chars at sentence end.
+    - Appends stub '[Full report walkthrough and comparison table already provided earlier in this conversation.]'
+      if original contained 'The Short Version' or >=6 table rows.
+    - User text capped at 500 chars.
+    - Last 6 turns (12 messages) considered.
+    - Empty input returns "".
     """
-    try:
-        from app.rag.prompt_builder import condense_chat_history
-    except ImportError:
-        pytest.fail("condense_chat_history helper must exist in prompt_builder.py")
+    from app.rag.prompt_builder import condense_chat_history
 
-    # 6 messages (3 turns)
+    # Empty check
+    assert condense_chat_history([]) == ""
+    assert condense_chat_history(None) == ""
+
+    # Synthetic walkthrough turn
+    ten_row_table = "\n".join([f"| Marker{i} | 10{i} | High |" for i in range(10)])
+    walkthrough_ai = (
+        "### 🟢 The Short Version\n"
+        "All markers are generally stable. Your blood count shows healthy cellular parameters.\n\n"
+        "### Complete Blood Count\n"
+        "- Hemoglobin: 14.5 g/dL (Normal)\n"
+        "- Platelets: 250,000 /mcL (Normal)\n\n"
+        f"| Biomarker | Value | Status |\n|---|---|---|\n{ten_row_table}\n\n"
+        "```json\n"
+        '{"abnormal_flags": []}\n'
+        "```\n\n"
+        "**Disclaimer:** This explanation is for educational purposes only."
+    )
+
+    long_user_query = "What about my markers? " + ("detail " * 120)
     chats = [
-        {"role": "user", "message": "What is my cholesterol level?"},
-        {"role": "ai", "message": "Your total cholesterol is 240 mg/dL, which is elevated."},
-        {"role": "user", "message": "What about my HDL?"},
-        {"role": "ai", "message": "Your HDL is 55 mg/dL, which is in the healthy range."},
-        {"role": "user", "message": "And my LDL?"},
-        {"role": "ai", "message": "Your LDL is 160 mg/dL, which is above optimal."},
+        {"role": "user", "message": long_user_query},
+        {"role": "ai", "message": walkthrough_ai},
     ]
 
     condensed = condense_chat_history(chats)
-    # The oldest turn should be condensed into a concise summary bracket
-    assert "[User asked" in condensed or "User asked" in condensed
-    # The most recent 2 turns should preserve exact numbers
-    assert "55 mg/dL" in condensed
-    assert "160 mg/dL" in condensed
+
+    assert "###" not in condensed
+    assert "|" not in condensed
+    assert "```" not in condensed
+    assert "abnormal_flags" not in condensed
+    assert "Disclaimer:" not in condensed
+    stub = "[Full report walkthrough and comparison table already provided earlier in this conversation.]"
+    assert stub in condensed
+
+    # Assistant portion before the stub is <= 350 chars and ends on a sentence boundary
+    doctor_segment = condensed.split("Doctor:")[-1]
+    assistant_part = doctor_segment.replace(stub, "").strip()
+    assert len(assistant_part) <= 350
+    assert assistant_part.endswith((".", "!", "?"))
+
+    # User text is capped at <= 500 chars
+    user_segment = condensed.split("Doctor:")[0].replace("User:", "").strip()
+    assert len(user_segment) <= 500
 
 
 def test_5_safety_double_disclaimer_guard():

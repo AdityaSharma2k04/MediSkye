@@ -136,15 +136,40 @@ def _select_report_instructions(is_followup_turn: bool, user_query: str) -> str:
     return f"{SHARED_CORE_RULES}\n\n{FOLLOWUP_TURN_RULES}"
 
 
+def _cap_at_sentence_boundary(text: str, max_chars: int = 350) -> str:
+    """Cap text at max_chars at a sentence boundary (. ! ?)."""
+    text = text.strip()
+    if not text:
+        return ""
+    if len(text) <= max_chars:
+        if not text.endswith((".", "!", "?")):
+            return text if len(text) >= max_chars else text + "."
+        return text
+    sub = text[:max_chars]
+    matches = list(re.finditer(r'[.!?](?:\s|$)', sub))
+    if matches:
+        end_pos = matches[-1].end()
+        res = text[:end_pos].strip()
+        if res.endswith((".", "!", "?")):
+            return res
+    last_space = sub.rfind(" ")
+    if last_space > 0:
+        return sub[:min(last_space, max_chars - 1)].strip() + "."
+    return sub[:max_chars - 1].strip() + "."
+
+
 def condense_chat_history(chats: List[Union[Dict[str, Any], Any]]) -> str:
     """
-    Format chat history for prompt inclusion.
-    If chat history exceeds 4 messages (2 turns):
-    - Older turns are compressed to single-line summaries: [User asked X; Doctor explained Y with key finding Z]
-    - The most recent 2 turns (up to 4 messages) are preserved verbatim with exact numbers.
+    Format and condense chat history for prompt inclusion.
+    Considers the last 6 turns (up to 12 messages).
+    Strips raw markdown artifacts (### headings, tables, JSON code blocks, disclaimers),
+    caps assistant turns at ~350 chars at sentence end, appends walkthrough stub if appropriate,
+    and caps user text at 500 chars.
     """
     if not chats:
         return ""
+
+    target_chats = chats[-12:]
 
     def _get_role_and_msg(c: Any) -> Tuple[str, str]:
         if isinstance(c, dict):
@@ -155,46 +180,48 @@ def condense_chat_history(chats: List[Union[Dict[str, Any], Any]]) -> str:
             m = getattr(c, "message", "") or ""
         return ("User" if r == "user" else "Doctor", m.strip())
 
-    cleaned_chats = []
-    for c in chats:
-        role, msg = _get_role_and_msg(c)
-        msg = re.sub(r'(?is)\n*\s*(?:\*\*\*|---|___)?\s*\*{0,2}Disclaimer:\*{0,2}.*$', '', msg).strip()
-        if msg:
-            cleaned_chats.append((role, msg))
+    formatted_lines: List[str] = []
 
-    if not cleaned_chats:
-        return ""
+    for c in target_chats:
+        role, orig_msg = _get_role_and_msg(c)
+        if not orig_msg:
+            continue
 
-    if len(cleaned_chats) <= 4:
-        return "\n".join(f"{role}: {msg}" for role, msg in cleaned_chats)
-
-    older = cleaned_chats[:-4]
-    recent = cleaned_chats[-4:]
-
-    summary_lines: List[str] = []
-    i = 0
-    while i < len(older):
-        role, msg = older[i]
         if role == "User":
-            user_text = msg[:120].rsplit(" ", 1)[0] if len(msg) > 120 else msg
-            doc_text = ""
-            if i + 1 < len(older) and older[i + 1][0] == "Doctor":
-                ai_msg = older[i + 1][1]
-                doc_text = ai_msg[:150].rsplit(" ", 1)[0] if len(ai_msg) > 150 else ai_msg
-                i += 2
-            else:
-                i += 1
-            if doc_text:
-                summary_lines.append(f"[User asked {user_text}; Doctor explained {doc_text}]")
-            else:
-                summary_lines.append(f"[User asked {user_text}]")
+            user_text = orig_msg.strip()
+            if len(user_text) > 500:
+                last_space = user_text[:500].rfind(" ")
+                if last_space > 0:
+                    user_text = user_text[:last_space].strip()
+                else:
+                    user_text = user_text[:500].strip()
+            if user_text:
+                formatted_lines.append(f"User: {user_text}")
         else:
-            doc_text = msg[:150].rsplit(" ", 1)[0] if len(msg) > 150 else msg
-            summary_lines.append(f"[Doctor explained {doc_text}]")
-            i += 1
+            table_row_count = len(re.findall(r'(?m)^\s*\|.*\|', orig_msg))
+            had_walkthrough_or_table = ("The Short Version" in orig_msg) or (table_row_count >= 6)
 
-    recent_lines = [f"{role}: {msg}" for role, msg in recent]
-    return "\n".join(summary_lines + recent_lines)
+            msg = re.sub(r'```(?:json)?[\s\S]*?```', '', orig_msg)
+            msg = re.sub(r'(?is)\n*\s*(?:\*\*\*|---|___)?\s*\*{0,2}Disclaimer:\*{0,2}.*$', '', msg)
+            msg = re.sub(r'(?im)^\s*(?:\*\*\*|---|___)?\s*\*{0,2}Disclaimer:\*{0,2}.*$', '', msg)
+            msg = re.sub(r'(?m)^\s*#{1,6}\s+.*$', '', msg)
+            msg = re.sub(r'(?m)^\s*\|.*\|.*$', '', msg)
+            msg = re.sub(r'(?m)^\s*[-*_]{3,}\s*$', '', msg)
+            msg = re.sub(r'\n{2,}', '\n', msg).strip()
+
+            capped_msg = _cap_at_sentence_boundary(msg, max_chars=350) if msg else ""
+
+            if had_walkthrough_or_table:
+                stub = "[Full report walkthrough and comparison table already provided earlier in this conversation.]"
+                if capped_msg:
+                    capped_msg = f"{capped_msg}\n{stub}"
+                else:
+                    capped_msg = stub
+
+            if capped_msg:
+                formatted_lines.append(f"Doctor: {capped_msg}")
+
+    return "\n".join(formatted_lines)
 
 
 def _format_patient_context(
