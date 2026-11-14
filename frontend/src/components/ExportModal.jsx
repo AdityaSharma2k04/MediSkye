@@ -88,7 +88,12 @@ export default function ExportModal({
       document.body.appendChild(anchor);
       anchor.click();
       document.body.removeChild(anchor);
-      URL.revokeObjectURL(url);
+      // Defer URL revocation so WebView download streams are not prematurely aborted
+      setTimeout(() => {
+        try {
+          URL.revokeObjectURL(url);
+        } catch (_) { }
+      }, 2000);
       setExportError(null);
     } catch (err) {
       console.error('JSON Export Failed:', err);

@@ -295,6 +295,7 @@ export default function Sidebar({
             <div className="flex items-center gap-2 px-0.5">
               <button
                 type="button"
+                data-testid="sidebar-new-chat-button"
                 onClick={onNewChat}
                 className="ms-tap flex-1 flex items-center justify-center gap-2 h-10 px-3 rounded-xl font-semibold text-[13px] bg-clinical-cyan hover:bg-cyan-300 text-slate-950 shadow-[0_8px_24px_-12px_rgba(6,182,212,0.9)] transition active:scale-[0.98]"
               >

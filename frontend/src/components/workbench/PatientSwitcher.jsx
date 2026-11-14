@@ -41,7 +41,7 @@ export function buildPatients(currentUser, dependents = []) {
     },
     ...(Array.isArray(dependents) ? dependents : []).map((d) => ({
       id: d.id,
-      name: d.full_name || 'Dependent',
+      name: d.full_name || d.name || 'Dependent',
       relationship: d.relationship || 'Dependent',
       meta: [d.calculated_age !== null && d.calculated_age !== undefined ? `${d.calculated_age} yrs` : null, d.biological_sex].filter(Boolean).join(', '),
     })),

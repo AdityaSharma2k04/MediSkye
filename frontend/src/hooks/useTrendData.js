@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { getMetricTrends, getCachedTrends } from '../services/api';
 import { loadMetricsFor } from './useLabMetrics';
-import { buildTrendSeries, parseClinicalDate, normalizeName } from '../lib/clinical';
+import { buildTrendSeries, parseClinicalDate, normalizeName, parseNumeric } from '../lib/clinical';
 
 const MAX_REPORTS = 8;
 const CONCURRENCY = 3;
@@ -27,7 +27,7 @@ function seriesFromServer(payload) {
     const points = (s.points || [])
       .map((p, idx) => ({
         t: parseClinicalDate(p.collected_at) ?? idx,
-        value: typeof p.value === 'number' ? p.value : parseFloat(p.value),
+        value: typeof p.value === 'number' ? (Number.isFinite(p.value) ? p.value : null) : parseNumeric(p.value),
         raw: p.raw_value ?? String(p.value),
         docId: p.document_id || null,
         label: p.collected_at || '',

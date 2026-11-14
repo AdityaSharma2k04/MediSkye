@@ -96,6 +96,9 @@ public class MainActivity extends BridgeActivity {
                     String safeAccess = accessToken != null ? accessToken.replace("'", "\\'") : "";
                     String js = "window.dispatchEvent(new CustomEvent('mediskye-native-google-auth', { detail: { idToken: '" + safeId + "', accessToken: '" + safeAccess + "' } }));";
                     bridge.getWebView().evaluateJavascript(js, null);
+                    // Clear pending tokens once successfully delivered to webview to prevent replay
+                    pendingAuthIdToken = null;
+                    pendingAuthAccessToken = null;
                 }
             }
         });
@@ -107,6 +110,9 @@ public class MainActivity extends BridgeActivity {
         if (pendingAuthIdToken != null || pendingAuthAccessToken != null) {
             final String id = pendingAuthIdToken;
             final String access = pendingAuthAccessToken;
+            // Clear immediately to prevent replay on subsequent resumes/logouts
+            pendingAuthIdToken = null;
+            pendingAuthAccessToken = null;
             if (this.bridge != null && this.bridge.getWebView() != null) {
                 this.bridge.getWebView().postDelayed(new Runnable() {
                     @Override
@@ -324,6 +330,12 @@ public class MainActivity extends BridgeActivity {
     }
 
     public class MediskyeNativeBridge {
+        @JavascriptInterface
+        public void clearPendingAuth() {
+            pendingAuthIdToken = null;
+            pendingAuthAccessToken = null;
+        }
+
         @JavascriptInterface
         public void startGoogleLogin() {
             runOnUiThread(new Runnable() {

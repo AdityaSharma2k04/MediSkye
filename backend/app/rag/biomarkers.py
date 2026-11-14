@@ -158,8 +158,8 @@ def canonical_biomarker_key(name: str) -> Optional[str]:
     if re.search(r'\b(?:albumin\s+(?:to\s+)?creatinine\s+ratio|uacr|acr)\b', n_clean):
         return "urine_acr"
 
-    # 0b. Urinalysis Dipstick & Microscopy Exclusions (return None so they NEVER collide with blood markers like WBC or RBC)
-    if re.search(r'\b(?:leukocyte\s+esterase|leucocyte\s+esterase|pus\s+cells?|epithelial\s+cells?|urinary|urine(?!\s*acr|\s*albumin)|specific\s+gravity|urobilinogen|nitrites?|ketones?|casts|crystals|bacteria|yeast|mucus)\b', n_clean):
+    # 0b. Urinalysis Dipstick & Microscopy Exclusions (return None so they NEVER collide with blood markers like WBC, RBC or Albumin)
+    if re.search(r'\b(?:leukocyte\s+esterase|leucocyte\s+esterase|pus\s+cells?|epithelial\s+cells?|urinary|urine(?!\s*acr|\s*albumin\s*(?:to|/)?\s*creatinine)|microalbumin|specific\s+gravity|urobilinogen|nitrites?|ketones?|casts|crystals|bacteria|yeast|mucus)\b', n_clean):
         return None
 
     # 0c. Explicit Ratios (MUST precede individual lipid, renal, or liver markers so e.g. TC/HDL ratio never matches HDL)
@@ -331,6 +331,12 @@ def canonical_biomarker_key(name: str) -> Optional[str]:
         return "calcium"
     if re.search(r'\bmagnesium\b', n_clean):
         return "magnesium"
+    if re.search(r'\b(?:serum\s+albumin|albumin)\b', n_clean):
+        return "albumin"
+    if re.search(r'\bglobulin\b', n_clean):
+        return "globulin"
+    if re.search(r'\b(?:total\s+protein|serum\s+protein)\b', n_clean):
+        return "total_protein"
     if re.search(r'\bphosphorus\b', n_clean):
         return "phosphorus"
 
@@ -338,12 +344,38 @@ def canonical_biomarker_key(name: str) -> Optional[str]:
     return None
 
 
+def _normalize_numeric_string(s: str) -> str:
+    """
+    Normalizes numeric string with grouping commas and decimal separators:
+    - Strips leading comparator symbols (<, >, <=, >=, ≤, ≥, =)
+    - Handles standard thousands (150,000 or 4,500.50)
+    - Handles Indian numbering (2,38,000 or 1,50,000 or 12,38,000.50)
+    - Converts European decimal comma (3,9 -> 3.9, 12,5 -> 12.5)
+    """
+    s = re.sub(r'^[<>≤≥=\s]+', '', s).strip()
+    if '.' in s and ',' in s:
+        # Check which separator is decimal point
+        if s.rfind(',') < s.rfind('.'):
+            s = s.replace(',', '')
+        else:
+            s = s.replace('.', '').replace(',', '.')
+    elif s.count(',') > 1:
+        s = s.replace(',', '')
+    elif ',' in s:
+        if re.search(r',\d{3}$', s):
+            s = s.replace(',', '')
+        elif re.search(r',\d{1,2}$', s):
+            s = s.replace(',', '.')
+    return s
+
+
 def parse_numeric_value(raw: Any) -> Optional[float]:
     """
     Parse a numeric value from string or float/int.
-    Handles thousands comma (150,000 -> 150000) and decimal comma (3,9 -> 3.9).
+    Handles thousands comma (150,000 -> 150000, 4,500.50 -> 4500.5),
+    Indian numbering (2,38,000 -> 238000), and decimal comma (3,9 -> 3.9).
     Skips qualitative values (Negative, Reactive, 1:160).
-    Supports leading < or > comparators (e.g. '< 0.5' -> 0.5).
+    Supports leading < or > comparators (e.g. '< 0.5' -> 0.5, '> 60' -> 60.0).
     """
     if raw is None:
         return None
@@ -358,15 +390,7 @@ def parse_numeric_value(raw: Any) -> Optional[float]:
     if ":" in s:
         return None
 
-    # Strip comparator if leading
-    s = re.sub(r'^[<>≤≥=\s]+', '', s).strip()
-
-    # Normalize thousands separator vs decimal comma
-    # Comma followed by exactly 3 digits and no dot: 150,000 -> 150000
-    if re.search(r'^\d{1,3}(,\d{3})+(?!\.\d+)$', s):
-        s = s.replace(",", "")
-    elif re.search(r'^\d+,\d+$', s):
-        s = s.replace(",", ".")
+    s = _normalize_numeric_string(s)
 
     m = re.search(r'[-+]?\d*\.?\d+(?:[eE][-+]?\d+)?', s)
     if m:
@@ -383,7 +407,8 @@ def parse_reference_range(raw_range: Any) -> Optional[Dict[str, Any]]:
     Bounded: {'type': 'bounded', 'low': float, 'high': float}
     Upper-bounded: {'type': 'upper', 'high': float}
     Lower-bounded: {'type': 'lower', 'low': float}
-    Supports hyphens, en-dash, em-dash, 'to', >=, <=, >, <, and comma decimal separators.
+    Supports hyphens, en-dash, em-dash, 'to', >=, <=, >, <, 'up to', 'above',
+    comma decimal separators, and Indian/standard thousands grouping.
     Strips embedded units.
     """
     if raw_range is None:
@@ -398,38 +423,29 @@ def parse_reference_range(raw_range: Any) -> Optional[Dict[str, Any]]:
         '', s, flags=re.IGNORECASE
     ).strip()
 
-    # Normalize thousands comma and decimal comma in ranges
-    def _norm_num_str(nstr: str) -> str:
-        t = nstr.strip()
-        if re.search(r'^\d{1,3}(,\d{3})+(?!\.\d+)$', t):
-            t = t.replace(",", "")
-        elif re.search(r'^\d+,\d+$', t):
-            t = t.replace(",", ".")
-        return t
-
-    # 1. Lower-bounded: >= 90, ≥ 40, > 60
-    m_lower = re.match(r'^(?:>=|≥|>)\s*([0-9.,]+)$', s_clean)
+    # 1. Lower-bounded: >= 90, ≥ 40, > 60, above 40, greater than 60
+    m_lower = re.match(r'^(?:>=|≥|>|above|more\s+than|greater\s+than)\s*([0-9.,]+)$', s_clean, re.IGNORECASE)
     if m_lower:
-        val = parse_numeric_value(_norm_num_str(m_lower.group(1)))
+        val = parse_numeric_value(_normalize_numeric_string(m_lower.group(1)))
         if val is not None:
             return {"type": "lower", "low": val}
 
-    # 2. Upper-bounded: < 200, <= 100, ≤ 150
-    m_upper = re.match(r'^(?:<=|≤|<)\s*([0-9.,]+)$', s_clean)
+    # 2. Upper-bounded: < 200, <= 100, ≤ 150, up to 150, less than 200
+    m_upper = re.match(r'^(?:<=|≤|<|up\s+to|less\s+than)\s*([0-9.,]+)$', s_clean, re.IGNORECASE)
     if m_upper:
-        val = parse_numeric_value(_norm_num_str(m_upper.group(1)))
+        val = parse_numeric_value(_normalize_numeric_string(m_upper.group(1)))
         if val is not None:
             return {"type": "upper", "high": val}
 
-    # 3. Bounded: 4.0 - 5.6, 0.70 – 1.25, 4.0 to 5.6
+    # 3. Bounded: 4.0 - 5.6, 0.70 – 1.25, 4.0 to 5.6, 1,50,000 - 4,50,000
     m_bounded = re.search(
         r'([0-9.,]+)\s*(?:-|–|—|−|\bto\b)\s*([0-9.,]+)',
         s_clean,
         re.IGNORECASE
     )
     if m_bounded:
-        low = parse_numeric_value(_norm_num_str(m_bounded.group(1)))
-        high = parse_numeric_value(_norm_num_str(m_bounded.group(2)))
+        low = parse_numeric_value(_normalize_numeric_string(m_bounded.group(1)))
+        high = parse_numeric_value(_normalize_numeric_string(m_bounded.group(2)))
         if low is not None and high is not None and low < high:
             return {"type": "bounded", "low": low, "high": high}
 

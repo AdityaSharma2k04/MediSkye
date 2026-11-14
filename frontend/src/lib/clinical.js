@@ -15,17 +15,35 @@
 
 const NUM_RE = /-?\d[\d,]*\.?\d*|-?\.\d+/;
 
-/** Extract the first number from a value string ("14.2", "<5", "1,234 cells"). */
+/** Extract the first number from a value string ("14.2", "<5", "1,234 cells", "2,38,000", "< 0.5"). */
 export function parseNumeric(value) {
   if (value === null || value === undefined) return null;
   if (typeof value === 'number') return Number.isFinite(value) ? value : null;
   let s = String(value);
   if (/\b\d+\s*:\s*\d+\b/.test(s)) return null;
   if (/^\s*(positive|negative|reactive|non[-\s]?reactive|detected|absent|trace|nil)\b/i.test(s)) return null;
-  s = s
-    .replace(/−/g, '-')
-    .replace(/(\d),(\d{3})\b/g, '$1$2')
-    .replace(/(\d),(\d{1,2})(?!\d)/g, '$1.$2');
+  s = s.replace(/−/g, '-');
+
+  // Strip leading comparator (< 0.5 -> 0.5, > 60 -> 60)
+  s = s.replace(/^[<>≤≥=\s]+/, '').trim();
+
+  // Normalize grouping commas vs decimal commas (handles 150,000, 2,38,000, 4,500.50, 3,9)
+  if (s.includes('.') && s.includes(',')) {
+    if (s.lastIndexOf(',') < s.lastIndexOf('.')) {
+      s = s.replace(/,/g, '');
+    } else {
+      s = s.replace(/\./g, '').replace(/,/g, '.');
+    }
+  } else if ((s.match(/,/g) || []).length > 1) {
+    s = s.replace(/,/g, '');
+  } else if (s.includes(',')) {
+    if (/,\d{3}\b/.test(s)) {
+      s = s.replace(/,/g, '');
+    } else if (/,\d{1,2}\b/.test(s)) {
+      s = s.replace(/,/g, '.');
+    }
+  }
+
   const match = s.match(NUM_RE);
   if (!match) return null;
   const n = parseFloat(match[0].replace(/,/g, ''));
@@ -177,6 +195,7 @@ export function isNotableDrop(row) {
 export function classifyStatus(row) {
   const s = String(row?.status || '').trim().toLowerCase();
   if (s === 'unknown') return 'unknown';
+  if (s === 'high-normal' || s === 'low-normal') return 'normal';
   if (s.includes('critical') || s.includes('panic')) return 'critical';
   if (s.includes('border')) return 'borderline';
   if (s === 'high' || s.startsWith('high') || s.includes('elevated') || s === 'h') return 'high';

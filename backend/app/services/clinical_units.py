@@ -182,8 +182,8 @@ def canonical_biomarker_key(name: str) -> str:
     if re.search(r'\b(?:albumin\s+(?:to\s+)?creatinine\s+ratio|uacr|acr)\b', n_clean):
         return "urine_acr"
 
-    # 0b. Urinalysis Dipstick & Microscopy Exclusions (return "" so they NEVER collide with blood markers like WBC or RBC)
-    if re.search(r'\b(?:leukocyte\s+esterase|leucocyte\s+esterase|pus\s+cells?|epithelial\s+cells?|urinary|urine(?!\s*acr|\s*albumin)|specific\s+gravity|urobilinogen|nitrites?|ketones?|casts|crystals|bacteria|yeast|mucus)\b', n_clean):
+    # 0b. Urinalysis Dipstick & Microscopy Exclusions (return "" so they NEVER collide with blood markers like WBC, RBC or Albumin)
+    if re.search(r'\b(?:leukocyte\s+esterase|leucocyte\s+esterase|pus\s+cells?|epithelial\s+cells?|urinary|urine(?!\s*acr|\s*albumin\s*(?:to|/)?\s*creatinine)|microalbumin|specific\s+gravity|urobilinogen|nitrites?|ketones?|casts|crystals|bacteria|yeast|mucus)\b', n_clean):
         return ""
 
     # 0c. Explicit Ratios (MUST precede individual lipid, renal, or liver markers)
@@ -483,11 +483,6 @@ def _parse_first_float(s: Any) -> Optional[float]:
     if s is None:
         return None
     text = str(s).strip()
-    # Remove thousand separators (e.g. 11,200 or 250,000 or 1,000,000)
-    while re.search(r'(\d),(\d{3})\b', text):
-        text = re.sub(r'(\d),(\d{3})\b', r'\1\2', text)
-    # Convert European decimal comma (e.g. 6,8 -> 6.8)
-    text = re.sub(r'(\d),(\d{1,2})(?!\d)', r'\1.\2', text)
 
     # Return None for ratio/titer or interval range strings
     if re.search(r'\b\d+\s*:\s*\d+\b', text):
@@ -495,7 +490,24 @@ def _parse_first_float(s: Any) -> Optional[float]:
     if re.search(r'-?\d+(?:\.\d+)?\s*(?:[-–—]|to)\s*-?\d+(?:\.\d+)?', text):
         return None
 
-    m = re.search(r'[-+]?[0-9]*\.?[0-9]+', text)
+    # Strip comparator prefixes
+    text = re.sub(r'^[<>≤≥=\s]+', '', text).strip()
+
+    # Normalize thousands and decimal commas (handles 150,000, 2,38,000, 4,500.50, 3,9)
+    if '.' in text and ',' in text:
+        if text.rfind(',') < text.rfind('.'):
+            text = text.replace(',', '')
+        else:
+            text = text.replace('.', '').replace(',', '.')
+    elif text.count(',') > 1:
+        text = text.replace(',', '')
+    elif ',' in text:
+        if re.search(r',\d{3}$', text):
+            text = text.replace(',', '')
+        elif re.search(r',\d{1,2}$', text):
+            text = text.replace(',', '.')
+
+    m = re.search(r'[-+]?[0-9]*\.?[0-9]+(?:[eE][-+]?[0-9]+)?', text)
     if m:
         try:
             return float(m.group(0))

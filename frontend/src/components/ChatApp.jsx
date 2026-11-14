@@ -47,7 +47,9 @@ import {
   updateProfile,
   getDocumentSummary,
   getCachedProfile,
+  setCachedProfile,
   getCachedDependents,
+  setCachedDependents,
   getCachedDocuments,
   setCachedDocuments,
   getCachedConversations,
@@ -615,12 +617,14 @@ export default function ChatApp() {
       return Array.isArray(cachedDocs) ? cachedDocs : [];
     }
 
+    let networkSucceeded = false;
     try {
       const [docsRes, chatSessionsRes, generalChatsRes] = await Promise.all([
         typeof getUserDocuments === 'function' ? getUserDocuments(activePatId).catch(() => []) : [],
         typeof getChatSessions === 'function' ? getChatSessions(activePatId).catch(() => []) : [],
         typeof getGeneralChats === 'function' ? getGeneralChats().catch(() => []) : [],
       ]);
+      networkSucceeded = true;
       const docs = Array.isArray(docsRes) ? docsRes : [];
       let effectiveDocs = [...docs];
       if (typeof setCachedDocuments === 'function') {
@@ -793,7 +797,11 @@ export default function ChatApp() {
         const filteredStandalone = serverStandaloneConvs.filter(
           (c) => String(c.patientId || c.patient_id || 'self') === String(activePatId)
         );
-        const cloudMerged = [...filteredDocs, ...filteredStandalone, ...localNonDocConvs];
+        // When online and the server responded, the server's persisted set of document IDs
+        // and session IDs is authoritative, preventing resurrected deleted conversations.
+        const cloudMerged = networkSucceeded
+          ? [...filteredDocs, ...filteredStandalone]
+          : [...filteredDocs, ...filteredStandalone, ...localNonDocConvs];
 
         // Check if currently on an empty fresh draft
         const currentActiveItem = prev.find((c) => c.id === sessionIdRef.current);
@@ -856,7 +864,7 @@ export default function ChatApp() {
       if (userLoadedRef.current === currentUser.id) return;
       userLoadedRef.current = currentUser.id;
 
-      refreshDocuments('self').then((docs) => {
+      refreshDocuments(null, null, 'self').then((docs) => {
         // Always start on a fresh empty New Chat under self
         setActivePdf(null);
         // Pre-warm local cache for primary patient in background
@@ -1082,6 +1090,8 @@ export default function ChatApp() {
 
             if (consecutiveFailures >= MAX_CONSECUTIVE_FAILURES) {
               setUploadState((prev) => ({ ...(prev || {}), phase: 'error', finishedAt: Date.now(), error: 'We lost contact with the processing service. If the report finishes, it will appear in your history.' }));
+              setActivePdf(null);
+              setConversations((prev) => prev.map((c) => (c.id === (sessionIdRef.current || sessionId) ? { ...c, pdf: null, document_id: null, documents: [] } : c)));
               await refreshDocuments();
               console.error('Upload Status Lost: Could not confirm upload status.');
               return null;
@@ -1124,6 +1134,8 @@ export default function ChatApp() {
 
         if (!newDocId) {
           setUploadState((prev) => ({ ...(prev || {}), phase: 'error', finishedAt: Date.now(), error: 'This report is taking longer than expected. It will appear in your history as soon as processing finishes.' }));
+          setActivePdf(null);
+          setConversations((prev) => prev.map((c) => (c.id === (sessionIdRef.current || sessionId) ? { ...c, pdf: null, document_id: null, documents: [] } : c)));
           await refreshDocuments();
           console.warn('Upload Taking Longer Than Expected: polling deadline expired.');
           return null;
@@ -1217,6 +1229,7 @@ export default function ChatApp() {
       setUploadError(errMsg);
       setUploadState((prev) => ({ ...(prev || { fileName: file.name }), phase: 'error', finishedAt: Date.now(), error: errMsg }));
       setActivePdf(null);
+      setConversations((prev) => prev.map((c) => (c.id === (sessionIdRef.current || sessionId) ? { ...c, pdf: null, document_id: null, documents: [] } : c)));
       return null;
     } finally {
       setUploadProgress(null);
@@ -1345,11 +1358,6 @@ export default function ChatApp() {
       let assistantAccum = '';
       let hadStreamError = false;
       await sendQueryStream(userQuery, chatDocId || activeTargetId, language, (chunk) => {
-        // Guard against race conditions if user switched active document mid-stream
-        if (sessionIdRef.current !== activeTargetId) {
-          return;
-        }
-
         if (typeof chunk.replace === 'string') {
           assistantAccum = chunk.replace;
         } else if (chunk.chunk || chunk.token) {
@@ -1453,9 +1461,9 @@ export default function ChatApp() {
             return { ...c, messages: updatedMsgs };
           });
           try {
-            const currentPat = localStorage.getItem('mediskye_patient_id') || 'self';
+            const targetPatient = chatPatientId || selectedPatientId || 'self';
             if (typeof setCachedConversations === 'function') {
-              setCachedConversations(next, currentPat);
+              setCachedConversations(next, targetPatient);
             }
           } catch (_) { }
           return next;
@@ -1600,6 +1608,7 @@ export default function ChatApp() {
     );
 
     setSessionId(id);
+    sessionIdRef.current = id;
     setViewMode('chat');
     const chat = conversations.find((c) => c.id === id);
     if (chat) {
@@ -1987,9 +1996,9 @@ export default function ChatApp() {
 
       // 4. Re-fetch memory facts, patient trends, and lab metrics
       await Promise.all([
-        getMemoryFacts(patId).catch(() => []),
-        getMetricTrends(patId).catch(() => ({})),
-        targetDocId && labMetrics?.reload ? labMetrics.reload().catch(() => null) : Promise.resolve(null),
+        typeof getMemoryFacts === 'function' ? Promise.resolve(getMemoryFacts(patId)).catch(() => []) : Promise.resolve([]),
+        typeof getMetricTrends === 'function' ? Promise.resolve(getMetricTrends(patId)).catch(() => ({})) : Promise.resolve({}),
+        targetDocId && labMetrics?.reload ? Promise.resolve(labMetrics.reload()).catch(() => null) : Promise.resolve(null),
       ]);
 
       // 5. Pre-warm unvisited message histories for offline reading

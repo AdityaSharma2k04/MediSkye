@@ -20,8 +20,17 @@ import { BrandMark } from './workbench/Brand';
 export const stripAbnormalFlags = (text) => {
   if (!text) return '';
   return text
-    .replace(/```json\s*\{[\s\S]*?"abnormal_flags"[\s\S]*?\}\s*```/gi, '')
-    .replace(/```json\s*\{[\s\S]*?"abnormal_flags"[\s\S]*$/gi, '')
+    // Complete code blocks containing abnormal_flags (with or without language tag)
+    .replace(/(?:```|~~~)(?:json)?\s*\{[\s\S]*?"abnormal_flags"[\s\S]*?\}\s*(?:```|~~~)/gi, '')
+    // Trailing partial fences and JSON blocks during active streaming
+    .replace(/(?:```|~~~)(?:json)?\s*\{[\s\S]*?"abnormal_flags"[\s\S]*$/gi, '')
+    .replace(/(?:```|~~~)(?:json)?\s*\{[\s\S]*?$/gi, '')
+    .replace(/(?:```|~~~)(?:json)?\s*$/gi, '')
+    // Internal system prompt XML tags that should never leak to users
+    .replace(/<(?:patient_health_profile|extracted_report_biomarkers|analysis_hints|followup_turn_instruction|uploaded_documents|current_session_history|patient_context)(?:\s+[^>]*)?>[\s\S]*?<\/(?:patient_health_profile|extracted_report_biomarkers|analysis_hints|followup_turn_instruction|uploaded_documents|current_session_history|patient_context)>/gi, '')
+    .replace(/<(?:patient_health_profile|extracted_report_biomarkers|analysis_hints|followup_turn_instruction|uploaded_documents|current_session_history|patient_context)(?:\s+[^>]*)?\/>/gi, '')
+    .replace(/<[a-z_]+_instruction(?:\s+[^>]*)?>[\s\S]*?<\/[a-z_]+_instruction>/gi, '')
+    .replace(/<[a-z_]+_instruction(?:\s+[^>]*)?\/>/gi, '')
     .trim();
 };
 

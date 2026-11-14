@@ -730,7 +730,7 @@ async def query_bot(
 
                     explicit_overview_match = bool(
                         re.search(
-                            r"(?i)^(?:tell\s+me\s+about|explain|summarize|walk\s+me\s+through|overview\s+of|full\s+breakdown\s+of)\s+(?:this|my|the)\s+report\b",
+                            r"(?i)(?:^(?:now\s+)?(?:can\s+you\s+)?(?:give\s+me\s+)?(?:the\s+|a\s+)?(?:full|complete|entire)\s+(?:overview|breakdown|summary)(?:\s+of\s+(?:this|my|the)?\s*(?:report|results?|blood\s*work)?)?|\b(?:tell\s+me\s+about|explain|summarize|walk\s+me\s+through|give\s+me\s+(?:a|the)?\s*(?:full|complete|entire)?\s*(?:overview|breakdown|summary)\s*(?:of)?|(?:full|complete|entire)\s+(?:overview|breakdown|summary)\s*(?:of)?|overview\s+of)\s+(?:this|my|the|the\s+whole|the\s+entire)?\s*(?:report|lab\s+report|blood\s*work|results?))\b",
                             body.query.strip(),
                         )
                     )
