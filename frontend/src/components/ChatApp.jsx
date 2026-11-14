@@ -468,13 +468,23 @@ export default function ChatApp() {
 
   // Preload lazy modal chunks in background idle time
   useEffect(() => {
+    let idleHandle;
+    let timerHandle;
     if (typeof window !== 'undefined') {
       if ('requestIdleCallback' in window) {
-        window.requestIdleCallback(() => preloadModals(), { timeout: 1200 });
+        idleHandle = window.requestIdleCallback(() => preloadModals(), { timeout: 1200 });
       } else {
-        setTimeout(preloadModals, 1200);
+        timerHandle = setTimeout(preloadModals, 1200);
       }
     }
+    return () => {
+      if (idleHandle && typeof window !== 'undefined' && 'cancelIdleCallback' in window) {
+        window.cancelIdleCallback(idleHandle);
+      }
+      if (timerHandle) {
+        clearTimeout(timerHandle);
+      }
+    };
   }, []);
 
   // Android hardware back button & popstate overlay navigation

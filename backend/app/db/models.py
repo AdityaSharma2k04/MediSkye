@@ -123,7 +123,7 @@ class Document(Base):
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     user_id = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
-    dependent_id = Column(UUID(as_uuid=True), ForeignKey("dependent_profiles.id", ondelete="CASCADE"), nullable=True)
+    dependent_id = Column(UUID(as_uuid=True), ForeignKey("dependent_profiles.id", ondelete="CASCADE"), nullable=True, index=True)
     filename = Column(String, nullable=False)
     file_path = Column(String, nullable=True)  # Path to FAISS index or PDF
     title = Column(String(60), nullable=True)  # User-defined or auto-generated chat title

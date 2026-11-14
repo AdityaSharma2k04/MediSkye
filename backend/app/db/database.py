@@ -28,6 +28,7 @@ elif "postgresql" in settings.DATABASE_URL:
         "pool_recycle": 300,
         "pool_size": 5,
         "max_overflow": 10,
+        "pool_timeout": 30,
     }
 
 engine = create_async_engine(
