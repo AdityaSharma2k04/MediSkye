@@ -223,70 +223,13 @@ async def reassign_user_document_patient(
     db: AsyncSession = Depends(get_db),
 ):
     """
-    Reassign a document and all its linked Chat messages and PatientFacts
-    to a new patient profile ('self' or dependent UUID).
+    Document profiles are permanently locked after upload.
+    Reassignment is forbidden.
     """
-    try:
-        doc_uuid = uuid.UUID(document_id)
-    except ValueError:
-        raise HTTPException(status_code=400, detail="Invalid document ID.")
-
-    result = await db.execute(
-        select(Document).filter(Document.id == doc_uuid, Document.user_id == current_user.id)
+    raise HTTPException(
+        status_code=status.HTTP_403_FORBIDDEN,
+        detail="Document profile is permanently locked after upload.",
     )
-    doc = result.scalars().first()
-    if not doc:
-        raise HTTPException(status_code=404, detail="Document not found or access denied.")
-
-    target_pat = body.patient_id.strip()
-    new_dep_id: Optional[uuid.UUID] = None
-
-    if target_pat and target_pat.lower() != "self" and target_pat != str(current_user.id):
-        try:
-            dep_uuid = uuid.UUID(target_pat)
-        except ValueError:
-            raise HTTPException(status_code=400, detail="Invalid patient_id.")
-        dep_res = await db.execute(
-            select(DependentProfile).filter(
-                DependentProfile.id == dep_uuid,
-                DependentProfile.user_id == current_user.id,
-            )
-        )
-        dep = dep_res.scalars().first()
-        if not dep:
-            raise HTTPException(status_code=404, detail="Dependent profile not found.")
-        new_dep_id = dep.id
-    else:
-        new_dep_id = None
-
-    # 1. Update Document.dependent_id
-    doc.dependent_id = new_dep_id
-    db.add(doc)
-
-    # 2. Update any Chat rows linked to doc.id (Chat.document_id == doc.id or via ChatDocument)
-    chat_subq = select(ChatDocument.chat_id).filter(ChatDocument.document_id == doc.id)
-    await db.execute(
-        update(Chat)
-        .where(
-            Chat.user_id == current_user.id,
-            or_(Chat.document_id == doc.id, Chat.id.in_(chat_subq)),
-        )
-        .values(dependent_id=new_dep_id)
-    )
-
-    # 3. Update any PatientFact rows extracted from this document (PatientFact.source_id == str(doc.id))
-    await db.execute(
-        update(PatientFact)
-        .where(
-            PatientFact.user_id == current_user.id,
-            PatientFact.source_id == str(doc.id),
-        )
-        .values(dependent_id=new_dep_id)
-    )
-
-    await db.commit()
-    await db.refresh(doc)
-    return {"id": str(doc.id), "dependent_id": str(new_dep_id) if new_dep_id else None}
 
 
 @router.get("/users/me/chats")

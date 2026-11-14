@@ -50,6 +50,8 @@ export default function Workbench(props) {
     selectedPatientId,
     onSelectPatient,
     onOpenDependents,
+    isProfileLocked = false,
+    onLockedProfileClick,
     activePatient,
     patientName,
     reportCounts,
@@ -267,6 +269,8 @@ export default function Workbench(props) {
               onSelectPatient={onSelectPatient}
               onOpenDependents={onOpenDependents}
               reportCounts={reportCounts}
+              isLocked={isProfileLocked}
+              onLockedClick={onLockedProfileClick}
             />
           )}
 

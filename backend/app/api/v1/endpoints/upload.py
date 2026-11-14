@@ -36,66 +36,6 @@ logger = logging.getLogger(__name__)
 router = APIRouter()
 _background_warm_tasks: set = set()
 
-IGNORE_NAME_TOKENS = {
-    "mr", "ms", "mrs", "dr", "prof", "shri", "smt", "master", "baby",
-    "patient", "id", "name", "age", "sex", "gender", "report", "lab", "test",
-    "user", "profile", "self", "you", "the", "and", "of", "to", "first", "last"
-}
-
-
-def _tokenize_name(name: Optional[str]) -> set[str]:
-    if not name:
-        return set()
-    cleaned = re.sub(r"[^\w\s]", " ", name.lower())
-    return {t for t in cleaned.split() if len(t) >= 2 and t not in IGNORE_NAME_TOKENS}
-
-
-def _extract_printed_patient_name(text: str) -> Optional[str]:
-    if not text:
-        return None
-    sample = text[:4000]
-    pattern = re.compile(
-        r"(?i)(?:patient(?:\s*['’]s)?\s*name|pt\.?\s*name)\s*[:|\t-]?\s*(?:(?:mr|ms|mrs|dr|prof|master|baby|shri|smt)\.?\s+)?([A-Za-z][A-Za-z\s.]{1,40})"
-    )
-    match = pattern.search(sample)
-    if match:
-        raw_name = match.group(1).strip()
-        raw_name = re.split(
-            r"(?i)\s+(?:age|sex|gender|dob|date|ref|doctor|dr|id|pid|uhid|sample|bill|ipd|opd|ward|contact|phone)\b",
-            raw_name,
-        )[0]
-        cleaned = re.sub(r"[\s.]+", " ", raw_name).strip()
-        if len(cleaned) >= 3 and not re.match(r"(?i)^(?:unknown|na|n/a|null|none|patient)$", cleaned):
-            return cleaned
-    return None
-
-
-def _extract_quick_text_from_file(file_path: str, filename: str) -> str:
-    ext = os.path.splitext(filename)[1].lower()
-    if ext == ".pdf":
-        try:
-            import pymupdf as fitz
-            with fitz.open(file_path) as doc:
-                parts = []
-                for i in range(min(len(doc), 2)):
-                    t = doc[i].get_text()
-                    if t:
-                        parts.append(t)
-                return "\n".join(parts)
-        except Exception:
-            pass
-        try:
-            import pypdf
-            reader = pypdf.PdfReader(file_path)
-            parts = []
-            for i in range(min(len(reader.pages), 2)):
-                t = reader.pages[i].extract_text()
-                if t:
-                    parts.append(t)
-            return "\n".join(parts)
-        except Exception:
-            pass
-    return ""
 
 
 async def process_upload_background(
@@ -484,10 +424,6 @@ async def upload_file(
     res_all_deps = await db.execute(select(DependentProfile).filter(DependentProfile.user_id == current_user.id))
     all_deps = res_all_deps.scalars().all()
 
-    res_user = await db.execute(select(User).filter(User.id == current_user.id))
-    db_user = res_user.scalars().first()
-    user_full_name = db_user.full_name if db_user and db_user.full_name else ""
-
     if patient_id and patient_id.lower() != "self" and patient_id != str(current_user.id):
         try:
             parsed_uuid = uuid.UUID(patient_id)
@@ -498,21 +434,6 @@ async def upload_file(
         except ValueError:
             raise HTTPException(status_code=400, detail="Invalid patient_id format.")
 
-    target_profile_name = ""
-    other_profile_names = []
-    if dep_id and target_dep:
-        target_profile_name = target_dep.full_name or ""
-        if user_full_name:
-            other_profile_names.append(user_full_name)
-        for d in all_deps:
-            if str(d.id) != dep_id and d.full_name:
-                other_profile_names.append(d.full_name)
-    else:
-        target_profile_name = user_full_name
-        for d in all_deps:
-            if d.full_name:
-                other_profile_names.append(d.full_name)
-
     ext = os.path.splitext(sanitized_filename)[1].lower() or ".pdf"
 
     def _write_temp():
@@ -521,40 +442,6 @@ async def upload_file(
             return tmp.name
 
     tmp_path = await asyncio.to_thread(_write_temp)
-
-    # Printed patient name mismatch guard against cross-profile pollution
-    quick_text = await asyncio.to_thread(_extract_quick_text_from_file, tmp_path, sanitized_filename)
-    printed_name = _extract_printed_patient_name(quick_text)
-    if printed_name:
-        printed_tokens = _tokenize_name(printed_name)
-        if printed_tokens:
-            target_tokens = _tokenize_name(target_profile_name)
-            has_target_match = bool(printed_tokens & target_tokens)
-            target_is_real = bool(
-                target_profile_name
-                and len(target_profile_name.strip()) >= 3
-                and target_tokens
-                and target_profile_name.strip().lower() not in {"user", "patient", "my profile", "self", "you", "primary"}
-            )
-            # Check if printed name matches another profile on the user's account
-            other_match_name = None
-            for other_name in other_profile_names:
-                other_toks = _tokenize_name(other_name)
-                if other_toks and (printed_tokens & other_toks):
-                    other_match_name = other_name
-                    break
-
-            if (other_match_name and not has_target_match) or (target_is_real and not has_target_match):
-                if os.path.exists(tmp_path):
-                    try:
-                        os.remove(tmp_path)
-                    except Exception:
-                        pass
-                display_target = target_profile_name or "selected profile"
-                raise HTTPException(
-                    status_code=status.HTTP_409_CONFLICT,
-                    detail=f"Profile Lock: This report is for '{printed_name}', which does not match the currently selected profile ('{display_target}'). Please switch to the correct profile first.",
-                )
 
     job_id = await create_job(str(current_user.id), session=db)
     client_host = request.client.host if request.client else "unknown"

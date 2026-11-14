@@ -484,7 +484,7 @@ describe('ChatApp — deletion and rename persistence', () => {
 
   it('syncs selectedPatientId across tabs when mediskye_patient_id changes in localStorage', async () => {
     api.getDependents.mockResolvedValue([
-      { id: 'dep-child-1', full_name: 'Aarav Verma', relationship: 'Child' },
+      { id: 'dep-child-1', full_name: 'Alex Morgan', relationship: 'Child' },
     ]);
 
     render(<ChatApp />);
@@ -502,7 +502,7 @@ describe('ChatApp — deletion and rename persistence', () => {
 
     // The header/sidebar active patient name updates to the child profile
     await waitFor(() => {
-      expect(screen.getByText('Aarav Verma')).toBeInTheDocument();
+      expect(screen.getByText('Alex Morgan')).toBeInTheDocument();
     });
   });
 });

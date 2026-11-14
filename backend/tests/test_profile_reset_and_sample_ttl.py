@@ -379,43 +379,31 @@ async def test_reassign_document_patient_and_biomarkers_v4():
             session.add_all([dep_a, dep_b, doc, chat, fact])
             await session.commit()
 
-        # Reassign from Person B to Person A
+        # Reassignment attempt must be rejected with HTTP 403 Forbidden (profile is locked)
         patch_res = await ac.patch(
             f"/users/me/documents/{doc_id}/patient",
             headers=headers,
             json={"patient_id": str(dep_a_id)},
         )
-        assert patch_res.status_code == 200
-        patch_data = patch_res.json()
-        assert patch_data["id"] == str(doc_id)
-        assert patch_data["dependent_id"] == str(dep_a_id)
+        assert patch_res.status_code == 403
+        assert "permanently locked" in patch_res.json()["detail"]
 
-        # Verify DB state
-        async with AsyncSessionLocal() as session:
-            d_updated = await session.get(Document, doc_id)
-            c_updated = await session.get(Chat, chat_id)
-            f_updated = await session.get(PatientFact, fact_id)
-
-            assert d_updated.dependent_id == dep_a_id
-            assert c_updated.dependent_id == dep_a_id
-            assert f_updated.dependent_id == dep_a_id
-
-        # Reassign from Person A to Self ("self")
+        # Reassign to self must also be rejected with HTTP 403 Forbidden
         patch_self = await ac.patch(
             f"/users/me/documents/{doc_id}/patient",
             headers=headers,
             json={"patient_id": "self"},
         )
-        assert patch_self.status_code == 200
-        assert patch_self.json()["dependent_id"] is None
+        assert patch_self.status_code == 403
+        assert "permanently locked" in patch_self.json()["detail"]
 
-        # Verify DB state for self
+        # Verify DB state remained untouched
         async with AsyncSessionLocal() as session:
-            d_self = await session.get(Document, doc_id)
-            c_self = await session.get(Chat, chat_id)
-            f_self = await session.get(PatientFact, fact_id)
+            d_doc = await session.get(Document, doc_id)
+            c_chat = await session.get(Chat, chat_id)
+            f_fact = await session.get(PatientFact, fact_id)
 
-            assert d_self.dependent_id is None
-            assert c_self.dependent_id is None
-            assert f_self.dependent_id is None
+            assert d_doc.dependent_id == dep_b_id
+            assert c_chat.dependent_id == dep_b_id
+            assert f_fact.dependent_id == dep_b_id
 

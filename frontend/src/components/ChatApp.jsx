@@ -45,7 +45,6 @@ import {
   deleteAccount,
   updateProfile,
   getDocumentSummary,
-  reassignDocumentPatient,
   getCachedProfile,
   getCachedDependents,
   getCachedDocuments,
@@ -1896,11 +1895,27 @@ export default function ChatApp() {
   });
 
   const patientFilteredConversations = useMemo(() => {
-    const active = selectedPatientId || 'self';
-    return (conversations || []).filter(
-      (c) => (c.patient_id || 'self') === active
-    );
-  }, [conversations, selectedPatientId]);
+    const isSelf = isSelfSelected(selectedPatientId, currentUser);
+    return (conversations || []).filter((c) => {
+      const chatPat = c.patient_id;
+      if (isSelf) {
+        return !chatPat || chatPat === 'self' || (currentUser && String(chatPat) === String(currentUser.id));
+      }
+      return String(chatPat) === String(selectedPatientId);
+    });
+  }, [conversations, selectedPatientId, currentUser]);
+
+  const isProfileLocked = Boolean(
+    activePdf ||
+    currentChat?.pdf ||
+    currentChat?.document_id ||
+    (currentChat?.messages && currentChat.messages.length > 0)
+  );
+
+  const handleLockedProfileClick = useCallback(() => {
+    setSyncToast('Profile is locked for this report chat. Start a New Chat to switch profiles.');
+    setTimeout(() => setSyncToast(null), 3000);
+  }, []);
 
   const handleManualCloudSync = useCallback(async () => {
     if (isSyncing) return;
@@ -2128,6 +2143,8 @@ export default function ChatApp() {
           selectedPatientId={selectedPatientId}
           onSelectPatient={handlePatientSelect}
           onOpenDependents={handleOpenDependents}
+          isProfileLocked={isProfileLocked}
+          onLockedProfileClick={handleLockedProfileClick}
           activePatient={activePatient}
           patientName={patientName}
           reportCounts={reportCounts}

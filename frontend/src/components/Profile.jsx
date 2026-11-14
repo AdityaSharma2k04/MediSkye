@@ -854,7 +854,7 @@ export default function Profile({
                       name="full_name"
                       value={dependentForm.full_name}
                       onChange={handleDependentFormChange}
-                      placeholder="e.g. Aarav Verma"
+                      placeholder="e.g. Alex Morgan"
                       darkMode={darkMode}
                       required
                     />

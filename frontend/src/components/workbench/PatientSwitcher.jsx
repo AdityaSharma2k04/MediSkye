@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
-import { Check, ChevronDown, Plus, Users } from 'lucide-react';
+import { Check, ChevronDown, Lock, Plus, Users } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { cn } from '../../lib/cn';
 import useViewport from '../../hooks/useViewport';
@@ -56,7 +56,17 @@ export function isSelfSelected(selectedPatientId, currentUser) {
  * Caregiver patient switcher.
  * Desktop: anchored popover. Mobile: bottom sheet with large touch cards.
  */
-export default function PatientSwitcher({ currentUser, dependents = [], selectedPatientId, onSelectPatient, onOpenDependents, reportCounts = {}, compact = false }) {
+export default function PatientSwitcher({
+  currentUser,
+  dependents = [],
+  selectedPatientId,
+  onSelectPatient,
+  onOpenDependents,
+  reportCounts = {},
+  compact = false,
+  isLocked = false,
+  onLockedClick,
+}) {
   const { t } = useTranslation();
   const [open, setOpen] = useState(false);
   const { isMobile } = useViewport();
@@ -136,21 +146,34 @@ export default function PatientSwitcher({ currentUser, dependents = [], selected
     <div className="relative min-w-0" ref={ref}>
       <button
         type="button"
-        onClick={() => setOpen((o) => !o)}
-        aria-label="Select patient context"
+        onClick={() => {
+          if (isLocked) {
+            onLockedClick?.();
+            return;
+          }
+          setOpen((o) => !o);
+        }}
+        aria-label={isLocked ? 'Profile is locked for this report chat' : 'Select patient context'}
+        title={isLocked ? "Profile is locked because a report is uploaded in this chat. Click 'New Chat' to switch profiles." : undefined}
         data-testid="patient-switcher-trigger"
         aria-haspopup="dialog"
         aria-expanded={open}
+        aria-disabled={isLocked}
         className={cn(
           'ms-tap min-w-0 max-w-[220px] flex items-center gap-2 rounded-full pl-1 pr-2.5 h-9 border transition',
           'bg-white/[0.03] border-white/[0.08] hover:bg-white/[0.06] hover:border-white/[0.14]',
-          !selfSelected && 'border-violet-400/30 bg-violet-500/[0.06]'
+          !selfSelected && 'border-violet-400/30 bg-violet-500/[0.06]',
+          isLocked && 'border-amber-400/30 bg-amber-500/[0.06] hover:border-amber-400/40 hover:bg-amber-500/[0.08] cursor-not-allowed'
         )}
       >
         <PatientAvatar name={active?.name} index={activeIdx} size="sm" />
         {!compact && <span className="truncate text-xs font-medium text-ink">{active?.name}</span>}
         {!compact && <span className="hidden sm:inline text-xs text-ink-faint shrink-0">{active?.relationship}</span>}
-        <ChevronDown className={cn('w-3.5 h-3.5 text-ink-mute shrink-0 transition-transform', open && 'rotate-180')} />
+        {isLocked ? (
+          <Lock className="w-3.5 h-3.5 text-amber-400 shrink-0" aria-hidden="true" />
+        ) : (
+          <ChevronDown className={cn('w-3.5 h-3.5 text-ink-mute shrink-0 transition-transform', open && 'rotate-180')} />
+        )}
       </button>
 
       {isMobile ? (
