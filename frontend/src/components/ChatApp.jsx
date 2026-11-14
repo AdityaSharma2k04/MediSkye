@@ -64,6 +64,15 @@ import { useNavigate } from 'react-router-dom';
 import { logger } from '../services/logger';
 import { speakText, stopSpeaking } from '../services/speech';
 
+function normalizePatientId(id) {
+  if (!id || typeof id !== 'string') return 'self';
+  const trimmed = id.trim();
+  if (!trimmed || trimmed.toLowerCase() === 'self' || trimmed.toLowerCase() === 'none' || trimmed.toLowerCase() === 'null') {
+    return 'self';
+  }
+  return trimmed;
+}
+
 // ── Sample Lab Reports Pool ─────────────────────────────────
 export const SAMPLE_REPORTS = [
   { path: '/samples/report-1.pdf', panel: 'Lipid Panel' },
@@ -761,7 +770,7 @@ export default function ChatApp() {
 
     const activeDocId = resolvedActiveDocId;
     const overrideTitle = resolvedOverrideTitle;
-    const activePatId = resolvedPatientId || selectedPatientId || (typeof localStorage !== 'undefined' ? localStorage.getItem('mediskye_patient_id') : null) || 'self';
+    const activePatId = normalizePatientId(resolvedPatientId || selectedPatientId || (typeof localStorage !== 'undefined' ? localStorage.getItem('mediskye_patient_id') : null));
 
     // Offline fast-path: hydrate from cache immediately and return early without overwriting with empty network responses
     if (!isOnline || (typeof navigator !== 'undefined' && !navigator.onLine)) {
@@ -772,7 +781,7 @@ export default function ChatApp() {
       }));
       const cachedConvs = typeof getCachedConversations === 'function' ? getCachedConversations(activePatId) : null;
       const filteredCached = (Array.isArray(cachedConvs) ? cachedConvs : []).filter(
-        (c) => String(c.patientId || c.patient_id || 'self') === String(activePatId) && !c.isDraft
+        (c) => normalizePatientId(c.patientId || c.patient_id) === activePatId && !c.isDraft
       );
       const freshDraft = createFreshDraftConversation(activePatId);
       if (filteredCached.length > 0) {
@@ -792,8 +801,8 @@ export default function ChatApp() {
             is_future_collection_date: doc.is_future_collection_date,
             size: 8192,
           },
-          patient_id: doc.dependent_id || activePatId,
-          patientId: doc.dependent_id || activePatId,
+          patient_id: doc.dependent_id === null ? 'self' : normalizePatientId(doc.dependent_id || activePatId),
+          patientId: doc.dependent_id === null ? 'self' : normalizePatientId(doc.dependent_id || activePatId),
           created_at: doc.created_at,
           isDraft: false,
         }));
@@ -811,7 +820,7 @@ export default function ChatApp() {
       const [docsRes, chatSessionsRes, generalChatsRes] = await Promise.all([
         typeof getUserDocuments === 'function' ? getUserDocuments(activePatId).catch(() => []) : [],
         typeof getChatSessions === 'function' ? getChatSessions(activePatId).catch(() => []) : [],
-        typeof getGeneralChats === 'function' ? getGeneralChats().catch(() => []) : [],
+        typeof getGeneralChats === 'function' ? getGeneralChats(null, activePatId).catch(() => []) : [],
       ]);
       networkSucceeded = true;
       const docs = Array.isArray(docsRes) ? docsRes : [];
@@ -902,7 +911,9 @@ export default function ChatApp() {
             ? existing.messages
             : [];
 
-          const docPat = doc.dependent_id || existing?.patient_id || existing?.patientId || activePatId;
+          const docPat = doc.dependent_id === null
+            ? 'self'
+            : normalizePatientId(doc.dependent_id || existing?.patient_id || existing?.patientId || activePatId);
 
           if (existing) {
             return {
@@ -961,7 +972,9 @@ export default function ChatApp() {
                 : '',
             }));
 
-          const standPat = messagesList[0]?.dependent_id || existing?.patient_id || existing?.patientId || activePatId;
+          const standPat = (messagesList[0]?.dependent_id === null)
+            ? 'self'
+            : normalizePatientId(messagesList[0]?.dependent_id || existing?.patient_id || existing?.patientId || activePatId);
 
           serverStandaloneConvs.push({
             id: sid,
@@ -985,22 +998,22 @@ export default function ChatApp() {
             !c.pdf &&
             !effectiveDocs.some((d) => d.id === c.id) &&
             !standaloneChatsBySession.has(c.id) &&
-            String(c.patientId || c.patient_id || 'self') === String(activePatId) &&
+            normalizePatientId(c.patientId || c.patient_id) === activePatId &&
             !c.isDraft &&
             (c.messages && c.messages.length > 0)
         );
 
         // Filter all reconstructed items strictly by activePatId
         const filteredDocs = syncedDocConvs.filter(
-          (c) => String(c.patientId || c.patient_id || 'self') === String(activePatId)
+          (c) => normalizePatientId(c.patientId || c.patient_id) === activePatId
         );
         const filteredStandalone = serverStandaloneConvs.filter(
-          (c) => String(c.patientId || c.patient_id || 'self') === String(activePatId)
+          (c) => normalizePatientId(c.patientId || c.patient_id) === activePatId
         );
 
         // In-flight conversations guard: never prune an actively uploading, streaming, or draft conversation
         const inFlightConvs = prev.filter((c) => {
-          if (String(c.patientId || c.patient_id || 'self') !== String(activePatId)) return false;
+          if (normalizePatientId(c.patientId || c.patient_id) !== activePatId) return false;
           if (c.isDraft) return false; // Handled via freshDraft
           const isActivelyUploading = Boolean(
             (uploadState && ['uploading', 'extracting', 'indexing'].includes(uploadState.phase) && c.id === sessionIdRef.current) ||
@@ -1185,7 +1198,7 @@ export default function ChatApp() {
     stopSpeaking();
     setIsGenerating(false);
     isSubmittingRef.current = false;
-    const normTarget = patientId || 'self';
+    const normTarget = normalizePatientId(patientId);
     setSelectedPatientId(normTarget);
     localStorage.setItem('mediskye_patient_id', normTarget);
     setViewMode('chat');
@@ -1197,7 +1210,7 @@ export default function ChatApp() {
     // Read cached conversations strictly for normTarget
     const cachedForTarget = (
       typeof getCachedConversations === 'function' ? getCachedConversations(normTarget) || [] : []
-    ).filter((c) => String(c.patientId || c.patient_id || 'self') === String(normTarget) && !c.isDraft);
+    ).filter((c) => normalizePatientId(c.patientId || c.patient_id) === normTarget && !c.isDraft);
 
     const freshChat = createFreshDraftConversation(normTarget);
     setSessionId(freshChat.id);
@@ -2180,13 +2193,13 @@ export default function ChatApp() {
   });
 
   const patientFilteredConversations = useMemo(() => {
-    const isSelf = isSelfSelected(selectedPatientId, currentUser);
+    const normSelected = normalizePatientId(selectedPatientId);
     return (conversations || []).filter((c) => {
-      const chatPat = c.patient_id;
-      if (isSelf) {
-        return !chatPat || chatPat === 'self' || (currentUser && String(chatPat) === String(currentUser.id));
+      const chatPat = normalizePatientId(c.patient_id || c.patientId);
+      if (normSelected === 'self') {
+        return chatPat === 'self' || (currentUser?.id && String(c.patient_id) === String(currentUser.id));
       }
-      return String(chatPat) === String(selectedPatientId);
+      return chatPat === normSelected;
     });
   }, [conversations, selectedPatientId, currentUser]);
 
@@ -2261,17 +2274,18 @@ export default function ChatApp() {
 
   const reportCounts = useMemo(() => {
     const counts = { ...profileReportCounts };
+    const normSelected = normalizePatientId(selectedPatientId);
     let activeConvDocCount = 0;
     conversations.forEach((c) => {
       if (!(c.document_id || c.pdf)) return;
-      const k = String(c.patient_id || selectedPatientId || 'self');
-      if (k === String(selectedPatientId || 'self')) {
+      const k = normalizePatientId(c.patient_id || c.patientId);
+      if (k === normSelected) {
         activeConvDocCount++;
       }
     });
-    if (selectedPatientId) {
-      counts[String(selectedPatientId)] = Math.max(
-        profileReportCounts[String(selectedPatientId)] || 0,
+    if (normSelected) {
+      counts[normSelected] = Math.max(
+        profileReportCounts[normSelected] || 0,
         activeConvDocCount
       );
     }

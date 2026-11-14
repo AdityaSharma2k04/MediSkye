@@ -163,15 +163,31 @@ async def delete_user_me(
 
 @router.get("/users/me/documents", response_model=List[DocumentResponse])
 async def get_my_documents(
+    patient_id: Optional[str] = None,
     current_user: UserDTO = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
     await purge_expired_sample_documents(db, current_user.id)
-    result = await db.execute(
-        select(Document)
-        .filter(Document.user_id == current_user.id)
-        .order_by(Document.created_at.desc())
-    )
+    query = select(Document).filter(Document.user_id == current_user.id)
+    if patient_id is not None and str(patient_id).strip().lower() not in ("", "self", "none"):
+        try:
+            dep_uuid = uuid.UUID(str(patient_id).strip())
+        except ValueError:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Dependent not found")
+        dep_res = await db.execute(
+            select(DependentProfile).filter(
+                DependentProfile.id == dep_uuid,
+                DependentProfile.user_id == current_user.id
+            )
+        )
+        if not dep_res.scalars().first():
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Dependent not found")
+        query = query.filter(Document.dependent_id == dep_uuid)
+    else:
+        query = query.filter(Document.dependent_id.is_(None))
+
+    query = query.order_by(Document.created_at.desc())
+    result = await db.execute(query)
     docs = result.scalars().all()
     return [
         {
@@ -236,6 +252,7 @@ async def reassign_user_document_patient(
 async def get_general_chats(
     document_id: Optional[str] = None,
     session_id: Optional[str] = None,
+    patient_id: Optional[str] = None,
     current_user: UserDTO = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
@@ -249,6 +266,23 @@ async def get_general_chats(
             pass
     if session_id:
         query = query.filter(Chat.session_id == session_id)
+
+    if patient_id is not None and str(patient_id).strip().lower() not in ("", "self", "none"):
+        try:
+            dep_uuid = uuid.UUID(str(patient_id).strip())
+        except ValueError:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Dependent not found")
+        dep_res = await db.execute(
+            select(DependentProfile).filter(
+                DependentProfile.id == dep_uuid,
+                DependentProfile.user_id == current_user.id
+            )
+        )
+        if not dep_res.scalars().first():
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Dependent not found")
+        query = query.filter(Chat.dependent_id == dep_uuid)
+    else:
+        query = query.filter(Chat.dependent_id.is_(None))
 
     query = query.order_by(Chat.created_at.asc())
     result = await db.execute(query)
@@ -309,15 +343,32 @@ async def get_document_chats(
 
 @router.get("/users/me/chats/sessions")
 async def get_user_chat_sessions(
+    patient_id: Optional[str] = None,
     current_user: UserDTO = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
     await purge_expired_sample_documents(db, current_user.id)
-    res = await db.execute(
-        select(Chat.session_id, Chat.session_title)
-        .filter(Chat.user_id == current_user.id, Chat.session_id.is_not(None))
-        .distinct()
+    query = select(Chat.session_id, Chat.session_title).filter(
+        Chat.user_id == current_user.id, Chat.session_id.is_not(None)
     )
+    if patient_id is not None and str(patient_id).strip().lower() not in ("", "self", "none"):
+        try:
+            dep_uuid = uuid.UUID(str(patient_id).strip())
+        except ValueError:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Dependent not found")
+        dep_res = await db.execute(
+            select(DependentProfile).filter(
+                DependentProfile.id == dep_uuid,
+                DependentProfile.user_id == current_user.id
+            )
+        )
+        if not dep_res.scalars().first():
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Dependent not found")
+        query = query.filter(Chat.dependent_id == dep_uuid)
+    else:
+        query = query.filter(Chat.dependent_id.is_(None))
+
+    res = await db.execute(query.distinct())
     rows = res.all()
     return [{"session_id": r[0], "title": r[1]} for r in rows]
 

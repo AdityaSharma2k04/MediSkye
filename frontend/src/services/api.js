@@ -15,6 +15,15 @@ import {
 const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:8000';
 export const API_BASE_URL = API_BASE;
 
+export function normalizePatientId(id) {
+  if (!id || typeof id !== 'string') return 'self';
+  const trimmed = id.trim();
+  if (!trimmed || trimmed.toLowerCase() === 'self' || trimmed.toLowerCase() === 'none' || trimmed.toLowerCase() === 'null') {
+    return 'self';
+  }
+  return trimmed;
+}
+
 export function emitConnectivityStatus(isOnline) {
   if (typeof window !== 'undefined') {
     try {
@@ -1119,17 +1128,14 @@ export async function deleteDependent(id) {
 }
 
 export async function getUserDocuments(patientId = 'self') {
-  const patKey = patientId || 'self';
+  const patKey = normalizePatientId(patientId);
   if (typeof navigator !== 'undefined' && !navigator.onLine) {
     const cached = getCachedDocuments(patKey);
     return Array.isArray(cached) ? cached : [];
   }
   try {
-    let url = `${API_BASE}/users/me/documents`;
-    if (patientId && patientId !== 'self') {
-      url += `?patient_id=${encodeURIComponent(patientId)}`;
-    }
-    const res = await fetch(url, {
+    const qs = patKey ? `?patient_id=${encodeURIComponent(patKey)}` : '';
+    const res = await fetch(`${API_BASE}/users/me/documents${qs}`, {
       headers: getAuthHeaders(),
       cache: 'no-store',
     });
@@ -1177,17 +1183,18 @@ export async function getDocumentChats(docId, sessionId = null) {
   }
 }
 
-export async function getGeneralChats(sessionId = null) {
-  const chatKey = sessionId ? `session_${sessionId}` : 'general_all';
+export async function getGeneralChats(sessionId = null, patientId = 'self') {
+  const normPat = normalizePatientId(patientId);
+  const chatKey = sessionId ? `session_${sessionId}` : `general_${normPat}`;
   if (typeof navigator !== 'undefined' && !navigator.onLine) {
     return getCachedChatMessages(chatKey);
   }
   try {
-    let url = `${API_BASE}/users/me/chats`;
-    if (sessionId) {
-      url += `?session_id=${encodeURIComponent(sessionId)}`;
-    }
-    const res = await fetch(url, {
+    const params = new URLSearchParams();
+    if (sessionId) params.append('session_id', sessionId);
+    if (normPat) params.append('patient_id', normPat);
+    const qs = params.toString() ? `?${params.toString()}` : '';
+    const res = await fetch(`${API_BASE}/users/me/chats${qs}`, {
       headers: getAuthHeaders(),
       cache: 'no-store',
     });
@@ -1209,11 +1216,9 @@ export async function getChatSessions(patientId = 'self') {
     return [];
   }
   try {
-    let url = `${API_BASE}/users/me/chats/sessions`;
-    if (patientId && patientId !== 'self') {
-      url += `?patient_id=${encodeURIComponent(patientId)}`;
-    }
-    const res = await fetch(url, {
+    const normPat = normalizePatientId(patientId);
+    const qs = normPat ? `?patient_id=${encodeURIComponent(normPat)}` : '';
+    const res = await fetch(`${API_BASE}/users/me/chats/sessions${qs}`, {
       headers: getAuthHeaders(),
       cache: 'no-store',
     });
