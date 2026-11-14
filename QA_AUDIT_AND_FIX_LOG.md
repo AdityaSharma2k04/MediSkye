@@ -32,6 +32,10 @@
 | **QA-16** | Unhandled `ReferenceError: setError is not defined` on Height Validation in `Profile.jsx` | `State/UX Glitch` | Critical | **FIXED & VERIFIED** |
 | **QA-17** | Synchronous `URL.revokeObjectURL` Aborting JSON Account Exports in `SettingsModal.jsx` | `State/UX Glitch` | Medium | **FIXED & VERIFIED** |
 | **QA-18** | Native Google Login Button Stuck Disabled with Indefinite Spinner on Window Return in `Login.jsx` & `Register.jsx` | `Auth/Native Shell` | High | **FIXED & VERIFIED** |
+| **QA-19** | Streaming Fallback False Success via Python Closure Late Binding & Empty Content Bypass | `RAG/Prompt Pipeline` | High | **FIXED & VERIFIED** |
+| **QA-20** | Active-Profile Overwrite Erases Dependent Report Counts in Profile Switcher ("No reports yet") | `State/UX Glitch` | High | **FIXED & VERIFIED** |
+| **QA-21** | Unvisited Family Profiles Missing Offline Due to On-Demand-Only Cache Hydration | `Sync/Offline Bug` | Critical | **FIXED & VERIFIED** |
+| **QA-22** | Android WebView Ignores Radio Network Teardown Leaving Red "Offline" Badge Invisible | `Auth/Native Shell` | High | **FIXED & VERIFIED** |
 
 ---
 
@@ -313,3 +317,68 @@
      ```
 - **Verification Proof:**  
   `backend/tests/test_async_concurrency.py::test_stream_gemini_unavailable_yields_busy_message` and `backend/tests/test_query_stream.py::test_query_stream_retries_across_fallback_models_until_success`.
+
+---
+
+### QA-20: Active-Profile Overwrite Erases Dependent Report Counts in Profile Switcher ("No reports yet")
+- **Category:** `State/UX Glitch`
+- **What Was Broken (Symptom):**  
+  In the top Patient/Profile Switcher (`PatientSwitcher.jsx`), non-active profiles falsely displayed `"No reports yet"` even though those profiles had multiple uploaded reports and chats. Furthermore, switching from Profile 1 to Profile 2 wiped Profile 1's report count and displayed `"No reports yet"` on Profile 1.
+- **Root Cause & File/Line Location:**  
+  `frontend/src/components/ChatApp.jsx` lines 140-195 and `frontend/src/components/workbench/PatientSwitcher.jsx` lines 42-68:
+  `refreshDocuments(activePatientId)` fetched documents exclusively for the currently active profile and passed that single list as `documents`/`pdfs` to `Workbench` $\to$ `PatientSwitcher`. `PatientSwitcher` calculated the report count for profile `pid` by filtering that single active-profile list (`(documents || []).filter(...)`). As a result, every profile other than the active one had 0 documents, collapsing to `"No reports yet"`.
+- **The Fix & Code Changes:**  
+  1. In `ChatApp.jsx`:
+     - Introduced `profileReportCounts` state map (`{ self: number, [dependentId]: number }`), pre-populated synchronously on mount via `computeProfileReportCountFromCache(pid)` reading `getCachedDocuments(pid)` and `getCachedConversations(pid)`.
+     - Updated `profileReportCounts` whenever documents are fetched, cached, uploaded, or deleted for any profile.
+     - Passed `profileReportCounts` down through `Workbench` to `PatientSwitcher`.
+  2. In `PatientSwitcher.jsx`:
+     - Updated count calculation to take the maximum of `profileReportCounts?.[pid]`, `reportCounts?.[pid]`, documents matching `patient_id === pid`, `getCachedDocuments(pid)?.length`, unique document IDs from `getCachedConversations(pid)`, and `dep.report_count ?? dep.document_count ?? 0`.
+     - Ensured switching between profiles retains and correctly displays each profile's individual report count without resetting to `"No reports yet"`.
+- **Verification Proof:**  
+  `frontend/src/test/HumanQASimulation.test.jsx` (Journey 6 verifies accurate report counts across `self`, `dep_1`, and `dep_2` simultaneously in the profile switcher).
+
+---
+
+### QA-21: Unvisited Family Profiles Missing Offline Due to On-Demand-Only Cache Hydration
+- **Category:** `Sync/Offline Bug`
+- **What Was Broken (Symptom):**  
+  If a user had multiple profiles (e.g. self, child, elderly parent) and only interacted with 1 or 2 of them while online, switching to an unvisited profile while offline resulted in an empty screen with zero documents, missing conversations, and empty lab trends.
+- **Root Cause & File/Line Location:**  
+  `frontend/src/services/api.js` and `frontend/src/components/ChatApp.jsx`:
+  Offline caching was lazy and on-demand, executing only when `activePatientId` was explicitly selected by the user. If the user never switched to dependent `dep_2` during an active online session, `localStorage` contained no cached documents, chat sessions, lab metrics, summaries, trends, or memory facts for `dep_2`.
+- **The Fix & Code Changes:**  
+  1. Created `syncSingleProfileToLocalCache(patientId, options)` in `frontend/src/services/api.js`:
+     - Fetches `getUserDocuments(patientId)` and persists via `setCachedDocuments`.
+     - Fetches `getChatSessions(patientId)`, builds merged conversation trees (preserving cached messages), and persists via `setCachedConversations`.
+     - Fetches and caches full message history (`getDocumentChats`, `getGeneralChats`) for all conversations under `patientId`.
+     - Pre-fetches `fetchLabMetrics(doc.id)` (`setCachedDocMetrics`), `getDocumentSummary(doc.id)` (`setCachedDocSummary`), `getMemoryFacts(patientId)` (`setCachedMemoryFacts`), and `getPatientTrends(patientId)` (`setCachedTrends`).
+  2. Created `syncAllProfilesInBackground(activePatId, currentDependents)` in `frontend/src/components/ChatApp.jsx`:
+     - Automatically triggered on initial app launch online, on user login, on network reconnect (`online` event), and during manual cloud sync.
+     - First hydrates the active profile, then quietly iterates through all remaining unvisited profiles (`['self', ...dependents.map(d => String(d.id))]`), downloading their complete document and chat stores into local cache without changing active selection or interrupting user interactions.
+- **Verification Proof:**  
+  `frontend/src/test/HumanQASimulation.test.jsx` (Journey 6 simulates booting on `self`, pre-downloading `dep_2` in the background, disconnecting to offline mode, switching to unvisited `dep_2`, and verifying 0ms cached report and conversation load).
+
+---
+
+### QA-22: Android WebView Ignores Radio Network Teardown Leaving Red "Offline" Badge Invisible
+- **Category:** `Auth/Native Shell`
+- **What Was Broken (Symptom):**  
+  On Android devices running the Capacitor APK, disabling Wi-Fi and Cellular data in the Android Quick Settings shade failed to trigger the red `"Offline"` status pill. The UI continued reporting online because Android WebView's `navigator.onLine` remained `true` due to the local loopback interface `127.0.0.1` and WebView's suppression of DOM `offline` events.
+- **Root Cause & File/Line Location:**  
+  `frontend/android/app/src/main/java/com/mediskye/app/MainActivity.java`, `frontend/src/services/api.js`, and `frontend/src/components/workbench/Workbench.jsx`:
+  The frontend relied solely on browser `navigator.onLine` and DOM `'online'` / `'offline'` events, which are notoriously unreliable inside Chromium Android WebViews when cellular/Wi-Fi transitions occur without socket resets.
+- **The Fix & Code Changes:**  
+  1. In `MainActivity.java`:
+     - Added `ConnectivityManager` network tracking with `NetworkCapabilities` validation (`NET_CAPABILITY_INTERNET` across `TRANSPORT_WIFI`, `TRANSPORT_CELLULAR`, `TRANSPORT_ETHERNET`, `TRANSPORT_VPN`).
+     - Exposed `@JavascriptInterface public boolean isOnline()` via `window.MediskyeNativeAuth.isOnline()` for synchronous initialization.
+     - Registered a `ConnectivityManager.NetworkCallback` on `onCreate` and `onResume` that dispatches `window.dispatchEvent(new CustomEvent('mediskye-network-status', { detail: { online: ... } }))` directly to the WebView on network state changes.
+  2. In `frontend/src/services/api.js`:
+     - Added `emitConnectivityStatus(isOnline)` dispatched upon any successful API response (`true`) or network failure (`false`, e.g. `TypeError: Failed to fetch`).
+     - Added `checkConnectivity()` fallback ping to `${API_BASE_URL}/health`.
+  3. In `Workbench.jsx` and `ChatApp.jsx`:
+     - Initialized `isOnline` via `window.MediskyeNativeAuth?.isOnline?.() ?? navigator.onLine`.
+     - Subscribed to `mediskye-network-status`, `online`, and `offline` events, plus a 10s health ping heartbeat.
+     - Positioned the red `"Offline"` status pill in `Workbench.jsx` top action bar with `inline-flex` (always visible on mobile viewports alongside Search and RefreshCw).
+- **Verification Proof:**  
+  `frontend/src/test/HumanQASimulation.test.jsx` (Journey 7 verifies native bridge detection, fetch-failure real-time offline pill transition, and recovery upon network event).

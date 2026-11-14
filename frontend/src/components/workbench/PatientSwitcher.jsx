@@ -5,6 +5,7 @@ import { useTranslation } from 'react-i18next';
 import { cn } from '../../lib/cn';
 import useViewport from '../../hooks/useViewport';
 import Sheet from '../ui/Sheet';
+import { getCachedDocuments, getCachedConversations } from '../../services/api';
 
 const AVATAR_TONES = [
   'from-cyan-500/30 to-cyan-700/30 text-cyan-100 ring-cyan-400/30',
@@ -38,12 +39,16 @@ export function buildPatients(currentUser, dependents = []) {
       name: selfName,
       relationship: 'Self',
       meta: [currentUser?.calculated_age ? `${currentUser.calculated_age} yrs` : null, currentUser?.biological_sex].filter(Boolean).join(', '),
+      report_count: currentUser?.report_count ?? currentUser?.document_count ?? 0,
+      raw: currentUser,
     },
     ...(Array.isArray(dependents) ? dependents : []).map((d) => ({
       id: d.id,
       name: d.full_name || d.name || 'Dependent',
       relationship: d.relationship || 'Dependent',
       meta: [d.calculated_age !== null && d.calculated_age !== undefined ? `${d.calculated_age} yrs` : null, d.biological_sex].filter(Boolean).join(', '),
+      report_count: d.report_count ?? d.document_count ?? 0,
+      raw: d,
     })),
   ];
 }
@@ -63,6 +68,9 @@ export default function PatientSwitcher({
   onSelectPatient,
   onOpenDependents,
   reportCounts = {},
+  profileReportCounts = {},
+  documents = [],
+  pdfs = [],
   compact = false,
   isLocked = false,
   onLockedClick,
@@ -100,7 +108,47 @@ export default function PatientSwitcher({
     <div className="p-1.5 space-y-1">
       {patients.map((p, i) => {
         const isActive = i === activeIdx;
-        const count = reportCounts[String(p.id)] || 0;
+        const pid = String(p.id);
+
+        const cachedDocList = typeof getCachedDocuments === 'function' ? getCachedDocuments(pid) : [];
+        const cachedLength = Array.isArray(cachedDocList) ? cachedDocList.length : 0;
+
+        let passedDocsCount = 0;
+        const docList = Array.isArray(documents) && documents.length > 0 ? documents : (Array.isArray(pdfs) ? pdfs : []);
+        if (docList.length > 0) {
+          passedDocsCount = docList.filter((d) => {
+            const docPid = String(d.dependent_id || d.patient_id || d.patientId || 'self');
+            return pid === 'self'
+              ? (docPid === 'self' || docPid === 'null' || !docPid || (currentUser?.id && docPid === String(currentUser.id)))
+              : docPid === pid;
+          }).length;
+        }
+
+        let convDocCount = 0;
+        try {
+          const cachedConvs = typeof getCachedConversations === 'function' ? getCachedConversations(pid) : [];
+          if (Array.isArray(cachedConvs)) {
+            const docIds = new Set();
+            cachedConvs.forEach((c) => {
+              if (c.document_id || c.pdf?.id) {
+                docIds.add(String(c.document_id || c.pdf?.id));
+              }
+            });
+            convDocCount = docIds.size;
+          }
+        } catch (_) {}
+
+        const depReportCount = p.report_count ?? p.document_count ?? p.raw?.report_count ?? p.raw?.document_count ?? 0;
+
+        const count = Math.max(
+          profileReportCounts?.[pid] || 0,
+          reportCounts?.[pid] || 0,
+          (pid === 'self' && currentUser?.id) ? (profileReportCounts?.[String(currentUser.id)] || reportCounts?.[String(currentUser.id)] || 0) : 0,
+          passedDocsCount,
+          cachedLength,
+          convDocCount,
+          depReportCount
+        );
         return (
           <button
             key={p.id}

@@ -55,6 +55,9 @@ export default function Workbench(props) {
     activePatient,
     patientName,
     reportCounts,
+    profileReportCounts,
+    documents,
+    pdfs,
     conversationId,
     messages,
     isGenerating,
@@ -105,13 +108,53 @@ export default function Workbench(props) {
     uiLanguage,
     onSetUiLanguage,
     printSignal,
-    isOnline = true,
+    isOnline: propIsOnline = true,
     onManualSync,
     isSyncing = false,
   } = props;
 
   const { t } = useTranslation();
   const containerRef = useRef(null);
+
+  const getInitialOnlineState = () => {
+    try {
+      if (typeof window !== 'undefined' && window.MediskyeNativeAuth && typeof window.MediskyeNativeAuth.isOnline === 'function') {
+        return Boolean(window.MediskyeNativeAuth.isOnline());
+      }
+    } catch (_) {}
+    return typeof navigator !== 'undefined' ? Boolean(navigator.onLine) : true;
+  };
+
+  const [internalOnline, setInternalOnline] = useState(() => {
+    if (typeof propIsOnline === 'boolean') return propIsOnline;
+    return getInitialOnlineState();
+  });
+
+  useEffect(() => {
+    if (typeof propIsOnline === 'boolean') {
+      setInternalOnline(propIsOnline);
+    }
+  }, [propIsOnline]);
+
+  useEffect(() => {
+    const handleOnline = () => setInternalOnline(true);
+    const handleOffline = () => setInternalOnline(false);
+    const handleStatus = (e) => {
+      if (e?.detail && typeof e.detail.online === 'boolean') {
+        setInternalOnline(e.detail.online);
+      }
+    };
+    window.addEventListener('online', handleOnline);
+    window.addEventListener('offline', handleOffline);
+    window.addEventListener('mediskye-network-status', handleStatus);
+    return () => {
+      window.removeEventListener('online', handleOnline);
+      window.removeEventListener('offline', handleOffline);
+      window.removeEventListener('mediskye-network-status', handleStatus);
+    };
+  }, []);
+
+  const isOnline = propIsOnline !== undefined ? (propIsOnline && internalOnline) : internalOnline;
   const inspectorVisible = isDesktop && inspectorOpen && Boolean(activePdf);
   const pane = useResizablePane({ storageKey: STORAGE_KEYS.inspectorWidth, defaultWidth: 440, min: 340, max: 760, containerRef, active: inspectorVisible });
   const [showPrintSummary, setShowPrintSummary] = useState(false);
@@ -270,6 +313,9 @@ export default function Workbench(props) {
               onSelectPatient={onSelectPatient}
               onOpenDependents={onOpenDependents}
               reportCounts={reportCounts}
+              profileReportCounts={profileReportCounts || reportCounts}
+              documents={documents || composerDocuments}
+              pdfs={pdfs}
               isLocked={isProfileLocked}
               onLockedClick={onLockedProfileClick}
             />
@@ -283,18 +329,18 @@ export default function Workbench(props) {
             </div>
           )}
 
-          {!isOnline && (
-            <div
-              role="status"
-              aria-label="Offline"
-              className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium bg-rose-500/15 border border-rose-500/35 text-rose-400 select-none shrink-0 animate-fade-in"
-            >
-              <span className="w-1.5 h-1.5 rounded-full bg-rose-500 animate-pulse" />
-              <span>Offline</span>
-            </div>
-          )}
-
           <div className="ml-auto flex items-center gap-1 sm:gap-1.5 shrink-0">
+            {!isOnline && (
+              <div
+                role="status"
+                aria-label="Offline"
+                data-testid="offline-status-badge"
+                className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium bg-rose-500/15 border border-rose-500/35 text-rose-400 select-none shrink-0 animate-fade-in"
+              >
+                <span className="w-1.5 h-1.5 rounded-full bg-rose-500 animate-pulse" />
+                <span>Offline</span>
+              </div>
+            )}
             {isDesktop ? (
               <button
                 type="button"

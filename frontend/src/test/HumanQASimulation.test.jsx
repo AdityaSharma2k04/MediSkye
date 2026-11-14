@@ -46,9 +46,14 @@ vi.mock('../services/api', () => ({
   getCachedChatMessages: vi.fn(),
   setCachedChatMessages: vi.fn(),
   prewarmPatientLocalCache: vi.fn().mockResolvedValue(),
+  syncSingleProfileToLocalCache: vi.fn().mockResolvedValue({ docs: [], conversations: [] }),
+  emitConnectivityStatus: vi.fn(),
+  checkConnectivity: vi.fn(),
+  API_BASE_URL: 'http://localhost:8000',
   prewarmMessageHistories: vi.fn(),
   purgePatientLocalCache: vi.fn(),
   getMetricTrends: vi.fn().mockResolvedValue({ series: [] }),
+  getPatientTrends: vi.fn().mockResolvedValue({ series: [] }),
   getCachedTrends: vi.fn().mockReturnValue(null),
 }));
 
@@ -395,5 +400,169 @@ describe('MediSkye Automated Human QA Simulation Suite', () => {
     // Profile switcher is unlocked on fresh draft
     const trigger = screen.getByTestId('patient-switcher-trigger');
     expect(trigger).not.toHaveAttribute('aria-disabled', 'true');
+  });
+
+  // ─────────────────────────────────────────────────────────────────────────────
+  // QA Journey 6: Multi-Profile Background Pre-Download & Offline Switch to Unvisited Profile
+  // ─────────────────────────────────────────────────────────────────────────────
+  it('QA Journey 6 (Multi-Profile Background Pre-Download & Offline Switch): boots on self, automatically syncs unvisited dep_2, switcher displays exact report counts, switches to dep_2 offline with instant cache hydration', async () => {
+    const multiDependents = [
+      { id: 'dep_1', name: 'Maya Connor', full_name: 'Maya Connor', relationship: 'Child' },
+      { id: 'dep_2', name: 'John Connor', full_name: 'John Connor', relationship: 'Son' },
+    ];
+    api.getDependents.mockResolvedValue(multiDependents);
+    api.getCachedDependents.mockReturnValue(multiDependents);
+
+    const selfDocs = [
+      { id: 'doc-self-1', filename: 'Self_Lipids.pdf', title: 'Lipid Panel', created_at: '2026-10-10T00:00:00Z', dependent_id: null },
+      { id: 'doc-self-2', filename: 'Self_CBC.pdf', title: 'CBC Blood Test', created_at: '2026-10-11T00:00:00Z', dependent_id: null },
+    ];
+    const dep1Docs = [
+      { id: 'doc-dep1-1', filename: 'Maya_Pediatric.pdf', title: 'Pediatric Checkup', created_at: '2026-10-12T00:00:00Z', dependent_id: 'dep_1' },
+    ];
+    const dep2Docs = [
+      { id: 'doc-dep2-1', filename: 'John_Immunity.pdf', title: 'Immunity Panel', created_at: '2026-10-13T00:00:00Z', dependent_id: 'dep_2' },
+      { id: 'doc-dep2-2', filename: 'John_Thyroid.pdf', title: 'Thyroid Function', created_at: '2026-10-14T00:00:00Z', dependent_id: 'dep_2' },
+    ];
+
+    api.getUserDocuments.mockImplementation(async (pid) => {
+      if (pid === 'self') return selfDocs;
+      if (pid === 'dep_1') return dep1Docs;
+      if (pid === 'dep_2') return dep2Docs;
+      return [];
+    });
+
+    const docCache = {
+      self: selfDocs,
+      dep_1: dep1Docs,
+      dep_2: dep2Docs,
+    };
+    api.getCachedDocuments.mockImplementation((pid) => docCache[pid] || []);
+
+    const dep2Convs = [
+      {
+        id: 'doc-dep2-1',
+        document_id: 'doc-dep2-1',
+        title: 'Immunity Panel',
+        messages: [{ id: 'm-dep2', sender: 'assistant', text: 'Immunity markers look strong.' }],
+        patient_id: 'dep_2',
+        patientId: 'dep_2',
+        isDraft: false,
+      },
+    ];
+    api.getCachedConversations.mockImplementation((pid) => {
+      if (pid === 'dep_2') return dep2Convs;
+      return null;
+    });
+
+    api.syncSingleProfileToLocalCache.mockImplementation(async (pid, opts) => {
+      const docs = docCache[pid] || [];
+      opts?.updateUiCallback?.({ patientId: pid, docs, reportCount: docs.length });
+      return { docs, conversations: pid === 'dep_2' ? dep2Convs : [] };
+    });
+
+    render(
+      <MemoryRouter>
+        <ChatApp />
+      </MemoryRouter>
+    );
+
+    // 1. Initial boot: on 'self' while online
+    await waitFor(() => {
+      expect(screen.getAllByText(/Sarah Connor/i).length).toBeGreaterThan(0);
+    });
+
+    // Background sync should automatically pre-download unvisited profiles
+    await waitFor(() => {
+      expect(api.syncSingleProfileToLocalCache).toHaveBeenCalledWith('dep_1', expect.anything());
+      expect(api.syncSingleProfileToLocalCache).toHaveBeenCalledWith('dep_2', expect.anything());
+    });
+
+    // Open PatientSwitcher
+    const trigger = screen.getByTestId('patient-switcher-trigger');
+    fireEvent.click(trigger);
+
+    // 2. All 3 profiles in switcher must show their accurate report counts simultaneously (none say "No reports yet")
+    await waitFor(() => {
+      const twoReportBadges = screen.getAllByText(/2 reports/i);
+      expect(twoReportBadges.length).toBe(2); // Sarah Connor (self) and John Connor (dep_2) both have 2 reports
+      expect(screen.getByText(/1 report/i)).toBeInTheDocument(); // Maya Connor (dep_1) has 1 report
+      expect(screen.queryByText(/No reports yet/i)).not.toBeInTheDocument();
+    });
+
+    // 3. User goes offline
+    Object.defineProperty(navigator, 'onLine', { writable: true, configurable: true, value: false });
+    window.dispatchEvent(new CustomEvent('mediskye-network-status', { detail: { online: false } }));
+
+    // Red Offline pill appears
+    await waitFor(() => {
+      expect(screen.getByRole('status', { name: /^Offline$/i })).toBeInTheDocument();
+    });
+
+    // 4. User switches to 'dep_2' for the very first time while offline
+    const johnOption = screen.getByText('John Connor').closest('button');
+    expect(johnOption).toBeInTheDocument();
+    fireEvent.click(johnOption);
+
+    // Dep_2's cached report and chat messages load immediately in 0ms without error
+    await waitFor(() => {
+      expect(screen.getByText('Immunity Panel')).toBeInTheDocument();
+    });
+
+    // Clicking Immunity Panel loads cached chat message
+    fireEvent.click(screen.getByText('Immunity Panel'));
+    await waitFor(() => {
+      expect(screen.getByText(/Immunity markers look strong/i)).toBeInTheDocument();
+    });
+
+    // Clean up navigator.onLine
+    Object.defineProperty(navigator, 'onLine', { writable: true, configurable: true, value: true });
+  });
+
+  // ─────────────────────────────────────────────────────────────────────────────
+  // QA Journey 7: Android Native Bridge & Network-Status Event Offline Badge Detection
+  // ─────────────────────────────────────────────────────────────────────────────
+  it('QA Journey 7 (Android Native Bridge & Network-Status Event): shows red Offline status badge when window.MediskyeNativeAuth.isOnline() is false or mediskye-network-status emits false even if navigator.onLine is true', async () => {
+    // Simulate Android WebView where navigator.onLine is true (due to 127.0.0.1 loopback)
+    Object.defineProperty(navigator, 'onLine', { writable: true, configurable: true, value: true });
+
+    // Native bridge reports false (airplane mode / no internet cellular/wifi)
+    window.MediskyeNativeAuth = {
+      isOnline: vi.fn().mockReturnValue(false),
+      clearPendingAuth: vi.fn(),
+    };
+
+    render(
+      <MemoryRouter>
+        <ChatApp />
+      </MemoryRouter>
+    );
+
+    // 1. Red Offline badge should appear immediately from native bridge reading
+    await waitFor(() => {
+      expect(screen.getByRole('status', { name: /^Offline$/i })).toBeInTheDocument();
+    });
+
+    // 2. Simulate native Android network callback regaining connectivity
+    window.MediskyeNativeAuth.isOnline.mockReturnValue(true);
+    act(() => {
+      window.dispatchEvent(new CustomEvent('mediskye-network-status', { detail: { online: true } }));
+    });
+
+    await waitFor(() => {
+      expect(screen.queryByRole('status', { name: /^Offline$/i })).not.toBeInTheDocument();
+    });
+
+    // 3. Simulate sudden network drop via mediskye-network-status (e.g. from fetch failure or quick shade toggle)
+    act(() => {
+      window.dispatchEvent(new CustomEvent('mediskye-network-status', { detail: { online: false } }));
+    });
+
+    await waitFor(() => {
+      expect(screen.getByRole('status', { name: /^Offline$/i })).toBeInTheDocument();
+    });
+
+    // Clean up
+    delete window.MediskyeNativeAuth;
   });
 });

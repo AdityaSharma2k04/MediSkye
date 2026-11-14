@@ -1,8 +1,12 @@
 package com.mediskye.app;
 
 import android.annotation.SuppressLint;
+import android.content.Context;
 import android.content.Intent;
 import android.content.pm.PackageManager;
+import android.net.ConnectivityManager;
+import android.net.Network;
+import android.net.NetworkCapabilities;
 import android.net.Uri;
 import android.os.Bundle;
 import android.util.Log;
@@ -30,6 +34,7 @@ public class MainActivity extends BridgeActivity {
     private static volatile ServerSocket serverSocket = null;
     private volatile String pendingAuthIdToken = null;
     private volatile String pendingAuthAccessToken = null;
+    private ConnectivityManager.NetworkCallback networkCallback = null;
 
     @SuppressLint("SetJavaScriptEnabled")
     @Override
@@ -63,7 +68,64 @@ public class MainActivity extends BridgeActivity {
             webView.addJavascriptInterface(new MediskyeNativeBridge(), "MediskyeNativeAuth");
         }
 
+        // Register ConnectivityManager.NetworkCallback for real-time offline/online detection
+        try {
+            ConnectivityManager cm = (ConnectivityManager) getSystemService(Context.CONNECTIVITY_SERVICE);
+            if (cm != null) {
+                networkCallback = new ConnectivityManager.NetworkCallback() {
+                    @Override
+                    public void onAvailable(Network network) {
+                        dispatchNetworkStatusToWebView(isDeviceOnline());
+                    }
+
+                    @Override
+                    public void onLost(Network network) {
+                        dispatchNetworkStatusToWebView(isDeviceOnline());
+                    }
+
+                    @Override
+                    public void onCapabilitiesChanged(Network network, NetworkCapabilities networkCapabilities) {
+                        dispatchNetworkStatusToWebView(isDeviceOnline());
+                    }
+                };
+                cm.registerDefaultNetworkCallback(networkCallback);
+            }
+        } catch (Exception e) {
+            Log.w(TAG, "Failed to register network callback: " + e.getMessage());
+        }
+
         handleAuthIntent(getIntent());
+    }
+
+    public boolean isDeviceOnline() {
+        try {
+            ConnectivityManager cm = (ConnectivityManager) getSystemService(Context.CONNECTIVITY_SERVICE);
+            if (cm == null) return false;
+            Network activeNetwork = cm.getActiveNetwork();
+            if (activeNetwork == null) return false;
+            NetworkCapabilities caps = cm.getNetworkCapabilities(activeNetwork);
+            if (caps == null) return false;
+            return caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET) &&
+                    (caps.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) ||
+                     caps.hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR) ||
+                     caps.hasTransport(NetworkCapabilities.TRANSPORT_ETHERNET) ||
+                     caps.hasTransport(NetworkCapabilities.TRANSPORT_VPN));
+        } catch (Exception e) {
+            Log.w(TAG, "Error checking device network state: " + e.getMessage());
+            return false;
+        }
+    }
+
+    public void dispatchNetworkStatusToWebView(final boolean online) {
+        runOnUiThread(new Runnable() {
+            @Override
+            public void run() {
+                if (bridge != null && bridge.getWebView() != null) {
+                    String js = "window.dispatchEvent(new CustomEvent('mediskye-network-status', { detail: { online: " + (online ? "true" : "false") + " } }));";
+                    bridge.getWebView().evaluateJavascript(js, null);
+                }
+            }
+        });
     }
 
     @Override
@@ -109,6 +171,7 @@ public class MainActivity extends BridgeActivity {
     @Override
     public void onResume() {
         super.onResume();
+        dispatchNetworkStatusToWebView(isDeviceOnline());
         if (pendingAuthIdToken != null || pendingAuthAccessToken != null) {
             final String id = pendingAuthIdToken;
             final String access = pendingAuthAccessToken;
@@ -331,7 +394,26 @@ public class MainActivity extends BridgeActivity {
         }
     }
 
+    @Override
+    public void onDestroy() {
+        super.onDestroy();
+        if (networkCallback != null) {
+            try {
+                ConnectivityManager cm = (ConnectivityManager) getSystemService(Context.CONNECTIVITY_SERVICE);
+                if (cm != null) {
+                    cm.unregisterNetworkCallback(networkCallback);
+                }
+            } catch (Exception ignored) {}
+            networkCallback = null;
+        }
+    }
+
     public class MediskyeNativeBridge {
+        @JavascriptInterface
+        public boolean isOnline() {
+            return isDeviceOnline();
+        }
+
         @JavascriptInterface
         public void clearPendingAuth() {
             pendingAuthIdToken = null;

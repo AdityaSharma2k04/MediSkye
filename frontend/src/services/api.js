@@ -13,6 +13,51 @@ import {
 } from './firebase';
 
 const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:8000';
+export const API_BASE_URL = API_BASE;
+
+export function emitConnectivityStatus(isOnline) {
+  if (typeof window !== 'undefined') {
+    try {
+      window.dispatchEvent(
+        new CustomEvent('mediskye-network-status', {
+          detail: { online: Boolean(isOnline) },
+        })
+      );
+    } catch (_) {}
+  }
+}
+
+export async function checkConnectivity() {
+  if (typeof window !== 'undefined' && window.MediskyeNativeAuth && typeof window.MediskyeNativeAuth.isOnline === 'function') {
+    try {
+      const nativeOnline = Boolean(window.MediskyeNativeAuth.isOnline());
+      emitConnectivityStatus(nativeOnline);
+      return nativeOnline;
+    } catch (_) {}
+  }
+  if (typeof navigator !== 'undefined' && !navigator.onLine) {
+    emitConnectivityStatus(false);
+    return false;
+  }
+  try {
+    const controller = new AbortController();
+    const tid = setTimeout(() => controller.abort(), 3000);
+    const res = await fetch(`${API_BASE}/health`, {
+      method: 'GET',
+      mode: 'cors',
+      credentials: 'omit',
+      cache: 'no-store',
+      signal: controller.signal,
+    });
+    clearTimeout(tid);
+    const online = res.status >= 200 && res.status < 600;
+    emitConnectivityStatus(online);
+    return online;
+  } catch (_) {
+    emitConnectivityStatus(false);
+    return false;
+  }
+}
 
 if (typeof window !== 'undefined' && auth && typeof onAuthStateChanged === 'function') {
   try {
@@ -100,7 +145,18 @@ export function warmBackendConnection() {
       method: 'GET',
       mode: 'cors',
       credentials: 'omit',
-    }).catch(() => {});
+      cache: 'no-store',
+    })
+      .then((r) => {
+        if (r && r.status >= 200 && r.status < 600) {
+          emitConnectivityStatus(true);
+        }
+      })
+      .catch(() => {
+        if (typeof navigator !== 'undefined' && !navigator.onLine) {
+          emitConnectivityStatus(false);
+        }
+      });
   } catch (_) {}
 }
 
@@ -365,6 +421,7 @@ export async function getFreshAuthHeaders(forceRefresh = false) {
 
 export async function apiFetch(url, options = {}, timeoutMs = 30000) {
   if (typeof navigator !== 'undefined' && navigator.onLine === false) {
+    emitConnectivityStatus(false);
     throw new Error('You appear to be offline. Please check your internet connection and try again.');
   }
 
@@ -404,8 +461,17 @@ export async function apiFetch(url, options = {}, timeoutMs = 30000) {
   let res;
   try {
     res = await fetch(url, fetchOptions);
+    emitConnectivityStatus(true);
   } catch (err) {
     clearTimeout(timeoutId);
+    if (
+      err.name === 'TypeError' ||
+      (typeof navigator !== 'undefined' && !navigator.onLine) ||
+      err.message?.includes('fetch') ||
+      err.message?.includes('NetworkError')
+    ) {
+      emitConnectivityStatus(false);
+    }
     if (timedOut) {
       throw new Error(`Request timed out after ${Math.round(timeoutMs / 1000)}s. Please check your connection and try again.`);
     }
@@ -1731,4 +1797,228 @@ export async function prewarmPatientLocalCache(patientId = 'self', dependents = 
       }
     }
   } catch (_) {}
+}
+
+export const getPatientTrends = getMetricTrends;
+
+/**
+ * Automatically syncs and pre-downloads ALL data for a single profile into local cache:
+ * 1. User documents
+ * 2. Chat sessions & standalone chats
+ * 3. Merged conversations with cached message histories
+ * 4. Lab metrics and document summaries
+ * 5. Memory Vault facts and longitudinal biomarker trends
+ */
+export async function syncSingleProfileToLocalCache(patientId = 'self', options = {}) {
+  if (typeof window === 'undefined') return { docs: [], conversations: [] };
+  const pid = String(patientId || 'self');
+  const { isCurrentActive = false, updateUiCallback = null } = options;
+
+  // Offline fast-path: hydrate from cache immediately
+  if (typeof navigator !== 'undefined' && !navigator.onLine) {
+    const cachedDocs = getCachedDocuments(pid);
+    const cachedConvs = getCachedConversations(pid) || [];
+    return { docs: cachedDocs, conversations: cachedConvs };
+  }
+
+  try {
+    // 1. Fetch user documents and save to cache
+    const docs = await getUserDocuments(pid).catch(() => []);
+    const safeDocs = Array.isArray(docs) ? docs : [];
+    setCachedDocuments(safeDocs, pid);
+
+    // 2. Fetch chat sessions and general chats
+    const [chatSessions, generalChats] = await Promise.all([
+      getChatSessions(pid).catch(() => []),
+      getGeneralChats().catch(() => []),
+    ]);
+
+    // 3. Build merged conversations list for pid
+    const standaloneChatsBySession = new Map();
+    if (Array.isArray(generalChats)) {
+      generalChats.forEach((c) => {
+        const cPid = String(c.dependent_id || c.patient_id || 'self');
+        if (cPid === pid && !c.document_id) {
+          const sid = c.session_id || 'legacy-standalone';
+          if (!standaloneChatsBySession.has(sid)) standaloneChatsBySession.set(sid, []);
+          standaloneChatsBySession.get(sid).push(c);
+        }
+      });
+    }
+
+    if (Array.isArray(chatSessions)) {
+      chatSessions.forEach((s) => {
+        if (s.session_id && !standaloneChatsBySession.has(s.session_id)) {
+          standaloneChatsBySession.set(s.session_id, [
+            {
+              id: `stub_${s.session_id}`,
+              session_id: s.session_id,
+              session_title: s.title || 'New Conversation',
+              dependent_id: pid === 'self' ? null : pid,
+              role: 'ai',
+              message: '',
+              created_at: null,
+            },
+          ]);
+        }
+      });
+    }
+
+    const existingCached = getCachedConversations(pid) || [];
+    const existingMap = new Map();
+    if (Array.isArray(existingCached)) {
+      existingCached.forEach((c) => {
+        if (c.id) existingMap.set(c.id, c);
+        if (c.document_id) existingMap.set(c.document_id, c);
+      });
+    }
+
+    const syncedDocConvs = safeDocs.map((doc) => {
+      const existing = existingMap.get(doc.id);
+      const pdfMeta = {
+        id: doc.id,
+        name: doc.filename,
+        filename: doc.filename,
+        title: doc.title,
+        collected_at: doc.collected_at,
+        is_future_collection_date: doc.is_future_collection_date,
+        size: 8192,
+      };
+      let msgs = existing?.messages && existing.messages.length > 0 ? existing.messages : [];
+      return {
+        id: doc.id,
+        document_id: doc.id,
+        patient_id: pid,
+        patientId: pid,
+        title: doc.title || existing?.title || 'New Chat',
+        messages: msgs,
+        pdf: existing?.pdf || pdfMeta,
+        documents: existing?.documents || [pdfMeta],
+        created_at: existing?.created_at || doc.created_at,
+        collected_at: doc.collected_at || existing?.collected_at,
+        is_future_collection_date: doc.is_future_collection_date,
+        isDraft: false,
+      };
+    });
+
+    const syncedStandaloneConvs = [];
+    standaloneChatsBySession.forEach((messagesList, sid) => {
+      const existing = existingMap.get(sid);
+      const title = existing?.title && existing.title !== 'New Conversation'
+        ? existing.title
+        : (messagesList[0]?.session_title || 'New Conversation');
+      const formattedMessages = messagesList
+        .filter((c) => c.message)
+        .map((c) => ({
+          id: c.id,
+          sender: c.role === 'ai' ? 'assistant' : 'user',
+          text: c.role === 'ai' ? c.message : (c.message || '').replace(/^["'“”‘’]+|["'“”‘’]+$/g, '').trim(),
+          timestamp: c.created_at ? new Date(c.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '',
+        }));
+      syncedStandaloneConvs.push({
+        id: sid,
+        document_id: null,
+        patient_id: pid,
+        patientId: pid,
+        title,
+        messages: existing?.messages && existing.messages.length > formattedMessages.length
+          ? existing.messages
+          : (formattedMessages.length > 0 ? formattedMessages : (existing?.messages || [])),
+        pdf: null,
+        created_at: messagesList[0]?.created_at || null,
+        isDraft: false,
+      });
+    });
+
+    const freshDraft = {
+      id: `draft_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
+      title: 'New Chat',
+      messages: [],
+      pdf: null,
+      documents: [],
+      patient_id: pid,
+      patientId: pid,
+      isDraft: true,
+      created_at: new Date().toISOString(),
+    };
+
+    let mergedConvs = [freshDraft, ...syncedDocConvs, ...syncedStandaloneConvs];
+    setCachedConversations(mergedConvs, pid);
+
+    // 4. Trigger UI report count update callback
+    if (typeof updateUiCallback === 'function') {
+      try {
+        updateUiCallback({
+          patientId: pid,
+          docs: safeDocs,
+          reportCount: safeDocs.length,
+          conversations: mergedConvs,
+        });
+      } catch (_) {}
+    }
+
+    // 5. Fetch and cache full chat messages for all conversations of pid
+    for (const doc of safeDocs) {
+      if (typeof navigator !== 'undefined' && !navigator.onLine) break;
+      try {
+        const chats = await getDocumentChats(doc.id).catch(() => []);
+        if (Array.isArray(chats) && chats.length > 0) {
+          const formatted = chats.map((c) => ({
+            id: c.id,
+            sender: c.role === 'ai' ? 'assistant' : 'user',
+            text: c.role === 'ai' ? c.message : (c.message || '').replace(/^["'“”‘’]+|["'“”‘’]+$/g, '').trim(),
+            timestamp: c.created_at ? new Date(c.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '',
+          }));
+          const target = mergedConvs.find((c) => c.id === doc.id || c.document_id === doc.id);
+          if (target) {
+            target.messages = formatted;
+          }
+        }
+      } catch (_) {}
+    }
+
+    for (const sid of standaloneChatsBySession.keys()) {
+      if (typeof navigator !== 'undefined' && !navigator.onLine) break;
+      try {
+        const chats = await getDocumentChats(null, sid).catch(() => []);
+        if (Array.isArray(chats) && chats.length > 0) {
+          const formatted = chats.map((c) => ({
+            id: c.id,
+            sender: c.role === 'ai' ? 'assistant' : 'user',
+            text: c.role === 'ai' ? c.message : (c.message || '').replace(/^["'“”‘’]+|["'“”‘’]+$/g, '').trim(),
+            timestamp: c.created_at ? new Date(c.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '',
+          }));
+          const target = mergedConvs.find((c) => c.id === sid);
+          if (target) {
+            target.messages = formatted;
+          }
+        }
+      } catch (_) {}
+    }
+    setCachedConversations(mergedConvs, pid);
+
+    // 6. Pre-fetch lab metrics, summaries, facts, and trends
+    for (const doc of safeDocs.slice(0, 10)) {
+      if (typeof navigator !== 'undefined' && !navigator.onLine) break;
+      const docId = doc.id;
+      if (docId) {
+        if (!getCachedDocMetrics(docId)) {
+          await fetchLabMetrics(docId).catch(() => {});
+        }
+        if (!getCachedDocSummary(docId)) {
+          await getDocumentSummary(docId).catch(() => {});
+        }
+      }
+    }
+
+    await Promise.all([
+      getFacts(pid).catch(() => []),
+      getMetricTrends(pid).catch(() => ({})),
+    ]);
+
+    return { docs: safeDocs, conversations: mergedConvs };
+  } catch (err) {
+    logger.warn(`syncSingleProfileToLocalCache failed for ${pid}:`, err);
+    return { docs: getCachedDocuments(pid), conversations: getCachedConversations(pid) || [] };
+  }
 }

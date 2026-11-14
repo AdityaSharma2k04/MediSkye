@@ -55,6 +55,8 @@ import {
   getCachedConversations,
   setCachedConversations,
   prewarmPatientLocalCache,
+  syncSingleProfileToLocalCache,
+  API_BASE_URL,
   getMemoryFacts,
   getMetricTrends,
 } from '../services/api';
@@ -274,7 +276,54 @@ export default function ChatApp() {
 
   const handleManualCloudSyncRef = useRef(null);
 
-  const [isOnline, setIsOnline] = useState(() => (typeof navigator !== 'undefined' ? navigator.onLine : true));
+  const getInitialOnlineState = () => {
+    try {
+      if (typeof window !== 'undefined' && window.MediskyeNativeAuth && typeof window.MediskyeNativeAuth.isOnline === 'function') {
+        return Boolean(window.MediskyeNativeAuth.isOnline());
+      }
+    } catch (_) {}
+    return typeof navigator !== 'undefined' ? Boolean(navigator.onLine) : true;
+  };
+
+  const [isOnline, setIsOnline] = useState(getInitialOnlineState);
+
+  const computeProfileReportCountFromCache = (pid) => {
+    try {
+      const cachedDocs = typeof getCachedDocuments === 'function' ? getCachedDocuments(pid) : [];
+      if (Array.isArray(cachedDocs) && cachedDocs.length > 0) return cachedDocs.length;
+      const cachedConvs = typeof getCachedConversations === 'function' ? getCachedConversations(pid) : [];
+      if (Array.isArray(cachedConvs)) {
+        const docIds = new Set();
+        cachedConvs.forEach((c) => {
+          if (c.document_id || c.pdf?.id) {
+            docIds.add(String(c.document_id || c.pdf?.id));
+          }
+        });
+        if (docIds.size > 0) return docIds.size;
+      }
+    } catch (_) {}
+    return 0;
+  };
+
+  const getInitialProfileReportCounts = () => {
+    const counts = { self: computeProfileReportCountFromCache('self') };
+    try {
+      const cachedDeps = typeof getCachedDependents === 'function' ? getCachedDependents() : [];
+      if (Array.isArray(cachedDeps)) {
+        cachedDeps.forEach((dep) => {
+          if (dep?.id) {
+            counts[String(dep.id)] = Math.max(
+              computeProfileReportCountFromCache(String(dep.id)),
+              dep.report_count ?? dep.document_count ?? 0
+            );
+          }
+        });
+      }
+    } catch (_) {}
+    return counts;
+  };
+
+  const [profileReportCounts, setProfileReportCounts] = useState(getInitialProfileReportCounts);
 
   useEffect(() => {
     const handleOnline = () => {
@@ -285,14 +334,128 @@ export default function ChatApp() {
     };
     const handleOffline = () => setIsOnline(false);
 
+    const handleNetworkStatus = (e) => {
+      if (e?.detail && typeof e.detail.online === 'boolean') {
+        setIsOnline(e.detail.online);
+        if (e.detail.online && typeof handleManualCloudSyncRef.current === 'function') {
+          handleManualCloudSyncRef.current().catch(() => { });
+        }
+      }
+    };
+
     window.addEventListener('online', handleOnline);
     window.addEventListener('offline', handleOffline);
+    window.addEventListener('mediskye-network-status', handleNetworkStatus);
+
+    const checkHealth = async () => {
+      try {
+        if (typeof window !== 'undefined' && window.MediskyeNativeAuth && typeof window.MediskyeNativeAuth.isOnline === 'function') {
+          const nativeOn = Boolean(window.MediskyeNativeAuth.isOnline());
+          if (!nativeOn) {
+            setIsOnline(false);
+            return;
+          }
+        }
+        if (typeof navigator !== 'undefined' && !navigator.onLine) {
+          setIsOnline(false);
+          return;
+        }
+        if (import.meta.env?.MODE === 'test') {
+          // Avoid localhost connection refused errors in vitest environments without live backend
+          return;
+        }
+        const controller = new AbortController();
+        const tid = setTimeout(() => controller.abort(), 3000);
+        const res = await fetch(`${API_BASE_URL}/health`, {
+          method: 'GET',
+          cache: 'no-store',
+          signal: controller.signal,
+        });
+        clearTimeout(tid);
+        if (res.status >= 200 && res.status < 600) {
+          setIsOnline(true);
+        } else {
+          setIsOnline(false);
+        }
+      } catch (_) {
+        setIsOnline(false);
+      }
+    };
+
+    checkHealth();
+
+    const handleVisibility = () => {
+      if (document.visibilityState === 'visible') {
+        checkHealth();
+      }
+    };
+    document.addEventListener('visibilitychange', handleVisibility);
+
+    const intervalId = setInterval(() => {
+      checkHealth();
+    }, 10000);
 
     return () => {
       window.removeEventListener('online', handleOnline);
       window.removeEventListener('offline', handleOffline);
+      window.removeEventListener('mediskye-network-status', handleNetworkStatus);
+      document.removeEventListener('visibilitychange', handleVisibility);
+      clearInterval(intervalId);
     };
   }, []);
+
+  useEffect(() => {
+    if (Array.isArray(dependents) && dependents.length > 0) {
+      setProfileReportCounts((prev) => {
+        let updated = false;
+        const next = { ...prev };
+        dependents.forEach((dep) => {
+          if (!dep?.id) return;
+          const pid = String(dep.id);
+          const cachedCount = computeProfileReportCountFromCache(pid);
+          const serverDepCount = dep.report_count ?? dep.document_count ?? 0;
+          const best = Math.max(next[pid] || 0, cachedCount, serverDepCount);
+          if (next[pid] !== best) {
+            next[pid] = best;
+            updated = true;
+          }
+        });
+        return updated ? next : prev;
+      });
+    }
+  }, [dependents]);
+
+  const syncAllProfilesInBackground = useCallback(async (activePatId, depList = null) => {
+    if (typeof navigator !== 'undefined' && !navigator.onLine) return;
+    try {
+      let deps = depList;
+      if (!Array.isArray(deps)) {
+        deps = typeof getDependents === 'function' ? await getDependents().catch(() => []) : [];
+      }
+      const currentActive = String(activePatId || selectedPatientId || 'self');
+      const allProfileIds = ['self', ...(Array.isArray(deps) ? deps.map((d) => String(d.id)) : [])];
+      const otherProfileIds = allProfileIds.filter((pid) => pid !== currentActive);
+
+      for (const pid of otherProfileIds) {
+        if (typeof navigator !== 'undefined' && !navigator.onLine) break;
+        if (typeof syncSingleProfileToLocalCache === 'function') {
+          await Promise.resolve(
+            syncSingleProfileToLocalCache(pid, {
+              isCurrentActive: false,
+              updateUiCallback: ({ patientId, reportCount }) => {
+                setProfileReportCounts((prev) => ({
+                  ...prev,
+                  [String(patientId)]: reportCount,
+                }));
+              },
+            })
+          ).catch(() => {});
+        }
+      }
+    } catch (err) {
+      logger.warn('syncAllProfilesInBackground error:', err);
+    }
+  }, [selectedPatientId]);
 
   // Preload lazy modal chunks in background idle time
   useEffect(() => {
@@ -564,11 +727,14 @@ export default function ChatApp() {
       }
       if (depsRes) {
         setDependents(depsRes);
+        if (Array.isArray(depsRes) && depsRes.length > 0) {
+          Promise.resolve(syncAllProfilesInBackground('self', depsRes)).catch(() => {});
+        }
       }
     } catch (e) {
       logger.error('Failed to load patient context:', e);
     }
-  }, []);
+  }, [syncAllProfilesInBackground]);
 
   useEffect(() => {
     refreshPatientContext();
@@ -598,8 +764,12 @@ export default function ChatApp() {
     const activePatId = resolvedPatientId || selectedPatientId || (typeof localStorage !== 'undefined' ? localStorage.getItem('mediskye_patient_id') : null) || 'self';
 
     // Offline fast-path: hydrate from cache immediately and return early without overwriting with empty network responses
-    if (typeof navigator !== 'undefined' && !navigator.onLine) {
+    if (!isOnline || (typeof navigator !== 'undefined' && !navigator.onLine)) {
       const cachedDocs = typeof getCachedDocuments === 'function' ? getCachedDocuments(activePatId) : [];
+      setProfileReportCounts((prev) => ({
+        ...prev,
+        [String(activePatId)]: Array.isArray(cachedDocs) ? cachedDocs.length : 0,
+      }));
       const cachedConvs = typeof getCachedConversations === 'function' ? getCachedConversations(activePatId) : null;
       const filteredCached = (Array.isArray(cachedConvs) ? cachedConvs : []).filter(
         (c) => String(c.patientId || c.patient_id || 'self') === String(activePatId) && !c.isDraft
@@ -649,6 +819,10 @@ export default function ChatApp() {
       if (typeof setCachedDocuments === 'function') {
         setCachedDocuments(effectiveDocs, activePatId);
       }
+      setProfileReportCounts((prev) => ({
+        ...prev,
+        [String(activePatId)]: effectiveDocs.length,
+      }));
 
       // Group standalone chats by session_id
       const generalChats = Array.isArray(generalChatsRes) ? generalChatsRes : [];
@@ -917,7 +1091,7 @@ export default function ChatApp() {
       logger.error('Failed to refresh documents:', err);
       return [];
     }
-  }, [selectedPatientId]);
+  }, [selectedPatientId, isOnline]);
 
   // Synchronize with server truth on account load / refresh (Neon DB single source of truth)
   useEffect(() => {
@@ -930,11 +1104,14 @@ export default function ChatApp() {
         setActivePdf(null);
         // Pre-warm local cache for primary patient in background
         prewarmPatientLocalCache('self', dependents || [], docs || []);
+        // Automatically pre-download ALL dependent profiles in the background
+        Promise.resolve(syncAllProfilesInBackground('self', dependents)).catch(() => {});
       }).catch(() => {
         setActivePdf(null);
+        Promise.resolve(syncAllProfilesInBackground('self', dependents)).catch(() => {});
       });
     }
-  }, [currentUser?.id, refreshDocuments, dependents]);
+  }, [currentUser?.id, refreshDocuments, dependents, syncAllProfilesInBackground]);
 
   // ── Enforce permanent dark theme on the DOM ──
   useEffect(() => {
@@ -2067,6 +2244,9 @@ export default function ChatApp() {
         prewarmMessageHistories(conversations, patId);
       }, 50);
 
+      // 6. Pre-download all other dependent profiles in background
+      Promise.resolve(syncAllProfilesInBackground(patId, freshDeps)).catch(() => {});
+
       setSyncToast('Synced with cloud');
       setTimeout(() => setSyncToast(null), 2000);
     } catch (err) {
@@ -2074,22 +2254,39 @@ export default function ChatApp() {
     } finally {
       setIsSyncing(false);
     }
-  }, [isSyncing, currentUser, activePdf, currentChat, sessionId, selectedPatientId, refreshDocuments, loadChatHistory, labMetrics, prewarmMessageHistories, conversations]);
+  }, [isSyncing, currentUser, activePdf, currentChat, sessionId, selectedPatientId, refreshDocuments, loadChatHistory, labMetrics, prewarmMessageHistories, conversations, syncAllProfilesInBackground]);
 
   handleManualCloudSyncRef.current = handleManualCloudSync;
 
   const reportCounts = useMemo(() => {
-    const counts = {};
+    const counts = { ...profileReportCounts };
+    let activeConvDocCount = 0;
     conversations.forEach((c) => {
       if (!(c.document_id || c.pdf)) return;
-      const k = String(c.patient_id || 'self');
-      counts[k] = (counts[k] || 0) + 1;
+      const k = String(c.patient_id || selectedPatientId || 'self');
+      if (k === String(selectedPatientId || 'self')) {
+        activeConvDocCount++;
+      }
     });
+    if (selectedPatientId) {
+      counts[String(selectedPatientId)] = Math.max(
+        profileReportCounts[String(selectedPatientId)] || 0,
+        activeConvDocCount
+      );
+    }
     if (currentUser?.id && counts[String(currentUser.id)]) {
-      counts.self = (counts.self || 0) + counts[String(currentUser.id)];
+      counts.self = Math.max(counts.self || 0, counts[String(currentUser.id)]);
     }
     return counts;
-  }, [conversations, currentUser]);
+  }, [conversations, currentUser, selectedPatientId, profileReportCounts]);
+
+  const pdfs = useMemo(
+    () =>
+      conversations
+        .filter((c) => Boolean(c.pdf || c.document_id))
+        .map((c) => c.pdf || { id: c.document_id, title: c.title, filename: c.title, patient_id: c.patient_id || c.patientId }),
+    [conversations]
+  );
 
   const activePatient = useMemo(() => {
     if (isSelfSelected(selectedPatientId, currentUser)) return currentUser;
@@ -2254,6 +2451,9 @@ export default function ChatApp() {
           activePatient={activePatient}
           patientName={patientName}
           reportCounts={reportCounts}
+          profileReportCounts={reportCounts}
+          documents={pdfs}
+          pdfs={pdfs}
           conversationId={sessionId}
           messages={messages}
           isGenerating={isGenerating}

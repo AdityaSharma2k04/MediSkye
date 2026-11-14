@@ -81,6 +81,10 @@ vi.mock('../services/api', () => ({
   getCachedTrends: vi.fn().mockReturnValue(null),
   setCachedTrends: vi.fn(),
   prewarmPatientLocalCache: vi.fn(),
+  syncSingleProfileToLocalCache: vi.fn().mockResolvedValue({ docs: [], conversations: [] }),
+  emitConnectivityStatus: vi.fn(),
+  checkConnectivity: vi.fn().mockResolvedValue(true),
+  API_BASE_URL: 'http://localhost:8000',
 }));
 
 describe('ChatSessionSync — Multi-session standalone persistence across reloads', () => {
