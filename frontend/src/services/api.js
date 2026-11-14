@@ -52,24 +52,45 @@ export function formatApiError(data, fallback = 'Something went wrong on our end
   return fallback;
 }
 
-export function getCurrentUid() {
-  if (auth && auth.currentUser) return auth.currentUser.uid;
+export function getStableCacheUid(explicitUid) {
+  if (explicitUid) return explicitUid;
+  if (typeof window === 'undefined') return 'default';
   try {
+    if (auth && auth.currentUser && auth.currentUser.uid) {
+      const uid = auth.currentUser.uid;
+      try {
+        localStorage.setItem('mediskye_last_uid', uid);
+      } catch (_) {}
+      return uid;
+    }
     const rawSnap = localStorage.getItem('mediskye_auth_user_snapshot');
     if (rawSnap) {
       const snap = JSON.parse(rawSnap);
-      if (snap?.uid) return snap.uid;
+      if (snap?.uid) {
+        try {
+          localStorage.setItem('mediskye_last_uid', snap.uid);
+        } catch (_) {}
+        return snap.uid;
+      }
     }
+    const lastUid = localStorage.getItem('mediskye_last_uid');
+    if (lastUid) return lastUid;
+
     const token = localStorage.getItem('token');
     if (token) {
       const parts = token.split('.');
       if (parts.length >= 2) {
         const payload = JSON.parse(atob(parts[1].replace(/-/g, '+').replace(/_/g, '/')));
-        return payload.user_id || payload.sub || null;
+        const tokenUid = payload.user_id || payload.sub || null;
+        if (tokenUid) return tokenUid;
       }
     }
   } catch (_) {}
-  return null;
+  return 'default';
+}
+
+export function getCurrentUid() {
+  return getStableCacheUid();
 }
 
 export function warmBackendConnection() {
@@ -129,34 +150,47 @@ export function safeStorageGet(key, fallback = null) {
   }
 }
 
-export function getCachedProfile(uid = getCurrentUid()) {
-  if (!uid) return null;
-  return safeStorageGet(`mediskye_cached_profile_${uid}`, null);
+export function getCachedProfile(uid = getStableCacheUid()) {
+  const stableUid = getStableCacheUid(uid);
+  return safeStorageGet(`mediskye_cached_profile_${stableUid}`, null);
 }
 
-export function setCachedProfile(profile, uid = getCurrentUid()) {
-  if (!uid || !profile) return;
-  safeStorageSet(`mediskye_cached_profile_${uid}`, profile);
+export function setCachedProfile(profileOrUid, uidOrProfile) {
+  let profile = profileOrUid;
+  let uid = uidOrProfile;
+  if (typeof profileOrUid === 'string' && typeof uidOrProfile === 'object') {
+    uid = profileOrUid;
+    profile = uidOrProfile;
+  }
+  const stableUid = getStableCacheUid(uid);
+  if (!profile) return;
+  safeStorageSet(`mediskye_cached_profile_${stableUid}`, profile);
 }
 
-export function getCachedDependents(uid = getCurrentUid()) {
-  if (!uid) return [];
-  return safeStorageGet(`mediskye_cached_dependents_${uid}`, []);
+export function getCachedDependents(uid = getStableCacheUid()) {
+  const stableUid = getStableCacheUid(uid);
+  return safeStorageGet(`mediskye_cached_dependents_${stableUid}`, []);
 }
 
-export function setCachedDependents(dependents, uid = getCurrentUid()) {
-  if (!uid) return;
-  safeStorageSet(`mediskye_cached_dependents_${uid}`, dependents || []);
+export function setCachedDependents(dependentsOrUid, uidOrDependents) {
+  let dependents = dependentsOrUid;
+  let uid = uidOrDependents;
+  if (typeof dependentsOrUid === 'string' && Array.isArray(uidOrDependents)) {
+    uid = dependentsOrUid;
+    dependents = uidOrDependents;
+  }
+  const stableUid = getStableCacheUid(uid);
+  safeStorageSet(`mediskye_cached_dependents_${stableUid}`, dependents || []);
 }
 
-export function getCachedDocuments(patientId = 'self', uid = getCurrentUid()) {
-  if (!uid) return [];
-  return safeStorageGet(`mediskye_cached_documents_${uid}_${patientId || 'self'}`, []);
+export function getCachedDocuments(patientId = 'self', uid = getStableCacheUid()) {
+  const stableUid = getStableCacheUid(uid);
+  return safeStorageGet(`mediskye_cached_documents_${stableUid}_${patientId || 'self'}`, []);
 }
 
-export function setCachedDocuments(docs, patientId = 'self', uid = getCurrentUid()) {
-  if (!uid) return;
-  safeStorageSet(`mediskye_cached_documents_${uid}_${patientId || 'self'}`, docs || []);
+export function setCachedDocuments(docs, patientId = 'self', uid = getStableCacheUid()) {
+  const stableUid = getStableCacheUid(uid);
+  safeStorageSet(`mediskye_cached_documents_${stableUid}_${patientId || 'self'}`, docs || []);
 }
 
 // ── Per-Document Metrics & Summary ──
@@ -183,48 +217,50 @@ export function setCachedDocSummary(docId, summary) {
 
 // ── Memory Vault Facts Cache ──
 
-export function getCachedMemoryFacts(patientId = 'self', uid = getCurrentUid()) {
-  if (!uid) return [];
-  return safeStorageGet(`mediskye_cached_facts_${uid}_${patientId || 'self'}`, []);
+export function getCachedMemoryFacts(patientId = 'self', uid = getStableCacheUid()) {
+  const stableUid = getStableCacheUid(uid);
+  return safeStorageGet(`mediskye_cached_facts_${stableUid}_${patientId || 'self'}`, []);
 }
 
-export function setCachedMemoryFacts(facts, patientId = 'self', uid = getCurrentUid()) {
-  if (!uid) return;
-  safeStorageSet(`mediskye_cached_facts_${uid}_${patientId || 'self'}`, facts || []);
+export function setCachedMemoryFacts(facts, patientId = 'self', uid = getStableCacheUid()) {
+  const stableUid = getStableCacheUid(uid);
+  safeStorageSet(`mediskye_cached_facts_${stableUid}_${patientId || 'self'}`, facts || []);
 }
 
 // ── Longitudinal Biomarker Trends Cache ──
 
-export function getCachedTrends(patientId = 'self', uid = getCurrentUid()) {
-  if (!uid) return null;
-  return safeStorageGet(`mediskye_cached_trends_${uid}_${patientId || 'self'}`, null);
+export function getCachedTrends(patientId = 'self', uid = getStableCacheUid()) {
+  const stableUid = getStableCacheUid(uid);
+  return safeStorageGet(`mediskye_cached_trends_${stableUid}_${patientId || 'self'}`, null);
 }
 
-export function setCachedTrends(trends, patientId = 'self', uid = getCurrentUid()) {
-  if (!uid || !trends) return;
-  safeStorageSet(`mediskye_cached_trends_${uid}_${patientId || 'self'}`, trends);
+export function setCachedTrends(trends, patientId = 'self', uid = getStableCacheUid()) {
+  const stableUid = getStableCacheUid(uid);
+  if (!trends) return;
+  safeStorageSet(`mediskye_cached_trends_${stableUid}_${patientId || 'self'}`, trends);
 }
 
 // ── Persistent Chat Sessions Cache ──
 
-export function getCachedConversations(patientId = 'self', uid = getCurrentUid()) {
-  if (!uid) return null;
-  return safeStorageGet(`mediskye_conversations_${uid}_${patientId || 'self'}`, null);
+export function getCachedConversations(patientId = 'self', uid = getStableCacheUid()) {
+  const stableUid = getStableCacheUid(uid);
+  return safeStorageGet(`mediskye_conversations_${stableUid}_${patientId || 'self'}`, null);
 }
 
-export function setCachedConversations(conversations, patientId = 'self', uid = getCurrentUid()) {
-  if (!uid || !conversations) return;
-  safeStorageSet(`mediskye_conversations_${uid}_${patientId || 'self'}`, conversations);
+export function setCachedConversations(conversations, patientId = 'self', uid = getStableCacheUid()) {
+  const stableUid = getStableCacheUid(uid);
+  if (!conversations) return;
+  safeStorageSet(`mediskye_conversations_${stableUid}_${patientId || 'self'}`, conversations);
 }
 
-export function purgePatientLocalCache(patientId = 'self', uid = getCurrentUid()) {
-  if (!uid) return;
+export function purgePatientLocalCache(patientId = 'self', uid = getStableCacheUid()) {
+  const stableUid = getStableCacheUid(uid);
   try {
     const patKey = patientId || 'self';
-    localStorage.removeItem(`mediskye_cached_documents_${uid}_${patKey}`);
-    localStorage.removeItem(`mediskye_cached_facts_${uid}_${patKey}`);
-    localStorage.removeItem(`mediskye_cached_trends_${uid}_${patKey}`);
-    localStorage.removeItem(`mediskye_conversations_${uid}_${patKey}`);
+    localStorage.removeItem(`mediskye_cached_documents_${stableUid}_${patKey}`);
+    localStorage.removeItem(`mediskye_cached_facts_${stableUid}_${patKey}`);
+    localStorage.removeItem(`mediskye_cached_trends_${stableUid}_${patKey}`);
+    localStorage.removeItem(`mediskye_conversations_${stableUid}_${patKey}`);
   } catch (_) {}
 }
 
@@ -809,28 +845,40 @@ export async function getDocumentSummary(documentId, forceRefresh = false) {
 }
 
 export async function getProfile() {
-  const headers = await getFreshAuthHeaders();
-  let res = await fetch(`${API_BASE}/users/me`, {
-    method: 'GET',
-    headers,
-  });
-  if (res.status === 401 && auth && auth.currentUser) {
-    try {
-      const retryHeaders = await getFreshAuthHeaders(true);
-      res = await fetch(`${API_BASE}/users/me`, {
-        method: 'GET',
-        headers: retryHeaders,
-      });
-    } catch (e) {
-      // ignore retry error
+  if (typeof navigator !== 'undefined' && !navigator.onLine) {
+    const cached = getCachedProfile();
+    if (cached) return cached;
+  }
+  try {
+    const headers = await getFreshAuthHeaders();
+    let res = await fetch(`${API_BASE}/users/me`, {
+      method: 'GET',
+      headers,
+    });
+    if (res.status === 401 && auth && auth.currentUser) {
+      try {
+        const retryHeaders = await getFreshAuthHeaders(true);
+        res = await fetch(`${API_BASE}/users/me`, {
+          method: 'GET',
+          headers: retryHeaders,
+        });
+      } catch (e) {
+        // ignore retry error
+      }
     }
+    if (!res.ok) {
+      const cached = getCachedProfile();
+      if (cached) return cached;
+      throw new Error('Failed to fetch profile');
+    }
+    const prof = await res.json();
+    setCachedProfile(prof);
+    return prof;
+  } catch (err) {
+    const cached = getCachedProfile();
+    if (cached) return cached;
+    throw err;
   }
-  if (!res.ok) {
-    throw new Error('Failed to fetch profile');
-  }
-  const prof = await res.json();
-  setCachedProfile(prof);
-  return prof;
 }
 
 export async function updateProfile(data) {
@@ -907,16 +955,30 @@ export async function deleteAccount() {
 }
 
 export async function getDependents() {
-  const res = await fetch(`${API_BASE}/users/me/dependents`, {
-    method: 'GET',
-    headers: getAuthHeaders(),
-  });
-  if (!res.ok) {
-    throw new Error('Failed to fetch dependents');
+  if (typeof navigator !== 'undefined' && !navigator.onLine) {
+    const cached = getCachedDependents();
+    return Array.isArray(cached) ? cached : [];
   }
-  const deps = await res.json();
-  setCachedDependents(deps);
-  return deps;
+  try {
+    const res = await fetch(`${API_BASE}/users/me/dependents`, {
+      method: 'GET',
+      headers: getAuthHeaders(),
+    });
+    if (!res.ok) {
+      const cached = getCachedDependents();
+      if (Array.isArray(cached) && cached.length > 0) return cached;
+      throw new Error('Failed to fetch dependents');
+    }
+    const deps = await res.json();
+    if (Array.isArray(deps)) {
+      setCachedDependents(deps);
+    }
+    return deps;
+  } catch (err) {
+    const cached = getCachedDependents();
+    if (Array.isArray(cached) && cached.length > 0) return cached;
+    return [];
+  }
 }
 
 export async function createDependent(data) {
@@ -970,14 +1032,36 @@ export async function deleteDependent(id) {
   purgePatientLocalCache(id);
 }
 
-export async function getUserDocuments() {
-  const res = await fetch(`${API_BASE}/users/me/documents`, {
-    headers: getAuthHeaders(),
-  });
-  if (!res.ok) return [];
-  const docs = await res.json();
-  return docs;
+export async function getUserDocuments(patientId = 'self') {
+  const patKey = patientId || 'self';
+  if (typeof navigator !== 'undefined' && !navigator.onLine) {
+    const cached = getCachedDocuments(patKey);
+    return Array.isArray(cached) ? cached : [];
+  }
+  try {
+    let url = `${API_BASE}/users/me/documents`;
+    if (patientId && patientId !== 'self') {
+      url += `?patient_id=${encodeURIComponent(patientId)}`;
+    }
+    const res = await fetch(url, {
+      headers: getAuthHeaders(),
+    });
+    if (!res.ok) {
+      const cached = getCachedDocuments(patKey);
+      return Array.isArray(cached) ? cached : [];
+    }
+    const docs = await res.json();
+    if (Array.isArray(docs)) {
+      setCachedDocuments(docs, patKey);
+    }
+    return docs;
+  } catch (err) {
+    const cached = getCachedDocuments(patKey);
+    return Array.isArray(cached) ? cached : [];
+  }
 }
+
+export const getDocuments = getUserDocuments;
 
 export async function getDocumentChats(docId, sessionId = null) {
   let url = docId ? `${API_BASE}/users/me/documents/${docId}/chats` : `${API_BASE}/users/me/chats`;

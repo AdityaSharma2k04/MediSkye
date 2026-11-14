@@ -280,13 +280,12 @@ export default function Workbench(props) {
 
           {!isOnline && (
             <div
-              className="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-amber-500/10 border border-amber-500/25 text-amber-300 text-xs font-medium shrink-0 animate-fade-in"
               role="status"
-              aria-label="Offline mode"
+              aria-label="Offline"
+              className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium bg-rose-500/15 border border-rose-500/35 text-rose-400 select-none shrink-0 animate-fade-in"
             >
-              <span className="w-1.5 h-1.5 rounded-full bg-amber-400 animate-pulse" />
-              <span className="hidden sm:inline">Offline — viewing cached data</span>
-              <span className="sm:hidden">Offline</span>
+              <span className="w-1.5 h-1.5 rounded-full bg-rose-500 animate-pulse" />
+              <span>Offline</span>
             </div>
           )}
 

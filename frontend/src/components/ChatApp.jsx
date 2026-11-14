@@ -209,7 +209,30 @@ export default function ChatApp() {
   const [memoryOpen, setMemoryOpen] = useState(false);
   const [selectedSource, setSelectedSource] = useState(null);
 
-  const [activePdf, setActivePdf] = useState(null);
+  const [activePdf, setActivePdf] = useState(() => {
+    try {
+      const initPatId = localStorage.getItem('mediskye_patient_id') || 'self';
+      const cachedConvs = typeof getCachedConversations === 'function' ? getCachedConversations(initPatId) : null;
+      if (Array.isArray(cachedConvs)) {
+        const found = cachedConvs.find((c) => c.pdf || c.document_id);
+        if (found?.pdf) return found.pdf;
+      }
+      const cachedDocs = typeof getCachedDocuments === 'function' ? getCachedDocuments(initPatId) : null;
+      if (Array.isArray(cachedDocs) && cachedDocs.length > 0) {
+        const doc = cachedDocs[0];
+        return {
+          id: doc.id,
+          name: doc.filename,
+          filename: doc.filename,
+          title: doc.title,
+          collected_at: doc.collected_at,
+          is_future_collection_date: doc.is_future_collection_date,
+          size: 8192,
+        };
+      }
+    } catch (_) {}
+    return null;
+  });
   const [viewMode, setViewMode] = useState('chat');
   const [isGenerating, setIsGenerating] = useState(false);
   const [isExportingSummary, setIsExportingSummary] = useState(false);
@@ -411,8 +434,8 @@ export default function ChatApp() {
           }))
         : [];
 
-      setConversations((prev) =>
-        prev.map((item) => {
+      setConversations((prev) => {
+        const next = prev.map((item) => {
           const isTarget = item.id === targetSessionId || (targetDocId && (item.id === targetDocId || item.document_id === targetDocId));
           if (!isTarget) return item;
           if (
@@ -423,8 +446,15 @@ export default function ChatApp() {
             return item;
           }
           return { ...item, messages: formatted };
-        })
-      );
+        });
+        try {
+          const currentPat = localStorage.getItem('mediskye_patient_id') || 'self';
+          if (typeof setCachedConversations === 'function') {
+            setCachedConversations(next, currentPat);
+          }
+        } catch (_) {}
+        return next;
+      });
     } catch (e) {
       logger.error('Failed to load chat history from backend:', e);
     } finally {
@@ -441,6 +471,21 @@ export default function ChatApp() {
       if (optimisticUser.language_preference) {
         setLanguage(optimisticUser.language_preference);
       }
+    }
+    // Offline fast-path: hydrate cached profile and dependents immediately without waiting for network
+    if (typeof navigator !== 'undefined' && !navigator.onLine) {
+      const cachedUser = typeof getCachedProfile === 'function' ? getCachedProfile() : null;
+      const cachedDeps = typeof getCachedDependents === 'function' ? getCachedDependents() : [];
+      if (cachedUser) {
+        setCurrentUser(cachedUser);
+        if (cachedUser.language_preference) {
+          setLanguage(cachedUser.language_preference);
+        }
+      }
+      if (Array.isArray(cachedDeps) && cachedDeps.length > 0) {
+        setDependents(cachedDeps);
+      }
+      return;
     }
     try {
       const [userRes, depsRes] = await Promise.all([
@@ -467,16 +512,54 @@ export default function ChatApp() {
   }, [refreshPatientContext]);
 
   // Reusable document refresher: synchronizes server document & conversation truth with local state
-  const refreshDocuments = useCallback(async (activeDocId = null, overrideTitle = null) => {
+  const refreshDocuments = useCallback(async (activeDocId = null, overrideTitle = null, targetPatientId = null) => {
+    const activePatId = targetPatientId || selectedPatientId || (typeof localStorage !== 'undefined' ? localStorage.getItem('mediskye_patient_id') : null) || 'self';
+
+    // Offline fast-path: hydrate from cache immediately and return early without overwriting with empty network responses
+    if (typeof navigator !== 'undefined' && !navigator.onLine) {
+      const cachedDocs = typeof getCachedDocuments === 'function' ? getCachedDocuments(activePatId) : [];
+      const cachedConvs = typeof getCachedConversations === 'function' ? getCachedConversations(activePatId) : null;
+      if (Array.isArray(cachedConvs) && cachedConvs.length > 0) {
+        setConversations(cachedConvs);
+        const firstDocConv = cachedConvs.find((c) => c.pdf || c.document_id);
+        if (firstDocConv?.pdf) {
+          setActivePdf(firstDocConv.pdf);
+        }
+      } else if (Array.isArray(cachedDocs) && cachedDocs.length > 0) {
+        const docConvs = cachedDocs.map((doc) => ({
+          id: doc.id,
+          document_id: doc.id,
+          title: doc.title || doc.filename || 'Medical Report',
+          messages: [],
+          pdf: {
+            id: doc.id,
+            name: doc.filename,
+            filename: doc.filename,
+            title: doc.title,
+            collected_at: doc.collected_at,
+            is_future_collection_date: doc.is_future_collection_date,
+            size: 8192,
+          },
+          patient_id: doc.dependent_id || activePatId,
+          created_at: doc.created_at,
+        }));
+        setConversations(docConvs);
+        if (docConvs[0]?.pdf) {
+          setActivePdf(docConvs[0].pdf);
+        }
+      }
+      return Array.isArray(cachedDocs) ? cachedDocs : [];
+    }
+
     try {
       const [docsRes, generalChatsRes] = await Promise.all([
-        getUserDocuments().catch(() => []),
+        getUserDocuments(activePatId).catch(() => []),
         getGeneralChats().catch(() => []),
       ]);
       const docs = Array.isArray(docsRes) ? docsRes : [];
       let effectiveDocs = [...docs];
       if (typeof setCachedDocuments === 'function') {
-        setCachedDocuments(effectiveDocs, selectedPatientId);
+        setCachedDocuments(effectiveDocs, activePatId);
       }
 
       // Group standalone chats by session_id
@@ -527,7 +610,9 @@ export default function ChatApp() {
             ? overrideTitle
             : doc.title;
 
-          let messages = existing?.messages || [];
+          let messages = (existing?.messages && existing.messages.length > 0)
+            ? existing.messages
+            : [];
 
           if (existing) {
             return {
@@ -587,7 +672,7 @@ export default function ChatApp() {
             title,
             messages: (existing?.messages && existing.messages.length > formattedMessages.length)
               ? existing.messages
-              : formattedMessages,
+              : (formattedMessages.length > 0 ? formattedMessages : (existing?.messages || [])),
             pdf: null,
             created_at: messagesList[0]?.created_at || null,
           });
@@ -605,8 +690,9 @@ export default function ChatApp() {
             : allConvs;
 
         try {
-          const currentPat = localStorage.getItem('mediskye_patient_id') || 'self';
-          setCachedConversations(finalConvs, currentPat);
+          if (typeof setCachedConversations === 'function') {
+            setCachedConversations(finalConvs, activePatId);
+          }
         } catch (_) {}
 
         return finalConvs;
@@ -617,7 +703,7 @@ export default function ChatApp() {
       logger.error('Failed to refresh documents:', err);
       return [];
     }
-  }, []);
+  }, [selectedPatientId]);
 
   // Synchronize with server truth on account load / refresh (Neon DB single source of truth)
   useEffect(() => {
@@ -1255,7 +1341,7 @@ export default function ChatApp() {
     } finally {
       if (!isConflict) {
         setConversations((prev) => {
-          return prev.map((c) => {
+          const next = prev.map((c) => {
             if (c.id !== activeTargetId) return c;
             const targetIdx = c.messages.findIndex((m) => m.id === assistantMsgId);
             if (targetIdx === -1) return c;
@@ -1268,6 +1354,13 @@ export default function ChatApp() {
             updatedMsgs[targetIdx] = targetMsg;
             return { ...c, messages: updatedMsgs };
           });
+          try {
+            const currentPat = localStorage.getItem('mediskye_patient_id') || 'self';
+            if (typeof setCachedConversations === 'function') {
+              setCachedConversations(next, currentPat);
+            }
+          } catch (_) {}
+          return next;
         });
       }
       if (abortControllerRef.current === controller) {

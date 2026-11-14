@@ -219,6 +219,7 @@ pub fn run() {
         .min_inner_size(390.0, 640.0)
         .resizable(true)
         .center()
+        .background_color(tauri::window::Color(7, 11, 20, 255))
         .initialization_script(r#"
           window.MediskyeNativeAuth = {
             startGoogleLogin: function() {

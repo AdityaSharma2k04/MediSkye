@@ -143,9 +143,8 @@ const ProtectedRoute = ({ children }) => {
   return children;
 };
 
-const GlobalAuthListener = () => {
+const GlobalAuthListener = ({ user, setUser }) => {
   const navigate = useNavigate();
-  const [user, setUser] = useState(() => getSavedAuthSession());
 
   useEffect(() => {
     // 1. Guard onAuthStateChanged: never let transient null log out an active 15-day session
@@ -157,15 +156,21 @@ const GlobalAuthListener = () => {
             touchAuthActivity();
             const idToken = await firebaseUser.getIdToken(false).catch(() => null);
             saveAuthSession(firebaseUser, idToken);
-            setUser(firebaseUser);
+            if (typeof setUser === 'function') {
+              setUser(firebaseUser);
+            }
           } else {
             const savedSession = getSavedAuthSession();
             if (savedSession) {
               // DO NOT call setUser(null) and DO NOT clear localStorage!
               // Keep user set to savedSession across sleep/wake, offline boots, and WebView reloads.
-              setUser(savedSession);
+              if (typeof setUser === 'function') {
+                setUser(savedSession);
+              }
             } else {
-              setUser(null);
+              if (typeof setUser === 'function') {
+                setUser(null);
+              }
             }
           }
         });
@@ -192,7 +197,9 @@ const GlobalAuthListener = () => {
     const refreshAuthTokenIfActive = async () => {
       if (isSessionExpiredByInactivity()) {
         await performExplicitLogout();
-        setUser(null);
+        if (typeof setUser === 'function') {
+          setUser(null);
+        }
         navigate('/login', { replace: true });
         return;
       }
@@ -256,7 +263,9 @@ const GlobalAuthListener = () => {
           if (result?.user) {
             const token = await result.user.getIdToken();
             saveAuthSession(result.user, token);
-            setUser(result.user);
+            if (typeof setUser === 'function') {
+              setUser(result.user);
+            }
             navigate('/chat', { replace: true });
           }
         }
@@ -277,31 +286,62 @@ const GlobalAuthListener = () => {
       window.removeEventListener('auth:expired', handleAuthExpired);
       window.removeEventListener('mediskye-native-google-auth', handleNativeGoogleAuth);
     };
-  }, [navigate]);
+  }, [navigate, setUser]);
 
   return null;
 };
 
 export default function App() {
+  const [user, setUser] = useState(() => getSavedAuthSession());
   const isExternalGoogleAuth = typeof window !== 'undefined' &&
     new URLSearchParams(window.location.search).get('native_google_auth') === '1';
 
   if (isExternalGoogleAuth) {
     return (
-      <Suspense fallback={<LandingSkeleton />}>
+      <Suspense fallback={<div className="fixed inset-0 bg-[#070B14]" />}>
         <ExternalAuthLanding />
       </Suspense>
     );
   }
 
+  const isNativeApp = typeof window !== 'undefined' && Boolean(
+    window.__TAURI_INTERNALS__ ||
+    window.__TAURI__ ||
+    window.MediskyeNativeAuth ||
+    window.Capacitor?.isNativePlatform?.()
+  );
+
+  const isAuthenticated = Boolean(user || getSavedAuthSession());
+
   return (
     <BrowserRouter>
-      <GlobalAuthListener />
-      <Suspense fallback={<LandingSkeleton />}>
+      <GlobalAuthListener user={user} setUser={setUser} />
+      <Suspense fallback={<div className="fixed inset-0 bg-[#070B14]" />}>
         <Routes>
-          <Route path="/" element={<LandingPage />} />
-          <Route path="/login" element={<Login />} />
-          <Route path="/register" element={<Register />} />
+          <Route
+            path="/"
+            element={
+              isAuthenticated ? (
+                <Navigate to="/chat" replace />
+              ) : isNativeApp ? (
+                <Navigate to="/login" replace />
+              ) : (
+                <LandingPage />
+              )
+            }
+          />
+          <Route
+            path="/login"
+            element={
+              isAuthenticated ? <Navigate to="/chat" replace /> : <Login />
+            }
+          />
+          <Route
+            path="/register"
+            element={
+              isAuthenticated ? <Navigate to="/chat" replace /> : <Register />
+            }
+          />
           <Route path="/privacy" element={<PrivacyPolicy />} />
           <Route path="/auth/action" element={<AuthAction />} />
           <Route
@@ -312,8 +352,15 @@ export default function App() {
               </ProtectedRoute>
             }
           />
-          {/* Catch-all: redirect unknown paths to landing */}
-          <Route path="*" element={<Navigate to="/" replace />} />
+          <Route
+            path="*"
+            element={
+              <Navigate
+                to={isAuthenticated ? "/chat" : isNativeApp ? "/login" : "/"}
+                replace
+              />
+            }
+          />
         </Routes>
       </Suspense>
     </BrowserRouter>

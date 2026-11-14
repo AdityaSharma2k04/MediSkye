@@ -104,7 +104,8 @@ describe('Frontend Speed & UX Polish', () => {
       />
     );
 
-    expect(screen.getByText(/Offline — viewing cached data/i)).toBeInTheDocument();
+    expect(screen.getByRole('status', { name: /^Offline$/i })).toBeInTheDocument();
+    expect(screen.getByText(/^Offline$/i)).toBeInTheDocument();
   });
 });
 
