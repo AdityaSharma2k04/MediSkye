@@ -1,0 +1,10 @@
+{
+  "java.import.gradle.enabled": false,
+  "java.import.maven.enabled": false,
+  "java.configuration.checkProjectSettingsExclusions": false,
+  "files.watcherExclude": {
+    "**/frontend/android/.gradle/**": true,
+    "**/frontend/android/build/**": true,
+    "**/frontend/android/app/build/**": true
+  }
+}
