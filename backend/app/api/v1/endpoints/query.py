@@ -730,7 +730,7 @@ async def query_bot(
 
                     explicit_overview_match = bool(
                         re.search(
-                            r"(?i)(?:^(?:now\s+)?(?:can\s+you\s+)?(?:give\s+me\s+)?(?:the\s+|a\s+)?(?:full|complete|entire)\s+(?:overview|breakdown|summary)(?:\s+of\s+(?:this|my|the)?\s*(?:report|results?|blood\s*work)?)?|\b(?:tell\s+me\s+about|explain|summarize|walk\s+me\s+through|give\s+me\s+(?:a|the)?\s*(?:full|complete|entire)?\s*(?:overview|breakdown|summary)\s*(?:of)?|(?:full|complete|entire)\s+(?:overview|breakdown|summary)\s*(?:of)?|overview\s+of)\s+(?:this|my|the|the\s+whole|the\s+entire)?\s*(?:report|lab\s+report|blood\s*work|results?))\b",
+                            r"(?i)(?:^(?:now\s+)?(?:can\s+you\s+)?(?:please\s+)?(?:give\s+me\s+)?(?:the\s+|a\s+)?(?:full|complete|entire)\s+(?:report\s+)?(?:overview|walkthrough|breakdown|summary)(?:\s+of\s+(?:this|my|the)?\s*(?:report|results?|blood\s*work)?)?|\b(?:tell\s+me\s+about|explain|summarize|walk\s+me\s+through|give\s+me\s+(?:a|the)?\s*(?:full|complete|entire)?\s*(?:overview|walkthrough|breakdown|summary)\s*(?:of)?|(?:full|complete|entire)\s+(?:report\s+)?(?:overview|walkthrough|breakdown|summary)\s*(?:of)?|overview\s+of|walkthrough\s+of)\s+(?:this|my|the|the\s+whole|the\s+entire)?\s*(?:report|lab\s+report|blood\s*work|results?))\b",
                             body.query.strip(),
                         )
                     )
@@ -976,6 +976,40 @@ async def query_bot(
 
                     pending_buffer += chunk_text
                     lower_buf = pending_buffer.lower()
+
+                    # Check for bare or fenced abnormal_flags JSON
+                    if "abnormal_flags" in lower_buf:
+                        brace_idx = lower_buf.find('{"abnormal_flags"')
+                        if brace_idx == -1:
+                            brace_idx = lower_buf.find('{')
+                        fence_idx_ab = -1
+                        for fence in ("```", "~~~"):
+                            idx = lower_buf.find(fence)
+                            if idx != -1 and (fence_idx_ab == -1 or idx < fence_idx_ab):
+                                fence_idx_ab = idx
+                        cut_pos = fence_idx_ab if (fence_idx_ab != -1 and fence_idx_ab < brace_idx) else brace_idx
+                        if cut_pos != -1:
+                            in_json_block = True
+                            visible_chunk = pending_buffer[:cut_pos]
+                            if visible_chunk:
+                                attempt_visible += visible_chunk
+                                attempt_yielded_to_client = True
+                                yield f'data: {json.dumps({"chunk": visible_chunk})}\n\n'
+                            pending_buffer = ""
+                            continue
+
+                    # Buffer trailing partial XML tags (<followup_turn_instruction, etc.)
+                    xml_match = re.search(r'<(?:patient_health_profile|extracted_report_biomarkers|analysis_hints|followup_turn_instruction|uploaded_documents|current_session_history|patient_context)[^>]*$', pending_buffer, re.IGNORECASE)
+                    if xml_match:
+                        tag_start = xml_match.start()
+                        to_yield = pending_buffer[:tag_start]
+                        pending_buffer = pending_buffer[tag_start:]
+                        if to_yield:
+                            attempt_visible += to_yield
+                            attempt_yielded_to_client = True
+                            yield f'data: {json.dumps({"chunk": to_yield})}\n\n'
+                        continue
+
                     has_fence = False
                     fence_idx = -1
                     for fence in ("```", "~~~"):
@@ -1033,15 +1067,22 @@ async def query_bot(
                 if pending_buffer and not in_json_block:
                     lower_pending = pending_buffer.lower()
                     fences_found = [lower_pending.find(f) for f in ("```", "~~~") if lower_pending.find(f) != -1]
-                    if "abnormal_flags" in lower_pending and fences_found:
-                        fence_idx = min(fences_found)
-                        visible_chunk = pending_buffer[:fence_idx]
+                    if "abnormal_flags" in lower_pending:
+                        cut_idx = min(fences_found) if fences_found else lower_pending.find("abnormal_flags")
+                        if cut_idx != -1:
+                            brace_before = lower_pending.rfind("{", 0, cut_idx)
+                            if brace_before != -1:
+                                cut_idx = min(cut_idx, brace_before)
+                        visible_chunk = pending_buffer[:cut_idx] if cut_idx > 0 else ""
                         if visible_chunk:
                             attempt_visible += visible_chunk
                             yield f'data: {json.dumps({"chunk": visible_chunk})}\n\n'
                     else:
-                        attempt_visible += pending_buffer
-                        yield f'data: {json.dumps({"chunk": pending_buffer})}\n\n'
+                        clean_buf = re.sub(r'<(?:patient_health_profile|extracted_report_biomarkers|analysis_hints|followup_turn_instruction|uploaded_documents|current_session_history|patient_context)[^>]*>[\s\S]*$', '', pending_buffer, flags=re.IGNORECASE)
+                        clean_buf = re.sub(r'<(?:patient_health_profile|extracted_report_biomarkers|analysis_hints|followup_turn_instruction|uploaded_documents|current_session_history|patient_context)[^>]*$', '', clean_buf, flags=re.IGNORECASE)
+                        if clean_buf:
+                            attempt_visible += clean_buf
+                            yield f'data: {json.dumps({"chunk": clean_buf})}\n\n'
 
                 full_raw_text = attempt_full_raw
                 visible_text = attempt_visible

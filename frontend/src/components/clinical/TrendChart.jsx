@@ -69,7 +69,9 @@ export default function TrendChart({ series, height = 200, className }) {
     const x = (t) => (tMax === tMin ? (pad.l + W - pad.r) / 2 : pad.l + ((t - tMin) / (tMax - tMin)) * (W - pad.l - pad.r));
     const y = (v) => pad.t + (1 - (v - min) / (max - min)) * (H - pad.t - pad.b);
 
-    const coords = pts.map((p) => ({ ...p, cx: x(p.t), cy: y(p.value) }));
+    const coords = pts
+      .map((p) => ({ ...p, cx: x(p.t), cy: y(p.value) }))
+      .filter((c) => Number.isFinite(c.cx) && Number.isFinite(c.cy));
     const ticks = [0, 0.5, 1].map((f) => min + (max - min) * f);
     const band = range
       ? { y1: y(range.high ?? max), y2: y(range.low ?? min) }

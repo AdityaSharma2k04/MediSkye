@@ -54,7 +54,7 @@ def test_numeric_parsing_indian_and_thousands_notations():
 
 
 def test_reference_range_operators_and_formats():
-    """Verify ranges formatted with 'Up to', 'Above', 'to', and hyphens."""
+    """Verify ranges formatted with 'Up to', 'Above', 'to', hyphens, and administrative prefixes."""
     # Up to 200 mg/dL
     rng = parse_reference_range("Up to 200")
     assert rng["high"] == 200.0
@@ -76,6 +76,21 @@ def test_reference_range_operators_and_formats():
     assert rng["low"] == 4.5
     assert rng["high"] == 5.5
     assert rng["type"] == "bounded"
+
+    # Prefixed ranges
+    rng_pref = parse_reference_range("Desirable: < 200 mg/dL")
+    assert rng_pref["high"] == 200.0
+    assert rng_pref["type"] == "upper"
+
+    rng_target = parse_reference_range("Target: > 60")
+    assert rng_target["low"] == 60.0
+    assert rng_target["type"] == "lower"
+
+    # Indian thousands range
+    rng_thousands = parse_reference_range("1,50,000 - 4,50,000 /cumm")
+    assert rng_thousands["low"] == 150000.0
+    assert rng_thousands["high"] == 450000.0
+    assert rng_thousands["type"] == "bounded"
 
 
 def test_urinalysis_vs_serum_albumin_disambiguation():
@@ -150,7 +165,7 @@ def test_explicit_overview_regex_generalization():
     explicit_overview_match and avoid accidental follow-up turn lock.
     """
     overview_regex = re.compile(
-        r"(?i)(?:^(?:now\s+)?(?:can\s+you\s+)?(?:give\s+me\s+)?(?:the\s+|a\s+)?(?:full|complete|entire)\s+(?:overview|breakdown|summary)(?:\s+of\s+(?:this|my|the)?\s*(?:report|results?|blood\s*work)?)?|\b(?:tell\s+me\s+about|explain|summarize|walk\s+me\s+through|give\s+me\s+(?:a|the)?\s*(?:full|complete|entire)?\s*(?:overview|breakdown|summary)\s*(?:of)?|(?:full|complete|entire)\s+(?:overview|breakdown|summary)\s*(?:of)?|overview\s+of)\s+(?:this|my|the|the\s+whole|the\s+entire)?\s*(?:report|lab\s+report|blood\s*work|results?))\b"
+        r"(?i)(?:^(?:now\s+)?(?:can\s+you\s+)?(?:please\s+)?(?:give\s+me\s+)?(?:the\s+|a\s+)?(?:full|complete|entire)\s+(?:report\s+)?(?:overview|walkthrough|breakdown|summary)(?:\s+of\s+(?:this|my|the)?\s*(?:report|results?|blood\s*work)?)?|\b(?:tell\s+me\s+about|explain|summarize|walk\s+me\s+through|give\s+me\s+(?:a|the)?\s*(?:full|complete|entire)?\s*(?:overview|walkthrough|breakdown|summary)\s*(?:of)?|(?:full|complete|entire)\s+(?:report\s+)?(?:overview|walkthrough|breakdown|summary)\s*(?:of)?|overview\s+of|walkthrough\s+of)\s+(?:this|my|the|the\s+whole|the\s+entire)?\s*(?:report|lab\s+report|blood\s*work|results?))\b"
     )
 
     overview_queries = [
@@ -159,9 +174,14 @@ def test_explicit_overview_regex_generalization():
         "Can you give me a complete summary of this report",
         "Walk me through the whole report",
         "Walk me through the entire report",
+        "Walk me through this report",
+        "give me a full walkthrough of this report",
+        "full walkthrough",
+        "full report overview",
         "Tell me about this report",
         "Summarize this lab report",
         "Explain my results",
+        "explain the report",
         "full breakdown of my blood work",
     ]
 

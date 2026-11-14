@@ -1285,7 +1285,25 @@ export async function reassignDocumentPatient(documentId, patientId) {
 
 export const renameChat = renameChatSession;
 
-export async function deleteDocument(documentId) {
+export async function deleteDocument(documentId, patientId = 'self') {
+  try {
+    const patKey = patientId || 'self';
+    const cachedDocs = getCachedDocuments(patKey);
+    if (Array.isArray(cachedDocs)) {
+      setCachedDocuments(cachedDocs.filter((d) => d.id !== documentId), patKey);
+    }
+    const cachedConvs = getCachedConversations(patKey);
+    if (Array.isArray(cachedConvs)) {
+      setCachedConversations(
+        cachedConvs.filter((c) => c.id !== documentId && c.document_id !== documentId),
+        patKey
+      );
+    }
+    if (typeof localStorage !== 'undefined') {
+      localStorage.removeItem(`mediskye_cached_doc_metrics_${documentId}`);
+    }
+  } catch (_) {}
+
   const res = await fetch(`${API_BASE}/users/me/documents/${documentId}`, {
     method: 'DELETE',
     headers: { ...getAuthHeaders() },

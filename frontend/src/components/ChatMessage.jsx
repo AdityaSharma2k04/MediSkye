@@ -26,11 +26,18 @@ export const stripAbnormalFlags = (text) => {
     .replace(/(?:```|~~~)(?:json)?\s*\{[\s\S]*?"abnormal_flags"[\s\S]*$/gi, '')
     .replace(/(?:```|~~~)(?:json)?\s*\{[\s\S]*?$/gi, '')
     .replace(/(?:```|~~~)(?:json)?\s*$/gi, '')
+    // Bare json abnormal_flags block with or without fences
+    .replace(/\{[\s\S]*?"abnormal_flags"[\s\S]*?\}\s*$/gi, '')
+    .replace(/\{[\s\S]*?"abnormal_flags"[\s\S]*$/gi, '')
     // Internal system prompt XML tags that should never leak to users
     .replace(/<(?:patient_health_profile|extracted_report_biomarkers|analysis_hints|followup_turn_instruction|uploaded_documents|current_session_history|patient_context)(?:\s+[^>]*)?>[\s\S]*?<\/(?:patient_health_profile|extracted_report_biomarkers|analysis_hints|followup_turn_instruction|uploaded_documents|current_session_history|patient_context)>/gi, '')
     .replace(/<(?:patient_health_profile|extracted_report_biomarkers|analysis_hints|followup_turn_instruction|uploaded_documents|current_session_history|patient_context)(?:\s+[^>]*)?\/>/gi, '')
+    .replace(/<(?:patient_health_profile|extracted_report_biomarkers|analysis_hints|followup_turn_instruction|uploaded_documents|current_session_history|patient_context)(?:\s+[^>]*)?>[\s\S]*$/gi, '')
+    .replace(/<(?:patient_health_profile|extracted_report_biomarkers|analysis_hints|followup_turn_instruction|uploaded_documents|current_session_history|patient_context)(?:\s+[^>]*)?$/gi, '')
     .replace(/<[a-z_]+_instruction(?:\s+[^>]*)?>[\s\S]*?<\/[a-z_]+_instruction>/gi, '')
     .replace(/<[a-z_]+_instruction(?:\s+[^>]*)?\/>/gi, '')
+    .replace(/<[a-z_]+_instruction(?:\s+[^>]*)?>[\s\S]*$/gi, '')
+    .replace(/<[a-z_]+_instruction(?:\s+[^>]*)?$/gi, '')
     .trim();
 };
 

@@ -138,7 +138,13 @@ export default function ChatWindow({
   };
 
   useLayoutEffect(() => {
-    if (stickRef.current) scrollToBottom();
+    const isUserSending = messages && messages.length > 0 && messages[messages.length - 1]?.sender === 'user';
+    if (isUserSending) {
+      stickRef.current = true;
+      scrollToBottom();
+    } else if (stickRef.current) {
+      scrollToBottom();
+    }
   }, [messages, isGenerating]);
 
   // Whenever the user switches to an existing conversation (conversationId changes)

@@ -419,25 +419,14 @@ def parse_reference_range(raw_range: Any) -> Optional[Dict[str, Any]]:
 
     # Strip embedded units
     s_clean = re.sub(
-        r'\b(?:mg/dl|g/dl|ng/ml|pg/ml|ug/l|µg/l|mcg/l|pmol/l|nmol/l|mmol/l|u/l|uIU/ml|10\^?[36]/[uµμ]L|%|/ul)\b',
+        r'\b(?:mg/dl|g/dl|mg/l|g/l|ng/ml|pg/ml|ug/l|µg/l|mcg/l|pmol/l|nmol/l|mmol/l|u/l|iu/l|miu/l|mu/l|uiu/ml|10\^?[36]/[uµμ]L|%|/ul|fl|pg|cumm|/cumm|cells/[uµμ]l|mm/hr|seconds?|sec)\b',
         '', s, flags=re.IGNORECASE
     ).strip()
 
-    # 1. Lower-bounded: >= 90, ≥ 40, > 60, above 40, greater than 60
-    m_lower = re.match(r'^(?:>=|≥|>|above|more\s+than|greater\s+than)\s*([0-9.,]+)$', s_clean, re.IGNORECASE)
-    if m_lower:
-        val = parse_numeric_value(_normalize_numeric_string(m_lower.group(1)))
-        if val is not None:
-            return {"type": "lower", "low": val}
+    # Strip qualitative/administrative prefixes e.g. "Normal:", "Target:", "Desirable:"
+    s_clean = re.sub(r'^(?:normal|desirable|optimal|target|reference|ref|range)\s*[:\-]?\s*', '', s_clean, flags=re.IGNORECASE).strip()
 
-    # 2. Upper-bounded: < 200, <= 100, ≤ 150, up to 150, less than 200
-    m_upper = re.match(r'^(?:<=|≤|<|up\s+to|less\s+than)\s*([0-9.,]+)$', s_clean, re.IGNORECASE)
-    if m_upper:
-        val = parse_numeric_value(_normalize_numeric_string(m_upper.group(1)))
-        if val is not None:
-            return {"type": "upper", "high": val}
-
-    # 3. Bounded: 4.0 - 5.6, 0.70 – 1.25, 4.0 to 5.6, 1,50,000 - 4,50,000
+    # 1. Bounded: 4.0 - 5.6, 0.70 – 1.25, 4.0 to 5.6, 1,50,000 - 4,50,000
     m_bounded = re.search(
         r'([0-9.,]+)\s*(?:-|–|—|−|\bto\b)\s*([0-9.,]+)',
         s_clean,
@@ -448,6 +437,20 @@ def parse_reference_range(raw_range: Any) -> Optional[Dict[str, Any]]:
         high = parse_numeric_value(_normalize_numeric_string(m_bounded.group(2)))
         if low is not None and high is not None and low < high:
             return {"type": "bounded", "low": low, "high": high}
+
+    # 2. Lower-bounded: >= 90, ≥ 40, > 60, above 40, greater than 60
+    m_lower = re.search(r'(?:>=|≥|>|above|more\s+than|greater\s+than)\s*([0-9.,]+)', s_clean, re.IGNORECASE)
+    if m_lower:
+        val = parse_numeric_value(_normalize_numeric_string(m_lower.group(1)))
+        if val is not None:
+            return {"type": "lower", "low": val}
+
+    # 3. Upper-bounded: < 200, <= 100, ≤ 150, up to 150, less than 200
+    m_upper = re.search(r'(?:<=|≤|<|up\s+to|less\s+than)\s*([0-9.,]+)', s_clean, re.IGNORECASE)
+    if m_upper:
+        val = parse_numeric_value(_normalize_numeric_string(m_upper.group(1)))
+        if val is not None:
+            return {"type": "upper", "high": val}
 
     return None
 

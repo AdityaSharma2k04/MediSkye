@@ -575,8 +575,27 @@ export default function ChatApp() {
   }, [refreshPatientContext]);
 
   // Reusable document refresher: synchronizes server document & conversation truth with local state
-  const refreshDocuments = useCallback(async (activeDocId = null, overrideTitle = null, targetPatientId = null) => {
-    const activePatId = targetPatientId || selectedPatientId || (typeof localStorage !== 'undefined' ? localStorage.getItem('mediskye_patient_id') : null) || 'self';
+  const refreshDocuments = useCallback(async (activeDocIdOrPat = null, overrideTitleOrOpts = null, targetPatientId = null) => {
+    let resolvedActiveDocId = activeDocIdOrPat;
+    let resolvedOverrideTitle = overrideTitleOrOpts;
+    let resolvedPatientId = targetPatientId;
+
+    if (typeof activeDocIdOrPat === 'object' && activeDocIdOrPat !== null) {
+      resolvedPatientId = activeDocIdOrPat.patientId || activeDocIdOrPat.targetPatientId || null;
+      resolvedActiveDocId = activeDocIdOrPat.activeDocId || null;
+      resolvedOverrideTitle = activeDocIdOrPat.overrideTitle || null;
+    } else if (
+      typeof activeDocIdOrPat === 'string' &&
+      (activeDocIdOrPat === 'self' || activeDocIdOrPat.startsWith('dep_') || overrideTitleOrOpts?.forceNetwork || (typeof overrideTitleOrOpts === 'object' && overrideTitleOrOpts !== null))
+    ) {
+      resolvedPatientId = activeDocIdOrPat;
+      resolvedActiveDocId = null;
+      resolvedOverrideTitle = null;
+    }
+
+    const activeDocId = resolvedActiveDocId;
+    const overrideTitle = resolvedOverrideTitle;
+    const activePatId = resolvedPatientId || selectedPatientId || (typeof localStorage !== 'undefined' ? localStorage.getItem('mediskye_patient_id') : null) || 'self';
 
     // Offline fast-path: hydrate from cache immediately and return early without overwriting with empty network responses
     if (typeof navigator !== 'undefined' && !navigator.onLine) {
@@ -677,6 +696,13 @@ export default function ChatApp() {
         }
 
         const existingMap = new Map();
+        const cachedConvs = typeof getCachedConversations === 'function' ? getCachedConversations(activePatId) : null;
+        if (Array.isArray(cachedConvs)) {
+          cachedConvs.forEach((c) => {
+            if (c.id) existingMap.set(c.id, c);
+            if (c.document_id) existingMap.set(c.document_id, c);
+          });
+        }
         prev.forEach((c) => {
           if (c.id) existingMap.set(c.id, c);
           if (c.document_id) existingMap.set(c.document_id, c);
@@ -833,6 +859,9 @@ export default function ChatApp() {
             finalConvs = cloudMerged;
           } else {
             finalConvs = [freshDraft, ...cloudMerged];
+            setSessionId(freshDraft.id);
+            sessionIdRef.current = freshDraft.id;
+            setActivePdf(null);
           }
         }
 
@@ -1229,7 +1258,7 @@ export default function ChatApp() {
       setUploadError(errMsg);
       setUploadState((prev) => ({ ...(prev || { fileName: file.name }), phase: 'error', finishedAt: Date.now(), error: errMsg }));
       setActivePdf(null);
-      setConversations((prev) => prev.map((c) => (c.id === (sessionIdRef.current || sessionId) ? { ...c, pdf: null, document_id: null, documents: [] } : c)));
+      setConversations((prev) => prev.map((c) => (c.id === (sessionIdRef.current || sessionId) || c.document_id === (sessionIdRef.current || sessionId) ? { ...c, pdf: null, document_id: null, documents: [] } : c)));
       return null;
     } finally {
       setUploadProgress(null);
@@ -1417,7 +1446,7 @@ export default function ChatApp() {
         // Do NOT render a second user bubble or an error state in the chat; remove the newly added messages
         setConversations((prev) => {
           return prev.map((c) => {
-            if (c.id !== activeTargetId) return c;
+            if (c.id !== activeTargetId && c.document_id !== activeTargetId) return c;
             return {
               ...c,
               title: prevTitle,
@@ -1429,7 +1458,7 @@ export default function ChatApp() {
         logger.error('Query Error:', err);
         setConversations((prev) => {
           return prev.map((c) => {
-            if (c.id !== activeTargetId) return c;
+            if (c.id !== activeTargetId && c.document_id !== activeTargetId) return c;
             const targetIdx = c.messages.findIndex((m) => m.id === assistantMsgId);
             if (targetIdx === -1) return c;
 
@@ -1448,7 +1477,7 @@ export default function ChatApp() {
       if (!isConflict) {
         setConversations((prev) => {
           const next = prev.map((c) => {
-            if (c.id !== activeTargetId) return c;
+            if (c.id !== activeTargetId && c.document_id !== activeTargetId) return c;
             const targetIdx = c.messages.findIndex((m) => m.id === assistantMsgId);
             if (targetIdx === -1) return c;
 

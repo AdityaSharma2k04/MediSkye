@@ -81,6 +81,8 @@ public class MainActivity extends BridgeActivity {
         if ("mediskye".equalsIgnoreCase(data.getScheme()) && "auth-callback".equalsIgnoreCase(data.getHost())) {
             String idToken = data.getQueryParameter("id_token");
             String accessToken = data.getQueryParameter("access_token");
+            // Clear intent data to prevent replay upon subsequent resume or recreate
+            intent.setData(null);
             dispatchAuthTokensToWebView(idToken, accessToken);
         }
     }

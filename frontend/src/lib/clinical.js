@@ -256,7 +256,7 @@ export function classifyStatus(row) {
 
 export function isFlagged(row) {
   const c = classifyStatus(row);
-  return c === 'critical' || c === 'high' || c === 'low' || c === 'borderline';
+  return c === 'critical' || c === 'high' || c === 'low' || c === 'abnormal';
 }
 
 /** Semantic tone per the MediSkye clinical palette. */
@@ -471,8 +471,8 @@ export function summarizeTriage(metrics) {
     .map((s) => ({ ...s, metrics: [...s.metrics].sort((a, b) => severityRank(a) - severityRank(b)) }))
     .sort((a, b) => a.worst - b.worst || order.indexOf(a.key) - order.indexOf(b.key));
 
-  const flagged = counts.critical + counts.high + counts.low + counts.borderline;
-  return { ...counts, flagged, inRange: counts.normal, systems };
+  const flagged = counts.critical + counts.high + counts.low;
+  return { ...counts, flagged, inRange: counts.normal + counts.borderline, systems };
 }
 
 export function filterMetrics(metrics, filter) {
