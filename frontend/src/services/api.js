@@ -251,7 +251,22 @@ export function setCachedDependents(dependentsOrUid, uidOrDependents) {
 
 export function getCachedDocuments(patientId = 'self', uid = getStableCacheUid()) {
   const stableUid = getStableCacheUid(uid);
-  return safeStorageGet(`mediskye_cached_documents_${stableUid}_${patientId || 'self'}`, []);
+  const targetPid = normalizePatientId(patientId);
+  const docs = safeStorageGet(`mediskye_cached_documents_${stableUid}_${targetPid}`, []);
+  if (!Array.isArray(docs)) return [];
+
+  // Sanitize on read: verify every document belongs to targetPid
+  const sanitized = docs.filter((d) => {
+    if (!d || typeof d !== 'object') return false;
+    const docOwner = d.dependent_id ? String(d.dependent_id) : (d.patientId ? normalizePatientId(d.patientId) : 'self');
+    return docOwner === targetPid;
+  });
+
+  if (sanitized.length !== docs.length) {
+    safeStorageSet(`mediskye_cached_documents_${stableUid}_${targetPid}`, sanitized);
+  }
+
+  return sanitized;
 }
 
 export function setCachedDocuments(docs, patientId = 'self', uid = getStableCacheUid()) {
@@ -310,7 +325,91 @@ export function setCachedTrends(trends, patientId = 'self', uid = getStableCache
 
 export function getCachedConversations(patientId = 'self', uid = getStableCacheUid()) {
   const stableUid = getStableCacheUid(uid);
-  return safeStorageGet(`mediskye_conversations_${stableUid}_${patientId || 'self'}`, null);
+  const targetPid = normalizePatientId(patientId);
+
+  const allConvsMap = new Map();
+  let foundAnyMatchingCache = false;
+
+  if (typeof localStorage !== 'undefined') {
+    try {
+      const prefix = `mediskye_conversations_${stableUid}_`;
+      const matchingKeys = [];
+      for (let i = 0; i < localStorage.length; i++) {
+        const k = localStorage.key(i);
+        if (k && k.startsWith(prefix)) {
+          matchingKeys.push(k);
+        }
+      }
+
+      for (const k of matchingKeys) {
+        foundAnyMatchingCache = true;
+        const keySuffix = k.slice(prefix.length);
+        const stored = safeStorageGet(k, null);
+        if (!Array.isArray(stored)) continue;
+
+        let needsRewrite = false;
+        const sanitizedKeyConvs = [];
+
+        for (const c of stored) {
+          if (!c || typeof c !== 'object') continue;
+
+          let effectiveOwner;
+          if (c.pdf && (c.pdf.patientId || c.pdf.patient_id || c.pdf.dependent_id !== undefined)) {
+            // PDF's owner wins
+            const rawPdfPid = c.pdf.patientId || c.pdf.patient_id || (c.pdf.dependent_id ? String(c.pdf.dependent_id) : 'self');
+            effectiveOwner = normalizePatientId(rawPdfPid);
+            if (c.patientId !== effectiveOwner || c.patient_id !== effectiveOwner) {
+              c.patientId = effectiveOwner;
+              c.patient_id = effectiveOwner;
+              needsRewrite = true;
+            }
+          } else if (c.patientId || c.patient_id) {
+            // Standalone chat keeps its tag
+            effectiveOwner = normalizePatientId(c.patientId || c.patient_id);
+          } else if (c.messages && c.messages.length > 0) {
+            // Untagged legacy conversation with messages gets tagged with current key/request
+            effectiveOwner = normalizePatientId(keySuffix);
+            c.patientId = effectiveOwner;
+            c.patient_id = effectiveOwner;
+            needsRewrite = true;
+          } else {
+            effectiveOwner = normalizePatientId(keySuffix);
+          }
+
+          if (effectiveOwner === normalizePatientId(keySuffix)) {
+            sanitizedKeyConvs.push(c);
+          } else {
+            needsRewrite = true;
+          }
+
+          if (effectiveOwner === targetPid) {
+            if (!allConvsMap.has(c.id)) {
+              allConvsMap.set(c.id, c);
+            }
+          }
+        }
+
+        if (needsRewrite) {
+          safeStorageSet(k, sanitizedKeyConvs);
+        }
+      }
+    } catch (_) {}
+  }
+
+  if (!foundAnyMatchingCache) {
+    const raw = safeStorageGet(`mediskye_conversations_${stableUid}_${targetPid}`, null);
+    if (raw === null) return null;
+    if (Array.isArray(raw)) {
+      return raw.filter((c) => {
+        if (!c) return false;
+        const pdfPid = c.pdf?.patientId || c.pdf?.patient_id || (c.pdf?.dependent_id ? String(c.pdf.dependent_id) : null);
+        const owner = pdfPid ? normalizePatientId(pdfPid) : normalizePatientId(c.patientId || c.patient_id || targetPid);
+        return owner === targetPid;
+      });
+    }
+  }
+
+  return Array.from(allConvsMap.values());
 }
 
 export function setCachedConversations(conversations, patientId = 'self', uid = getStableCacheUid()) {

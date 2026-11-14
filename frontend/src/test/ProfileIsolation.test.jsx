@@ -244,4 +244,63 @@ describe('Profile Isolation & Switcher Tests (S1-S9)', () => {
       }
     });
   });
+
+  describe('R2: Legacy cache sanitizer for getCachedConversations and getCachedDocuments', () => {
+    it('sanitizes legacy conversations on read: pdf owner wins, untagged tagged with requested patientId, standalone preserves tag', async () => {
+      const actualApi = await vi.importActual('../services/api');
+      const stableUid = actualApi.getStableCacheUid();
+      localStorage.clear();
+
+      // (i) conversation tagged dep_a whose pdf says self
+      const conv1 = {
+        id: 'conv-1',
+        title: 'Report Chat',
+        patientId: 'dep_a',
+        patient_id: 'dep_a',
+        pdf: { id: 'doc-1', filename: 'report.pdf', patientId: 'self' },
+        messages: [{ role: 'user', message: 'Hello' }],
+      };
+
+      // (ii) conversation with messages and no tag
+      const conv2 = {
+        id: 'conv-2',
+        title: 'Untagged Chat',
+        messages: [{ role: 'user', message: 'Untagged message' }],
+      };
+
+      // (iii) dep_a-tagged chat with no pdf
+      const conv3 = {
+        id: 'conv-3',
+        title: 'Standalone Dep A Chat',
+        patientId: 'dep_a',
+        patient_id: 'dep_a',
+        pdf: null,
+        messages: [{ role: 'user', message: 'Dep A standalone' }],
+      };
+
+      // Seed localStorage
+      localStorage.setItem(
+        `mediskye_conversations_${stableUid}_dep_a`,
+        JSON.stringify([conv1, conv3])
+      );
+      localStorage.setItem(
+        `mediskye_conversations_${stableUid}_self`,
+        JSON.stringify([conv2])
+      );
+
+      // (i) conv1 has pdf.patientId == 'self', so returned under 'self', NOT 'dep_a'
+      const selfConvs = actualApi.getCachedConversations('self');
+      expect(selfConvs.some((c) => c.id === 'conv-1')).toBe(true);
+      const depAConvs = actualApi.getCachedConversations('dep_a');
+      expect(depAConvs.some((c) => c.id === 'conv-1')).toBe(false);
+
+      // (ii) conv2 had no tag and was read under 'self' -> tagged self, returned under self, NOT dep_a
+      expect(selfConvs.some((c) => c.id === 'conv-2')).toBe(true);
+      expect(depAConvs.some((c) => c.id === 'conv-2')).toBe(false);
+
+      // (iii) conv3 is a standalone chat tagged dep_a -> returned under dep_a, NOT self
+      expect(depAConvs.some((c) => c.id === 'conv-3')).toBe(true);
+      expect(selfConvs.some((c) => c.id === 'conv-3')).toBe(false);
+    });
+  });
 });
