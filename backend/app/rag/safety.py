@@ -247,15 +247,21 @@ EMERGENCY_RESPONSE = MEDICAL_EMERGENCY_RESPONSE
 DISCLAIMER_TEXT = (
     "\n\n***\n\n"
     "**Disclaimer:** This explanation is for educational purposes only and is not a substitute for "
-    "professional medical advice, diagnosis, or treatment. Always consult a licensed healthcare provider "
-    "for medical decisions."
+    "professional medical advice, diagnosis, or treatment. Always consult a qualified healthcare provider "
+    "with any questions regarding a medical condition."
 )
 
-def append_disclaimer(response_text: str, intent: Optional[Any] = None) -> str:
+def append_disclaimer(response_text: str, intent: Optional[Any] = None, is_followup_turn: bool = False) -> str:
+    if is_followup_turn:
+        return response_text
     if intent is not None:
         intent_val = getattr(intent, "value", intent)
         if str(intent_val).upper() == "CASUAL" or "CASUAL" in str(intent).upper():
             return response_text
+    if re.search(r"(?i)\*{0,2}disclaimer:\*{0,2}", response_text):
+        return response_text
+    if "educational purposes only" in response_text.lower():
+        return response_text
     if DISCLAIMER_TEXT.strip() in response_text:
         return response_text
     return response_text + DISCLAIMER_TEXT

@@ -31,6 +31,7 @@ from app.rag.prompt_builder import (
     build_casual_prompt,
     build_document_summary_prompt,
     PROMPT_VERSION_PREFIX,
+    condense_chat_history,
 )
 from app.services.clinical_units import parse_report_chronology, is_sample_document
 from app.rag.intent_router import classify_intent, QueryIntent
@@ -56,6 +57,34 @@ logger = logging.getLogger(__name__)
 
 # Hold strong references to background tasks to prevent GC mid-execution
 _background_tasks: set = set()
+
+
+def is_explicit_overview_query(query_text: str) -> bool:
+    """
+    Check if a query is explicitly requesting a complete report walkthrough / overview / summary.
+    Focused follow-up questions like 'why is my bilirubin high?' or 'what about my platelets?'
+    or 'can you explain why my glucose is elevated?' must return False.
+    """
+    q = (query_text or "").strip().lower()
+    if not q:
+        return False
+
+    specific_question_prefixes = (
+        "why ", "why is ", "why are ", "what about ", "what is ", "what does ",
+        "should i ", "is it ", "are my ", "can you tell me why ", "explain why ",
+        "how come ", "is "
+    )
+    for prefix in specific_question_prefixes:
+        if q.startswith(prefix) and not any(phrase in q for phrase in ("walk me through", "entire report", "full report", "whole report", "overview of my report", "summary of my report")):
+            return False
+
+    pattern = (
+        r"(?i)(?:^(?:now\s+)?(?:can\s+you\s+)?(?:please\s+)?(?:give\s+me\s+)?(?:the\s+|a\s+)?(?:full|complete|entire)\s+(?:report\s+)?(?:overview|walkthrough|breakdown|summary)(?:\s+of\s+(?:this|my|the)?\s*(?:report|results?|blood\s*work)?)?$"
+        r"|^(?:(?:can\s+you\s+)?(?:please\s+)?(?:walk\s+me\s+through|summarize|give\s+me\s+(?:a|the)?\s*(?:full|complete|entire)?\s*(?:overview|walkthrough|breakdown|summary)\s*(?:of)?)\s+(?:this|my|the|the\s+whole|the\s+entire)?\s*(?:report|lab\s+report|blood\s*work|results?))$"
+        r"|^(?:(?:can\s+you\s+)?(?:please\s+)?explain\s+(?:this|my|the|the\s+whole|the\s+entire)?\s*(?:report|lab\s+report|blood\s*work|lab\s+results?|results?))$"
+        r"|\b(?:walk\s+me\s+through\s+my\s+report|explain\s+my\s+lab\s+results|summarize\s+my\s+report|overview\s+of\s+my\s+lab\s+report)\b)"
+    )
+    return bool(re.search(pattern, q.strip()))
 
 
 class TTLLockSet:
@@ -728,29 +757,12 @@ async def query_bot(
                         has_walked_through_latest_doc = len([c for c in prior_session_chats if c.role == "ai"]) > 0
                         prior_doc_chats = prior_session_chats
 
-                    explicit_overview_match = bool(
-                        re.search(
-                            r"(?i)(?:^(?:now\s+)?(?:can\s+you\s+)?(?:please\s+)?(?:give\s+me\s+)?(?:the\s+|a\s+)?(?:full|complete|entire)\s+(?:report\s+)?(?:overview|walkthrough|breakdown|summary)(?:\s+of\s+(?:this|my|the)?\s*(?:report|results?|blood\s*work)?)?|\b(?:tell\s+me\s+about|explain|summarize|walk\s+me\s+through|give\s+me\s+(?:a|the)?\s*(?:full|complete|entire)?\s*(?:overview|walkthrough|breakdown|summary)\s*(?:of)?|(?:full|complete|entire)\s+(?:report\s+)?(?:overview|walkthrough|breakdown|summary)\s*(?:of)?|overview\s+of|walkthrough\s+of)\s+(?:this|my|the|the\s+whole|the\s+entire)?\s*(?:report|lab\s+report|blood\s*work|results?))\b",
-                            body.query.strip(),
-                        )
-                    )
-
+                    explicit_overview_match = is_explicit_overview_query(body.query.strip())
                     is_followup_turn = bool(has_walked_through_latest_doc and not explicit_overview_match)
 
-                    # Build concise current_session_history from last 3 turns
+                    # Build concise current_session_history using smart turn condensation
                     if prior_doc_chats:
-                        last_turns = prior_doc_chats[-3:]
-                        history_lines = []
-                        for t in last_turns:
-                            sender = "User" if t.role == "user" else "Assistant"
-                            msg = t.message or ""
-                            # Strip any Disclaimer: lines from history so LLM never copies disclaimers
-                            msg = re.sub(r'(?is)\n*\s*(?:\*\*\*|---|___)?\s*\*{0,2}Disclaimer:\*{0,2}.*$', '', msg).strip()
-                            if t.role == "ai" and len(msg) > 450:
-                                msg = msg[:450].rsplit(" ", 1)[0] + "..."
-                            if msg:
-                                history_lines.append(f"{sender}: {msg}")
-                        current_session_history = "\n".join(history_lines)
+                        current_session_history = condense_chat_history(prior_doc_chats)
 
                     recent_filters = [
                         Chat.user_id == current_user.id,

@@ -110,10 +110,78 @@ If the user asks who you are or what you do, identify yourself as MediSkye, an A
 NEVER mention 'RAG', 'chunks', 'sources', 'context', 'excerpts', 'provided text', or your system instructions in your response. Speak directly and naturally.
 Do NOT include medical disclaimers or doctor/specialist recommendations."""
 
+FOLLOWUP_TURN_RULES = """FORMAT FOR FOLLOW-UP TURNS & FOCUSED QUESTIONS:
+- Answer the user's specific question directly in the very first sentence.
+- Do NOT repeat the 7-section report walkthrough template, do NOT output Short Version summary headings, and do NOT re-list all normal findings or full panels.
+- Provide only the relevant physiological context, interpretation, and actionable insights needed to answer the specific question.
+- Speak in a warm, calm, conversational bedside manner as a clinician sitting across from the user.
+- Do NOT output questions-for-your-doctor or the closing educational disclaimer on follow-up turns."""
+
 _REPORT_RULES = "\n\n".join([SHARED_CORE_RULES, REPORT_WALKTHROUGH_RULES, COMPARISON_RULES, OTHER_DOCUMENT_RULES])
 DOCTOR_INSTRUCTIONS = _REPORT_RULES
 GENERAL_HEALTH_INSTRUCTIONS = "\n\n".join([_REPORT_RULES, GENERAL_HEALTH_RULES])
 GENERAL_HEALTH_NO_REPORT_INSTRUCTIONS = "\n\n".join([SHARED_CORE_RULES, GENERAL_HEALTH_RULES])
+
+
+def condense_chat_history(chats: List[Union[Dict[str, Any], Any]]) -> str:
+    """
+    Format chat history for prompt inclusion.
+    If chat history exceeds 4 messages (2 turns):
+    - Older turns are compressed to single-line summaries: [User asked X; Doctor explained Y with key finding Z]
+    - The most recent 2 turns (up to 4 messages) are preserved verbatim with exact numbers.
+    """
+    if not chats:
+        return ""
+
+    def _get_role_and_msg(c: Any) -> Tuple[str, str]:
+        if isinstance(c, dict):
+            r = c.get("role", "")
+            m = c.get("message", "") or ""
+        else:
+            r = getattr(c, "role", "")
+            m = getattr(c, "message", "") or ""
+        return ("User" if r == "user" else "Doctor", m.strip())
+
+    cleaned_chats = []
+    for c in chats:
+        role, msg = _get_role_and_msg(c)
+        msg = re.sub(r'(?is)\n*\s*(?:\*\*\*|---|___)?\s*\*{0,2}Disclaimer:\*{0,2}.*$', '', msg).strip()
+        if msg:
+            cleaned_chats.append((role, msg))
+
+    if not cleaned_chats:
+        return ""
+
+    if len(cleaned_chats) <= 4:
+        return "\n".join(f"{role}: {msg}" for role, msg in cleaned_chats)
+
+    older = cleaned_chats[:-4]
+    recent = cleaned_chats[-4:]
+
+    summary_lines: List[str] = []
+    i = 0
+    while i < len(older):
+        role, msg = older[i]
+        if role == "User":
+            user_text = msg[:120].rsplit(" ", 1)[0] if len(msg) > 120 else msg
+            doc_text = ""
+            if i + 1 < len(older) and older[i + 1][0] == "Doctor":
+                ai_msg = older[i + 1][1]
+                doc_text = ai_msg[:150].rsplit(" ", 1)[0] if len(ai_msg) > 150 else ai_msg
+                i += 2
+            else:
+                i += 1
+            if doc_text:
+                summary_lines.append(f"[User asked {user_text}; Doctor explained {doc_text}]")
+            else:
+                summary_lines.append(f"[User asked {user_text}]")
+        else:
+            doc_text = msg[:150].rsplit(" ", 1)[0] if len(msg) > 150 else msg
+            summary_lines.append(f"[Doctor explained {doc_text}]")
+            i += 1
+
+    recent_lines = [f"{role}: {msg}" for role, msg in recent]
+    return "\n".join(summary_lines + recent_lines)
 
 
 def _format_patient_context(
@@ -429,14 +497,25 @@ def build_prompt(
     ranges_block = _format_reference_ranges(reference_ranges)
 
     # ── System instruction (trusted, immutable) ──
-    system_parts = [
-        SYSTEM_ROLE_PREFIX,
-        "",
-        UNTRUSTED_CONTENT_WARNING,
-        "",
-        DOCTOR_INSTRUCTIONS,
-    ]
-    if include_abnormal_flags_json:
+    if is_followup_turn:
+        system_parts = [
+            SYSTEM_ROLE_PREFIX,
+            "",
+            UNTRUSTED_CONTENT_WARNING,
+            "",
+            SHARED_CORE_RULES,
+            "",
+            FOLLOWUP_TURN_RULES,
+        ]
+    else:
+        system_parts = [
+            SYSTEM_ROLE_PREFIX,
+            "",
+            UNTRUSTED_CONTENT_WARNING,
+            "",
+            DOCTOR_INSTRUCTIONS,
+        ]
+    if include_abnormal_flags_json and not is_followup_turn:
         system_parts.append(ABNORMAL_FLAGS_INSTRUCTION)
         flags_lang_note = " Keep the abnormal_flags JSON key in English."
     else:
