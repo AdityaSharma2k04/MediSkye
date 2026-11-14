@@ -9,12 +9,12 @@
 [![Tauri](https://img.shields.io/badge/Tauri_v2-Desktop-24C8D8?style=for-the-badge&logo=tauri&logoColor=white)](https://v2.tauri.app/)
 [![Capacitor](https://img.shields.io/badge/Capacitor_8-Android-119EFF?style=for-the-badge&logo=capacitor&logoColor=white)](https://capacitorjs.com/)
 [![Google Cloud Run](https://img.shields.io/badge/Google_Cloud_Run-asia--southeast1-4285F4?style=for-the-badge&logo=googlecloud&logoColor=white)](https://cloud.google.com/run)
-[![Google Vertex AI](https://img.shields.io/badge/Vertex_AI-Gemini_3.8_Flash-4285F4?style=for-the-badge&logo=googlecloud&logoColor=white)](https://cloud.google.com/vertex-ai)
+[![Google Vertex AI](https://img.shields.io/badge/Vertex_AI-Gemini_2.5_Flash-4285F4?style=for-the-badge&logo=googlecloud&logoColor=white)](https://cloud.google.com/vertex-ai)
 [![Neon PostgreSQL](https://img.shields.io/badge/Neon_PostgreSQL-Serverless_Pooler-336791?style=for-the-badge&logo=postgresql&logoColor=white)](https://neon.tech/)
-[![Vitest](https://img.shields.io/badge/Vitest-280_Passed-6E9F18?style=for-the-badge&logo=vitest&logoColor=white)](https://vitest.dev/)
+[![Vitest](https://img.shields.io/badge/Vitest-285_Passed-6E9F18?style=for-the-badge&logo=vitest&logoColor=white)](https://vitest.dev/)
 [![Pytest](https://img.shields.io/badge/Pytest-597_Passed-0A9EDC?style=for-the-badge&logo=pytest&logoColor=white)](https://pytest.org/)
 
-**MediSkye** is a production-hardened clinical intelligence platform and longitudinal companion that ingests laboratory reports, digital PDFs, mobile camera captures, and radiographic scans. It extracts structured biomarker data, tracks multi-visit trends across family members with strict profile isolation, and conducts safe, contextual clinical conversations powered by a **Hybrid FAISS + BM25 RAG pipeline** and **Google Gemini 3.8 Flash**.
+**MediSkye** is a production-hardened clinical intelligence platform and longitudinal companion that ingests laboratory reports, digital PDFs, mobile camera captures, and radiographic scans. It extracts structured biomarker data, tracks multi-visit trends across family members with strict profile isolation, and conducts safe, contextual clinical conversations powered by a **Hybrid FAISS + BM25 RAG pipeline** and **Google Gemini 2.5 Flash**.
 
 [Live Web App](https://mediskye.pages.dev) • [Architecture](#-system-architecture) • [Core Capabilities](#-core-capabilities) • [Benchmarks & QA](#-performance--qa-verification-summary) • [Multi-Platform Setup](#-local-development--multi-platform-build-guide)
 
@@ -111,7 +111,7 @@ flowchart TB
 
     subgraph Intelligence["Google Cloud Vertex AI / Gemini"]
         EMBED_API["Gemini Embedding 2<br/>(Batched 100-chunk slices)"]
-        GEMINI_LLM["Gemini 3.8 Flash<br/>(thinking_budget=0, 7-Section Walkthroughs)"]
+        GEMINI_LLM["Gemini 2.5 Flash<br/>(thinking_budget=0, 7-Section Walkthroughs)"]
     end
 
     WEB & TAURI & ANDROID -->|HTTPS / SSE| CORS
@@ -201,8 +201,8 @@ Key Test Suites:
 | **Vector Search** | FAISS (Facebook AI Similarity Search) | Dense vector cosine similarity search |
 | **Lexical Search** | BM25 (`rank-bm25`) | Probabilistic sparse keyword relevance scoring |
 | **OCR & PDF Extraction** | PyMuPDF (fitz) + Tesseract 5 | High-fidelity table and scanned character extraction |
-| **Primary LLM** | Google Gemini 3.8 Flash | Low-latency multimodal clinical reasoning |
-| **Fallback Models** | Gemini 3.6 Flash, Gemini 1.5 Pro | Resilient automatic model failover hierarchy |
+| **Primary LLM** | Google Gemini 2.5 Flash | Low-latency multimodal clinical reasoning |
+| **Fallback Models** | Gemini 1.5 Flash, Gemini 1.5 Pro | Resilient automatic model failover hierarchy |
 | **Authentication** | Firebase Authentication + JWT | Google OAuth 2.0, verified email/password, SHA-256 tokens |
 | **Cloud Hosting** | Google Cloud Run (`asia-southeast1`) | Auto-scaling containerized microservice environment |
 

@@ -9,6 +9,8 @@ import android.net.Network;
 import android.net.NetworkCapabilities;
 import android.net.Uri;
 import android.os.Bundle;
+import android.os.Handler;
+import android.os.Looper;
 import android.util.Log;
 import android.view.View;
 import android.webkit.CookieManager;
@@ -35,6 +37,8 @@ public class MainActivity extends BridgeActivity {
     private volatile String pendingAuthIdToken = null;
     private volatile String pendingAuthAccessToken = null;
     private ConnectivityManager.NetworkCallback networkCallback = null;
+    private final Handler networkHandler = new Handler(Looper.getMainLooper());
+    private Runnable pendingOfflineRunnable = null;
 
     @SuppressLint("SetJavaScriptEnabled")
     @Override
@@ -68,24 +72,55 @@ public class MainActivity extends BridgeActivity {
             webView.addJavascriptInterface(new MediskyeNativeBridge(), "MediskyeNativeAuth");
         }
 
-        // Register ConnectivityManager.NetworkCallback for real-time offline/online detection
+        // Register ConnectivityManager.NetworkCallback for real-time offline/online detection with debounce
         try {
             ConnectivityManager cm = (ConnectivityManager) getSystemService(Context.CONNECTIVITY_SERVICE);
             if (cm != null) {
                 networkCallback = new ConnectivityManager.NetworkCallback() {
                     @Override
                     public void onAvailable(Network network) {
+                        if (pendingOfflineRunnable != null) {
+                            networkHandler.removeCallbacks(pendingOfflineRunnable);
+                            pendingOfflineRunnable = null;
+                        }
                         dispatchNetworkStatusToWebView(isDeviceOnline());
                     }
 
                     @Override
                     public void onLost(Network network) {
-                        dispatchNetworkStatusToWebView(isDeviceOnline());
+                        if (pendingOfflineRunnable != null) {
+                            networkHandler.removeCallbacks(pendingOfflineRunnable);
+                        }
+                        pendingOfflineRunnable = new Runnable() {
+                            @Override
+                            public void run() {
+                                dispatchNetworkStatusToWebView(isDeviceOnline());
+                                pendingOfflineRunnable = null;
+                            }
+                        };
+                        networkHandler.postDelayed(pendingOfflineRunnable, 400);
                     }
 
                     @Override
                     public void onCapabilitiesChanged(Network network, NetworkCapabilities networkCapabilities) {
-                        dispatchNetworkStatusToWebView(isDeviceOnline());
+                        if (isDeviceOnline()) {
+                            if (pendingOfflineRunnable != null) {
+                                networkHandler.removeCallbacks(pendingOfflineRunnable);
+                                pendingOfflineRunnable = null;
+                            }
+                            dispatchNetworkStatusToWebView(true);
+                        } else {
+                            if (pendingOfflineRunnable == null) {
+                                pendingOfflineRunnable = new Runnable() {
+                                    @Override
+                                    public void run() {
+                                        dispatchNetworkStatusToWebView(isDeviceOnline());
+                                        pendingOfflineRunnable = null;
+                                    }
+                                };
+                                networkHandler.postDelayed(pendingOfflineRunnable, 400);
+                            }
+                        }
                     }
                 };
                 cm.registerDefaultNetworkCallback(networkCallback);
@@ -102,14 +137,18 @@ public class MainActivity extends BridgeActivity {
             ConnectivityManager cm = (ConnectivityManager) getSystemService(Context.CONNECTIVITY_SERVICE);
             if (cm == null) return false;
             Network activeNetwork = cm.getActiveNetwork();
-            if (activeNetwork == null) return false;
-            NetworkCapabilities caps = cm.getNetworkCapabilities(activeNetwork);
-            if (caps == null) return false;
-            return caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET) &&
-                    (caps.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) ||
-                     caps.hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR) ||
-                     caps.hasTransport(NetworkCapabilities.TRANSPORT_ETHERNET) ||
-                     caps.hasTransport(NetworkCapabilities.TRANSPORT_VPN));
+            if (activeNetwork != null) {
+                NetworkCapabilities caps = cm.getNetworkCapabilities(activeNetwork);
+                if (caps != null && caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)) {
+                    return caps.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) ||
+                            caps.hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR) ||
+                            caps.hasTransport(NetworkCapabilities.TRANSPORT_ETHERNET) ||
+                            caps.hasTransport(NetworkCapabilities.TRANSPORT_VPN);
+                }
+            }
+            // Fallback for older APIs or transitional states
+            android.net.NetworkInfo activeInfo = cm.getActiveNetworkInfo();
+            return activeInfo != null && activeInfo.isConnected();
         } catch (Exception e) {
             Log.w(TAG, "Error checking device network state: " + e.getMessage());
             return false;
@@ -313,11 +352,15 @@ public class MainActivity extends BridgeActivity {
                         + "<title>MediSkye — Signed In</title>"
                         + "<style>body{background-color:#070B14;color:#F8FAFC;font-family:sans-serif;display:flex;align-items:center;justify-content:center;height:100vh;margin:0;text-align:center;}"
                         + ".card{background:rgba(15,23,42,0.9);border:1px solid rgba(56,189,248,0.3);border-radius:16px;padding:24px 32px;max-width:360px;}"
-                        + "h2{margin:0 0 8px 0;color:#38BDF8;font-size:20px;}p{margin:0;color:#94A3B8;font-size:14px;}</style></head>"
-                        + "<body><div class='card'><h2>Signed in to MediSkye!</h2><p>Returning to the application...</p></div>"
+                        + "h2{margin:0 0 8px 0;color:#38BDF8;font-size:20px;}p{margin:0;color:#94A3B8;font-size:14px;}"
+                        + ".btn{display:inline-block;margin-top:16px;padding:12px 20px;background:#06B6D4;color:#0F172A;font-weight:bold;text-decoration:none;border-radius:10px;font-size:13px;border:none;cursor:pointer;}"
+                        + "</style></head>"
+                        + "<body><div class='card'><h2>Signed in to MediSkye!</h2><p>Sign-in verified! Returning to the application...</p>"
+                        + "<a href='" + intentUri + "' class='btn'>Open MediSkye App — Click here if not redirected automatically</a>"
+                        + "</div>"
                         + "<script>"
                         + "setTimeout(function(){ window.location.href = '" + intentUri + "'; }, 200);"
-                        + "setTimeout(function(){ try { window.close(); } catch(e){} }, 1000);"
+                        + "setTimeout(function(){ try { window.close(); } catch(e){} }, 3000);"
                         + "</script></body></html>";
 
                 byte[] htmlBytes = html.getBytes(StandardCharsets.UTF_8);
@@ -397,6 +440,10 @@ public class MainActivity extends BridgeActivity {
     @Override
     public void onDestroy() {
         super.onDestroy();
+        if (pendingOfflineRunnable != null) {
+            networkHandler.removeCallbacks(pendingOfflineRunnable);
+            pendingOfflineRunnable = null;
+        }
         if (networkCallback != null) {
             try {
                 ConnectivityManager cm = (ConnectivityManager) getSystemService(Context.CONNECTIVITY_SERVICE);

@@ -140,17 +140,33 @@ fn start_loopback_server(app_handle: tauri::AppHandle) -> u16 {
     }
     h2 { margin: 0 0 12px 0; color: #38BDF8; font-size: 20px; }
     p { margin: 0; color: #94A3B8; font-size: 14px; line-height: 1.5; }
+    .btn {
+      display: inline-block;
+      margin-top: 20px;
+      padding: 10px 20px;
+      background: #0284C7;
+      color: #F8FAFC;
+      font-weight: 600;
+      font-size: 14px;
+      border: none;
+      border-radius: 8px;
+      cursor: pointer;
+      text-decoration: none;
+      transition: background 0.2s;
+    }
+    .btn:hover { background: #0369A1; }
   </style>
 </head>
 <body>
   <div class="card">
     <h2>Signed in to MediSkye!</h2>
-    <p>Returning to the desktop application... You can safely close this browser tab.</p>
+    <p>Sign-in complete! You may close this tab and return to the MediSkye desktop app.</p>
+    <button class="btn" onclick="try{window.close();}catch(e){}">Close Tab</button>
   </div>
   <script>
     setTimeout(function() {
       try { window.close(); } catch(e) {}
-    }, 800);
+    }, 1200);
   </script>
 </body>
 </html>"#;

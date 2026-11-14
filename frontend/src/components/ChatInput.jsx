@@ -40,6 +40,18 @@ export function isTouchOrMobileDevice() {
   );
 }
 
+export const isMobilePhoneDevice = () => {
+  if (typeof window === 'undefined' || typeof navigator === 'undefined') return false;
+  // Explicitly exclude Windows Tauri desktop shell
+  if (window.__TAURI_INTERNALS__ || window.__TAURI__) return false;
+  const ua = navigator.userAgent || '';
+  // Explicitly exclude Windows desktop OS
+  if (/Windows NT/i.test(ua)) return false;
+  // Allow Native Android Capacitor bridge or mobile phone user-agents
+  if (window.MediskyeNativeAuth || window.Capacitor?.isNativePlatform?.()) return true;
+  return /Android|webOS|iPhone|iPod|BlackBerry|IEMobile|Opera Mini/i.test(ua);
+};
+
 const ChatInput = forwardRef(
   (
     {
@@ -54,6 +66,7 @@ const ChatInput = forwardRef(
       disabled = false,
       hidden = false,
       showKeyboardHint = false,
+      forceShowCamera = false,
     },
     ref
   ) => {
@@ -61,6 +74,7 @@ const ChatInput = forwardRef(
     const [text, setText] = useState('');
     const [isListening, setIsListening] = useState(false);
     const [isTouch, setIsTouch] = useState(() => isTouchOrMobileDevice());
+    const [isMobilePhone, setIsMobilePhone] = useState(() => isMobilePhoneDevice());
     const recognitionRef = useRef(null);
     const textareaRef = useRef(null);
     const fileInputRef = useRef(null);
@@ -69,7 +83,11 @@ const ChatInput = forwardRef(
 
     useEffect(() => {
       setIsTouch(isTouchOrMobileDevice());
-      const onResize = () => setIsTouch(isTouchOrMobileDevice());
+      setIsMobilePhone(isMobilePhoneDevice());
+      const onResize = () => {
+        setIsTouch(isTouchOrMobileDevice());
+        setIsMobilePhone(isMobilePhoneDevice());
+      };
       window.addEventListener?.('resize', onResize);
       return () => window.removeEventListener?.('resize', onResize);
     }, []);
@@ -242,15 +260,17 @@ const ChatInput = forwardRef(
               className="hidden"
               tabIndex={-1}
             />
-            <input
-              type="file"
-              ref={cameraInputRef}
-              onChange={handleCameraChange}
-              accept="image/*"
-              capture="environment"
-              className="hidden"
-              tabIndex={-1}
-            />
+            {(forceShowCamera || isMobilePhone) && (
+              <input
+                type="file"
+                ref={cameraInputRef}
+                onChange={handleCameraChange}
+                accept="image/*"
+                capture="environment"
+                className="hidden"
+                tabIndex={-1}
+              />
+            )}
             <button
               type="button"
               onClick={() => fileInputRef.current?.click()}
@@ -260,15 +280,17 @@ const ChatInput = forwardRef(
             >
               <Paperclip className="w-[18px] h-[18px]" />
             </button>
-            <button
-              type="button"
-              onClick={() => cameraInputRef.current?.click()}
-              title={t('chat.take_photo_title', 'Take photo of report with camera')}
-              aria-label="Take Photo"
-              className="ms-tap w-10 h-10 rounded-full text-ink-mute hover:text-white hover:bg-white/[0.06] flex items-center justify-center transition shrink-0 active:scale-95"
-            >
-              <Camera className="w-[18px] h-[18px]" />
-            </button>
+            {(forceShowCamera || isMobilePhone) && (
+              <button
+                type="button"
+                onClick={() => cameraInputRef.current?.click()}
+                title={t('chat.take_photo_title', 'Take photo of report with camera')}
+                aria-label="Take Photo"
+                className="ms-tap w-10 h-10 rounded-full text-ink-mute hover:text-white hover:bg-white/[0.06] flex items-center justify-center transition shrink-0 active:scale-95"
+              >
+                <Camera className="w-[18px] h-[18px]" />
+              </button>
+            )}
 
             <textarea
               ref={textareaRef}

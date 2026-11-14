@@ -64,6 +64,12 @@ describe('ExternalAuthLanding & Native Browser Auth', () => {
         expect.objectContaining({ method: 'GET' })
       );
     });
+
+    await waitFor(() => {
+      const fallbackLink = screen.getByRole('link', { name: /open mediskye app/i });
+      expect(fallbackLink).toBeInTheDocument();
+      expect(fallbackLink).toHaveAttribute('href', expect.stringContaining('/__native_auth_done?id_token='));
+    });
   });
 });
 

@@ -11,6 +11,7 @@ import useViewport from '../hooks/useViewport';
 import useHotkeys from '../hooks/useHotkeys';
 import useLabMetrics, { invalidateMetrics } from '../hooks/useLabMetrics';
 import useTrendData from '../hooks/useTrendData';
+import { BrandMark } from './workbench/Brand';
 import { STORAGE_KEYS, readStorage, writeStorage } from '../lib/storageKeys';
 import { metricKey, metricName } from '../lib/clinical';
 import { cn } from '../lib/cn';
@@ -295,6 +296,30 @@ export default function ChatApp() {
   };
 
   const [isOnline, setIsOnline] = useState(getInitialOnlineState);
+  const isOnlineRef = useRef(isOnline);
+  useEffect(() => {
+    isOnlineRef.current = isOnline;
+  }, [isOnline]);
+
+  const [isWorkspaceHydrating, setIsWorkspaceHydrating] = useState(() => {
+    if (typeof navigator !== 'undefined' && !navigator.onLine) return false;
+    return true;
+  });
+
+  // Safety timeout: dismiss blocking hydration overlay after at most 6s even on slow connections
+  useEffect(() => {
+    if (!isWorkspaceHydrating) return;
+    const safetyTimer = setTimeout(() => {
+      setIsWorkspaceHydrating(false);
+    }, 6000);
+    return () => clearTimeout(safetyTimer);
+  }, [isWorkspaceHydrating]);
+
+  useEffect(() => {
+    if (!isOnline) {
+      setIsWorkspaceHydrating(false);
+    }
+  }, [isOnline]);
 
   const computeProfileReportCountFromCache = (pid) => {
     try {
@@ -356,7 +381,10 @@ export default function ChatApp() {
     window.addEventListener('offline', handleOffline);
     window.addEventListener('mediskye-network-status', handleNetworkStatus);
 
-    const checkHealth = async () => {
+    const checkHealth = async (force = false) => {
+      if (!force && isOnlineRef.current) {
+        return;
+      }
       try {
         if (typeof window !== 'undefined' && window.MediskyeNativeAuth && typeof window.MediskyeNativeAuth.isOnline === 'function') {
           const nativeOn = Boolean(window.MediskyeNativeAuth.isOnline());
@@ -391,17 +419,17 @@ export default function ChatApp() {
       }
     };
 
-    checkHealth();
+    checkHealth(true);
 
     const handleVisibility = () => {
-      if (document.visibilityState === 'visible') {
-        checkHealth();
+      if (document.visibilityState === 'visible' && !isOnlineRef.current) {
+        checkHealth(true);
       }
     };
     document.addEventListener('visibilitychange', handleVisibility);
 
     const intervalId = setInterval(() => {
-      checkHealth();
+      checkHealth(false);
     }, 10000);
 
     return () => {
@@ -445,10 +473,9 @@ export default function ChatApp() {
       const allProfileIds = ['self', ...(Array.isArray(deps) ? deps.map((d) => String(d.id)) : [])];
       const otherProfileIds = allProfileIds.filter((pid) => pid !== currentActive);
 
-      for (const pid of otherProfileIds) {
-        if (typeof navigator !== 'undefined' && !navigator.onLine) break;
-        if (typeof syncSingleProfileToLocalCache === 'function') {
-          await Promise.resolve(
+      if (typeof syncSingleProfileToLocalCache === 'function') {
+        await Promise.allSettled(
+          otherProfileIds.map((pid) =>
             syncSingleProfileToLocalCache(pid, {
               isCurrentActive: false,
               updateUiCallback: ({ patientId, reportCount }) => {
@@ -457,9 +484,9 @@ export default function ChatApp() {
                   [String(patientId)]: reportCount,
                 }));
               },
-            })
-          ).catch(() => {});
-        }
+            }).catch(() => {})
+          )
+        );
       }
     } catch (err) {
       logger.warn('syncAllProfilesInBackground error:', err);
@@ -1127,6 +1154,7 @@ export default function ChatApp() {
       userLoadedRef.current = currentUser.id;
 
       refreshDocuments(null, null, 'self').then((docs) => {
+        setIsWorkspaceHydrating(false);
         // Always start on a fresh empty New Chat under self
         setActivePdf(null);
         // Pre-warm local cache for primary patient in background
@@ -1134,6 +1162,7 @@ export default function ChatApp() {
         // Automatically pre-download ALL dependent profiles in the background
         Promise.resolve(syncAllProfilesInBackground('self', dependents)).catch(() => {});
       }).catch(() => {
+        setIsWorkspaceHydrating(false);
         setActivePdf(null);
         Promise.resolve(syncAllProfilesInBackground('self', dependents)).catch(() => {});
       });
@@ -1912,7 +1941,7 @@ export default function ChatApp() {
     setActivePdf(null);
     setConversations([{ id: newId, title: 'New Conversation', messages: [], pdf: null, patient_id: selectedPatientId }]);
     setPdfs([]);
-    setLabMetrics([]);
+    invalidateMetrics();
 
     try {
       const keys = Object.keys(localStorage);
@@ -2176,6 +2205,7 @@ export default function ChatApp() {
 
   const labMetrics = useLabMetrics(activeDocId, {
     enabled: Boolean(activeDocId) && (inspectorVisible || analyticsVisible || paletteOpen),
+    messages: currentChat?.messages || [],
   });
 
   // Reset metric focus when switching reports
@@ -2232,6 +2262,9 @@ export default function ChatApp() {
   const handleManualCloudSync = useCallback(async () => {
     if (isSyncing) return;
     setIsSyncing(true);
+    if (typeof navigator !== 'undefined' && navigator.onLine) {
+      setIsWorkspaceHydrating(true);
+    }
     try {
       const patId = selectedPatientId || 'self';
       // 1. Fetch fresh profile & dependents and update React state + local cache
@@ -2281,6 +2314,7 @@ export default function ChatApp() {
       logger.warn('Manual cloud sync failed:', err);
     } finally {
       setIsSyncing(false);
+      setIsWorkspaceHydrating(false);
     }
   }, [isSyncing, currentUser, activePdf, currentChat, sessionId, selectedPatientId, refreshDocuments, loadChatHistory, labMetrics, prewarmMessageHistories, conversations, syncAllProfilesInBackground]);
 
@@ -2657,6 +2691,30 @@ export default function ChatApp() {
         onSkip={handleSkipMemory}
         darkMode={darkMode}
       />
+
+      {/* ── Blocking Workspace Hydration Overlay ── */}
+      {isWorkspaceHydrating && (
+        <div
+          data-testid="workspace-hydration-overlay"
+          className="fixed inset-0 z-[100] flex flex-col items-center justify-center bg-[#070B14]/95 backdrop-blur-md p-6 text-center select-none animate-fade-in"
+        >
+          <div className="w-16 h-16 rounded-2xl bg-gradient-to-tr from-cyan-500 to-sky-400 p-0.5 shadow-2xl shadow-cyan-500/30 animate-pulse mb-6 flex items-center justify-center">
+            <div className="w-full h-full bg-[#070B14] rounded-[14px] flex items-center justify-center">
+              <BrandMark size={36} />
+            </div>
+          </div>
+          <h2 className="text-xl font-bold tracking-tight text-white mb-2">
+            Preparing Your Clinical Workspace
+          </h2>
+          <p className="text-sm text-slate-400 max-w-sm">
+            Syncing latest health records, biomarker trends, and encrypted consultations from the cloud...
+          </p>
+          <div className="mt-6 flex items-center gap-2">
+            <span className="w-2 h-2 rounded-full bg-cyan-400 animate-ping" />
+            <span className="text-xs font-mono text-cyan-400">HYDRATING LOCAL CACHE</span>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

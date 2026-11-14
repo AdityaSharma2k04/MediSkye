@@ -573,10 +573,12 @@ export async function apiFetch(url, options = {}, timeoutMs = 30000) {
   } catch (err) {
     clearTimeout(timeoutId);
     if (
-      err.name === 'TypeError' ||
-      (typeof navigator !== 'undefined' && !navigator.onLine) ||
-      err.message?.includes('fetch') ||
-      err.message?.includes('NetworkError')
+      err.name !== 'AbortError' &&
+      !timedOut &&
+      (err.name === 'TypeError' ||
+        (typeof navigator !== 'undefined' && !navigator.onLine) ||
+        err.message?.includes('fetch') ||
+        err.message?.includes('NetworkError'))
     ) {
       emitConnectivityStatus(false);
     }
@@ -2067,9 +2069,8 @@ export async function syncSingleProfileToLocalCache(patientId = 'self', options 
       } catch (_) {}
     }
 
-    // 5. Fetch and cache full chat messages for all conversations of pid
-    for (const doc of safeDocs) {
-      if (typeof navigator !== 'undefined' && !navigator.onLine) break;
+    // 5. Concurrently fetch and cache full chat messages for all conversations of pid
+    const docChatPromises = safeDocs.map(async (doc) => {
       try {
         const chats = await getDocumentChats(doc.id).catch(() => []);
         if (Array.isArray(chats) && chats.length > 0) {
@@ -2085,10 +2086,9 @@ export async function syncSingleProfileToLocalCache(patientId = 'self', options 
           }
         }
       } catch (_) {}
-    }
+    });
 
-    for (const sid of standaloneChatsBySession.keys()) {
-      if (typeof navigator !== 'undefined' && !navigator.onLine) break;
+    const standaloneChatPromises = Array.from(standaloneChatsBySession.keys()).map(async (sid) => {
       try {
         const chats = await getDocumentChats(null, sid, pid).catch(() => []);
         if (Array.isArray(chats) && chats.length > 0) {
@@ -2104,27 +2104,28 @@ export async function syncSingleProfileToLocalCache(patientId = 'self', options 
           }
         }
       } catch (_) {}
-    }
+    });
+
+    await Promise.allSettled([...docChatPromises, ...standaloneChatPromises]);
     setCachedConversations(mergedConvs, pid);
 
-    // 6. Pre-fetch lab metrics, summaries, facts, and trends
+    // 6. Concurrently pre-fetch lab metrics, summaries, facts, and trends
+    const prefetchPromises = [];
     for (const doc of safeDocs.slice(0, 10)) {
-      if (typeof navigator !== 'undefined' && !navigator.onLine) break;
       const docId = doc.id;
       if (docId) {
         if (!getCachedDocMetrics(docId)) {
-          await fetchLabMetrics(docId).catch(() => {});
+          prefetchPromises.push(fetchLabMetrics(docId).catch(() => {}));
         }
         if (!getCachedDocSummary(docId)) {
-          await getDocumentSummary(docId).catch(() => {});
+          prefetchPromises.push(getDocumentSummary(docId).catch(() => {}));
         }
       }
     }
+    prefetchPromises.push(getFacts(pid).catch(() => []));
+    prefetchPromises.push(getMetricTrends(pid).catch(() => ({})));
 
-    await Promise.all([
-      getFacts(pid).catch(() => []),
-      getMetricTrends(pid).catch(() => ({})),
-    ]);
+    await Promise.allSettled(prefetchPromises);
 
     return { docs: safeDocs, conversations: mergedConvs };
   } catch (err) {

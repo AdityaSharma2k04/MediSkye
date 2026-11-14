@@ -1,11 +1,29 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import React, { createRef } from 'react';
 import ChatInput, { normalizeCameraFile } from '../components/ChatInput';
 import Sidebar from '../components/Sidebar';
 
 describe('TASK 2: Direct Camera Photo Capture in ChatInput', () => {
-  it('renders the "Take Photo" button and hidden camera capture input with capture="environment"', () => {
+  const originalUA = navigator.userAgent;
+
+  beforeEach(() => {
+    Object.defineProperty(navigator, 'userAgent', {
+      value: 'Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Mobile Safari/537.36',
+      configurable: true,
+    });
+    delete window.__TAURI_INTERNALS__;
+    delete window.__TAURI__;
+  });
+
+  afterEach(() => {
+    Object.defineProperty(navigator, 'userAgent', {
+      value: originalUA,
+      configurable: true,
+    });
+  });
+
+  it('renders the "Take Photo" button and hidden camera capture input with capture="environment" on mobile phones', () => {
     const onAttachFile = vi.fn();
     const { container } = render(
       <ChatInput
@@ -32,6 +50,41 @@ describe('TASK 2: Direct Camera Photo Capture in ChatInput', () => {
     expect(fileInput.getAttribute('accept')).toContain('application/pdf');
     expect(fileInput.getAttribute('accept')).toContain('image/jpeg');
     expect(fileInput.getAttribute('accept')).toContain('image/webp');
+  });
+
+  it('does NOT render the "Take Photo" button or camera input on Windows desktop', () => {
+    Object.defineProperty(navigator, 'userAgent', {
+      value: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36',
+      configurable: true,
+    });
+
+    const { container } = render(
+      <ChatInput
+        onSendMessage={vi.fn()}
+        onAttachFile={vi.fn()}
+        activeFile={null}
+        attachedDocuments={[]}
+      />
+    );
+
+    expect(screen.queryByRole('button', { name: /take photo/i })).not.toBeInTheDocument();
+    expect(container.querySelector('input[capture="environment"]')).not.toBeInTheDocument();
+  });
+
+  it('does NOT render the "Take Photo" button when inside Tauri desktop shell', () => {
+    window.__TAURI_INTERNALS__ = {};
+
+    const { container } = render(
+      <ChatInput
+        onSendMessage={vi.fn()}
+        onAttachFile={vi.fn()}
+        activeFile={null}
+        attachedDocuments={[]}
+      />
+    );
+
+    expect(screen.queryByRole('button', { name: /take photo/i })).not.toBeInTheDocument();
+    expect(container.querySelector('input[capture="environment"]')).not.toBeInTheDocument();
   });
 
   it('normalizes generic camera filenames (e.g. image.jpg) to Lab_Report_Photo_YYYY-MM-DD.jpg', () => {

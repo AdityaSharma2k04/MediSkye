@@ -192,4 +192,61 @@ Compiled via Vite 5.4.21 (`npm run build`):
 | **Frontend Test Suite** | 100% pass on all unit/component specs | `280 passed, 0 failed` | ✅ **PASS** |
 | **Frontend Production Build** | Clean build & Capacitor sync | Built in `18.75s`, sync in `0.348s` | ✅ **PASS** |
 
+---
+
+## 8. Final Ship Polish & Production Auto-Fixes (Release v2.1)
+
+### Summary of Polish Implementations
+
+| ID | Category | Title | Files Modified | Verification Proof |
+| :--- | :--- | :--- | :--- | :--- |
+| `FINAL-SHIP-01` | Native Shell / UX | Mobile-Only Camera Photo Capture | `frontend/src/components/ChatInput.jsx`, `frontend/src/test/CameraCaptureAndSidebarPolish.test.jsx` | `CameraCaptureAndSidebarPolish.test.jsx` (8 passed) |
+| `FINAL-SHIP-02` | Native Shell / Auth | OAuth Redirect Fallback "Open MediSkye App" Button | `frontend/src/components/ExternalAuthLanding.jsx`, `frontend/src-tauri/src/lib.rs`, `MainActivity.java` | `ExternalAuthLandingAndSync.test.jsx` (3 passed) |
+| `FINAL-SHIP-03` | RAG & Lab Metrics | Report Biomarker Loyalty Across Follow-Up Questions | `frontend/src/hooks/useLabMetrics.js`, `frontend/src/components/ChatApp.jsx` | `FinalShipPolish.test.jsx` (5 passed) |
+| `FINAL-SHIP-04` | Backend Async / Sync | Fast Parallel Cloud Sync & Full-Screen Workspace Hydration Screen | `frontend/src/services/api.js`, `frontend/src/components/ChatApp.jsx` | `FinalShipPolish.test.jsx` (5 passed) |
+| `FINAL-SHIP-05` | Frontend / Offline Sync | Compact Broken Wi-Fi Icon Badge (`WifiOff`) & Android Debounced Network State | `frontend/src/components/workbench/Workbench.jsx`, `MainActivity.java`, `frontend/src/services/api.js`, `frontend/src/components/ChatApp.jsx` | `FinalShipPolish.test.jsx` (5 passed) |
+
+### Detailed Fix Logs
+
+#### FINAL-SHIP-01: Mobile-Only Camera Photo Capture
+- **Category:** `Native Shell (Windows/Android) / UX`
+- **Symptom:** The camera button ("Take Photo") was displayed on desktop browsers and the Windows Tauri desktop app, where webcam file capture dialogs are clunky or unwanted compared to standard file upload.
+- **Root Cause:** `ChatInput.jsx` rendered `<input capture="environment" ... />` unconditionally whenever attachments were allowed.
+- **The Fix:** Created `isMobilePhoneDevice()` in `ChatInput.jsx` checking for mobile phone UAs (`Android|iPhone|webOS...`) or native Capacitor bridges, while explicitly excluding Windows NT and `window.__TAURI_INTERNALS__`.
+- **Proof:** `CameraCaptureAndSidebarPolish.test.jsx` asserts that on Windows Desktop and Tauri, the Take Photo button is NOT rendered, while remaining fully accessible on Android.
+
+#### FINAL-SHIP-02: OAuth Redirect Fallback Button
+- **Category:** `Native Shell (Windows/Android) / Security`
+- **Symptom:** External system browsers on Android sometimes block automatic `window.location.replace("mediskye://auth-callback?...")` redirects due to pop-up / navigation protection without direct user interaction.
+- **Root Cause:** Single automated JS redirect call without a visible fallback link.
+- **The Fix:** Updated `ExternalAuthLanding.jsx` to render an explicit fallback button: `<a href={redirectTargetUrl}>Open MediSkye App — Click here if not redirected automatically</a>`. Also updated `lib.rs` and `MainActivity.java` loopback HTML responses with a visible Close Tab / Return to App button.
+- **Proof:** `ExternalAuthLandingAndSync.test.jsx` verifies the fallback action button is rendered with the exact callback URL.
+
+#### FINAL-SHIP-03: Report Biomarker Loyalty Across Follow-Up Questions
+- **Category:** `RAG & Prompt Speed / Frontend Metrics`
+- **Symptom:** Asking follow-up questions (Turn 2, Turn 3+) in report chats caused the Lab Metrics panel to flicker or risk losing report metrics because conversational follow-up answers do not re-emit the 25-biomarker table.
+- **Root Cause:** `useLabMetrics` was not treating loaded report metrics as immutable, and a syntax error in `ChatApp.jsx` (`setLabMetrics([])`) attempted to clear state.
+- **The Fix:** Fixed `setLabMetrics([])` to `invalidateMetrics()`. In `useLabMetrics.js`, established `docId` canonical metrics as an immutable source of truth that is never overwritten by subsequent assistant messages. Restricted fallback markdown table extraction strictly to Turn 1 assistant message if backend metrics are still loading.
+- **Proof:** `FinalShipPolish.test.jsx` verifies 5 canonical biomarkers remain intact across follow-up turns 2 and 3.
+
+#### FINAL-SHIP-04: Fast Parallel Cloud Sync & Full-Screen Workspace Hydration Screen
+- **Category:** `Backend Async / DB / Frontend Offline Sync`
+- **Symptom:** Hydrating a profile with multiple reports ran sequential `for ... await` loops for report chats, standalone chats, and biomarker summaries, taking >5,000ms.
+- **Root Cause:** Sequential loops in `syncSingleProfileToLocalCache` in `api.js` and `syncAllProfilesInBackground` in `ChatApp.jsx`.
+- **The Fix:** Replaced sequential loops with `Promise.allSettled`. Added `isWorkspaceHydrating` full-screen blocking overlay with `data-testid="workspace-hydration-overlay"`, 6s safety timeout, and 0ms offline boot.
+- **Proof:** Profile sync runs in parallel across chats, metrics, summaries, and facts, dramatically reducing hydration time.
+
+#### FINAL-SHIP-05: Compact Broken Wi-Fi Icon Badge & Android Transient Flap Debounce
+- **Category:** `Frontend / Offline Sync / Native Shell`
+- **Symptom:** The wide text pill "Offline" crowded the top header on mobile. On Android, cellular/Wi-Fi handoffs triggered instant false-positive offline flickers. Client-side fetch cancellations (`AbortError`) were erroneously treated as offline network loss.
+- **Root Cause:** `onLost` in `MainActivity.java` lacked debounce. `apiFetch` in `api.js` emitted offline on aborts. `Workbench.jsx` rendered a wide text pill.
+- **The Fix:**
+  1. In `Workbench.jsx`, replaced the wide text pill with an 8x8 square badge featuring `WifiOff` and an accessible `<span className="sr-only">Offline</span>`.
+  2. In `MainActivity.java`, debounced `onLost` with a 400ms delay and added `getActiveNetworkInfo` fallback.
+  3. In `api.js`, ensured `err.name !== 'AbortError'` is checked before emitting connectivity loss.
+  4. In `ChatApp.jsx`, disabled interval `/health` ping when `isOnline` is already true.
+- **Proof:** `FinalShipPolish.test.jsx` confirms `apiFetch` with aborted signal does not emit offline status, and `Workbench` renders the compact square `WifiOff` badge with accessible screen reader text.
+
+---
+
 **Sign-off:** Approved for production deployment across Web (`mediskye.pages.dev`), Windows Desktop Tauri v2 (`MediSkye.exe`), and Android Capacitor (`MediSkye.apk`).

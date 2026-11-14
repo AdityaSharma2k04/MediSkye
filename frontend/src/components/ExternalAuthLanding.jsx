@@ -13,7 +13,7 @@ export default function ExternalAuthLanding() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [signedInEmail, setSignedInEmail] = useState('');
-  const [androidIntentUrl, setAndroidIntentUrl] = useState('');
+  const [redirectTargetUrl, setRedirectTargetUrl] = useState('');
 
   const handleSelectAccount = async () => {
     setError('');
@@ -37,23 +37,40 @@ export default function ExternalAuthLanding() {
       } catch (_) {}
 
       const isAndroid = typeof navigator !== 'undefined' && /Android/i.test(navigator.userAgent || '');
+      const urlParams = typeof window !== 'undefined' ? new URLSearchParams(window.location.search) : null;
+      const port = urlParams?.get('port');
+
+      let targetUrl = '';
       if (isAndroid) {
-        const intentUrl =
+        targetUrl =
           'intent://auth-callback?id_token=' +
           encodeURIComponent(idToken) +
           '&access_token=' +
           encodeURIComponent(accessToken) +
           '#Intent;scheme=mediskye;package=com.mediskye.app;end';
-        setAndroidIntentUrl(intentUrl);
-        setSignedInEmail(result.user?.email || 'User');
-        window.location.replace(intentUrl);
+      } else if (port) {
+        targetUrl = `http://127.0.0.1:${port}/auth-callback?id_token=${encodeURIComponent(idToken)}&access_token=${encodeURIComponent(accessToken)}`;
       } else {
-        setSignedInEmail(result.user?.email || 'User');
+        targetUrl = callbackUrl;
+      }
+
+      setRedirectTargetUrl(targetUrl);
+      setSignedInEmail(result.user?.email || 'User');
+
+      try {
+        window.location.replace(targetUrl);
+      } catch (_) {
+        try {
+          window.location.href = targetUrl;
+        } catch (__) {}
+      }
+
+      if (!isAndroid) {
         setTimeout(() => {
           try {
             window.close();
           } catch (_) {}
-        }, 600);
+        }, 1200);
       }
     } catch (err) {
       setError(getFirebaseErrorMessage(err) || err.message || 'Authentication failed. Please try again.');
@@ -61,8 +78,6 @@ export default function ExternalAuthLanding() {
       setLoading(false);
     }
   };
-
-  const isAndroid = typeof navigator !== 'undefined' && /Android/i.test(navigator.userAgent || '');
 
   return (
     <div className="min-h-screen bg-[#070B14] text-slate-100 flex items-center justify-center p-6 selection:bg-cyan-500/30">
@@ -74,30 +89,29 @@ export default function ExternalAuthLanding() {
         </div>
 
         {signedInEmail ? (
-          <div className="space-y-4 animate-fade-in">
-            <div className="w-12 h-12 rounded-full bg-emerald-500/20 border border-emerald-400/40 text-emerald-300 flex items-center justify-center mx-auto">
+          <div className="space-y-4 animate-fade-in" data-testid="auth-success-container">
+            <div className="w-12 h-12 rounded-full bg-emerald-500/20 border border-emerald-400/40 text-emerald-300 flex items-center justify-center mx-auto shadow-lg shadow-emerald-500/20">
               <svg className="w-6 h-6" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
                 <path d="M20 6L9 17l-5-5" />
               </svg>
             </div>
             <div className="space-y-1">
               <h2 className="text-lg font-semibold text-white">Signed in as {signedInEmail}</h2>
-              {isAndroid ? (
-                <p className="text-sm text-cyan-300">Returning to MediSkye app...</p>
-              ) : (
-                <p className="text-sm text-slate-400">
-                  You can close this tab and return to the MediSkye desktop app.
-                </p>
-              )}
+              <p className="text-sm text-cyan-300">Sign-in verified! Redirecting you back to MediSkye...</p>
             </div>
 
-            {isAndroid && androidIntentUrl && (
+            {redirectTargetUrl && (
               <div className="pt-2">
                 <a
-                  href={androidIntentUrl}
-                  className="inline-block py-2.5 px-4 rounded-xl bg-cyan-500 text-slate-950 font-medium text-xs hover:bg-cyan-400 transition"
+                  href={redirectTargetUrl}
+                  onClick={() => {
+                    try {
+                      window.location.href = redirectTargetUrl;
+                    } catch (_) {}
+                  }}
+                  className="inline-block py-3 px-5 rounded-xl bg-cyan-500 text-slate-950 font-semibold text-sm hover:bg-cyan-400 active:scale-[0.98] transition shadow-lg cursor-pointer"
                 >
-                  Tap here if not redirected automatically
+                  Open MediSkye App — Click here if not redirected automatically
                 </a>
               </div>
             )}

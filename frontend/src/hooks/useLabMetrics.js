@@ -42,11 +42,70 @@ export async function loadMetricsFor(docId, { force = false } = {}) {
 }
 
 /**
+ * Fallback parser for extracting biomarkers strictly from Turn 1 report walkthrough.
+ */
+export function extractBiomarkersFromMessage(text) {
+  if (!text || typeof text !== 'string') return [];
+  try {
+    const jsonMatch = text.match(/```(?:json)?\s*(\{[\s\S]*?\})\s*```/i);
+    if (jsonMatch) {
+      const parsed = JSON.parse(jsonMatch[1]);
+      if (Array.isArray(parsed.metrics) && parsed.metrics.length > 0) {
+        return parsed.metrics;
+      }
+      if (Array.isArray(parsed.lab_metrics) && parsed.lab_metrics.length > 0) {
+        return parsed.lab_metrics;
+      }
+    }
+  } catch (_) {}
+
+  const lines = text.split('\n');
+  const rows = [];
+  let inTable = false;
+  let headers = [];
+  for (const line of lines) {
+    const trimmed = line.trim();
+    if (trimmed.startsWith('|') && trimmed.endsWith('|')) {
+      const cells = trimmed.slice(1, -1).split('|').map((c) => c.trim());
+      if (!inTable) {
+        if (cells.some((c) => /test|biomarker|parameter|analyte|metric|investigation/i.test(c))) {
+          headers = cells.map((c) => c.toLowerCase());
+          inTable = true;
+          continue;
+        }
+      } else {
+        if (cells.every((c) => /^:?-+:?$/.test(c))) continue;
+        const testIdx = headers.findIndex((h) => /test|biomarker|parameter|analyte|metric|investigation/i.test(h));
+        const valIdx = headers.findIndex((h) => /value|result|observed/i.test(h));
+        const unitIdx = headers.findIndex((h) => /unit/i.test(h));
+        const rangeIdx = headers.findIndex((h) => /range|reference|biological/i.test(h));
+        const statusIdx = headers.findIndex((h) => /status|flag/i.test(h));
+
+        const name = testIdx >= 0 ? cells[testIdx] : cells[0];
+        const value = valIdx >= 0 ? cells[valIdx] : (cells[1] || '');
+        if (name && value && !/^[-—\s]+$/.test(name)) {
+          rows.push({
+            name,
+            value,
+            unit: unitIdx >= 0 ? cells[unitIdx] : '',
+            range: rangeIdx >= 0 ? cells[rangeIdx] : '',
+            status: statusIdx >= 0 ? cells[statusIdx].toLowerCase() : 'normal',
+          });
+        }
+      }
+    } else if (inTable && rows.length > 0) {
+      inTable = false;
+    }
+  }
+  return rows;
+}
+
+/**
  * Lab metrics for the active document.
  * @param {string|null} documentId
- * @param {{enabled?: boolean}} options  set enabled=false to defer the request
+ * @param {{enabled?: boolean, messages?: Array}} options  set enabled=false to defer the request
  */
-export default function useLabMetrics(documentId, { enabled = true } = {}) {
+export default function useLabMetrics(documentId, { enabled = true, messages = [] } = {}) {
   const [state, setState] = useState(() => {
     const cached = documentId ? getCachedDocMetrics(documentId) : null;
     return {
@@ -103,10 +162,44 @@ export default function useLabMetrics(documentId, { enabled = true } = {}) {
 
   useEffect(() => {
     if (!enabled || !documentId) return;
-    if (state.docId === documentId && (state.loaded || state.loading)) return;
+    if (state.docId === documentId && state.loaded) return;
     load(false);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [enabled, documentId]);
+
+  // Fallback metric extraction: ONLY if metrics are not loaded/cached yet,
+  // and strictly from the first assistant message (Turn 1).
+  useEffect(() => {
+    if (!documentId) return;
+    if (state.docId === documentId && Array.isArray(state.metrics) && state.metrics.length > 0) {
+      // Canonical metrics already loaded, NEVER overwrite, filter or reduce!
+      return;
+    }
+    if (!Array.isArray(messages) || messages.length === 0) return;
+
+    // Find the first assistant message (Turn 1 report walkthrough)
+    const firstAssistantMsg = messages.find(
+      (m) => m && (m.sender === 'assistant' || m.role === 'assistant' || m.role === 'ai')
+    );
+    if (!firstAssistantMsg) return;
+
+    const text = firstAssistantMsg.text || firstAssistantMsg.message || '';
+    const extracted = extractBiomarkersFromMessage(text);
+    if (extracted.length > 0) {
+      setState((prev) => {
+        if (prev.docId === documentId && Array.isArray(prev.metrics) && prev.metrics.length > 0) {
+          return prev;
+        }
+        return {
+          ...prev,
+          docId: documentId,
+          metrics: extracted,
+          loaded: true,
+          loading: false,
+        };
+      });
+    }
+  }, [documentId, messages, state.docId, state.metrics]);
 
   useEffect(() => {
     if (!documentId) {

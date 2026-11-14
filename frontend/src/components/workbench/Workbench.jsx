@@ -10,6 +10,7 @@ import {
   Activity,
   FileText,
   UploadCloud,
+  WifiOff,
   X,
 } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
@@ -335,10 +336,11 @@ export default function Workbench(props) {
                 role="status"
                 aria-label="Offline"
                 data-testid="offline-status-badge"
-                className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium bg-rose-500/15 border border-rose-500/35 text-rose-400 select-none shrink-0 animate-fade-in"
+                title="Offline - Local Cache Active"
+                className="w-8 h-8 rounded-lg flex items-center justify-center bg-rose-500/15 border border-rose-500/35 text-rose-400 select-none shrink-0 animate-fade-in"
               >
-                <span className="w-1.5 h-1.5 rounded-full bg-rose-500 animate-pulse" />
-                <span>Offline</span>
+                <WifiOff className="w-4 h-4 text-rose-400" />
+                <span className="sr-only">Offline</span>
               </div>
             )}
             {isDesktop ? (
