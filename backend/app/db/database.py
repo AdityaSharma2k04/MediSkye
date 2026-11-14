@@ -18,14 +18,16 @@ elif "postgresql" in settings.DATABASE_URL:
     # ssl=require for Neon; statement_cache_size=0 disables asyncpg's prepared
     # statement cache, which is incompatible with PgBouncer (Neon pooler) in
     # transaction mode. pool_pre_ping handles scale-to-zero reconnects.
+    # pool_recycle=60 ensures idle connections are recycled before serverless PgBouncer drops them.
     _engine_kwargs = {
         "connect_args": {
             "ssl": "require",
             "statement_cache_size": 0,
             "prepared_statement_cache_size": 0,
+            "command_timeout": 60,
         },
         "pool_pre_ping": True,
-        "pool_recycle": 300,
+        "pool_recycle": 60,
         "pool_size": 5,
         "max_overflow": 10,
         "pool_timeout": 30,
@@ -64,5 +66,17 @@ Base = declarative_base()
 
 
 async def get_db():
-    async with AsyncSessionLocal() as session:
+    session = AsyncSessionLocal()
+    try:
         yield session
+    except Exception:
+        try:
+            await session.rollback()
+        except Exception:
+            pass
+        raise
+    finally:
+        try:
+            await session.close()
+        except Exception:
+            pass

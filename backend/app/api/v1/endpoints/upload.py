@@ -67,153 +67,161 @@ async def process_upload_background(
     faiss_build_ms = 0
     db_commit_ms = 0
 
-    async with AsyncSessionLocal() as db:
-        try:
-            # Initial DB setup (document record & chat link)
-            t0 = time.monotonic()
-            user_uuid = uuid.UUID(user_id)
-            dep_uuid = uuid.UUID(dependent_id) if dependent_id else None
+    user_uuid = uuid.UUID(user_id)
+    dep_uuid = uuid.UUID(dependent_id) if dependent_id else None
+    doc_id_val = None
 
-            # Create Document record in DB with cleaned title and building status
-            from app.core.security import sanitize_text
-            resolved_title = (
-                sanitize_text(custom_title).strip()[:60]
-                if custom_title and custom_title.strip()
-                else clean_filename_to_title(filename)
-            )
-            doc = Document(
-                user_id=user_uuid,
-                dependent_id=dep_uuid,
-                filename=filename,
-                title=resolved_title,
-                index_status="building",
-            )
-            db.add(doc)
-            await db.commit()
-            await db.refresh(doc)
+    try:
+        # Initial DB setup (document record & chat link)
+        t0 = time.monotonic()
+        from app.core.security import sanitize_text
+        resolved_title = (
+            sanitize_text(custom_title).strip()[:60]
+            if custom_title and custom_title.strip()
+            else clean_filename_to_title(filename)
+        )
+        doc = Document(
+            user_id=user_uuid,
+            dependent_id=dep_uuid,
+            filename=filename,
+            title=resolved_title,
+            index_status="building",
+        )
+        async with AsyncSessionLocal() as db_init:
+            db_init.add(doc)
+            await db_init.commit()
+            await db_init.refresh(doc)
+            doc_id_val = doc.id
 
-            # If active chat_id provided, link document to active chat session via ChatDocument
             if chat_id:
                 try:
                     c_uuid = uuid.UUID(chat_id)
-                    chat_res = await db.execute(
+                    chat_res = await db_init.execute(
                         select(Chat).filter(Chat.id == c_uuid, Chat.user_id == user_uuid)
                     )
                     chat_obj = chat_res.scalars().first()
                     if chat_obj:
-                        cd = ChatDocument(chat_id=chat_obj.id, document_id=doc.id)
-                        db.add(cd)
-                        await db.commit()
+                        cd = ChatDocument(chat_id=chat_obj.id, document_id=doc_id_val)
+                        db_init.add(cd)
+                        await db_init.commit()
                 except Exception as ce:
-                    logger.warning(f"Failed to link chat {chat_id} to document {doc.id}: {ce}")
-            logger.info(f"[UPLOAD {job_id}] Initial DB setup: {time.monotonic() - t0:.2f}s")
+                    logger.warning(f"Failed to link chat {chat_id} to document {doc_id_val}: {ce}")
 
-            # 1. Text extraction (parse_ms)
-            t_parse = time.perf_counter()
-            page_docs = await extract_text_from_file(tmp_path, filename)
-            parse_ms = int((time.perf_counter() - t_parse) * 1000)
-            logger.info(f"[UPLOAD {job_id}] Extraction: {parse_ms}ms ({len(page_docs)} pages)")
+            await log_audit(db_init, "PDF_UPLOADED", user_uuid, f"doc_{doc_id_val}", client_host, dependent_id=dep_uuid)
+        logger.info(f"[UPLOAD {job_id}] Initial DB setup: {time.monotonic() - t0:.2f}s (doc_id={doc_id_val})")
 
-            # Extract true specimen collection date if present
+        # 1. Text extraction (parse_ms)
+        t_parse = time.perf_counter()
+        page_docs = await extract_text_from_file(tmp_path, filename)
+        parse_ms = int((time.perf_counter() - t_parse) * 1000)
+        logger.info(f"[UPLOAD {job_id}] Extraction: {parse_ms}ms ({len(page_docs)} pages)")
+
+        # Extract true specimen collection date if present
+        extracted_col_date = None
+        try:
+            col_sample_text = "\n".join([getattr(d, "page_content", str(d)) for d in page_docs[:3]])
+            extracted_col_date = extract_specimen_collection_date(col_sample_text)
+            if extracted_col_date:
+                logger.info(f"[UPLOAD {job_id}] Extracted specimen collection date: {extracted_col_date}")
+        except Exception as col_err:
+            logger.debug(f"[UPLOAD {job_id}] Specimen date extraction non-fatal error: {col_err}")
+
+        # Audit logging for X-ray if applicable
+        has_xray = any(d.metadata.get("type") == "xray" for d in page_docs)
+        if has_xray:
             try:
-                col_sample_text = "\n".join([getattr(d, "page_content", str(d)) for d in page_docs[:3]])
-                extracted_col_date = extract_specimen_collection_date(col_sample_text)
-                if extracted_col_date:
-                    doc.collected_at = extracted_col_date
-                    logger.info(f"[UPLOAD {job_id}] Extracted specimen collection date: {extracted_col_date}")
-            except Exception as col_err:
-                logger.debug(f"[UPLOAD {job_id}] Specimen date extraction non-fatal error: {col_err}")
+                async with AsyncSessionLocal() as db_xray:
+                    await log_audit(db_xray, "XRAY_ANALYSIS", user_uuid, "upload", client_host, dependent_id=dep_uuid)
+            except Exception as xe:
+                logger.warning(f"Failed to log XRAY_ANALYSIS audit: {xe}")
 
-            # Audit logging
-            has_xray = any(d.metadata.get("type") == "xray" for d in page_docs)
-            if has_xray:
-                await log_audit(db, "XRAY_ANALYSIS", user_uuid, "upload", client_host, dependent_id=dep_uuid)
-            await log_audit(db, "PDF_UPLOADED", user_uuid, f"doc_{doc.id}", client_host, dependent_id=dep_uuid)
+        await update_job(job_id, stage="indexing")
+        index_dir = settings.INDEX_STORAGE_DIR
+        index_dir.mkdir(parents=True, exist_ok=True)
+        index_path = str(index_dir / f"user_{user_uuid}_doc_{doc_id_val}.index")
 
-            await update_job(job_id, stage="indexing")
-            index_dir = settings.INDEX_STORAGE_DIR
-            index_dir.mkdir(parents=True, exist_ok=True)
-            index_path = str(index_dir / f"user_{user_uuid}_doc_{doc.id}.index")
+        # Check if acreate_hybrid_index is patched by test fixtures
+        if hasattr(acreate_hybrid_index, "mock_calls") or hasattr(acreate_hybrid_index, "_mock_return_value") or hasattr(acreate_hybrid_index, "side_effect"):
+            t_faiss = time.perf_counter()
+            vectorstore, bm25_index, chunks = await acreate_hybrid_index(page_docs, index_path)
+            faiss_build_ms = int((time.perf_counter() - t_faiss) * 1000)
+            chunk_ms = 0
+            embed_ms = 0
+        else:
+            # 2. Chunking (chunk_ms)
+            t_chunk = time.perf_counter()
+            splitter = retriever._build_splitter()
+            raw_chunks = await asyncio.to_thread(splitter.split_documents, page_docs)
+            chunks = [c for c in raw_chunks if c.page_content and c.page_content.strip()]
+            if not chunks:
+                chunks = [LCDocument(page_content="Empty document", metadata={})]
+            chunk_texts = [c.page_content for c in chunks]
+            chunk_ms = int((time.perf_counter() - t_chunk) * 1000)
+            logger.info(f"[UPLOAD {job_id}] Chunking: {chunk_ms}ms ({len(chunks)} chunks)")
 
-            # Check if acreate_hybrid_index is patched by test fixtures
-            if hasattr(acreate_hybrid_index, "mock_calls") or hasattr(acreate_hybrid_index, "_mock_return_value") or hasattr(acreate_hybrid_index, "side_effect"):
-                t_faiss = time.perf_counter()
-                vectorstore, bm25_index, chunks = await acreate_hybrid_index(page_docs, index_path)
-                faiss_build_ms = int((time.perf_counter() - t_faiss) * 1000)
-                chunk_ms = 0
-                embed_ms = 0
+            # 3. Embeddings (embed_ms)
+            t_embed = time.perf_counter()
+            embedder = retriever.get_embedder()
+            if hasattr(embedder, "aembed_documents"):
+                embeddings = await embedder.aembed_documents(chunk_texts)
             else:
-                # 2. Chunking (chunk_ms)
-                t_chunk = time.perf_counter()
-                splitter = retriever._build_splitter()
-                raw_chunks = await asyncio.to_thread(splitter.split_documents, page_docs)
-                chunks = [c for c in raw_chunks if c.page_content and c.page_content.strip()]
-                if not chunks:
-                    chunks = [LCDocument(page_content="Empty document", metadata={})]
-                chunk_texts = [c.page_content for c in chunks]
-                chunk_ms = int((time.perf_counter() - t_chunk) * 1000)
-                logger.info(f"[UPLOAD {job_id}] Chunking: {chunk_ms}ms ({len(chunks)} chunks)")
+                embeddings = await asyncio.to_thread(embedder.embed_documents, chunk_texts)
+            embed_ms = int((time.perf_counter() - t_embed) * 1000)
+            logger.info(f"[UPLOAD {job_id}] Embeddings: {embed_ms}ms")
 
-                # 3. Embeddings (embed_ms)
-                t_embed = time.perf_counter()
-                embedder = retriever.get_embedder()
-                if hasattr(embedder, "aembed_documents"):
-                    embeddings = await embedder.aembed_documents(chunk_texts)
-                else:
-                    embeddings = await asyncio.to_thread(embedder.embed_documents, chunk_texts)
-                embed_ms = int((time.perf_counter() - t_embed) * 1000)
-                logger.info(f"[UPLOAD {job_id}] Embeddings: {embed_ms}ms")
+            # 4. Build FAISS and BM25 and save to local disk & memory cache (faiss_build_ms)
+            t_faiss = time.perf_counter()
+            vectorstore, bm25_index, chunks = await asyncio.to_thread(
+                retriever.build_hybrid_index_from_embeddings,
+                chunks,
+                embeddings,
+                index_path,
+            )
+            retriever.cache_hybrid_index(str(doc_id_val), vectorstore, bm25_index)
+            retriever.cache_hybrid_index(index_path, vectorstore, bm25_index)
+            faiss_build_ms = int((time.perf_counter() - t_faiss) * 1000)
+            logger.info(f"[UPLOAD {job_id}] FAISS/BM25 local build: {faiss_build_ms}ms")
 
-                # 4. Build FAISS and BM25 and save to local disk & memory cache (faiss_build_ms)
-                t_faiss = time.perf_counter()
-                vectorstore, bm25_index, chunks = await asyncio.to_thread(
-                    retriever.build_hybrid_index_from_embeddings,
-                    chunks,
-                    embeddings,
-                    index_path,
-                )
-                retriever.cache_hybrid_index(str(doc.id), vectorstore, bm25_index)
-                retriever.cache_hybrid_index(index_path, vectorstore, bm25_index)
-                faiss_build_ms = int((time.perf_counter() - t_faiss) * 1000)
-                logger.info(f"[UPLOAD {job_id}] FAISS/BM25 local build: {faiss_build_ms}ms")
+        # 5. Update DB with file_path and index_status = "local_ready" (db_commit_ms)
+        t_db = time.perf_counter()
+        async with AsyncSessionLocal() as db_final:
+            doc_final = await db_final.get(Document, doc_id_val)
+            if doc_final:
+                doc_final.file_path = index_path
+                doc_final.index_status = "local_ready"
+                if extracted_col_date:
+                    doc_final.collected_at = extracted_col_date
+                await db_final.commit()
+        db_commit_ms = int((time.perf_counter() - t_db) * 1000)
+        logger.info(f"[UPLOAD {job_id}] DB commit (local_ready): {db_commit_ms}ms")
 
-            # 5. Update DB with file_path and index_status = "local_ready" (db_commit_ms)
-            t_db = time.perf_counter()
-            doc.file_path = index_path
-            doc.index_status = "local_ready"
-            await db.commit()
-            await db.refresh(doc)
-            doc_id_val = doc.id
-            db_commit_ms = int((time.perf_counter() - t_db) * 1000)
-            logger.info(f"[UPLOAD {job_id}] DB commit (local_ready): {db_commit_ms}ms")
-
-            # Step A (Fast Path): Mark upload job completed IMMEDIATELY as local_ready
-            await update_job(job_id, status=UploadStatus.COMPLETED, document_id=str(doc_id_val), stage="ready")
-            logger.info(f"[UPLOAD {job_id}] Step A Fast Path Completed (local_ready): {time.monotonic() - t_start:.2f}s")
-        except Exception as e:
-            import sentry_sdk
-            sentry_sdk.capture_exception(e)
-            logger.error(f"[UPLOAD {job_id}] Failed after {time.monotonic() - t_start:.2f}s: {e}", exc_info=True)
+        # Step A (Fast Path): Mark upload job completed IMMEDIATELY as local_ready
+        await update_job(job_id, status=UploadStatus.COMPLETED, document_id=str(doc_id_val), stage="ready")
+        logger.info(f"[UPLOAD {job_id}] Step A Fast Path Completed (local_ready): {time.monotonic() - t_start:.2f}s")
+    except Exception as e:
+        import sentry_sdk
+        sentry_sdk.capture_exception(e)
+        logger.error(f"[UPLOAD {job_id}] Failed after {time.monotonic() - t_start:.2f}s: {e}", exc_info=True)
+        try:
+            if doc_id_val:
+                async with AsyncSessionLocal() as db_cleanup:
+                    res = await db_cleanup.execute(select(Document).filter(Document.id == doc_id_val))
+                    failed_doc = res.scalars().first()
+                    if failed_doc:
+                        failed_doc.index_status = "failed"
+                        await db_cleanup.commit()
+        except Exception as ce:
+            logger.warning("Failed to mark document as failed: %s", ce)
+        from app.rag.loader import PDFExtractionError
+        job_error = str(e) if isinstance(e, PDFExtractionError) else "We couldn't process this file. Please try another one."
+        await update_job(job_id, status=UploadStatus.FAILED, error=job_error)
+        return
+    finally:
+        if tmp_path and os.path.exists(tmp_path):
             try:
-                if 'doc' in locals() and getattr(doc, 'id', None):
-                    async with AsyncSessionLocal() as db_cleanup:
-                        res = await db_cleanup.execute(select(Document).filter(Document.id == doc.id))
-                        failed_doc = res.scalars().first()
-                        if failed_doc:
-                            failed_doc.index_status = "failed"
-                            await db_cleanup.commit()
-            except Exception as ce:
-                logger.warning("Failed to mark document as failed: %s", ce)
-            from app.rag.loader import PDFExtractionError
-            job_error = str(e) if isinstance(e, PDFExtractionError) else "We couldn't process this file. Please try another one."
-            await update_job(job_id, status=UploadStatus.FAILED, error=job_error)
-            return
-        finally:
-            if tmp_path and os.path.exists(tmp_path):
-                try:
-                    os.unlink(tmp_path)
-                except Exception as unlink_err:
-                    logger.debug("Could not unlink temporary upload file %s: %s", tmp_path, unlink_err)
+                os.unlink(tmp_path)
+            except Exception as unlink_err:
+                logger.debug("Could not unlink temporary upload file %s: %s", tmp_path, unlink_err)
 
     # Step B (Async Background GCS Sync & Cache Warming):
     async def _run_post_upload_tasks():

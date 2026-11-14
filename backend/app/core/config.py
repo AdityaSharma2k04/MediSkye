@@ -140,6 +140,13 @@ class Settings(BaseSettings):
             return [item.strip() for item in raw.split(",") if item.strip()]
         return value
 
+    @field_validator("GOOGLE_CLOUD_LOCATION", mode="before")
+    @classmethod
+    def _normalize_location(cls, value):
+        if not value or str(value).strip().lower() in ("global", "none"):
+            return "asia-southeast1"
+        return value
+
     @field_validator("DATABASE_URL", mode="before")
     @classmethod
     def _normalize_database_url(cls, value):

@@ -569,29 +569,36 @@ async def query_bot(
             doc_ids = [cd_doc.id for cd_doc in chat_docs]
             await link_chat_documents_batch(db, current_chat_id, doc_ids)
             await db.commit()
+
+        # ── Intent Classification ──
+        doc_id_param = getattr(body, "document_id", None) or (str(primary_doc.id) if primary_doc else None)
+        intent = await classify_intent(
+            body.query,
+            has_document=has_document,
+            document_id=doc_id_param,
+        )
+        if intent == QueryIntent.EMERGENCY:
+            emergency_banner = get_emergency_response(EmergencyKind.MEDICAL, emergency_language)
+            intent = QueryIntent.DOCUMENT_QA if has_document else QueryIntent.GENERAL_HEALTH
+        elif emergency_banner and intent != QueryIntent.DOCUMENT_QA:
+            intent = QueryIntent.GENERAL_HEALTH
+        elif intent == QueryIntent.DOCUMENT_QA and not has_document:
+            intent = QueryIntent.GENERAL_HEALTH
+
+        # Release the request-scoped DB connection before entering the long-lived SSE
+        # stream (generate_response_stream opens its own short-lived AsyncSessionLocal
+        # sessions when needed).
+        try:
+            await db.close()
+        except Exception:
+            pass
     except Exception:
         _active_query_sessions.discard(session_lock_key)
+        try:
+            await db.close()
+        except Exception:
+            pass
         raise
-
-    # ── Intent Classification ──
-    doc_id_param = getattr(body, "document_id", None) or (str(primary_doc.id) if primary_doc else None)
-    intent = await classify_intent(
-        body.query,
-        has_document=has_document,
-        document_id=doc_id_param,
-    )
-    if intent == QueryIntent.EMERGENCY:
-        emergency_banner = get_emergency_response(EmergencyKind.MEDICAL, emergency_language)
-        intent = QueryIntent.DOCUMENT_QA if has_document else QueryIntent.GENERAL_HEALTH
-    elif emergency_banner and intent != QueryIntent.DOCUMENT_QA:
-        intent = QueryIntent.GENERAL_HEALTH
-    elif intent == QueryIntent.DOCUMENT_QA and not has_document:
-        intent = QueryIntent.GENERAL_HEALTH
-
-    # Release the request-scoped DB connection before entering the long-lived SSE
-    # stream (generate_response_stream opens its own short-lived AsyncSessionLocal
-    # sessions when needed).
-    await db.close()
 
     async def generate_response_stream():
         full_raw_text = ""

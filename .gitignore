@@ -152,3 +152,5 @@ claudebundler.py
 claude_bundles/
 audit_output*/
 auditoutput*/
+backend/scripts/e2e_checkpoint.json
+

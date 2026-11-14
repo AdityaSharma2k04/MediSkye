@@ -59,21 +59,17 @@ MODEL_FALLBACK_CHAIN = [
 
 def get_fallback_models(primary_model: Optional[str] = None) -> list[str]:
     """
-    Returns an ordered chain of at least 5 progressive fallback models for streaming/query:
+    Returns an ordered chain of fallback models for streaming/query:
     1. Primary configured model (settings.GEMINI_MODEL)
-    2. gemini-3.5-flash
-    3. gemini-2.5-flash
-    4. gemini-2.5-flash-lite
-    5. gemini-2.0-flash
-    6. gemini-2.0-flash-lite
-    7. gemini-1.5-flash
+    2. Configured fallback models from settings.resolved_fallback_models (or MODEL_FALLBACK_CHAIN)
     """
     primary = primary_model or settings.GEMINI_MODEL
     if settings.GOOGLE_GENAI_USE_ENTERPRISE and primary.startswith("models/"):
         primary = primary.removeprefix("models/")
 
     chain = [primary]
-    for m in MODEL_FALLBACK_CHAIN:
+    fallback_candidates = settings.resolved_fallback_models if settings.resolved_fallback_models else MODEL_FALLBACK_CHAIN
+    for m in fallback_candidates:
         target = m.removeprefix("models/") if settings.GOOGLE_GENAI_USE_ENTERPRISE and m.startswith("models/") else m
         if target not in chain:
             chain.append(target)
