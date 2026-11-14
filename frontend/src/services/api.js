@@ -323,12 +323,112 @@ export function setCachedTrends(trends, patientId = 'self', uid = getStableCache
 
 // ── Persistent Chat Sessions Cache ──
 
+/**
+ * Strips orphaned/empty streaming skeletons from messages array,
+ * and finalizes any partial streaming message to isStreaming: false.
+ */
+export function sanitizeMessagesForCache(messages) {
+  if (!Array.isArray(messages)) return [];
+  const result = [];
+  for (const m of messages) {
+    if (!m || typeof m !== 'object') continue;
+    const isBot = m.sender === 'assistant' || m.sender === 'bot' || m.role === 'assistant' || m.role === 'ai';
+    const textStr = typeof m.text === 'string'
+      ? m.text.trim()
+      : (typeof m.message === 'string' ? m.message.trim() : '');
+
+    if (m.isStreaming) {
+      if (!textStr) {
+        // Drop empty temporary streaming loading skeleton
+        continue;
+      }
+      // Non-empty streaming message: normalize to completed state
+      result.push({
+        ...m,
+        isStreaming: false,
+        status: null,
+        statusText: null,
+      });
+    } else {
+      // If it's a bot message that somehow has empty text and stuck status/statusText without isStreaming
+      if (isBot && !textStr && (m.statusText || m.status)) {
+        continue;
+      }
+      result.push(m);
+    }
+  }
+  return result;
+}
+
+/**
+ * Reconciles local cached messages with authoritative server chat history.
+ */
+export function reconcileMessagesWithServer(localMessages, serverMessages, isCurrentlyStreamingThisConv = false) {
+  const safeServer = Array.isArray(serverMessages) ? serverMessages : [];
+  if (!Array.isArray(localMessages) || localMessages.length === 0) {
+    return safeServer;
+  }
+
+  // If this conversation is actively streaming chunks right now, keep live local messages
+  if (isCurrentlyStreamingThisConv) {
+    return localMessages;
+  }
+
+  // Strip dead empty streaming skeletons from local messages
+  const cleanedLocal = sanitizeMessagesForCache(localMessages);
+
+  if (safeServer.length === 0) {
+    return cleanedLocal;
+  }
+
+  // If server has at least as many messages as cleaned local
+  if (safeServer.length >= cleanedLocal.length) {
+    return safeServer;
+  }
+
+  // If the last cleaned local message is from the user, but server already has an assistant reply for it
+  const lastLocal = cleanedLocal[cleanedLocal.length - 1];
+  const lastServer = safeServer[safeServer.length - 1];
+  const isLastLocalUser = lastLocal && (lastLocal.sender === 'user' || lastLocal.role === 'user');
+  const isLastServerBot = lastServer && (lastServer.sender === 'assistant' || lastServer.sender === 'bot' || lastServer.role === 'assistant' || lastServer.role === 'ai');
+
+  if (isLastLocalUser && isLastServerBot) {
+    return safeServer;
+  }
+
+  // If both end with assistant message, prefer whichever is longer / more complete
+  const isLastLocalBot = lastLocal && (lastLocal.sender === 'assistant' || lastLocal.sender === 'bot' || lastLocal.role === 'assistant' || lastLocal.role === 'ai');
+  if (isLastLocalBot && isLastServerBot) {
+    const localText = (lastLocal.text || lastLocal.message || '').trim();
+    const serverText = (lastServer.text || lastServer.message || '').trim();
+    if (serverText.length >= localText.length) {
+      return safeServer;
+    }
+  }
+
+  return safeServer.length > 0 ? safeServer : cleanedLocal;
+}
+
 export function getCachedConversations(patientId = 'self', uid = getStableCacheUid()) {
   const stableUid = getStableCacheUid(uid);
   const targetPid = normalizePatientId(patientId);
 
   const allConvsMap = new Map();
   let foundAnyMatchingCache = false;
+
+  const sanitizeConvMessages = (convList) => {
+    if (!Array.isArray(convList)) return [];
+    return convList.map((c) => {
+      if (!c || typeof c !== 'object') return c;
+      if (Array.isArray(c.messages)) {
+        return {
+          ...c,
+          messages: sanitizeMessagesForCache(c.messages),
+        };
+      }
+      return c;
+    });
+  };
 
   if (typeof localStorage !== 'undefined') {
     try {
@@ -400,22 +500,37 @@ export function getCachedConversations(patientId = 'self', uid = getStableCacheU
     const raw = safeStorageGet(`mediskye_conversations_${stableUid}_${targetPid}`, null);
     if (raw === null) return null;
     if (Array.isArray(raw)) {
-      return raw.filter((c) => {
+      const filtered = raw.filter((c) => {
         if (!c) return false;
         const pdfPid = c.pdf?.patientId || c.pdf?.patient_id || (c.pdf?.dependent_id ? String(c.pdf.dependent_id) : null);
         const owner = pdfPid ? normalizePatientId(pdfPid) : normalizePatientId(c.patientId || c.patient_id || targetPid);
         return owner === targetPid;
       });
+      return sanitizeConvMessages(filtered);
     }
   }
 
-  return Array.from(allConvsMap.values());
+  return sanitizeConvMessages(Array.from(allConvsMap.values()));
 }
 
 export function setCachedConversations(conversations, patientId = 'self', uid = getStableCacheUid()) {
   const stableUid = getStableCacheUid(uid);
   if (!conversations) return;
-  safeStorageSet(`mediskye_conversations_${stableUid}_${patientId || 'self'}`, conversations);
+  if (!Array.isArray(conversations)) {
+    safeStorageSet(`mediskye_conversations_${stableUid}_${patientId || 'self'}`, conversations);
+    return;
+  }
+  const sanitized = conversations.map((c) => {
+    if (!c || typeof c !== 'object') return c;
+    if (Array.isArray(c.messages)) {
+      return {
+        ...c,
+        messages: sanitizeMessagesForCache(c.messages),
+      };
+    }
+    return c;
+  });
+  safeStorageSet(`mediskye_conversations_${stableUid}_${patientId || 'self'}`, sanitized);
 }
 
 // ── Per-Chat Message History Cache ──
@@ -423,13 +538,14 @@ export function setCachedConversations(conversations, patientId = 'self', uid = 
 export function getCachedChatMessages(chatKey, uid = getStableCacheUid()) {
   if (!chatKey) return [];
   const stableUid = getStableCacheUid(uid);
-  return safeStorageGet(`mediskye_cached_msgs_${stableUid}_${chatKey}`, []);
+  const msgs = safeStorageGet(`mediskye_cached_msgs_${stableUid}_${chatKey}`, []);
+  return sanitizeMessagesForCache(msgs);
 }
 
 export function setCachedChatMessages(chatKey, messages, uid = getStableCacheUid()) {
   if (!chatKey || !messages) return;
   const stableUid = getStableCacheUid(uid);
-  safeStorageSet(`mediskye_cached_msgs_${stableUid}_${chatKey}`, messages);
+  safeStorageSet(`mediskye_cached_msgs_${stableUid}_${chatKey}`, sanitizeMessagesForCache(messages));
 }
 
 export function purgePatientLocalCache(patientId = 'self', uid = getStableCacheUid()) {
@@ -886,6 +1002,20 @@ export async function sendQueryStream(queryText, documentId, language = 'English
   }
 }
 
+export async function readWithWatchdogTimeout(reader, timeoutMs = 45000) {
+  let timerId;
+  const timeoutPromise = new Promise((_, reject) => {
+    timerId = setTimeout(() => {
+      reject(new Error(`Stream inactivity timeout: no chunk received for ${Math.round(timeoutMs / 1000)}s`));
+    }, timeoutMs);
+  });
+  try {
+    return await Promise.race([reader.read(), timeoutPromise]);
+  } finally {
+    clearTimeout(timerId);
+  }
+}
+
 export async function parseSSEStream(reader, callbacks = {}) {
   const { onStage, onSpecialists, onContent, onChunk } = typeof callbacks === 'function'
     ? { onChunk: callbacks }
@@ -921,7 +1051,7 @@ export async function parseSSEStream(reader, callbacks = {}) {
   };
 
   while (true) {
-    const { done, value } = await reader.read();
+    const { done, value } = await readWithWatchdogTimeout(reader, 45000);
     if (done) break;
 
     buffer += decoder.decode(value, { stream: true });
@@ -2073,7 +2203,7 @@ export async function syncSingleProfileToLocalCache(patientId = 'self', options 
     const docChatPromises = safeDocs.map(async (doc) => {
       try {
         const chats = await getDocumentChats(doc.id).catch(() => []);
-        if (Array.isArray(chats) && chats.length > 0) {
+        if (Array.isArray(chats)) {
           const formatted = chats.map((c) => ({
             id: c.id,
             sender: c.role === 'ai' ? 'assistant' : 'user',
@@ -2082,7 +2212,7 @@ export async function syncSingleProfileToLocalCache(patientId = 'self', options 
           }));
           const target = mergedConvs.find((c) => c.id === doc.id || c.document_id === doc.id);
           if (target) {
-            target.messages = formatted;
+            target.messages = reconcileMessagesWithServer(target.messages, formatted, false);
           }
         }
       } catch (_) {}
@@ -2091,7 +2221,7 @@ export async function syncSingleProfileToLocalCache(patientId = 'self', options 
     const standaloneChatPromises = Array.from(standaloneChatsBySession.keys()).map(async (sid) => {
       try {
         const chats = await getDocumentChats(null, sid, pid).catch(() => []);
-        if (Array.isArray(chats) && chats.length > 0) {
+        if (Array.isArray(chats)) {
           const formatted = chats.map((c) => ({
             id: c.id,
             sender: c.role === 'ai' ? 'assistant' : 'user',
@@ -2100,7 +2230,7 @@ export async function syncSingleProfileToLocalCache(patientId = 'self', options 
           }));
           const target = mergedConvs.find((c) => c.id === sid);
           if (target) {
-            target.messages = formatted;
+            target.messages = reconcileMessagesWithServer(target.messages, formatted, false);
           }
         }
       } catch (_) {}
@@ -2108,6 +2238,12 @@ export async function syncSingleProfileToLocalCache(patientId = 'self', options 
 
     await Promise.allSettled([...docChatPromises, ...standaloneChatPromises]);
     setCachedConversations(mergedConvs, pid);
+
+    if (typeof options?.onConversationsUpdated === 'function') {
+      try {
+        options.onConversationsUpdated(mergedConvs);
+      } catch (_) {}
+    }
 
     // 6. Concurrently pre-fetch lab metrics, summaries, facts, and trends
     const prefetchPromises = [];

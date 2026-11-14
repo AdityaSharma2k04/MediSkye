@@ -205,6 +205,7 @@ Compiled via Vite 5.4.21 (`npm run build`):
 | `FINAL-SHIP-03` | RAG & Lab Metrics | Report Biomarker Loyalty Across Follow-Up Questions | `frontend/src/hooks/useLabMetrics.js`, `frontend/src/components/ChatApp.jsx` | `FinalShipPolish.test.jsx` (5 passed) |
 | `FINAL-SHIP-04` | Backend Async / Sync | Fast Parallel Cloud Sync & Full-Screen Workspace Hydration Screen | `frontend/src/services/api.js`, `frontend/src/components/ChatApp.jsx` | `FinalShipPolish.test.jsx` (5 passed) |
 | `FINAL-SHIP-05` | Frontend / Offline Sync | Compact Broken Wi-Fi Icon Badge (`WifiOff`) & Android Debounced Network State | `frontend/src/components/workbench/Workbench.jsx`, `MainActivity.java`, `frontend/src/services/api.js`, `frontend/src/components/ChatApp.jsx` | `FinalShipPolish.test.jsx` (5 passed) |
+| `FIX-STREAM-CACHE-01` | Frontend / Offline Sync & Backend Async | Stuck Streaming Skeleton Prevention & Server History Reconciliation | `frontend/src/services/api.js`, `frontend/src/components/ChatApp.jsx`, `frontend/src/test/ChatSessionSync.test.jsx` | `ChatSessionSync.test.jsx` (3 passed) |
 
 ### Detailed Fix Logs
 
@@ -246,6 +247,23 @@ Compiled via Vite 5.4.21 (`npm run build`):
   3. In `api.js`, ensured `err.name !== 'AbortError'` is checked before emitting connectivity loss.
   4. In `ChatApp.jsx`, disabled interval `/health` ping when `isOnline` is already true.
 - **Proof:** `FinalShipPolish.test.jsx` confirms `apiFetch` with aborted signal does not emit offline status, and `Workbench` renders the compact square `WifiOff` badge with accessible screen reader text.
+
+#### FIX-STREAM-CACHE-01: Stuck Streaming Skeleton Prevention & Server History Reconciliation
+- **Category:** `Frontend / Offline Sync & Backend Async`
+- **Symptom:** When a query stream began and emitted status (`"Checking your health history..."`), an empty bot message `{ text: '', isStreaming: true, statusText: 'Checking your health history...' }` was cached in `localStorage`. If the user closed/reopened the app, or if background profile synchronization ran while streaming, this empty skeleton persisted in `localStorage`. Upon app restart, the skeleton rendered as an infinite loading animation forever. Furthermore, selecting the conversation did not overwrite the stuck skeleton because `loadChatHistory` ignored server-fetched history if local messages were flagged `isStreaming: true`.
+- **Root Cause:**
+  1. `frontend/src/services/api.js` (`setCachedConversations`, `getCachedConversations`): Unsanitized streaming placeholders with empty text were serialized to and deserialized from `localStorage`.
+  2. `frontend/src/components/ChatApp.jsx` (`loadChatHistory`): Did not reconcile local cached messages with server history if `isStreaming: true` was present on local messages.
+  3. `frontend/src/components/ChatApp.jsx` (`handleSendMessage` `finally` block): Did not synchronously flush finalized non-streaming state (`isStreaming: false, statusText: null`) to `localStorage` when the stream completed or aborted.
+  4. `frontend/src/services/api.js` (`parseSSEStream`): SSE stream reader lacked a per-chunk inactivity watchdog timeout, allowing aborted or stalled network connections to hang indefinitely.
+- **The Fix & Code Changes:**
+  1. Implemented and exported `sanitizeMessagesForCache(messages)` and `reconcileMessagesWithServer(localMessages, serverMessages, isCurrentlyStreamingThisConv)` in `frontend/src/services/api.js` and `frontend/src/components/ChatApp.jsx`.
+  2. In `setCachedConversations` and `getCachedConversations`, filtered out any bot message with `isStreaming: true` and empty text (`!m.text || !m.text.trim()`), and normalized any non-empty streaming message to `{ ...m, isStreaming: false, status: null, statusText: null }`.
+  3. In `loadChatHistory` and `syncSingleProfileToLocalCache`, reconciled local cached messages with authoritative server chat history via `reconcileMessagesWithServer`.
+  4. Added `readWithWatchdogTimeout(reader, 45000)` in `api.js` (`parseSSEStream`) to abort hanging streams after 45 seconds of silence.
+  5. In `handleSendMessage` `finally` block, guaranteed all streaming bot messages are finalized (`isStreaming: false, status: null, statusText: null`), provided fallback text if empty, and immediately flushed to `localStorage`.
+- **Before vs. After Verification Proof:**
+  Added regression test `Stuck Streaming Skeleton Recovery on App Restart: immediately cleans up stuck skeleton and reconciles with server assistant reply` in `frontend/src/test/ChatSessionSync.test.jsx`. Verified with Vitest (`3 passed`). Verified that reopening the app with an orphaned loading skeleton immediately drops the skeleton, reconciles with the server assistant response, and cleans up `localStorage`.
 
 ---
 

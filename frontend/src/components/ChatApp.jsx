@@ -65,6 +65,49 @@ import { useNavigate } from 'react-router-dom';
 import { logger } from '../services/logger';
 import { speakText, stopSpeaking } from '../services/speech';
 
+export function sanitizeMessagesForCache(messages) {
+  if (!Array.isArray(messages)) return [];
+  const result = [];
+  for (const m of messages) {
+    if (!m || typeof m !== 'object') continue;
+    const isBot = m.sender === 'assistant' || m.sender === 'bot' || m.role === 'assistant' || m.role === 'ai';
+    const textStr = typeof m.text === 'string'
+      ? m.text.trim()
+      : (typeof m.message === 'string' ? m.message.trim() : '');
+    if (m.isStreaming) {
+      if (!textStr) continue;
+      result.push({ ...m, isStreaming: false, status: null, statusText: null });
+    } else {
+      if (isBot && !textStr && (m.statusText || m.status)) continue;
+      result.push(m);
+    }
+  }
+  return result;
+}
+
+export function reconcileMessagesWithServer(localMessages, serverMessages, isCurrentlyStreamingThisConv = false) {
+  const safeServer = Array.isArray(serverMessages) ? serverMessages : [];
+  if (!Array.isArray(localMessages) || localMessages.length === 0) return safeServer;
+  if (isCurrentlyStreamingThisConv) return localMessages;
+  const cleanedLocal = sanitizeMessagesForCache(localMessages);
+  if (safeServer.length === 0) return cleanedLocal;
+  if (safeServer.length >= cleanedLocal.length) return safeServer;
+
+  const lastLocal = cleanedLocal[cleanedLocal.length - 1];
+  const lastServer = safeServer[safeServer.length - 1];
+  const isLastLocalUser = lastLocal && (lastLocal.sender === 'user' || lastLocal.role === 'user');
+  const isLastServerBot = lastServer && (lastServer.sender === 'assistant' || lastServer.sender === 'bot' || lastServer.role === 'assistant' || lastServer.role === 'ai');
+  if (isLastLocalUser && isLastServerBot) return safeServer;
+
+  const isLastLocalBot = lastLocal && (lastLocal.sender === 'assistant' || lastLocal.sender === 'bot' || lastLocal.role === 'assistant' || lastLocal.role === 'ai');
+  if (isLastLocalBot && isLastServerBot) {
+    const localText = (lastLocal.text || lastLocal.message || '').trim();
+    const serverText = (lastServer.text || lastServer.message || '').trim();
+    if (serverText.length >= localText.length) return safeServer;
+  }
+  return safeServer.length > 0 ? safeServer : cleanedLocal;
+}
+
 function normalizePatientId(id) {
   if (!id || typeof id !== 'string') return 'self';
   const trimmed = id.trim();
@@ -665,17 +708,12 @@ export default function ChatApp() {
         const next = prev.map((item) => {
           const isTarget = item.id === targetSessionId || (targetDocId && (item.id === targetDocId || item.document_id === targetDocId));
           if (!isTarget) return item;
-          if (
-            Array.isArray(item.messages) &&
-            item.messages.length > 0 &&
-            ((!formatted || formatted.length === 0) || item.messages.some((m) => m.isStreaming))
-          ) {
-            return item;
-          }
-          return { ...item, messages: formatted };
+          const isCurrentlyStreaming = isGenerating && (item.id === sessionIdRef.current || item.document_id === sessionIdRef.current);
+          const reconciled = reconcileMessagesWithServer(item.messages, formatted, isCurrentlyStreaming);
+          return { ...item, messages: reconciled };
         });
         try {
-          const currentPat = localStorage.getItem('mediskye_patient_id') || 'self';
+          const currentPat = selectedPatientId || localStorage.getItem('mediskye_patient_id') || 'self';
           if (typeof setCachedConversations === 'function') {
             setCachedConversations(next, currentPat);
           }
@@ -949,7 +987,7 @@ export default function ChatApp() {
             : doc.title;
 
           let msgs = (existing?.messages && existing.messages.length > 0)
-            ? existing.messages
+            ? sanitizeMessagesForCache(existing.messages)
             : [];
 
           const docPat = doc.dependent_id === null
@@ -1017,15 +1055,15 @@ export default function ChatApp() {
             ? 'self'
             : normalizePatientId(messagesList[0]?.dependent_id || existing?.patient_id || existing?.patientId || activePatId);
 
+          const reconciledMsgs = reconcileMessagesWithServer(existing?.messages, formattedMessages, false);
+
           serverStandaloneConvs.push({
             id: sid,
             document_id: null,
             patient_id: standPat,
             patientId: standPat,
             title,
-            messages: (existing?.messages && existing.messages.length > formattedMessages.length)
-              ? existing.messages
-              : (formattedMessages.length > 0 ? formattedMessages : (existing?.messages || [])),
+            messages: reconciledMsgs,
             pdf: null,
             created_at: messagesList[0]?.created_at || null,
             isDraft: false,
@@ -1744,15 +1782,23 @@ export default function ChatApp() {
         setConversations((prev) => {
           const next = prev.map((c) => {
             if (c.id !== activeTargetId && c.document_id !== activeTargetId) return c;
-            const targetIdx = c.messages.findIndex((m) => m.id === assistantMsgId);
-            if (targetIdx === -1) return c;
-
-            const targetMsg = { ...c.messages[targetIdx] };
-            targetMsg.isStreaming = false;
-            targetMsg.status = null;
-
-            const updatedMsgs = [...c.messages];
-            updatedMsgs[targetIdx] = targetMsg;
+            const updatedMsgs = (c.messages || []).map((m) => {
+              if (m.id === assistantMsgId || m.isStreaming) {
+                const text = (m.text || '').trim();
+                return {
+                  ...m,
+                  isStreaming: false,
+                  status: null,
+                  statusText: null,
+                  text: text || m.error || 'I apologize, but I was unable to complete the response. Please try asking again.',
+                };
+              }
+              return m;
+            }).filter((m) => {
+              if (!m) return false;
+              if (m.isStreaming && (!m.text || !String(m.text).trim())) return false;
+              return true;
+            });
             return { ...c, messages: updatedMsgs };
           });
           try {
