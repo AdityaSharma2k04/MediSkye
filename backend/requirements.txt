@@ -2,7 +2,8 @@ python-multipart
 python-dotenv
 pydantic-settings
 fastapi
-uvicorn
+uvicorn[standard]
+httpx
 pypdf
 pymupdf
 pdf2image
