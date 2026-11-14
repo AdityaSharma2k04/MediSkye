@@ -203,7 +203,7 @@ def _clean_disclaimers(text: str, is_followup_turn: bool, has_critical_alert: bo
     if not text:
         return text
 
-    disclaimer_pattern = r'(?is)(?:\n\s*(?:\*\*\*|---|___)\s*)?(?:\n\s*)?\*{0,2}Disclaimer:\*{0,2}[^\n]*(?:\n(?!\s*#{1,6}\s)[^\n]+)*'
+    disclaimer_pattern = r'(?im)(?:(?:\n\s*)?(?:\*\*\*|---|___)\s*)?(?:\n\s*)?^\s*\*{0,2}Disclaimer:\*{0,2}[^\n]*(?:\n(?!\s*#{1,6}\s)[^\n]+)*'
 
     is_critical_or_safe_fallback = has_critical_alert or (SAFE_FALLBACK in text)
     if is_followup_turn and not is_critical_or_safe_fallback:

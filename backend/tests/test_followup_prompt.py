@@ -379,3 +379,40 @@ async def test_route_followup_emergency_disclaimer_preservation():
                 await asyncio.gather(*list(_background_tasks), return_exceptions=True)
 
 
+def test_clean_disclaimers_mid_text_anchoring():
+    """
+    Test Item 2: _clean_disclaimers mid-text anchoring
+    - 'The footer says Disclaimer: results are indicative. Next sentence stays.' on non-critical follow-up
+      keeps surrounding text.
+    - A line starting with '**Disclaimer:**' is still stripped on non-critical follow-up.
+    - First-turn dedupe behavior is unchanged.
+    """
+    from app.api.v1.endpoints.query import _clean_disclaimers
+    from app.rag.safety import DISCLAIMER_TEXT
+
+    # 1. Mid-text Disclaimer: mention must be preserved on non-critical follow-up
+    mid_text = "The footer says Disclaimer: results are indicative. Next sentence stays."
+    res_mid = _clean_disclaimers(mid_text, is_followup_turn=True, has_critical_alert=False)
+    assert res_mid == mid_text, f"Mid-text disclaimer mention must keep surrounding text, got: {repr(res_mid)}"
+
+    # 2. Line starting with **Disclaimer:** (or with divider) is still stripped on non-critical follow-up
+    line_start_text = "Here are your results.\n\n**Disclaimer:** This explanation is educational only."
+    res_line_start = _clean_disclaimers(line_start_text, is_followup_turn=True, has_critical_alert=False)
+    assert res_line_start == "Here are your results."
+
+    divider_text = "Here are your results.\n\n***\n\n**Disclaimer:** This explanation is educational only."
+    res_divider = _clean_disclaimers(divider_text, is_followup_turn=True, has_critical_alert=False)
+    assert res_divider == "Here are your results."
+
+    # 3. First-turn dedupe behavior unchanged
+    single_turn1 = "Here are your results." + DISCLAIMER_TEXT
+    res_single = _clean_disclaimers(single_turn1, is_followup_turn=False)
+    assert res_single == single_turn1
+
+    double_turn1 = "Here are your results." + DISCLAIMER_TEXT + DISCLAIMER_TEXT
+    res_double = _clean_disclaimers(double_turn1, is_followup_turn=False)
+    assert res_double.count("Disclaimer:") == 1
+    assert "Here are your results." in res_double
+
+
+
