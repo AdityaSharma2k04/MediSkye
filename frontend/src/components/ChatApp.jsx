@@ -823,11 +823,43 @@ export default function ChatApp() {
         const filteredStandalone = serverStandaloneConvs.filter(
           (c) => String(c.patientId || c.patient_id || 'self') === String(activePatId)
         );
+
+        // In-flight conversations guard: never prune an actively uploading, streaming, or draft conversation
+        const inFlightConvs = prev.filter((c) => {
+          if (String(c.patientId || c.patient_id || 'self') !== String(activePatId)) return false;
+          if (c.isDraft) return false; // Handled via freshDraft
+          const isActivelyUploading = Boolean(
+            (uploadState && ['uploading', 'extracting', 'indexing'].includes(uploadState.phase) && c.id === sessionIdRef.current) ||
+            c.isUploading
+          );
+          if (isActivelyUploading) return true;
+          const isActivelyStreaming = Boolean(
+            c.messages?.some((m) => m.isStreaming || m.streaming) ||
+            (isGenerating && c.id === sessionIdRef.current)
+          );
+          if (isActivelyStreaming) return true;
+          if (
+            c.id === sessionIdRef.current &&
+            c.messages &&
+            c.messages.length > 0 &&
+            !effectiveDocs.some((d) => d.id === c.id) &&
+            !standaloneChatsBySession.has(c.id)
+          ) {
+            return true;
+          }
+          return false;
+        });
+
+        const inFlightNotInServer = inFlightConvs.filter(
+          (c) => !filteredDocs.some((d) => d.id === c.id) && !filteredStandalone.some((s) => s.id === c.id)
+        );
+
         // When online and the server responded, the server's persisted set of document IDs
         // and session IDs is authoritative, preventing resurrected deleted conversations.
+        // In-flight conversations are always preserved.
         const cloudMerged = networkSucceeded
-          ? [...filteredDocs, ...filteredStandalone]
-          : [...filteredDocs, ...filteredStandalone, ...localNonDocConvs];
+          ? [...inFlightNotInServer, ...filteredDocs, ...filteredStandalone]
+          : [...inFlightNotInServer, ...filteredDocs, ...filteredStandalone, ...localNonDocConvs];
 
         // Check if currently on an empty fresh draft
         const currentActiveItem = prev.find((c) => c.id === sessionIdRef.current);

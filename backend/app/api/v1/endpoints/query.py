@@ -921,7 +921,7 @@ async def query_bot(
                 queue = asyncio.Queue()
                 SENTINEL = object()
 
-                def _stream_producer(target_model=current_model):
+                def _stream_producer(target_model=current_model, target_queue=queue, sentinel=SENTINEL):
                     from google.genai.types import GenerateContentConfig, ThinkingConfig
                     from app.llm.gemini_client import get_genai_client
 
@@ -936,13 +936,13 @@ async def query_bot(
                             ),
                         )
                         for chunk in response:
-                            loop.call_soon_threadsafe(queue.put_nowait, chunk)
-                        loop.call_soon_threadsafe(queue.put_nowait, SENTINEL)
+                            loop.call_soon_threadsafe(target_queue.put_nowait, chunk)
+                        loop.call_soon_threadsafe(target_queue.put_nowait, sentinel)
                     except Exception as exc:
-                        loop.call_soon_threadsafe(queue.put_nowait, exc)
-                        loop.call_soon_threadsafe(queue.put_nowait, SENTINEL)
+                        loop.call_soon_threadsafe(target_queue.put_nowait, exc)
+                        loop.call_soon_threadsafe(target_queue.put_nowait, sentinel)
 
-                stream_task = asyncio.create_task(asyncio.to_thread(_stream_producer))
+                stream_task = asyncio.create_task(asyncio.to_thread(_stream_producer, current_model, queue, SENTINEL))
 
                 attempt_full_raw = ""
                 attempt_visible = ""
@@ -1042,6 +1042,18 @@ async def query_bot(
                             yield f'data: {json.dumps({"chunk": pending_buffer})}\n\n'
                             pending_buffer = ""
                     else:
+                        # Buffer trailing partial abnormal_flags bare JSON only when there is no fence
+                        partial_json_match = re.search(r'\{\s*"?(?:a|ab|abn|abnor|abnorm|abnorma|abnormal|abnormal_)?\s*"?\s*$', pending_buffer, re.IGNORECASE)
+                        if partial_json_match and len(pending_buffer) - partial_json_match.start() < 30:
+                            json_start = partial_json_match.start()
+                            to_yield = pending_buffer[:json_start]
+                            pending_buffer = pending_buffer[json_start:]
+                            if to_yield:
+                                attempt_visible += to_yield
+                                attempt_yielded_to_client = True
+                                yield f'data: {json.dumps({"chunk": to_yield})}\n\n'
+                            continue
+
                         if pending_buffer.endswith(("``", "~~")):
                             to_yield = pending_buffer[:-2]
                             pending_buffer = pending_buffer[-2:]
@@ -1062,6 +1074,11 @@ async def query_bot(
                     logger.warning("Stream attempt on model %s failed: %s", current_model, model_failed_with_exc)
                     if attempt_yielded_to_client:
                         raise model_failed_with_exc
+                    continue
+
+                if not attempt_full_raw.strip():
+                    logger.warning("Stream attempt on model %s yielded empty content; falling back to next model.", current_model)
+                    last_stream_exception = GeminiUnavailableError(f"Model {current_model} returned empty response")
                     continue
 
                 if pending_buffer and not in_json_block:

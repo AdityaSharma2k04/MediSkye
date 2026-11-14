@@ -22,13 +22,13 @@ export const stripAbnormalFlags = (text) => {
   return text
     // Complete code blocks containing abnormal_flags (with or without language tag)
     .replace(/(?:```|~~~)(?:json)?\s*\{[\s\S]*?"abnormal_flags"[\s\S]*?\}\s*(?:```|~~~)/gi, '')
-    // Trailing partial fences and JSON blocks during active streaming
-    .replace(/(?:```|~~~)(?:json)?\s*\{[\s\S]*?"abnormal_flags"[\s\S]*$/gi, '')
-    .replace(/(?:```|~~~)(?:json)?\s*\{[\s\S]*?$/gi, '')
-    .replace(/(?:```|~~~)(?:json)?\s*$/gi, '')
+    // Trailing unclosed code fences and partial JSON blocks during active streaming
+    .replace(/(?:```|~~~)[a-z0-9_-]*\s*(?:\{[\s\S]*)?$/gi, '')
     // Bare json abnormal_flags block with or without fences
     .replace(/\{[\s\S]*?"abnormal_flags"[\s\S]*?\}\s*$/gi, '')
     .replace(/\{[\s\S]*?"abnormal_flags"[\s\S]*$/gi, '')
+    // Trailing unclosed bare JSON object at the very end
+    .replace(/\{\s*"(?:a|ab|abn|abnor|abnorm|abnorma|abnormal|abnormal_)?[\s\S]*$/gi, '')
     // Internal system prompt XML tags that should never leak to users
     .replace(/<(?:patient_health_profile|extracted_report_biomarkers|analysis_hints|followup_turn_instruction|uploaded_documents|current_session_history|patient_context)(?:\s+[^>]*)?>[\s\S]*?<\/(?:patient_health_profile|extracted_report_biomarkers|analysis_hints|followup_turn_instruction|uploaded_documents|current_session_history|patient_context)>/gi, '')
     .replace(/<(?:patient_health_profile|extracted_report_biomarkers|analysis_hints|followup_turn_instruction|uploaded_documents|current_session_history|patient_context)(?:\s+[^>]*)?\/>/gi, '')

@@ -57,6 +57,7 @@ async def test_health_returns_promptly_during_streaming_query():
 
     with (
         patch("google.genai.Client", return_value=mock_client),
+        patch("app.llm.gemini_client.get_genai_client", return_value=mock_client),
         patch("app.rag.intent_router.call_gemini_with_retry", new_callable=AsyncMock, return_value=intent_response),
         patch("app.rag.embedder.get_embedder", return_value=FakeEmbedder()),
     ):
@@ -74,6 +75,7 @@ async def test_health_returns_promptly_during_streaming_query():
                     headers=headers,
                     json={"session_id": str(uuid.uuid4()), "query": "What is hypertension?", "language": "English"},
                 )
+                await res.aread()
                 return res.status_code
 
             async def check_health():
@@ -123,6 +125,7 @@ async def test_stream_error_yields_done_event():
 
     with (
         patch("google.genai.Client", return_value=mock_client),
+        patch("app.llm.gemini_client.get_genai_client", return_value=mock_client),
         patch("app.rag.intent_router.call_gemini_with_retry", new_callable=AsyncMock, return_value=intent_response),
         patch("app.rag.embedder.get_embedder", return_value=FakeEmbedder()),
     ):
@@ -172,6 +175,7 @@ async def test_stream_gemini_unavailable_yields_busy_message():
 
     with (
         patch("google.genai.Client", return_value=mock_client),
+        patch("app.llm.gemini_client.get_genai_client", return_value=mock_client),
         patch("app.rag.intent_router.call_gemini_with_retry", new_callable=AsyncMock, return_value=intent_response),
         patch("app.rag.embedder.get_embedder", return_value=FakeEmbedder()),
     ):
@@ -232,6 +236,7 @@ async def test_streaming_falls_back_on_first_chunk_failure():
 
     with (
         patch("google.genai.Client", return_value=mock_client),
+        patch("app.llm.gemini_client.get_genai_client", return_value=mock_client),
         patch("app.rag.intent_router.call_gemini_with_retry", new_callable=AsyncMock, return_value=intent_response),
         patch("app.rag.embedder.get_embedder", return_value=FakeEmbedder()),
     ):
@@ -283,6 +288,7 @@ async def test_streaming_does_not_retry_after_partial_content():
 
     with (
         patch("google.genai.Client", return_value=mock_client),
+        patch("app.llm.gemini_client.get_genai_client", return_value=mock_client),
         patch("app.rag.intent_router.call_gemini_with_retry", new_callable=AsyncMock, return_value=intent_response),
         patch("app.rag.embedder.get_embedder", return_value=FakeEmbedder()),
     ):

@@ -4,7 +4,7 @@
 **Auditor:** Principal Staff Engineer & Simulated Human QA Tester  
 **Repository Scope:** `backend/app/`, `frontend/src/`, `frontend/src-tauri/`, `frontend/android/`  
 **Test Deliverables:**  
-- `frontend/src/test/HumanQASimulation.test.jsx` (4 multi-step simulated user journeys)
+- `frontend/src/test/HumanQASimulation.test.jsx` (5 multi-step simulated user journeys)
 - `backend/tests/test_qa_user_journeys.py` (7 multi-turn, security, and clinical parsing tests)
 - `backend/tests/test_qa_parsing.py` (De-overfitting and unit normalization test suite)
 
@@ -26,6 +26,12 @@
 | **QA-10** | Premature Blob URL Revocation in `ExportModal` Causes Aborted Downloads in WebViews | `State/UX Glitch` | Medium | **FIXED & VERIFIED** |
 | **QA-11** | Longitudinal Trends Render `NaN` Points on Comparators & Number Notations | `Memory/Metrics/Trends` | Medium | **FIXED & VERIFIED** |
 | **QA-12** | Unhandled Rejection & Missing Cache Functions on Manual Cloud Sync in `ChatApp` | `State/UX Glitch` | Medium | **FIXED & VERIFIED** |
+| **QA-13** | Reference Range Embedded Units Stripping Flaw (`/cumm`, `/ul`) in `biomarkers.py` | `Overfitting` | Medium | **FIXED & VERIFIED** |
+| **QA-14** | Live Streaming Partial Code Fence & Early JSON Key Flash in `ChatMessage.jsx` & `query.py` | `State/UX Glitch` | High | **FIXED & VERIFIED** |
+| **QA-15** | Authoritative Server Sync In-Flight Conversation & Active Upload Pruning in `ChatApp.jsx` | `Sync/Offline Bug` | High | **FIXED & VERIFIED** |
+| **QA-16** | Unhandled `ReferenceError: setError is not defined` on Height Validation in `Profile.jsx` | `State/UX Glitch` | Critical | **FIXED & VERIFIED** |
+| **QA-17** | Synchronous `URL.revokeObjectURL` Aborting JSON Account Exports in `SettingsModal.jsx` | `State/UX Glitch` | Medium | **FIXED & VERIFIED** |
+| **QA-18** | Native Google Login Button Stuck Disabled with Indefinite Spinner on Window Return in `Login.jsx` & `Register.jsx` | `Auth/Native Shell` | High | **FIXED & VERIFIED** |
 
 ---
 
@@ -67,7 +73,7 @@
 - **What Was Broken (Symptom):**  
   If a user asked a specific question first (Turn 1: *"What is my HbA1c?"*) and then on Turn 2 asked *"Now give me the full overview of this report"* or *"walk me through the whole report"*, the assistant refused to provide the walkthrough and gave a 2-line follow-up answer.
 - **Root Cause & File/Line Location:**  
-  `backend/app/api/v1/endpoints/query.py`: `explicit_overview_match` regex was rigidly anchored with `r"^(give\s+me|tell\s+me\s+about|walk\s+me\s+through)..."`, failing on conversational prefixes (`Now`, `Please`, `Can you`), variations (`the whole report`, `entire report`), or standalone requests (`full overview`).
+  `backend/app/api/v1/endpoints/query.py`: `explicit_overview_match` regex was rigidly anchored with `r"^(give\s+me|tell\s+me\s+about|walk\s+me\s+through)..."`, failing on conversational prefixes (`Now`, `Please`, `Can you`), variations (`the whole report`, `entire report`), or standalone requests (`full overview`, `full report overview`).
 - **The Fix & Code Changes:**  
   Generalized `explicit_overview_match` with optional polite/conversational prefixes, synonyms, and boundary detection:
   ```python
@@ -204,3 +210,106 @@
   Imported `setCachedProfile` and `setCachedDependents`, wrapped `Promise.resolve(...)` around dynamic calls.
 - **Verification Proof:**  
   `frontend/src/test/HumanQASimulation.test.jsx::QA Journey 2`.
+
+---
+
+### QA-13: Reference Range Embedded Units Stripping Flaw (`/cumm`, `/ul`) in `biomarkers.py`
+- **Category:** `Overfitting`
+- **What Was Broken (Symptom):**  
+  Reference ranges ending with `/cumm` or `/ul` (e.g. `"4,000 - 11,000 /cumm"` or `"< 11,000 /ul"`) retained a dangling `/` slash after stripping, because regex word boundaries `\b/cumm\b` fail to match non-word characters like `/`.
+- **Root Cause & File/Line Location:**  
+  `backend/app/rag/biomarkers.py` line 421: `r'\b(?:...|/ul|fl|pg|cumm|/cumm|...)\b'`. Word boundary `\b` requires transition between word and non-word characters; before `/`, a space is already non-word, so `\b/` never matched.
+- **The Fix & Code Changes:**  
+  Updated unit stripping pattern in `biomarkers.py`:
+  ```python
+  r'(?:/(?:cumm|[uµμ]l)|cells/[uµμ]l|\b(?:mg/dl|g/dl|mg/l|g/l|ng/ml|pg/ml|ug/l|µg/l|mcg/l|pmol/l|nmol/l|mmol/l|u/l|iu/l|miu/l|mu/l|uiu/ml|10\^?[36]/[uµμ]L|%|fl|pg|cumm|mm/hr|seconds?|sec)\b)'
+  ```
+- **Verification Proof:**  
+  `backend/tests/test_qa_parsing.py::test_numeric_parsing_diverse_formats`
+
+---
+
+### QA-14: Live Streaming Partial Code Fence & Early JSON Key Flash in `ChatMessage.jsx` & `query.py`
+- **Category:** `State/UX Glitch`
+- **What Was Broken (Symptom):**  
+  During the ~150ms window before the LLM streamed the full string `"abnormal_flags"`, raw tokens such as ```` ```json\n{\n  "abn ```` or ```` ```j ```` flashed inside the chat bubble before disappearing.
+- **Root Cause & File/Line Location:**  
+  `frontend/src/components/ChatMessage.jsx` and `backend/app/api/v1/endpoints/query.py`: Cleaners only matched once the full substring `"abnormal_flags"` was received.
+- **The Fix & Code Changes:**  
+  In `ChatMessage.jsx`, enhanced `stripAbnormalFlags()` to strip trailing unclosed fences `/(?:```|~~~)[a-z0-9_-]*\s*(?:\{[\s\S]*)?$/gi` and trailing unclosed JSON objects `/\{\s*"(?:a|ab|abn|abnor|abnorm|abnorma|abnormal|abnormal_)?/gi`. In `query.py`, buffered trailing partial JSON `{` during live streaming.
+- **Verification Proof:**  
+  `frontend/src/test/HumanQASimulation.test.jsx::QA Journey 4 (Streaming JSON & Disclaimer Cleanliness)`
+
+---
+
+### QA-15: Authoritative Server Sync In-Flight Conversation & Active Upload Pruning in `ChatApp.jsx`
+- **Category:** `Sync/Offline Bug`
+- **What Was Broken (Symptom):**  
+  If a background document sync (`refreshDocuments()`) finished while an upload was in-flight or while the first turn of a new chat session was streaming, the conversation was missing from the server's response and was pruned from `finalConvs`, resetting `activePdf` and discarding in-flight state.
+- **Root Cause & File/Line Location:**  
+  `frontend/src/components/ChatApp.jsx` lines 820-865: In authoritative server sync mode, only server-returned documents and standalone sessions were included in `cloudMerged`.
+- **The Fix & Code Changes:**  
+  Added an `inFlightConvs` guard identifying any conversation actively uploading (`uploadState`, `c.isUploading`), actively streaming (`isGenerating`, `m.isStreaming`), or newly created with messages, preserving them in `cloudMerged` and keeping `hasActiveInMerged = true`.
+- **Verification Proof:**  
+  `frontend/src/test/HumanQASimulation.test.jsx::QA Journey 5 (In-Flight Upload & Draft Protection)`
+
+---
+
+### QA-16: Unhandled `ReferenceError: setError is not defined` on Height Validation in `Profile.jsx`
+- **Category:** `State/UX Glitch`
+- **What Was Broken (Symptom):**  
+  When a user submitted a profile or dependent update with an invalid height (<30cm or >280cm), the app crashed with `ReferenceError: setError is not defined` instead of displaying an error message.
+- **Root Cause & File/Line Location:**  
+  `frontend/src/components/Profile.jsx` lines 266 and 406: The state setter was named `setErrorMsg`, but lines 266 and 406 called undefined `setError(...)`.
+- **The Fix & Code Changes:**  
+  Replaced `setError(...)` with `setErrorMsg(...)` in both places.
+- **Verification Proof:**  
+  `Profile.jsx` verified; all vitest suites pass.
+
+---
+
+### QA-17: Synchronous `URL.revokeObjectURL` Aborting JSON Account Exports in `SettingsModal.jsx`
+- **Category:** `State/UX Glitch`
+- **What Was Broken (Symptom):**  
+  Exporting account data in `SettingsModal.jsx` in desktop or mobile WebViews caused aborted or zero-byte downloads because `URL.revokeObjectURL(url)` executed synchronously immediately after `a.click()`.
+- **Root Cause & File/Line Location:**  
+  `frontend/src/components/SettingsModal.jsx` line 616: `URL.revokeObjectURL(url)` ran synchronously.
+- **The Fix & Code Changes:**  
+  Wrapped revocation in `setTimeout(() => URL.revokeObjectURL(url), 2000)`.
+- **Verification Proof:**  
+  `SettingsModal.jsx` and `SettingsModal.test.jsx` verified.
+
+---
+
+### QA-18: Native Google Login Button Stuck Disabled with Indefinite Spinner on Window Return in `Login.jsx` & `Register.jsx`
+- **Category:** `Auth/Native Shell`
+- **What Was Broken (Symptom):**  
+  When a desktop or mobile user clicked "Continue with Google", the native shell launched an external browser. If the user returned to MediSkye without logging in, the button remained permanently stuck showing "Connecting to Google..." and could not be clicked again.
+- **Root Cause & File/Line Location:**  
+  `frontend/src/components/Login.jsx` and `frontend/src/components/Register.jsx`: `googleLoading` was set to `true` upon launching external auth and was never reset if the external flow was abandoned.
+- **The Fix & Code Changes:**  
+  Added a window `focus` event listener in `Login.jsx` and `Register.jsx` that automatically resets `setGoogleLoading(false)` when the user switches focus back to the MediSkye application window.
+- **Verification Proof:**  
+  `Login.test.jsx` and `Register.test.jsx` verified.
+
+---
+
+### QA-19: Streaming Fallback False Success via Python Closure Late Binding & Empty Content Bypass
+- **Category:** `RAG/Prompt Pipeline`
+- **What Was Broken (Symptom):**  
+  When an upstream LLM model was unavailable (503) or failed, the multi-model fallback chain intermittently bypassed remaining models and treated the failure as a "successful" response with zero tokens, appending only a medical disclaimer and failing to emit the user-facing retry/busy notification.
+- **Root Cause & File/Line Location:**  
+  `backend/app/api/v1/endpoints/query.py` lines 924-945 & 1079-1102:
+  1. `_stream_producer` closed over `queue` and `SENTINEL` from the enclosing for-loop scope without parameter binding. When an earlier thread completed its error handling while the main loop transitioned to the next fallback model, it put `SENTINEL` into the newly created queue of the subsequent attempt. This caused the new attempt's while-loop to break immediately with `model_failed_with_exc = None`, prematurely declaring success.
+  2. If an attempt yielded zero tokens (`attempt_full_raw` was empty), line 1101 unconditionally marked `stream_succeeded = True` rather than falling back to the next backup model.
+- **The Fix & Code Changes:**  
+  1. Passed `target_model`, `target_queue=queue`, and `sentinel=SENTINEL` as explicit bound parameters to `_stream_producer` and `asyncio.to_thread(_stream_producer, current_model, queue, SENTINEL)`.
+  2. Added zero-token protection check:
+     ```python
+     if not attempt_full_raw.strip():
+         logger.warning("Stream attempt on model %s yielded empty content; falling back to next model.", current_model)
+         last_stream_exception = GeminiUnavailableError(f"Model {current_model} returned empty response")
+         continue
+     ```
+- **Verification Proof:**  
+  `backend/tests/test_async_concurrency.py::test_stream_gemini_unavailable_yields_busy_message` and `backend/tests/test_query_stream.py::test_query_stream_retries_across_fallback_models_until_success`.

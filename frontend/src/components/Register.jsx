@@ -112,6 +112,15 @@ export default function Register() {
     } catch (_) {}
   }, []);
 
+  // Reset native Google loading state if user returns focus to app without completing auth
+  useEffect(() => {
+    const handleFocus = () => {
+      setGoogleLoading(false);
+    };
+    window.addEventListener('focus', handleFocus);
+    return () => window.removeEventListener('focus', handleFocus);
+  }, []);
+
   const completeAuthSuccess = async (user) => {
     const token = await user.getIdToken();
     if (!token) {

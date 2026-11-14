@@ -613,7 +613,7 @@ export default function SettingsModal({
       document.body.appendChild(a);
       a.click();
       document.body.removeChild(a);
-      URL.revokeObjectURL(url);
+      setTimeout(() => URL.revokeObjectURL(url), 2000);
     } catch (err) {
       logger.error('Failed to export user account data:', err);
       alert(err.message || 'Failed to export account data. Please try again.');

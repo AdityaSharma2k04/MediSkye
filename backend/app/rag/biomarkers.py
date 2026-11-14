@@ -419,7 +419,7 @@ def parse_reference_range(raw_range: Any) -> Optional[Dict[str, Any]]:
 
     # Strip embedded units
     s_clean = re.sub(
-        r'\b(?:mg/dl|g/dl|mg/l|g/l|ng/ml|pg/ml|ug/l|µg/l|mcg/l|pmol/l|nmol/l|mmol/l|u/l|iu/l|miu/l|mu/l|uiu/ml|10\^?[36]/[uµμ]L|%|/ul|fl|pg|cumm|/cumm|cells/[uµμ]l|mm/hr|seconds?|sec)\b',
+        r'(?:/(?:cumm|[uµμ]l)|cells/[uµμ]l|\b(?:mg/dl|g/dl|mg/l|g/l|ng/ml|pg/ml|ug/l|µg/l|mcg/l|pmol/l|nmol/l|mmol/l|u/l|iu/l|miu/l|mu/l|uiu/ml|10\^?[36]/[uµμ]L|%|fl|pg|cumm|mm/hr|seconds?|sec)\b)',
         '', s, flags=re.IGNORECASE
     ).strip()
 

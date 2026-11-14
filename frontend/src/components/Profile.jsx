@@ -263,7 +263,7 @@ export default function Profile({
         if (key === 'height_cm') {
           const val = formData[key] ? parseFloat(formData[key]) : null;
           if (val !== null && (val < 30 || val > 280)) {
-            setError('Height must be between 30 and 280 cm');
+            setErrorMsg('Height must be between 30 and 280 cm');
             setSaving(false);
             return;
           }
@@ -403,7 +403,7 @@ export default function Profile({
       if (payload.height_cm) {
         payload.height_cm = parseFloat(payload.height_cm);
         if (payload.height_cm < 30 || payload.height_cm > 280) {
-          setError('Height must be between 30 and 280 cm');
+          setErrorMsg('Height must be between 30 and 280 cm');
           setSaving(false);
           return;
         }

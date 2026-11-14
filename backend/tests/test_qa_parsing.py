@@ -15,6 +15,16 @@ def test_numeric_parsing_diverse_formats():
     assert parse_numeric_value("4,500.50") == 4500.5
     assert _parse_first_float("4,500.50") == 4500.5
 
+    # Standard thousands without decimals vs European decimal comma
+    assert parse_numeric_value("4,500") == 4500.0
+    assert _parse_first_float("4,500") == 4500.0
+    assert parse_numeric_value("3,9") == 3.9
+    assert _parse_first_float("3,9") == 3.9
+    assert parse_numeric_value("3,95") == 3.95
+    assert _parse_first_float("3,95") == 3.95
+    assert parse_numeric_value("12,50") == 12.50
+    assert _parse_first_float("12,50") == 12.50
+
     # South Asian / Indian numbering (lakhs/crores)
     assert parse_numeric_value("2,38,000") == 238000.0
     assert _parse_first_float("2,38,000") == 238000.0
@@ -29,17 +39,27 @@ def test_numeric_parsing_diverse_formats():
     assert parse_numeric_value(">= 90") == 90.0
     assert parse_numeric_value("<= 100") == 100.0
 
-    # European decimal comma
-    assert parse_numeric_value("3,9") == 3.9
-    assert parse_numeric_value("12,50") == 12.50
+    # Reference range with Indian thousands format and comma bounds
+    rng1 = parse_reference_range("1,50,000 - 4,50,000")
+    assert rng1 == {"type": "bounded", "low": 150000.0, "high": 450000.0}
 
-    # Reference range with Indian thousands format
-    rng = parse_reference_range("1,50,000 - 4,50,000")
-    assert rng == {"type": "bounded", "low": 150000.0, "high": 450000.0}
+    rng2 = parse_reference_range("1,50,000 - 4,10,000")
+    assert rng2 == {"type": "bounded", "low": 150000.0, "high": 410000.0}
+
+    rng3 = parse_reference_range("4,000 - 11,000")
+    assert rng3 == {"type": "bounded", "low": 4000.0, "high": 11000.0}
+
+    rng4 = parse_reference_range("1,000 to 4,000")
+    assert rng4 == {"type": "bounded", "low": 1000.0, "high": 4000.0}
+
+    rng5 = parse_reference_range("4,000 - 11,000 /cumm")
+    assert rng5 == {"type": "bounded", "low": 4000.0, "high": 11000.0}
 
     # Reference ranges with operators
     assert parse_reference_range("> 60") == {"type": "lower", "low": 60.0}
     assert parse_reference_range("Up to 35") == {"type": "upper", "high": 35.0}
+    assert parse_reference_range("< 4,500") == {"type": "upper", "high": 4500.0}
+    assert parse_reference_range("> 1,50,000") == {"type": "lower", "low": 150000.0}
     assert parse_reference_range("4.0 to 5.6") == {"type": "bounded", "low": 4.0, "high": 5.6}
 
 

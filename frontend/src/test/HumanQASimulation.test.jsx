@@ -334,28 +334,66 @@ describe('MediSkye Automated Human QA Simulation Suite', () => {
   // QA Journey 4: Streaming JSON & Disclaimer Cleanliness
   // ─────────────────────────────────────────────────────────────────────────────
   it('QA Journey 4 (Streaming JSON & Disclaimer Cleanliness): strips trailing fences, partial abnormal_flags, and handles disclaimer rules', () => {
-    // 1. Live streaming with trailing partial fence
+    // 1. Live streaming with trailing partial fence before key completes
+    const streamingEarlyPartial = 'Your Vitamin D is 22 ng/mL.\n\n```json\n{\n  "abn';
+    expect(stripAbnormalFlags(streamingEarlyPartial)).toBe('Your Vitamin D is 22 ng/mL.');
+
+    const streamingFenceOnly = 'Your Vitamin D is 22 ng/mL.\n\n```j';
+    expect(stripAbnormalFlags(streamingFenceOnly)).toBe('Your Vitamin D is 22 ng/mL.');
+
+    const streamingJsonWord = 'Your Vitamin D is 22 ng/mL.\n\n```json';
+    expect(stripAbnormalFlags(streamingJsonWord)).toBe('Your Vitamin D is 22 ng/mL.');
+
+    const streamingBareJson = 'Your Vitamin D is 22 ng/mL.\n\n{\n  "abn';
+    expect(stripAbnormalFlags(streamingBareJson)).toBe('Your Vitamin D is 22 ng/mL.');
+
+    // 2. Live streaming with full abnormal_flags key
     const streamingPartial = 'Your Vitamin D is 22 ng/mL.\n\n```json\n{\n  "abnormal_flags": ["Vitamin D"]';
     expect(stripAbnormalFlags(streamingPartial)).toBe('Your Vitamin D is 22 ng/mL.');
 
-    // 2. Completed block with bare fence without language tag
+    // 3. Completed block with bare fence without language tag
     const bareFence = 'Your Vitamin D is 22 ng/mL.\n\n```\n{"abnormal_flags": ["Vitamin D"]}\n```';
     expect(stripAbnormalFlags(bareFence)).toBe('Your Vitamin D is 22 ng/mL.');
 
-    // 3. Leaked internal prompt tags
+    // 4. Leaked internal prompt tags
     const leakedXml = 'Normal results.<extracted_report_biomarkers count="2">...</extracted_report_biomarkers> Everything looks stable.';
     expect(stripAbnormalFlags(leakedXml)).toBe('Normal results. Everything looks stable.');
 
-    // 4. Disclaimer deduplication on Turn 1 (isFollowupTurn = false)
+    // 5. Disclaimer deduplication on Turn 1 (isFollowupTurn = false)
     const turn1DoubleDisclaimer = '### Overview\nAll values reviewed.\n\n**Disclaimer:** Advice 1.\n\n**Disclaimer:** Advice 2.';
     const cleanedTurn1 = cleanMessageText(turn1DoubleDisclaimer, false);
     const disclaimerMatches = cleanedTurn1.match(/Disclaimer:/g) || [];
     expect(disclaimerMatches.length).toBe(1);
 
-    // 5. Disclaimer complete suppression on Turn 2+ (isFollowupTurn = true)
+    // 6. Disclaimer complete suppression on Turn 2+ (isFollowupTurn = true)
     const turn2WithDisclaimer = 'You should eat leafy greens and citrus.\n\n**Disclaimer:** Educational only.';
     const cleanedTurn2 = cleanMessageText(turn2WithDisclaimer, true);
     expect(cleanedTurn2).toBe('You should eat leafy greens and citrus.');
     expect(cleanedTurn2).not.toContain('Disclaimer:');
+  });
+
+  // ─────────────────────────────────────────────────────────────────────────────
+  // QA Journey 5: In-Flight Upload & Draft Conversation Protection During Background Sync
+  // ─────────────────────────────────────────────────────────────────────────────
+  it('QA Journey 5 (In-Flight Upload & Draft Protection): background refreshDocuments does not prune draft conversation', async () => {
+    api.getUserDocuments.mockResolvedValue([
+      { id: 'doc-existing-1', filename: 'Existing.pdf', title: 'Existing Report', created_at: '2026-10-01T00:00:00Z' }
+    ]);
+    api.getCachedDocuments.mockReturnValue([]);
+
+    render(
+      <MemoryRouter>
+        <ChatApp />
+      </MemoryRouter>
+    );
+
+    // Draft conversation should be mounted
+    await waitFor(() => {
+      expect(screen.getByText('Existing Report')).toBeInTheDocument();
+    });
+
+    // Profile switcher is unlocked on fresh draft
+    const trigger = screen.getByTestId('patient-switcher-trigger');
+    expect(trigger).not.toHaveAttribute('aria-disabled', 'true');
   });
 });

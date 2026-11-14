@@ -631,6 +631,8 @@ def test_deterministic_token_boundary_abnormal_flags_stripping():
 @pytest.mark.asyncio
 async def test_query_stream_retries_across_fallback_models_until_success():
     """Verify that if the first 4 models fail, the 5th model succeeds and streams answer without failing."""
+    from app.llm.gemini_client import reset_cooldown
+    reset_cooldown()
     transport = ASGITransport(app=app)
 
     models_attempted = []
