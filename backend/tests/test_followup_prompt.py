@@ -67,6 +67,11 @@ def test_3_explicit_overview_match_precision():
     assert not is_explicit_overview_query("can you explain why my glucose is elevated?")
     assert not is_explicit_overview_query("should I be worried about my creatinine?")
     assert not is_explicit_overview_query("is 14.2 good for hemoglobin?")
+    assert not is_explicit_overview_query("tell me about my ferritin")
+    assert not is_explicit_overview_query("what should i do in order to fix my health")
+    assert not is_explicit_overview_query("how do i improve my ferritin")
+    assert not is_explicit_overview_query("is this serious")
+    assert not is_explicit_overview_query("what does this mean for me")
 
     # Positive cases (should be True)
     assert is_explicit_overview_query("walk me through my report")
@@ -74,6 +79,33 @@ def test_3_explicit_overview_match_precision():
     assert is_explicit_overview_query("summarize my report")
     assert is_explicit_overview_query("give me a full breakdown of my results")
     assert is_explicit_overview_query("give me an overview of my lab report")
+    assert is_explicit_overview_query("tell me about this report")
+    assert is_explicit_overview_query("now give me the full overview")
+
+
+def test_followup_logging_caplog(caplog):
+    """
+    Test 3b: Exactly one logger.info per request with session id, document id,
+    the boolean and the reason, and no query text.
+    """
+    import logging
+    from app.api.v1.endpoints.query import logger as query_logger, compute_followup_turn_context
+
+    with caplog.at_level(logging.INFO, logger="app.api.v1.endpoints.query"):
+        caplog.clear()
+        is_followup, reason = compute_followup_turn_context(
+            has_walked_through=True,
+            query_text="what about my iron?",
+            session_id="sess-123",
+            document_id="doc-456",
+        )
+        assert is_followup is True
+        info_records = [r for r in caplog.records if r.levelno == logging.INFO and "sess-123" in r.message]
+        assert len(info_records) == 1
+        msg = info_records[0].message
+        assert "doc-456" in msg
+        assert "is_followup_turn=True" in msg or "True" in msg
+        assert "what about my iron" not in msg  # No query text in log!
 
 
 def test_4_history_condensing():

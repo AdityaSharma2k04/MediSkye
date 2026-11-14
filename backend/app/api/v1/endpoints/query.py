@@ -71,6 +71,7 @@ def is_explicit_overview_query(query_text: str) -> bool:
 
     specific_question_prefixes = (
         "why ", "why is ", "why are ", "what about ", "what is ", "what does ",
+        "what can i ", "how do i ", "how to ", "how can i ",
         "should i ", "is it ", "are my ", "can you tell me why ", "explain why ",
         "how come ", "is "
     )
@@ -78,13 +79,47 @@ def is_explicit_overview_query(query_text: str) -> bool:
         if q.startswith(prefix) and not any(phrase in q for phrase in ("walk me through", "entire report", "full report", "whole report", "overview of my report", "summary of my report")):
             return False
 
+    if q.startswith("tell me about ") and not any(phrase in q for phrase in ("this report", "the report", "my report", "this blood work", "my blood work", "these results", "my results", "my labs", "these labs")):
+        return False
+
     pattern = (
         r"(?i)(?:^(?:now\s+)?(?:can\s+you\s+)?(?:please\s+)?(?:give\s+me\s+)?(?:the\s+|a\s+)?(?:full|complete|entire)\s+(?:report\s+)?(?:overview|walkthrough|breakdown|summary)(?:\s+of\s+(?:this|my|the)?\s*(?:report|results?|blood\s*work)?)?$"
         r"|^(?:(?:can\s+you\s+)?(?:please\s+)?(?:walk\s+me\s+through|summarize|give\s+me\s+(?:a|the)?\s*(?:full|complete|entire)?\s*(?:overview|walkthrough|breakdown|summary)\s*(?:of)?)\s+(?:this|my|the|the\s+whole|the\s+entire)?\s*(?:report|lab\s+report|blood\s*work|results?))$"
         r"|^(?:(?:can\s+you\s+)?(?:please\s+)?explain\s+(?:this|my|the|the\s+whole|the\s+entire)?\s*(?:report|lab\s+report|blood\s*work|lab\s+results?|results?))$"
+        r"|^(?:(?:can\s+you\s+)?(?:please\s+)?tell\s+me\s+about\s+(?:this|the|my|the\s+whole|the\s+entire)?\s*(?:report|lab\s+report|blood\s*work|labs|results?))$"
         r"|\b(?:walk\s+me\s+through\s+my\s+report|explain\s+my\s+lab\s+results|summarize\s+my\s+report|overview\s+of\s+my\s+lab\s+report)\b)"
     )
     return bool(re.search(pattern, q.strip()))
+
+
+def compute_followup_turn_context(
+    has_walked_through: bool,
+    query_text: str,
+    session_id: Optional[str] = None,
+    document_id: Optional[str] = None,
+) -> Tuple[bool, str]:
+    """
+    Determine if a turn is a follow-up and log diagnostic context without leaking query text.
+    """
+    explicit_match = is_explicit_overview_query(query_text)
+    if not has_walked_through:
+        is_followup = False
+        reason = "first_turn_no_prior_walkthrough"
+    elif explicit_match:
+        is_followup = False
+        reason = "explicit_overview_requested"
+    else:
+        is_followup = True
+        reason = "prior_walkthrough_completed_focused_followup"
+
+    logger.info(
+        "Follow-up context: session_id=%s, document_id=%s, is_followup_turn=%s, reason=%s",
+        session_id,
+        document_id,
+        is_followup,
+        reason,
+    )
+    return is_followup, reason
 
 
 class TTLLockSet:
@@ -757,8 +792,12 @@ async def query_bot(
                         has_walked_through_latest_doc = len([c for c in prior_session_chats if c.role == "ai"]) > 0
                         prior_doc_chats = prior_session_chats
 
-                    explicit_overview_match = is_explicit_overview_query(body.query.strip())
-                    is_followup_turn = bool(has_walked_through_latest_doc and not explicit_overview_match)
+                    is_followup_turn, _ = compute_followup_turn_context(
+                        has_walked_through=has_walked_through_latest_doc,
+                        query_text=body.query.strip(),
+                        session_id=effective_session_id,
+                        document_id=str(latest_doc_id) if latest_doc_id else None,
+                    )
 
                     # Build concise current_session_history using smart turn condensation
                     if prior_doc_chats:
