@@ -164,7 +164,7 @@ export default function ChatApp() {
   // Permanent Obsidian dark theme — light mode has been removed.
   const themePreference = 'dark';
   const darkMode = true;
-  const setThemePreference = useCallback(() => {}, []);
+  const setThemePreference = useCallback(() => { }, []);
   const [language, setLanguage] = useState('English');
 
   // Desktop (≥1024): open unless the user collapsed it. Tablet/phone: closed drawer.
@@ -229,7 +229,7 @@ export default function ChatApp() {
           size: 8192,
         };
       }
-    } catch (_) {}
+    } catch (_) { }
     return null;
   });
   const [viewMode, setViewMode] = useState('chat');
@@ -273,7 +273,7 @@ export default function ChatApp() {
     const handleOnline = () => {
       setIsOnline(true);
       if (typeof handleManualCloudSyncRef.current === 'function') {
-        handleManualCloudSyncRef.current().catch(() => {});
+        handleManualCloudSyncRef.current().catch(() => { });
       }
     };
     const handleOffline = () => setIsOnline(false);
@@ -376,10 +376,10 @@ export default function ChatApp() {
             if (ts && ts < cutoff) {
               localStorage.removeItem(key);
             }
-          } catch (_) {}
+          } catch (_) { }
         }
       }
-    } catch (e) {}
+    } catch (e) { }
   }, []);
 
   // In-memory conversation state (Neon DB is the single source of truth, hydrated from local cache)
@@ -431,13 +431,13 @@ export default function ChatApp() {
       }
       const formatted = Array.isArray(chats)
         ? chats.map((c) => ({
-            id: c.id,
-            sender: c.role === 'ai' ? 'assistant' : 'user',
-            text: c.role === 'ai' ? c.message : (c.message || '').replace(/^["'“”‘’]+|["'“”‘’]+$/g, '').trim(),
-            timestamp: c.created_at
-              ? new Date(c.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
-              : '',
-          }))
+          id: c.id,
+          sender: c.role === 'ai' ? 'assistant' : 'user',
+          text: c.role === 'ai' ? c.message : (c.message || '').replace(/^["'“”‘’]+|["'“”‘’]+$/g, '').trim(),
+          timestamp: c.created_at
+            ? new Date(c.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+            : '',
+        }))
         : [];
 
       setConversations((prev) => {
@@ -458,7 +458,7 @@ export default function ChatApp() {
           if (typeof setCachedConversations === 'function') {
             setCachedConversations(next, currentPat);
           }
-        } catch (_) {}
+        } catch (_) { }
         return next;
       });
     } catch (e) {
@@ -509,11 +509,11 @@ export default function ChatApp() {
               if (typeof setCachedConversations === 'function') {
                 setCachedConversations(next, patId);
               }
-            } catch (_) {}
+            } catch (_) { }
             return next;
           });
         }
-      } catch (_) {}
+      } catch (_) { }
     }
   }, [selectedPatientId]);
 
@@ -746,7 +746,7 @@ export default function ChatApp() {
           if (typeof setCachedConversations === 'function') {
             setCachedConversations(finalConvs, activePatId);
           }
-        } catch (_) {}
+        } catch (_) { }
 
         if (typeof navigator !== 'undefined' && navigator.onLine) {
           setTimeout(() => {
@@ -979,7 +979,7 @@ export default function ChatApp() {
           if (import.meta.env.DEV) {
             console.info(`[UPLOAD_TIMING] file_prep_to_request: ${m?.duration?.toFixed(2)}ms`);
           }
-        } catch {}
+        } catch { }
       }
 
       const data = customTitle
@@ -994,7 +994,7 @@ export default function ChatApp() {
           if (import.meta.env.DEV) {
             console.info(`[UPLOAD_TIMING] request_to_job_id: ${m?.duration?.toFixed(2)}ms (job_id: ${data?.job_id || data?.document_id})`);
           }
-        } catch {}
+        } catch { }
       }
 
       let newDocId = null;
@@ -1030,7 +1030,7 @@ export default function ChatApp() {
               if (import.meta.env.DEV) {
                 console.info(`[UPLOAD_TIMING] job_id_to_first_poll: ${m?.duration?.toFixed(2)}ms`);
               }
-            } catch {}
+            } catch { }
           }
 
           let status;
@@ -1062,7 +1062,7 @@ export default function ChatApp() {
                 if (import.meta.env.DEV) {
                   console.info(`[UPLOAD_TIMING] first_poll_to_completed: ${mPoll?.duration?.toFixed(2)}ms | total_upload_e2e: ${mTotal?.duration?.toFixed(2)}ms`);
                 }
-              } catch {}
+              } catch { }
             }
             break;
           }
@@ -1110,7 +1110,7 @@ export default function ChatApp() {
 
       const autoTitle = customTitle || cleanFilename(file.name);
       if (customTitle && newDocId) {
-        renameDocument(newDocId, customTitle).catch(() => {});
+        renameDocument(newDocId, customTitle).catch(() => { });
       }
 
       // Promote the conversation's id to the server's document_id so the
@@ -1196,11 +1196,11 @@ export default function ChatApp() {
         prev.map((c) =>
           c.id === sessionId
             ? {
-                ...c,
-                documents: remainingDocs,
-                pdf: nextActivePdf,
-                document_id: nextActivePdf ? nextActivePdf.id : null,
-              }
+              ...c,
+              documents: remainingDocs,
+              pdf: nextActivePdf,
+              document_id: nextActivePdf ? nextActivePdf.id : null,
+            }
             : c
         )
       );
@@ -1277,14 +1277,14 @@ export default function ChatApp() {
       return prev.map((c) =>
         c.id === activeTargetId
           ? {
-              ...c,
-              title: preserveTitle
-                ? preserveTitle
-                : ((appendUserMessage && (c.title === 'New Conversation' || c.title === 'New chat'))
-                  ? autoNameFromQuery(userQuery)
-                  : c.title),
-              messages: [...c.messages, ...newMessages],
-            }
+            ...c,
+            title: preserveTitle
+              ? preserveTitle
+              : ((appendUserMessage && (c.title === 'New Conversation' || c.title === 'New chat'))
+                ? autoNameFromQuery(userQuery)
+                : c.title),
+            messages: [...c.messages, ...newMessages],
+          }
           : c
       );
     });
@@ -1418,7 +1418,7 @@ export default function ChatApp() {
             if (typeof setCachedConversations === 'function') {
               setCachedConversations(next, currentPat);
             }
-          } catch (_) {}
+          } catch (_) { }
           return next;
         });
       }
@@ -1620,7 +1620,7 @@ export default function ChatApp() {
       if (currentUser?.id) {
         localStorage.removeItem(`mediskye_conversations_${currentUser.id}`);
       }
-    } catch (_) {}
+    } catch (_) { }
 
     await refreshDocuments();
 
@@ -1671,7 +1671,7 @@ export default function ChatApp() {
         localStorage.removeItem('mediskye_conversations');
         localStorage.removeItem('mediskye_session_id');
       }
-    } catch (_) {}
+    } catch (_) { }
 
     if (targetProfileId === selectedPatientId || (targetProfileId === 'self' && isSelfSelected(selectedPatientId))) {
       const newId = generateSessionId();
@@ -1692,7 +1692,7 @@ export default function ChatApp() {
       setSelectedPatientId('self');
       try {
         localStorage.setItem('mediskye_patient_id', 'self');
-      } catch (_) {}
+      } catch (_) { }
     }
     try {
       const keys = Object.keys(localStorage);
@@ -1701,7 +1701,7 @@ export default function ChatApp() {
           localStorage.removeItem(k);
         }
       }
-    } catch (_) {}
+    } catch (_) { }
     setConversations((prev) => prev.filter((c) => c.dependent_id !== deletedDepId && c.patient_id !== deletedDepId));
     setPdfs((prev) => prev.filter((p) => p.dependent_id !== deletedDepId));
     await refreshPatientContext();
@@ -1737,10 +1737,10 @@ export default function ChatApp() {
       } else {
         await deleteChatSession(id, selectedPatientId);
       }
-      refreshDocuments().catch(() => {});
+      refreshDocuments().catch(() => { });
     } catch (err) {
       logger.error('Delete failed:', err);
-      refreshDocuments().catch(() => {});
+      refreshDocuments().catch(() => { });
     }
   };
 
@@ -1781,7 +1781,7 @@ export default function ChatApp() {
   };
 
   // Theme is locked to dark; kept as a no-op for child component prop contracts.
-  const handleSetDarkMode = useCallback(() => {}, []);
+  const handleSetDarkMode = useCallback(() => { }, []);
 
   const handleDeleteAccount = async () => {
     try {
@@ -2073,9 +2073,8 @@ export default function ChatApp() {
 
       <div
         data-testid="sidebar-wrapper"
-        className={`fixed inset-y-0 left-0 z-40 w-[min(300px,86vw)] lg:w-[272px] flex-shrink-0 transition-transform ${
-          sidebarOpen ? 'translate-x-0' : '-translate-x-full'
-        }`}
+        className={`fixed inset-y-0 left-0 z-40 w-[min(300px,86vw)] lg:w-[272px] flex-shrink-0 transition-transform ${sidebarOpen ? 'translate-x-0' : '-translate-x-full'
+          }`}
         style={{
           transitionDuration: '220ms',
           transitionTimingFunction: 'cubic-bezier(0.16, 1, 0.3, 1)',

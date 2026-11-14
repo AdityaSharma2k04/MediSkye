@@ -345,3 +345,31 @@ def test_tag_order_in_built_prompt():
         assert pos != -1, f"Tag {tag} missing in user_content"
         assert pos > last_pos, f"Tag {tag} is out of order (found at {pos}, previous tag at {last_pos})"
         last_pos = pos
+
+
+def test_followup_turn_includes_instruction_and_session_history():
+    """Scenario 1: Follow-up question on same PDF includes followup_turn_instruction forbidding repeating The Short Version."""
+    history = "User: Explain my report\nAssistant: Here is the short version..."
+    system_instruction, user_content = build_prompt(
+        user_query="what should i take care about to stay health",
+        is_followup_turn=True,
+        current_session_history=history,
+    )
+    assert "<current_session_history>" in user_content
+    assert history in user_content
+    assert "<followup_turn_instruction>" in user_content
+    assert 'DO NOT repeat the 7-section report walkthrough: do NOT output "### 🟢/🟡/🔴 The Short Version"' in user_content
+    assert "Directly answer the user's new question" in user_content
+
+
+def test_new_pdf_walkthrough_does_not_include_followup_instruction():
+    """Scenario 2: Newly uploaded PDF gets full walkthrough instructions and no followup_turn_instruction."""
+    system_instruction, user_content = build_prompt(
+        user_query="Tell me about this report",
+        is_followup_turn=False,
+    )
+    assert "<followup_turn_instruction>" not in user_content
+    assert "<current_session_history>" not in user_content
+    assert "The Short Version" in system_instruction
+    assert "### 🔍 What This Report Does Not Cover" in system_instruction
+    assert "### 💬 Questions to Ask Your Doctor" in system_instruction

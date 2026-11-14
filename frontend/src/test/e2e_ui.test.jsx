@@ -583,6 +583,10 @@ describe('TEST SUITE 2: Frontend E2E UI Journeys', () => {
 
       await waitFor(() => expect(api.getProfile).toHaveBeenCalled());
 
+      // Select the document conversation from the sidebar to open it
+      const docChatBtn = await screen.findByText('Complete Blood Count');
+      fireEvent.click(docChatBtn);
+
       const exportBtn = await screen.findByRole('button', { name: /Export Summary/i });
       expect(exportBtn).toBeInTheDocument();
 

@@ -124,7 +124,7 @@ describe('ChatApp — upload refreshes sidebar immediately', () => {
   });
 
   it('rejects non-PDF/image files before calling uploadPdfReport', async () => {
-    const errSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const errSpy = vi.spyOn(console, 'error').mockImplementation(() => { });
     render(<ChatApp />);
     await waitFor(() => expect(api.getProfile).toHaveBeenCalled());
 
@@ -415,7 +415,7 @@ describe('ChatApp — deletion and rename persistence', () => {
   });
 
   it('calls getDocumentSummary and triggers print flow when Export Summary is clicked', async () => {
-    const printSpy = vi.spyOn(window, 'print').mockImplementation(() => {});
+    const printSpy = vi.spyOn(window, 'print').mockImplementation(() => { });
     const docChat = {
       id: SERVER_DOC_ID,
       document_id: SERVER_DOC_ID,

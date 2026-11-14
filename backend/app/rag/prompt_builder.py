@@ -56,8 +56,8 @@ STYLE & HUMAN BEDSIDE MANNER
 - Name the report once per section or table caption when attributing values (doing so naturally, not in every line, and avoiding repeating the word "report" twice in a row). When citing an earlier report, name that report or its specimen date from <prior_lab_reports_history>, and never write "previously discussed"."""
 
 REPORT_WALKTHROUGH_RULES = """FORMAT
-- Focused question (one marker or one concern): answer in the first sentence, add only the details needed (usually one or two short paragraphs), and skip the walkthrough sections below.
-- Full report walkthrough or a question about several findings, in this order:
+- Follow-up turn or focused question (answering a specific concern, or follow-up question after the report has already been walked through): answer the user's specific question directly in the first sentence, add only the details and physiological context needed, and do NOT repeat the 7-section walkthrough template or re-list all normal findings.
+- Initial report walkthrough (when introducing or walking through a newly uploaded report, is_followup_turn=False) or an explicit request for a full breakdown, in this order:
   1. A heading that is exactly `### 🟢 The Short Version`, `### 🟡 The Short Version`, or `### 🔴 The Short Version`, followed by a two-to-three sentence summary. The first sentence MUST always state the exact numbers from status_summary in <analysis_hints> in the form "[out_of_range_count] out of [total_measured] measured markers are outside their reference ranges" (or "all [total_measured] measured markers are within their reference ranges" when out_of_range_count is 0). If 1–4 markers are out of range, name each one; if 5 or more are out of range, state the exact counts (high and low) and highlight the primary affected panels and top 1–2 findings. Use 🟢 when every measured value is within its reference range; values near a boundary are noted calmly and do not change the signal. Use 🟡 when any value is mildly or moderately out of range, a value shows a notable negative change from an earlier report, or a status could not be determined (see unclassified_analytes and status_mismatches in <analysis_hints>). Use 🔴 when any value is critical or far outside its range, or the lab marks it critical. Never use 🟢 when out-of-range values or notable negative changes are present. For 🟡, name the one or two most significant findings and say plainly that they are worth discussing with a clinician. Open with a warm, human sentence that puts the findings in perspective—highlighting healthy organ systems alongside the areas that need attention so the user feels supported and informed rather than overwhelmed, while clearly stating when findings merit a timely clinician review. Match the urgency to what was found: when several panels are flagged or a value is well outside its range, say the results merit a timely clinician review.
   2. Two to four `###` headings grouping the findings by body system or panel, or by the report’s own section titles when the report is organised that way. Panel headings are plain text with no emoji. Never use a single heading when there are more than six markers. Open each panel with a warm, plain-language sentence explaining what that group of tests looks at, and include a brief, intuitive everyday analogy freshly tailored to this panel so a non-medical reader can immediately picture how the biology works (write fresh comparisons naturally without relying on repetitive stock clichés).
   3. When <extracted_report_biomarkers> is present, every one of the N markers it lists appears exactly once, with its value, unit, and reference range. Write in-range markers as compact one-line bullets: `- **Test:** **value unit** (Reference: low – high)`. For out-of-range markers and for markers listed under near_boundary_markers, add a short interpretation of two to four sentences: what the marker measures, what the result may suggest, relevant Likely Contributors, and any followup_context from <analysis_hints>. When mentioning follow-up testing, mention ONLY the specific follow-up tests explicitly named in followup_context or verified_absent_adjacent_tests in <analysis_hints>—do not introduce other test names (such as a urine albumin-to-creatinine ratio or specialized panels) from general knowledge unless <analysis_hints> supplies them. Describe near-boundary markers as within range but close to the limit, not as abnormal. A marker listed under near_boundary_markers always gets its short interpretation, even when its Status is Normal. Without that block, cover every marker that appears in <uploaded_documents>.
@@ -402,6 +402,8 @@ def build_prompt(
     prior_documents_metrics: Optional[List[Dict[str, Any]]] = None,
     active_docs_metrics: Optional[Union[List[Dict[str, Any]], Dict[str, Any]]] = None,
     raw_report_text: str = "",
+    is_followup_turn: bool = False,
+    current_session_history: Optional[str] = None,
 ) -> Tuple[str, str]:
     """
     Build a clinical synthesis prompt for DOCUMENT_QA queries with personalized medical memory.
@@ -469,6 +471,21 @@ def build_prompt(
     if docs_block:
         user_parts.append(f"<uploaded_documents>\n{docs_block}\n</uploaded_documents>")
 
+    if is_followup_turn:
+        if current_session_history and str(current_session_history).strip():
+            user_parts.append(
+                f"<current_session_history>\n{escape_xml_content(str(current_session_history).strip())}\n</current_session_history>"
+            )
+        user_parts.append(
+            f"<followup_turn_instruction>\n"
+            f"You have ALREADY provided the full walkthrough for this report earlier in this conversation.\n"
+            f"CRITICAL RULES FOR THIS FOLLOW-UP TURN:\n"
+            f'1. Directly answer the user\'s new question ("{escape_xml_content(user_query)}") right from sentence one.\n'
+            f'2. DO NOT repeat the 7-section report walkthrough: do NOT output "### 🟢/🟡/🔴 The Short Version", do NOT re-list all in-range biomarkers panel-by-panel, and do NOT output "### 🔍 What This Report Does Not Cover".\n'
+            f"3. Focus ONLY on the specific health guidance, biomarkers, or mechanisms relevant to what the user just asked, referencing their exact numbers and saved health profile naturally without repeating the entire report dump.\n"
+            f"</followup_turn_instruction>"
+        )
+
     user_parts.append(f"<user_question>\n{escape_xml_content(user_query)}\n</user_question>")
 
     user_content = "\n".join(user_parts)
@@ -495,6 +512,8 @@ def build_general_health_prompt(
     retrieved_docs: Optional[List[Document]] = None,
     active_docs_metrics: Optional[Union[List[Dict[str, Any]], Dict[str, Any]]] = None,
     raw_report_text: str = "",
+    is_followup_turn: bool = False,
+    current_session_history: Optional[str] = None,
 ) -> Tuple[str, str]:
     """
     Build a prompt for GENERAL_HEALTH queries with conversational doctor framing.
@@ -560,6 +579,21 @@ def build_general_health_prompt(
 
     if docs_block:
         user_parts.append(f"<uploaded_documents>\n{docs_block}\n</uploaded_documents>")
+
+    if is_followup_turn:
+        if current_session_history and str(current_session_history).strip():
+            user_parts.append(
+                f"<current_session_history>\n{escape_xml_content(str(current_session_history).strip())}\n</current_session_history>"
+            )
+        user_parts.append(
+            f"<followup_turn_instruction>\n"
+            f"You have ALREADY provided the full walkthrough for this report earlier in this conversation.\n"
+            f"CRITICAL RULES FOR THIS FOLLOW-UP TURN:\n"
+            f'1. Directly answer the user\'s new question ("{escape_xml_content(user_query)}") right from sentence one.\n'
+            f'2. DO NOT repeat the 7-section report walkthrough: do NOT output "### 🟢/🟡/🔴 The Short Version", do NOT re-list all in-range biomarkers panel-by-panel, and do NOT output "### 🔍 What This Report Does Not Cover".\n'
+            f"3. Focus ONLY on the specific health guidance, biomarkers, or mechanisms relevant to what the user just asked, referencing their exact numbers and saved health profile naturally without repeating the entire report dump.\n"
+            f"</followup_turn_instruction>"
+        )
 
     user_parts.append(f"<user_question>\n{escape_xml_content(user_query)}\n</user_question>")
 

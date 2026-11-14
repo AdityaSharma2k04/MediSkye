@@ -652,9 +652,73 @@ async def query_bot(
                 except Exception as hist_err:
                     logger.warning("Error loading prior document metrics: %s", hist_err)
 
-            # In-session turn-to-turn context (always active for non-CASUAL chats)
+            # Document / Session Follow-up Detection & turn context
+            is_followup_turn = False
+            current_session_history = None
+
             if intent != QueryIntent.CASUAL:
                 async with AsyncSessionLocal() as turn_session:
+                    latest_doc = chat_docs[-1] if chat_docs else primary_doc
+                    latest_doc_id = latest_doc.id if latest_doc else None
+
+                    prior_doc_chats = []
+                    if latest_doc_id:
+                        doc_chat_res = await turn_session.execute(
+                            select(Chat)
+                            .filter(
+                                Chat.user_id == current_user.id,
+                                Chat.document_id == latest_doc_id,
+                                Chat.id != current_chat_id,
+                            )
+                            .order_by(Chat.created_at.asc())
+                        )
+                        prior_doc_chats = doc_chat_res.scalars().all()
+
+                        latest_prior_chat = prior_doc_chats[-1] if prior_doc_chats else None
+                        is_brand_new_doc = False
+                        if latest_prior_chat and latest_doc.created_at:
+                            if latest_doc.created_at > latest_prior_chat.created_at:
+                                is_brand_new_doc = True
+
+                        has_walked_through_latest_doc = (
+                            len([c for c in prior_doc_chats if c.role == "ai"]) > 0
+                            and not is_brand_new_doc
+                        )
+                    else:
+                        session_chat_res = await turn_session.execute(
+                            select(Chat)
+                            .filter(
+                                Chat.user_id == current_user.id,
+                                Chat.session_id == effective_session_id,
+                                Chat.id != current_chat_id,
+                            )
+                            .order_by(Chat.created_at.asc())
+                        )
+                        prior_session_chats = session_chat_res.scalars().all()
+                        has_walked_through_latest_doc = len([c for c in prior_session_chats if c.role == "ai"]) > 0
+                        prior_doc_chats = prior_session_chats
+
+                    explicit_overview_match = bool(
+                        re.search(
+                            r"(?i)^(?:tell\s+me\s+about|explain|summarize|walk\s+me\s+through|overview\s+of|full\s+breakdown\s+of)\s+(?:this|my|the)\s+report\b",
+                            body.query.strip(),
+                        )
+                    )
+
+                    is_followup_turn = bool(has_walked_through_latest_doc and not explicit_overview_match)
+
+                    # Build concise current_session_history from last 3 turns
+                    if prior_doc_chats:
+                        last_turns = prior_doc_chats[-3:]
+                        history_lines = []
+                        for t in last_turns:
+                            sender = "User" if t.role == "user" else "Assistant"
+                            msg = t.message or ""
+                            if t.role == "ai" and len(msg) > 450:
+                                msg = msg[:450].rsplit(" ", 1)[0] + "..."
+                            history_lines.append(f"{sender}: {msg}")
+                        current_session_history = "\n".join(history_lines)
+
                     recent_filters = [
                         Chat.user_id == current_user.id,
                         Chat.session_id == effective_session_id,
@@ -780,6 +844,8 @@ async def query_bot(
                     prior_documents_metrics=prior_documents_metrics,
                     active_docs_metrics=active_docs_metrics,
                     raw_report_text=raw_report_text,
+                    is_followup_turn=is_followup_turn,
+                    current_session_history=current_session_history,
                 )
 
             else:
@@ -801,6 +867,8 @@ async def query_bot(
                     retrieved_docs=retrieved_chunks,
                     active_docs_metrics=active_docs_metrics,
                     raw_report_text=raw_report_text,
+                    is_followup_turn=is_followup_turn,
+                    current_session_history=current_session_history,
                 )
 
             # ── Gemini stream with progressive fallback across models (at least 5 attempts) ──
