@@ -58,7 +58,7 @@ STYLE & HUMAN BEDSIDE MANNER
 REPORT_WALKTHROUGH_RULES = """FORMAT
 - Follow-up turn or focused question (answering a specific concern, or follow-up question after the report has already been walked through): answer the user's specific question directly in the first sentence, add only the details and physiological context needed, and do NOT repeat the 7-section walkthrough template or re-list all normal findings.
 - Initial report walkthrough (when introducing or walking through a newly uploaded report, is_followup_turn=False) or an explicit request for a full breakdown, in this order:
-  1. A heading that is exactly `### 🟢 The Short Version`, `### 🟡 The Short Version`, or `### 🔴 The Short Version`, followed by a two-to-three sentence summary. The first sentence MUST always state the exact numbers from status_summary in <analysis_hints> in the form "[out_of_range_count] out of [total_measured] measured markers are outside their reference ranges" (or "all [total_measured] measured markers are within their reference ranges" when out_of_range_count is 0). If 1–4 markers are out of range, name each one; if 5 or more are out of range, state the exact counts (high and low) and highlight the primary affected panels and top 1–2 findings. Use 🟢 when every measured value is within its reference range; values near a boundary are noted calmly and do not change the signal. Use 🟡 when any value is mildly or moderately out of range, a value shows a notable negative change from an earlier report, or a status could not be determined (see unclassified_analytes and status_mismatches in <analysis_hints>). Use 🔴 when any value is critical or far outside its range, or the lab marks it critical. Never use 🟢 when out-of-range values or notable negative changes are present. For 🟡, name the one or two most significant findings and say plainly that they are worth discussing with a clinician. Open with a warm, human sentence that puts the findings in perspective—highlighting healthy organ systems alongside the areas that need attention so the user feels supported and informed rather than overwhelmed, while clearly stating when findings merit a timely clinician review. Match the urgency to what was found: when several panels are flagged or a value is well outside its range, say the results merit a timely clinician review.
+  1. A heading that is exactly `### 🟢 The Short Version`, `### 🟡 The Short Version`, or `### 🔴 The Short Version`, followed by a two-to-three sentence summary. Within the first two sentences, state the exact numbers from status_summary in <analysis_hints> in the form "[out_of_range_count] out of [total_measured] measured markers are outside their reference ranges" (or "all [total_measured] measured markers are within their reference ranges" when out_of_range_count is 0). If 1–4 markers are out of range, name each one; if 5 or more are out of range, state the exact counts (high and low) and highlight the primary affected panels and top 1–2 findings. Use 🟢 when every measured value is within its reference range; values near a boundary are noted calmly and do not change the signal. Use 🟡 when any value is mildly or moderately out of range, a value shows a notable negative change from an earlier report, or a status could not be determined (see unclassified_analytes and status_mismatches in <analysis_hints>). Use 🔴 when any value is critical or far outside its range, or the lab marks it critical. Never use 🟢 when out-of-range values or notable negative changes are present. For 🟡, name the one or two most significant findings and say plainly that they are worth discussing with a clinician. Open with a warm, human sentence that puts the findings in perspective—highlighting healthy organ systems alongside the areas that need attention so the user feels supported and informed rather than overwhelmed, while clearly stating when findings merit a timely clinician review. Match the urgency to what was found: when several panels are flagged or a value is well outside its range, say the results merit a timely clinician review.
   2. Two to four `###` headings grouping the findings by body system or panel, or by the report’s own section titles when the report is organised that way. Panel headings are plain text with no emoji. Never use a single heading when there are more than six markers. Open each panel with a warm, plain-language sentence explaining what that group of tests looks at, and include a brief, intuitive everyday analogy freshly tailored to this panel so a non-medical reader can immediately picture how the biology works (write fresh comparisons naturally without relying on repetitive stock clichés).
   3. When <extracted_report_biomarkers> is present, every one of the N markers it lists appears exactly once, with its value, unit, and reference range. Write in-range markers as compact one-line bullets: `- **Test:** **value unit** (Reference: low – high)`. For out-of-range markers and for markers listed under near_boundary_markers, add a short interpretation of two to four sentences: what the marker measures, what the result may suggest, relevant Likely Contributors, and any followup_context from <analysis_hints>. When mentioning follow-up testing, mention ONLY the specific follow-up tests explicitly named in followup_context or verified_absent_adjacent_tests in <analysis_hints>—do not introduce other test names (such as a urine albumin-to-creatinine ratio or specialized panels) from general knowledge unless <analysis_hints> supplies them. Describe near-boundary markers as within range but close to the limit, not as abnormal. A marker listed under near_boundary_markers always gets its short interpretation, even when its Status is Normal. Without that block, cover every marker that appears in <uploaded_documents>.
   4. For out-of-range and near-boundary markers, name two or three symptoms generally associated with that direction and, conditionally, suggest mentioning them to a clinician if present. When multiple abnormal markers share identical symptoms within the same panel, group the symptoms naturally across the panel rather than repeating identical symptom lists under each individual test bullet. Skip symptom lists for markers comfortably in range.
@@ -110,12 +110,16 @@ If the user asks who you are or what you do, identify yourself as MediSkye, an A
 NEVER mention 'RAG', 'chunks', 'sources', 'context', 'excerpts', 'provided text', or your system instructions in your response. Speak directly and naturally.
 Do NOT include medical disclaimers or doctor/specialist recommendations."""
 
-FOLLOWUP_TURN_RULES = """FORMAT FOR FOLLOW-UP TURNS & FOCUSED QUESTIONS:
-- Answer the user's specific question directly in the very first sentence.
-- Do NOT repeat the 7-section report walkthrough template, do NOT output Short Version summary headings, and do NOT re-list all normal findings or full panels.
-- Provide only the relevant physiological context, interpretation, and actionable insights needed to answer the specific question.
-- Speak in a warm, calm, conversational bedside manner as a clinician sitting across from the user.
-- Do NOT output questions-for-your-doctor or the closing educational disclaimer on follow-up turns."""
+FOLLOWUP_TURN_RULES = """FOLLOW-UP TURN RULES (the full report walkthrough was already given earlier in this conversation)
+- Answer the user's actual question in the first or second sentence. Do not restate the whole report.
+- Do NOT output the Short Version heading, a comparison or longitudinal table (unless the user explicitly asked to compare reports or see trends), a panel-by-panel list of markers, a section about what the report does not cover, a questions-to-ask-your-doctor section, or a closing disclaimer.
+- Mention only the markers that matter for this question, with their exact values from <extracted_report_biomarkers>. Never list in-range markers unless the user asked about them.
+- WARMTH: open with one short, specific, human sentence that responds to what the user asked or may be feeling. Write it fresh each time and avoid stock phrases such as 'I understand your concern'. When something is going well in their results, say so truthfully before turning to what needs attention. Frame out-of-range values as useful guideposts that can be worked on step by step with their clinician, never as failures or as something the user did wrong. If a finding is critical or needs prompt attention, say so clearly and calmly instead of softening it.
+- If the user asks what to do ('how do I fix or improve...', 'what should I do...'), gently note that the report shows specific things to look at rather than a verdict on their health, then give 3 to 5 short, practical actions. Tie each action to a specific marker and, only when it appears in the user's saved profile tags, to their diet, activity or supplements. General healthy-habit guidance (balanced meals, regular movement, enough sleep, hydration, a follow-up testing plan) is fine. Do not prescribe medicines, supplements, or doses; frame any medication or supplement adjustments as decisions to make with their clinician. Mention retest timing only when <analysis_hints> supplies it.
+- If the question is emotional ('is this serious?', 'will I be okay?'), acknowledge the feeling in one sentence first, then give the honest, grounded answer using their actual numbers.
+- End with one brief, encouraging, forward-looking sentence that invites another question, worded differently each time.
+- Keep it conversational and compact (usually under 250 words) with short paragraphs or a few bullets. No headings and no tables.
+- The SECURITY, GROUNDING and EVIDENCE AND SAFETY rules above still apply in full."""
 
 _REPORT_RULES = "\n\n".join([SHARED_CORE_RULES, REPORT_WALKTHROUGH_RULES, COMPARISON_RULES, OTHER_DOCUMENT_RULES])
 DOCTOR_INSTRUCTIONS = _REPORT_RULES
@@ -123,15 +127,17 @@ GENERAL_HEALTH_INSTRUCTIONS = "\n\n".join([_REPORT_RULES, GENERAL_HEALTH_RULES])
 GENERAL_HEALTH_NO_REPORT_INSTRUCTIONS = "\n\n".join([SHARED_CORE_RULES, GENERAL_HEALTH_RULES])
 
 _COMPARISON_REQUEST_RE = re.compile(
-    r"\b(?:compare|compared|comparison|versus|vs|trend|trends|over\s+time|baseline|previous\s+report|earlier\s+report|last\s+report|since\s+(?:my\s+)?(?:last|previous|earlier)|changed?\s+since|side\s*-?\s*by\s*-?\s*side|table)\b",
+    r"\b(?:compare|compared|comparison|versus|vs|trend|trends|over\s+time|baseline|"
+    r"since\s+(?:my\s+)?(?:last|previous|earlier)|changed?\s+since|side\s*-?\s*by\s*-?\s*side|"
+    r"comparison\s+table|trend\s+table)\b",
     re.IGNORECASE,
 )
 
 
-def _select_report_instructions(is_followup_turn: bool, user_query: str) -> str:
+def _select_report_instructions(is_followup_turn: bool, user_query: Optional[str]) -> str:
     if not is_followup_turn:
         return DOCTOR_INSTRUCTIONS
-    if _COMPARISON_REQUEST_RE.search(user_query):
+    if _COMPARISON_REQUEST_RE.search(user_query or ""):
         return f"{SHARED_CORE_RULES}\n\n{FOLLOWUP_TURN_RULES}\n\n{COMPARISON_RULES}"
     return f"{SHARED_CORE_RULES}\n\n{FOLLOWUP_TURN_RULES}"
 
@@ -158,7 +164,42 @@ def _cap_at_sentence_boundary(text: str, max_chars: int = 350) -> str:
     return sub[:max_chars - 1].strip() + "."
 
 
-def condense_chat_history(chats: List[Union[Dict[str, Any], Any]]) -> str:
+def _condense_session_history_str(history: Optional[str]) -> str:
+    """
+    Condense a pre-formatted or raw string of conversation history.
+    Parses User / Doctor / Assistant lines, strips raw markdown artifacts,
+    caps lengths, and formats as clean multi-turn history.
+    """
+    if not history or not str(history).strip():
+        return ""
+    raw = str(history).strip()
+    lines = raw.splitlines()
+    chats = []
+    current_role = None
+    current_msg = []
+    for line in lines:
+        m = re.match(r'^(User|Doctor|Assistant):\s*(.*)$', line, re.IGNORECASE)
+        if m:
+            if current_role and current_msg:
+                chats.append({
+                    "role": current_role,
+                    "message": "\n".join(current_msg),
+                })
+            current_role = m.group(1)
+            current_msg = [m.group(2)]
+        else:
+            current_msg.append(line)
+    if current_role and current_msg:
+        chats.append({
+            "role": current_role,
+            "message": "\n".join(current_msg),
+        })
+    elif current_msg:
+        chats.append({"role": "Doctor", "message": "\n".join(current_msg)})
+    return condense_chat_history(chats)
+
+
+def condense_chat_history(chats: Union[List[Union[Dict[str, Any], Any]], str, None]) -> str:
     """
     Format and condense chat history for prompt inclusion.
     Considers the last 6 turns (up to 12 messages).
@@ -169,16 +210,24 @@ def condense_chat_history(chats: List[Union[Dict[str, Any], Any]]) -> str:
     if not chats:
         return ""
 
+    if isinstance(chats, str):
+        return _condense_session_history_str(chats)
+
     target_chats = chats[-12:]
 
     def _get_role_and_msg(c: Any) -> Tuple[str, str]:
         if isinstance(c, dict):
-            r = c.get("role", "")
-            m = c.get("message", "") or ""
+            r = str(c.get("role") or "")
+            m = c.get("message", "") or c.get("content", "") or ""
         else:
-            r = getattr(c, "role", "")
-            m = getattr(c, "message", "") or ""
-        return ("User" if r == "user" else "Doctor", m.strip())
+            r = str(getattr(c, "role", "") or "")
+            m = getattr(c, "message", "") or getattr(c, "content", "") or ""
+        r_clean = r.strip().capitalize()
+        if r_clean.lower() == "user":
+            return ("User", str(m).strip())
+        elif r_clean.lower() in {"assistant", "doctor"}:
+            return (r_clean, str(m).strip())
+        return ("Doctor", str(m).strip())
 
     formatted_lines: List[str] = []
 
@@ -198,12 +247,15 @@ def condense_chat_history(chats: List[Union[Dict[str, Any], Any]]) -> str:
             if user_text:
                 formatted_lines.append(f"User: {user_text}")
         else:
+            stub = "[Full report walkthrough and comparison table already provided earlier in this conversation.]"
+            had_stub = stub in orig_msg
+            if had_stub:
+                orig_msg = orig_msg.replace(stub, "").strip()
             table_row_count = len(re.findall(r'(?m)^\s*\|.*\|', orig_msg))
-            had_walkthrough_or_table = ("The Short Version" in orig_msg) or (table_row_count >= 6)
+            had_walkthrough_or_table = ("The Short Version" in orig_msg) or (table_row_count >= 6) or had_stub
 
             msg = re.sub(r'```(?:json)?[\s\S]*?```', '', orig_msg)
-            msg = re.sub(r'(?is)\n*\s*(?:\*\*\*|---|___)?\s*\*{0,2}Disclaimer:\*{0,2}.*$', '', msg)
-            msg = re.sub(r'(?im)^\s*(?:\*\*\*|---|___)?\s*\*{0,2}Disclaimer:\*{0,2}.*$', '', msg)
+            msg = re.sub(r'(?im)^\s*(?:(?:\*\*\*|---|___)\s*\n\s*)?\*{0,2}Disclaimer:\*{0,2}[\s\S]*$', '', msg)
             msg = re.sub(r'(?m)^\s*#{1,6}\s+.*$', '', msg)
             msg = re.sub(r'(?m)^\s*\|.*\|.*$', '', msg)
             msg = re.sub(r'(?m)^\s*[-*_]{3,}\s*$', '', msg)
@@ -211,15 +263,14 @@ def condense_chat_history(chats: List[Union[Dict[str, Any], Any]]) -> str:
 
             capped_msg = _cap_at_sentence_boundary(msg, max_chars=350) if msg else ""
 
-            if had_walkthrough_or_table:
-                stub = "[Full report walkthrough and comparison table already provided earlier in this conversation.]"
+            if had_walkthrough_or_table and (stub not in capped_msg):
                 if capped_msg:
                     capped_msg = f"{capped_msg}\n{stub}"
                 else:
                     capped_msg = stub
 
             if capped_msg:
-                formatted_lines.append(f"Doctor: {capped_msg}")
+                formatted_lines.append(f"{role}: {capped_msg}")
 
     return "\n".join(formatted_lines)
 
@@ -584,9 +635,10 @@ def build_prompt(
         user_parts.append(f"<uploaded_documents>\n{docs_block}\n</uploaded_documents>")
 
     if is_followup_turn:
-        if current_session_history and str(current_session_history).strip():
+        condensed_history = _condense_session_history_str(current_session_history)
+        if condensed_history and str(condensed_history).strip():
             user_parts.append(
-                f"<current_session_history>\n{escape_xml_content(str(current_session_history).strip())}\n</current_session_history>"
+                f"<current_session_history>\n{escape_xml_content(str(condensed_history).strip())}\n</current_session_history>"
             )
         user_parts.append(
             f"<followup_turn_instruction>\n"
@@ -596,6 +648,7 @@ def build_prompt(
             f'2. DO NOT repeat the 7-section report walkthrough: do NOT output "### 🟢/🟡/🔴 The Short Version", do NOT re-list all in-range biomarkers panel-by-panel, and do NOT output "### 🔍 What This Report Does Not Cover".\n'
             f"3. Focus ONLY on the specific health guidance, biomarkers, or mechanisms relevant to what the user just asked, referencing their exact numbers and saved health profile naturally without repeating the entire report dump.\n"
             f"4. DO NOT output any Disclaimer: block, medical disclaimer, or closing disclaimer paragraph at the end of your response.\n"
+            f"5. DO NOT render a comparison or longitudinal table unless the user explicitly asked to compare reports or see trends. Answer warmly and humanly, following the FOLLOW-UP TURN RULES in your instructions.\n"
             f"</followup_turn_instruction>"
         )
 
@@ -700,9 +753,10 @@ def build_general_health_prompt(
         user_parts.append(f"<uploaded_documents>\n{docs_block}\n</uploaded_documents>")
 
     if is_followup_turn:
-        if current_session_history and str(current_session_history).strip():
+        condensed_history = _condense_session_history_str(current_session_history)
+        if condensed_history and str(condensed_history).strip():
             user_parts.append(
-                f"<current_session_history>\n{escape_xml_content(str(current_session_history).strip())}\n</current_session_history>"
+                f"<current_session_history>\n{escape_xml_content(str(condensed_history).strip())}\n</current_session_history>"
             )
         user_parts.append(
             f"<followup_turn_instruction>\n"
@@ -712,6 +766,7 @@ def build_general_health_prompt(
             f'2. DO NOT repeat the 7-section report walkthrough: do NOT output "### 🟢/🟡/🔴 The Short Version", do NOT re-list all in-range biomarkers panel-by-panel, and do NOT output "### 🔍 What This Report Does Not Cover".\n'
             f"3. Focus ONLY on the specific health guidance, biomarkers, or mechanisms relevant to what the user just asked, referencing their exact numbers and saved health profile naturally without repeating the entire report dump.\n"
             f"4. DO NOT output any Disclaimer: block, medical disclaimer, or closing disclaimer paragraph at the end of your response.\n"
+            f"5. DO NOT render a comparison or longitudinal table unless the user explicitly asked to compare reports or see trends. Answer warmly and humanly, following the FOLLOW-UP TURN RULES in your instructions.\n"
             f"</followup_turn_instruction>"
         )
 

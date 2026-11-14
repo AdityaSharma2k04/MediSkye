@@ -227,7 +227,7 @@ def test_comparison_aware_followup_turn():
         is_followup_turn=True,
     )
     assert "LONGITUDINAL COMPARISONS" in sys_compare
-    assert "FORMAT FOR FOLLOW-UP TURNS" in sys_compare
+    assert "FOLLOW-UP TURN RULES" in sys_compare
     assert "### 🟢 The Short Version" not in sys_compare
 
     # 2. Trend follow-up
@@ -244,7 +244,7 @@ def test_comparison_aware_followup_turn():
         is_followup_turn=True,
     )
     assert "LONGITUDINAL COMPARISONS" not in sys_no_comp
-    assert "FORMAT FOR FOLLOW-UP TURNS" in sys_no_comp
+    assert "FOLLOW-UP TURN RULES" in sys_no_comp
 
     # 4. Initial turn
     sys_init, _ = build_prompt(
@@ -413,6 +413,127 @@ def test_clean_disclaimers_mid_text_anchoring():
     res_double = _clean_disclaimers(double_turn1, is_followup_turn=False)
     assert res_double.count("Disclaimer:") == 1
     assert "Here are your results." in res_double
+
+
+def test_output_filter_safe_cautions_and_dangerous_advice():
+    """
+    Step 1.1: output_filter.scan_output Safe Cautions Must Not Trigger dangerous_advice
+    - Safe cautions with straight or curly apostrophes, modals, or intervening adverbs return (True, None).
+    - Actual dangerous directives return (False, "dangerous_advice: ...").
+    """
+    from app.rag.output_filter import scan_output
+
+    safe_cautions = [
+        "Please don’t stop taking your medication without talking to your clinician.",
+        "You shouldn't stop taking your medicine on your own.",
+        "You shouldn’t stop your treatment.",
+        "I wouldn't stop your treatment or increase your dose without asking your doctor.",
+        "Please don’t increase your dose without medical guidance.",
+        "Never suddenly stop taking your medication.",
+        "Do not suddenly stop your medication.",
+    ]
+    for text in safe_cautions:
+        is_safe, reason = scan_output(text)
+        assert is_safe is True, f"Expected safe for '{text}', got is_safe=False reason={reason}"
+        assert reason is None
+
+    dangerous_commands = [
+        "You should stop taking your medication immediately.",
+        "Double your dose of insulin tonight.",
+        "Increase your medication right away.",
+    ]
+    for text in dangerous_commands:
+        is_safe, reason = scan_output(text)
+        assert is_safe is False, f"Expected dangerous for '{text}', got is_safe=True"
+        assert reason is not None and "dangerous_advice" in reason
+
+
+def test_followup_turn_rules_empathy_and_guidance_content():
+    """
+    Step 1.2: Full FOLLOWUP_TURN_RULES Empathy & Guidance Content
+    - With is_followup_turn=True, system_instruction contains full empathy and action spec.
+    - <followup_turn_instruction> in user_content contains rule 5 regarding comparison tables.
+    """
+    from app.rag.prompt_builder import build_prompt
+
+    system_instruction, user_content = build_prompt(
+        user_query="What should I do about my high cholesterol?",
+        is_followup_turn=True,
+    )
+
+    assert "3 to 5 short, practical actions" in system_instruction
+    assert "is this serious?" in system_instruction
+    assert "usually under 250 words" in system_instruction
+    assert "No headings and no tables" in system_instruction
+    assert "decisions to make with their clinician" in system_instruction
+
+    # Check rule 5 in user_content
+    assert "5. DO NOT render a comparison or longitudinal table unless the user explicitly asked to compare reports or see trends." in user_content
+
+
+def test_comparison_request_re_narrowed_and_none_safety():
+    """
+    Step 1.3: Narrowed _COMPARISON_REQUEST_RE & None Safety
+    - _select_report_instructions(True, None) does NOT raise TypeError.
+    - _select_report_instructions(True, "What did my last report say about ferritin?") does NOT include COMPARISON_RULES.
+    - _select_report_instructions(True, "Compare this with my last report") and "How have my trends changed since baseline?" DO include COMPARISON_RULES.
+    """
+    from app.rag.prompt_builder import _select_report_instructions, COMPARISON_RULES
+
+    # None safety
+    res_none = _select_report_instructions(True, None)
+    assert COMPARISON_RULES not in res_none
+
+    # False positive prevention ("last report" without comparison)
+    res_factual = _select_report_instructions(True, "What did my last report say about ferritin?")
+    assert COMPARISON_RULES not in res_factual
+
+    # True positives
+    res_compare = _select_report_instructions(True, "Compare this with my last report")
+    assert COMPARISON_RULES in res_compare
+
+    res_trend = _select_report_instructions(True, "How have my trends changed since baseline?")
+    assert COMPARISON_RULES in res_trend
+
+
+def test_history_condenser_mid_message_disclaimer_and_raw_string_safety():
+    """
+    Step 1.4: Mid-Message "Disclaimer:" Safety in History Condenser
+    - A doctor message with mid-sentence Disclaimer: retains text after "Disclaimer:".
+    - Raw multi-line string with ### headings and table rows passed as current_session_history into build_prompt is condensed.
+    """
+    from app.rag.prompt_builder import condense_chat_history, build_prompt
+
+    # 1. Mid-sentence Disclaimer: in doctor turn
+    doc_msg = "The lab footer says Disclaimer: values vary by assay. Your ferritin is 24 ng/mL and merits review."
+    chats = [
+        {"role": "user", "message": "What about my ferritin?"},
+        {"role": "ai", "message": doc_msg},
+    ]
+    condensed = condense_chat_history(chats)
+    assert "Your ferritin is 24 ng/mL and merits review." in condensed
+
+    # 2. Raw string passed into build_prompt is auto-condensed
+    eight_row_table = "\n".join([f"| Marker{i} | 10{i} | High |" for i in range(8)])
+    raw_str = (
+        "User: Explain my results\n"
+        "Doctor: ### 🟡 The Short Version\n"
+        "Here are your findings.\n"
+        f"| Biomarker | Value | Status |\n|---|---|---|\n{eight_row_table}\n"
+        "**Disclaimer:** This is educational."
+    )
+    _, user_content = build_prompt(
+        user_query="What should I do next?",
+        is_followup_turn=True,
+        current_session_history=raw_str,
+    )
+    assert "<current_session_history>" in user_content
+    history_block = user_content.split("<current_session_history>")[1].split("</current_session_history>")[0]
+    # Must NOT contain raw headings or table markdown preserved from the raw string history
+    assert "### " not in history_block
+    assert "| Biomarker |" not in history_block
+    assert "|---|" not in history_block
+
 
 
 

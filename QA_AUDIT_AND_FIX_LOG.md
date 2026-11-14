@@ -548,3 +548,53 @@
   `git revert fa50a4d`
 - **Item 3** (QA-27 Log Append):
   `git revert HEAD`
+
+---
+
+### QA-28: output_filter False Positives on Safe Medication Cautions & Follow-Up Prompt Warmth and Grounding
+
+- **Date:** 2026-11-14
+- **Branch:** `fix/audit-followups`
+- **Scope & Purpose:** Prevent false-positive `dangerous_advice` safety blocks on safe medical cautions and clinician advice, restore full empathy, action, and warmth specifications to follow-up turn prompt instructions, narrow comparison request detection with `None` safety, and harden chat history condensing against raw string inputs and mid-sentence disclaimer mentions.
+
+#### 1. output_filter Safe Negation & Curly Apostrophe Guard
+- **Symptom:** Safe clinical advice such as *"Do not change your dose without speaking with your doctor"*, *"You shouldn't adjust medication on your own"*, or *"Never stop taking prescribed medication abruptly"* was falsely triggering `dangerous_advice` safety blocks in `output_filter.py`, causing legitimate, safe AI responses to be blocked and replaced by fallback safety messages.
+- **Root Cause:** `output_filter.py` used crude regex matching against phrases like `"stop taking"` or `"adjust medication"` without inspecting the preceding context for negative prefixes, modal verbs, or clinician-consultation guards, and failed to handle Unicode curly apostrophes (`’` vs `'`).
+- **Fix:** In `backend/app/rag/output_filter.py`:
+  - Defined `_NEGATION_PREFIX_RE` matching safe negative prefixes: `r"""(?i)(?:do\s+not|don['’]t|never|should\s+not|shouldn['’]t|must\s+not|mustn['’]t|would\s+not|wouldn['’]t|cannot|can['’]t|avoid|without|consult\s+your\s+doctor\s+before)\s+(?:(?:to|even|ever|suddenly|abruptly|on\s+your\s+own|without\s+consulting|without\s+speaking)\s+)*$"""`.
+  - Refactored `dangerous_advice` scanning in `scan_output`: for each dangerous phrase match (excluding severe overdose patterns such as `take 10x` or `swallow entire bottle`), scanned up to 60 characters preceding the match. If preceded by a negation prefix, the match is classified as safe clinician guidance and permitted.
+
+#### 2. Follow-Up Prompt Bedside Manner, Empathy & Warmth
+- **Symptom:** In QA-26, `FOLLOWUP_TURN_RULES` in `prompt_builder.py` was trimmed down, omitting critical bedside-manner instructions regarding emotional validation, warmth, concise length (<250 words), and 3-5 concrete action recommendations.
+- **Fix:** In `backend/app/rag/prompt_builder.py`:
+  - Updated `FOLLOWUP_TURN_RULES` to restore full bedside-manner instructions:
+    - Direct, empathetic, and human opening acknowledging the user's feelings.
+    - 3-5 high-yield, specific lifestyle or dietary actions grounded in the patient's saved health profile and exact biomarker numbers.
+    - Framing any medication or medical adjustments strictly as questions to discuss with the treating clinician.
+    - Keeping the response under 250 words unless the user explicitly requests an exhaustive breakdown.
+  - Updated Rule 1 of `REPORT_WALKTHROUGH_RULES` to *"Within the first two sentences, state the exact numbers..."* per E6 guidance.
+  - Added Rule 5 to `<followup_turn_instruction>` in `build_prompt` and `build_general_health_prompt`: forbidding longitudinal tables unless explicitly asked and reminding the model to answer warmly following `FOLLOWUP_TURN_RULES`.
+
+#### 3. Comparison Regex Narrowing and None-Safety
+- **Fix:** In `backend/app/rag/prompt_builder.py`:
+  - Narrowed `_COMPARISON_REQUEST_RE` to strictly require explicit comparative queries (`compare`, `comparison`, `trend`, `trends`, `versus`, `vs`, `over time`, `baseline`, `change since`, `difference between`, `prior report`, `earlier report`, `previous report`).
+  - Guarded against `None` inputs in `_select_report_instructions`, `build_prompt`, and `build_general_health_prompt` by evaluating `user_query or ""` before regex matching.
+
+#### 4. Raw History Auto-Condensing & Mid-Message Disclaimer Safety
+- **Fix:** In `backend/app/rag/prompt_builder.py`:
+  - Anchored disclaimer removal in `condense_chat_history` to line start: `re.sub(r'(?im)^\s*(?:(?:\*\*\*|---|___)\s*\n\s*)?\*{0,2}Disclaimer:\*{0,2}[\s\S]*$', '', msg)`. This ensures mid-sentence mentions (e.g., *"The lab footer says Disclaimer: values vary by assay. Your ferritin is 24 ng/mL and merits review."*) preserve the remainder of the sentence.
+  - Implemented `_condense_session_history_str(history)` and accepted string history inputs in `condense_chat_history`, `build_prompt`, and `build_general_health_prompt`. Callers passing pre-formatted or raw string history now automatically have markdown tables, headings, and disclaimers stripped and walkthrough stubs applied, preserving role labels (`User`, `Doctor`, `Assistant`).
+
+#### 5. Verification Proof
+- `backend/tests/test_followup_prompt.py`: 13 passing tests, including:
+  1. `test_output_filter_safe_cautions_and_dangerous_advice`: Validates that straight and curly apostrophe cautions (`don't`, `don’t`, `shouldn't`, `shouldn’t`, `do not stop taking`, `without consulting`) pass cleanly, while genuine un-negated directives and overdose phrases are safely blocked.
+  2. `test_followup_turn_rules_empathy_and_guidance_content`: Asserts presence of bedside manner, 3-5 actionable steps, emotional support, and word count constraints.
+  3. `test_comparison_request_re_narrowed_and_none_safety`: Confirms explicit comparison triggers and `None` query safety.
+  4. `test_history_condenser_mid_message_disclaimer_and_raw_string_safety`: Verifies mid-message disclaimer retention and raw string history auto-condensing.
+- `backend/tests/test_prompt_grounding.py`: 25 passed.
+- `backend/tests/test_output_filter.py`: 11 passed.
+
+#### 6. Rollback Procedures
+- Revert this commit:
+  `git revert HEAD`
+

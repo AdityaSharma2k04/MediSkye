@@ -25,13 +25,22 @@ PERSONA_BREAK_PATTERNS = [
 ]
 
 DANGEROUS_ADVICE_PATTERNS = [
-    r"(?<!not )(?<!never )(?<!don't )(?<!do not )(?:double|triple|quadruple|10x|increase)\s+(?:your|the|their)\s+(?:dose|dosage|insulin|medication)",
-    r"(?<!not )(?<!never )(?<!don't )(?<!do not )stop\s+(?:all\s+|taking\s+|your\s+)*(?:medications?|medicine|treatment)",
+    r"(?:double|triple|quadruple|10x|increase)\s+(?:your|the|their)\s+(?:dose|dosage|insulin|medication)",
+    r"stop\s+(?:all\s+|taking\s+|your\s+)*(?:medications?|medicine|treatment)",
     r"(?:inject|take|consume)\s+\d{3,}\s*(?:mg|ml|units)",
 ]
 
+_OVERDOSE_PATTERN = r"(?:inject|take|consume)\s+\d{3,}\s*(?:mg|ml|units)"
+
 _COMPILED_PERSONA = [re.compile(p, re.IGNORECASE) for p in PERSONA_BREAK_PATTERNS]
 _COMPILED_DANGER = [re.compile(p, re.IGNORECASE) for p in DANGEROUS_ADVICE_PATTERNS]
+
+_NEGATION_PREFIX_RE = re.compile(
+    r"\b(?:do\s+not|don['’‘]t|should\s+not|shouldn['’‘]t|would\s+not|wouldn['’‘]t|"
+    r"must\s+not|mustn['’‘]t|can\s*not|can['’‘]t|never|not|avoid|against|instead\s+of|without)\b"
+    r"(?:\s+\w+){0,4}\s*$",
+    re.IGNORECASE,
+)
 
 
 def scan_output(text: str) -> tuple[bool, str | None]:
@@ -51,7 +60,12 @@ def scan_output(text: str) -> tuple[bool, str | None]:
             return False, f"persona_break: {pattern.pattern}"
 
     for pattern in _COMPILED_DANGER:
-        if pattern.search(text):
+        is_overdose = (pattern.pattern == _OVERDOSE_PATTERN)
+        for m in pattern.finditer(text):
+            if not is_overdose:
+                prefix = text[max(0, m.start() - 60):m.start()]
+                if _NEGATION_PREFIX_RE.search(prefix):
+                    continue
             return False, f"dangerous_advice: {pattern.pattern}"
 
     return True, None
