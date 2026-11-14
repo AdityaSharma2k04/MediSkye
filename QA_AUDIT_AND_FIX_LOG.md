@@ -504,3 +504,47 @@
   - Item 5 (Safety Disclaimer Detection & DECISION_2): Revert `66b6498` (`git revert 66b6498`).
   - Item 6 (Legacy Cache R2 Sanitizer): Revert `f9c3dce` (`git revert f9c3dce`).
   - Item 7 (S4/S9/R4 Tests): Revert `48976ce` (`git revert 48976ce`).
+
+
+---
+
+### QA-27: Corrections to QA-23/25/26
+
+- **Date:** 2026-11-14
+- **Branch:** `fix/audit-followups`
+- **Scope & Purpose:** Document corrections to prior audit logs QA-23, QA-25, and QA-26, record the wiring of critical emergency banners to disclaimer preservation under DECISION_3 = B, line-anchoring of disclaimer cleaning, and record exact rollback lines.
+
+#### 1. QA-25 Wording & Regex Correction
+- QA-25 referenced the phrase "educational tool" and cited a regex pattern not in the codebase.
+- The real `DISCLAIMER_TEXT` in `app.rag.safety` begins: `"This explanation is for educational purposes only and is not a substitute for professional medical advice, diagnosis, or treatment."`
+- The real disclaimer detection regex in `app.rag.safety.py` is `r"(?im)^\s*\*{0,2}disclaimer:\*{0,2}"`, which correctly matches line-anchored disclaimers and avoids triggering on mid-sentence text or partial mentions.
+
+#### 2. Emergency Banner Wiring: (f) vs (e) Clarification
+- In QA-26 Item 5, `has_critical_alert` in production was fed solely by `is_safe_fallback_text` (`SAFE_FALLBACK in visible_text`). As a result, variant (f) was effectively behaving as variant (e) in production because emergency banners were not wired to `has_critical_alert`.
+- Under `DECISION_3 = B`, follow-ups preserve the server disclaimer for both `SAFE_FALLBACK` and an active `emergency_banner`.
+- Item 1 formally wired `has_critical = bool(emergency_banner) or is_safe_fallback_text` in `query.py:query_bot` at lines 1168-1179. When an emergency query on a document session sets `emergency_banner` and proceeds to LLM streaming, `preserve_disclaimer` is set to `True` and `has_critical_alert=has_critical` is forwarded to `_clean_disclaimers`.
+- Verified by route-level red test `test_route_followup_emergency_disclaimer_preservation` in `backend/tests/test_followup_prompt.py`: ordinary follow-up has 0 disclaimers; emergency follow-up preserves exactly 1 disclaimer.
+
+#### 3. _clean_disclaimers Mid-Text Anchoring
+- In `_clean_disclaimers` (`query.py`), the unanchored `disclaimer_pattern` stripped mid-sentence mentions such as `"The footer says Disclaimer: results are indicative. Next sentence stays."`, truncating the sentence to `"The footer says"`.
+- Item 2 anchored `disclaimer_pattern` to line start: `r'(?im)(?:(?:\n\s*)?(?:\*\*\*|---|___)\s*)?(?:\n\s*)?^\s*\*{0,2}Disclaimer:\*{0,2}[^\n]*(?:\n(?!\s*#{1,6}\s)[^\n]+)*'`.
+- Verified by unit test `test_clean_disclaimers_mid_text_anchoring`: mid-text mentions are preserved intact, line-starting disclaimers on follow-ups are stripped, and first-turn deduplication behavior remains unchanged.
+
+#### 4. QA-23 Real Backend Test Names
+- The backend tests created for QA-23 profile isolation in `backend/tests/test_profile_isolation.py` are:
+  1. `test_b1_b2_documents_and_chats_profile_isolation`
+  2. `test_b3_profile_lock_prevents_cross_profile_query`
+  3. `test_b4_upload_stores_dependent_id_correctly`
+
+#### 5. B5 Test N/A Rationale
+- Requirement B5 (Profile Switcher counts isolation) is verified on the frontend. The `816a980` `PatientSwitcher.jsx` implementation already passes all 10 `ProfileIsolation.test.jsx` test cases; no backend B5 test was required as profile counts and selection are computed client-side from cached and fetched session/document state.
+
+#### 6. Rollback Procedures
+- **Commit `3382253`** (Item 1 Refinement - omit patient_id argument for self profile):
+  `git revert 3382253`
+- **Item 1** (Wire emergency_banner to disclaimer preservation, commit `c9d1b5c`):
+  `git revert c9d1b5c`
+- **Item 2** (Anchor _clean_disclaimers to line start, commit `fa50a4d`):
+  `git revert fa50a4d`
+- **Item 3** (QA-27 Log Append):
+  `git revert HEAD`
