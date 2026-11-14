@@ -460,3 +460,47 @@
      - Passed `is_followup_turn=is_followup_turn` to `append_disclaimer`.
 - **Verification Proof:**  
   - `backend/tests/test_followup_prompt.py`: Test 5 asserting that responses already containing a model-generated disclaimer do not receive a duplicate, and follow-up turns suppress disclaimers.
+
+---
+
+### QA-26: Audit Corrections and Hardening
+- **Category:** `API Backward Compatibility / Cache Sanitization / Safety & RAG Hardening`
+- **S4 / S9 / R4 / B5 Status:**
+  - **S4 (Remount from cache):** Verified and proven in `frontend/src/test/ProfileIsolation.test.jsx`. When `ChatApp` mounts or remounts, switcher report counts load synchronously from cache without flashing "No reports yet".
+  - **S9 (Multi-profile report count isolation):** Tested in an isolated temporary worktree detached at `ec66d1b` (before commit `574dc6d`). The test passed green at `ec66d1b`, demonstrating that the change to `PatientSwitcher.jsx` in `574dc6d` had no red proof; the implementation was retained without reverting per audit instructions.
+  - **R4 (No untagged conversations):** Verified in `frontend/src/test/ProfileIsolation.test.jsx`. Every conversation in cache has a valid string `patientId` defined.
+  - **B5 (GET /users/me/dependents):** Evaluated and marked **N/A**. The backend schema for `DependentResponse` returns profile metadata only (`id`, `full_name`, `relationship`, `date_of_birth`, etc.) and does not compute or return document counts. Counts are managed client-side in the UI/cache layer.
+- **QA-23 Payload vs. UI Matrix:**
+  - In QA-23, UI state was strictly isolated per profile. However, omitting `patient_id` on `/users/me/documents`, `/users/me/chats`, and `/users/me/chats/sessions` broke legacy external API callers by defaulting to `patient_id='self'`.
+  - Fix: Implemented `DECISION_1 = LEGACY_ALL` in `backend/app/api/v1/endpoints/user.py`. An omitted or empty `patient_id` parameter returns all user records (preserving backward compatibility). Explicit `'self'` filters strictly for `dependent_id IS NULL`, and an explicit dependent UUID verifies ownership (raising 404 if unauthorized) and filters for `dependent_id == dep_uuid`.
+  - Standalone chat fetching in `frontend/src/services/api.js` (`getDocumentChats`) and `ChatApp.jsx` now explicitly forwards `patient_id` when loading dependent sessions.
+- **Real Follow-Up Turn Formula & Overview Matcher Refinement:**
+  - Real formula: `is_followup = has_walked_through and not is_explicit_overview_query(q)`.
+  - Root cause of false overview matches: Bare `"tell me about "` was previously treated as an explicit overview trigger, matching focused questions like `"tell me about my ferritin"` or `"tell me about what I can do"`.
+  - Fix: In `backend/app/api/v1/endpoints/query.py`, narrow regex guards were introduced so `"tell me about "` only triggers full report walkthrough when followed by report-wide target phrases (e.g., `"this report"`, `"my blood work"`, `"these labs"`). Added `compute_followup_turn_context` logging diagnostic metadata (`session_id`, `document_id`, `is_followup_turn`, `reason`) with zero query text logged (PHI/privacy compliance).
+- **Comparison-Aware Follow-Up Turns:**
+  - In `backend/app/rag/prompt_builder.py`, `_COMPARISON_REQUEST_RE` detects comparison intent (`compare`, `trend`, `versus`, `vs`, `over time`, `baseline`, `previous report`, etc.). On follow-up turns where comparison is requested, `COMPARISON_RULES` is injected alongside `FOLLOWUP_TURN_RULES` to enable concise longitudinal comparison tables for requested markers.
+- **Chat History Condenser Hardening:**
+  - In `backend/app/rag/prompt_builder.py` (`condense_chat_history`), replaced the bracket heuristic with clean markdown sanitization:
+    - Strips `###` headings, table rows (`| ... |`), JSON code blocks, and disclaimers.
+    - Caps assistant turns at ~350 characters ending cleanly at a sentence boundary.
+    - Appends `[Full report walkthrough and comparison table already provided earlier in this conversation.]` if the original turn contained a walkthrough or $\ge 6$ table rows.
+    - Caps user text at 500 characters, retains up to the last 6 turns (12 messages), and returns `""` on empty input.
+- **Safety Disclaimer Detection & DECISION_2 (KEEP):**
+  - In `backend/app/rag/safety.py` and `backend/app/api/v1/endpoints/query.py`:
+    - Anchored detection regex to line start: `(?im)^\s*\*{0,2}disclaimer:\*{0,2}` (preventing false matches on mid-sentence words like `"the footer says Disclaimer:"`).
+    - Dropped fragile substring heuristic (`"educational purposes only"`).
+    - Implemented `DECISION_2 = KEEP`: Initial walkthroughs and full overviews retain the disclaimer. Standard follow-ups suppress the disclaimer. However, follow-ups that flag critical/urgent findings or trigger `SAFE_FALLBACK` retain the disclaimer.
+- **Legacy Cache R2 Sanitizer:**
+  - In `frontend/src/services/api.js` (`getCachedConversations` and `getCachedDocuments`), added a read-time sanitizer:
+    - When a conversation has a `pdf` whose `patientId` disagrees with the conversation's `patientId`, the PDF's owner wins.
+    - Untagged legacy conversations with messages are tagged with the requested `patientId` on read.
+    - Standalone chats without a PDF retain their assigned profile tag.
+- **Rollback Points Per Item:**
+  - Item 1 (Legacy All & Dependent Standalone Chats): Revert `81b927e` (`git revert 81b927e`).
+  - Item 2 (Overview Matcher & Diagnostic Logging): Revert `cd37731` (`git revert cd37731`).
+  - Item 3 (Comparison Follow-Ups): Revert `e9f86b1` (`git revert e9f86b1`).
+  - Item 4 (History Condenser): Revert `0de0021` (`git revert 0de0021`).
+  - Item 5 (Safety Disclaimer Detection & DECISION_2): Revert `66b6498` (`git revert 66b6498`).
+  - Item 6 (Legacy Cache R2 Sanitizer): Revert `f9c3dce` (`git revert f9c3dce`).
+  - Item 7 (S4/S9/R4 Tests): Revert `48976ce` (`git revert 48976ce`).
