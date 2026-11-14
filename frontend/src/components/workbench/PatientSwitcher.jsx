@@ -117,10 +117,11 @@ export default function PatientSwitcher({
         const docList = Array.isArray(documents) && documents.length > 0 ? documents : (Array.isArray(pdfs) ? pdfs : []);
         if (docList.length > 0) {
           passedDocsCount = docList.filter((d) => {
-            const docPid = String(d.dependent_id || d.patient_id || d.patientId || 'self');
-            return pid === 'self'
-              ? (docPid === 'self' || docPid === 'null' || !docPid || (currentUser?.id && docPid === String(currentUser.id)))
-              : docPid === pid;
+            const rawDep = d.dependent_id !== undefined ? d.dependent_id : (d.patient_id || d.patientId);
+            if (pid === 'self') {
+              return !rawDep || rawDep === 'self' || rawDep === 'null' || (currentUser?.id && String(rawDep) === String(currentUser.id));
+            }
+            return String(rawDep) === String(pid);
           }).length;
         }
 
@@ -131,7 +132,13 @@ export default function PatientSwitcher({
             const docIds = new Set();
             cachedConvs.forEach((c) => {
               if (c.document_id || c.pdf?.id) {
-                docIds.add(String(c.document_id || c.pdf?.id));
+                const cPid = c.dependent_id !== undefined ? c.dependent_id : (c.patient_id || c.patientId);
+                const isMatchingPid = pid === 'self'
+                  ? (!cPid || cPid === 'self' || cPid === 'null')
+                  : String(cPid) === String(pid);
+                if (isMatchingPid) {
+                  docIds.add(String(c.document_id || c.pdf?.id));
+                }
               }
             });
             convDocCount = docIds.size;
