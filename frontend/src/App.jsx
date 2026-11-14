@@ -1,10 +1,18 @@
-import React, { useEffect, lazy, Suspense } from 'react';
+import React, { useEffect, useState, lazy, Suspense } from 'react';
 import { BrowserRouter, Routes, Route, Navigate, useNavigate } from 'react-router-dom';
 import {
   auth,
   GoogleAuthProvider,
   signInWithCredential,
+  saveAuthSession,
   saveAuthSnapshot,
+  getSavedAuthSession,
+  clearSavedAuthSession,
+  touchAuthActivity,
+  isSessionExpiredByInactivity,
+  performExplicitLogout,
+  onAuthStateChanged,
+  FIFTEEN_DAYS_MS,
 } from './services/firebase';
 import { warmBackendConnection } from './services/api';
 
@@ -118,62 +126,124 @@ const LandingSkeleton = () => (
   </div>
 );
 
-const FIFTEEN_DAYS_MS = 15 * 24 * 60 * 60 * 1000;
-
 const ProtectedRoute = ({ children }) => {
+  if (isSessionExpiredByInactivity()) {
+    clearSavedAuthSession();
+    return <Navigate to="/login" replace />;
+  }
+
+  const session = getSavedAuthSession();
   const token = localStorage.getItem('token') || localStorage.getItem('mediskye_auth_id_token');
-  const lastActive = localStorage.getItem('mediskye_auth_last_active');
 
-  // If user was inactive for > 15 days, purge auth and force login
-  if (lastActive && Date.now() - Number(lastActive) > FIFTEEN_DAYS_MS) {
-    for (let i = localStorage.length - 1; i >= 0; i--) {
-      const k = localStorage.key(i);
-      if (k && (k.startsWith('mediskye_auth_') || k.startsWith('mediskye_cached_') || k === 'token')) {
-        localStorage.removeItem(k);
-      }
-    }
+  if (!session && !token) {
     return <Navigate to="/login" replace />;
   }
 
-  if (!token) {
-    return <Navigate to="/login" replace />;
-  }
-
-  // Touch last active on route access
-  localStorage.setItem('mediskye_auth_last_active', String(Date.now()));
-
-  try {
-    const parts = token.split('.');
-    if (parts.length < 2) {
-      localStorage.removeItem('token');
-      localStorage.removeItem('mediskye_auth_id_token');
-      return <Navigate to="/login" replace />;
-    }
-    const base64Url = parts[1];
-    const base64 = base64Url.replace(/-/g, '+').replace(/_/g, '/');
-    const payload = JSON.parse(atob(base64));
-    // If JWT expired but within 15-day inactivity window, don't boot user — let Firebase refresh in background
-    if (payload.exp && payload.exp * 1000 < Date.now()) {
-      if (!lastActive || Date.now() - Number(lastActive) > FIFTEEN_DAYS_MS) {
-        localStorage.removeItem('token');
-        return <Navigate to="/login" replace />;
-      }
-      // Within 15 days: allow component to render immediately
-    }
-  } catch (e) {
-    localStorage.removeItem('token');
-    return <Navigate to="/login" replace />;
-  }
-
+  touchAuthActivity();
   return children;
 };
 
 const GlobalAuthListener = () => {
   const navigate = useNavigate();
+  const [user, setUser] = useState(() => getSavedAuthSession());
 
   useEffect(() => {
+    // 1. Guard onAuthStateChanged: never let transient null log out an active 15-day session
+    let unsubscribe = () => {};
+    if (auth && typeof onAuthStateChanged === 'function') {
+      try {
+        unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
+          if (firebaseUser) {
+            touchAuthActivity();
+            const idToken = await firebaseUser.getIdToken(false).catch(() => null);
+            saveAuthSession(firebaseUser, idToken);
+            setUser(firebaseUser);
+          } else {
+            const savedSession = getSavedAuthSession();
+            if (savedSession) {
+              // DO NOT call setUser(null) and DO NOT clear localStorage!
+              // Keep user set to savedSession across sleep/wake, offline boots, and WebView reloads.
+              setUser(savedSession);
+            } else {
+              setUser(null);
+            }
+          }
+        });
+      } catch (err) {
+        console.error('onAuthStateChanged setup error:', err);
+      }
+    }
+
+    // 2. Rolling Activity Heartbeat Listener (pointerdown, keydown, touchstart, focus) throttled to 60s
+    let lastThrottledTouch = 0;
+    const handleUserActivity = () => {
+      const now = Date.now();
+      if (now - lastThrottledTouch > 60000) {
+        lastThrottledTouch = now;
+        touchAuthActivity();
+      }
+    };
+    const activityEvents = ['pointerdown', 'keydown', 'touchstart', 'focus'];
+    activityEvents.forEach((evt) => {
+      window.addEventListener(evt, handleUserActivity, { passive: true });
+    });
+
+    // 3. Proactive 45-Minute Token Refresh & Wake-From-Sleep Refresh
+    const refreshAuthTokenIfActive = async () => {
+      if (isSessionExpiredByInactivity()) {
+        await performExplicitLogout();
+        setUser(null);
+        navigate('/login', { replace: true });
+        return;
+      }
+      touchAuthActivity();
+      if (auth && auth.currentUser) {
+        try {
+          const freshToken = await auth.currentUser.getIdToken(true);
+          if (freshToken) {
+            localStorage.setItem('mediskye_auth_id_token', freshToken);
+            localStorage.setItem('token', freshToken);
+          }
+        } catch (_) {}
+      }
+    };
+
+    const interval45m = setInterval(() => {
+      if (getSavedAuthSession() || (auth && auth.currentUser)) {
+        refreshAuthTokenIfActive();
+      }
+    }, 45 * 60 * 1000);
+
+    // Warm up Cloud Run container on initial mount & check refresh on visibilitychange / online
+    warmBackendConnection();
+    let lastActive = Date.now();
+    const handleVisibility = () => {
+      if (document.visibilityState === 'visible') {
+        const inactiveMs = Date.now() - lastActive;
+        if (inactiveMs > 2 * 60 * 1000) {
+          warmBackendConnection();
+        }
+        lastActive = Date.now();
+        if (getSavedAuthSession() || (auth && auth.currentUser)) {
+          refreshAuthTokenIfActive();
+        }
+      } else {
+        lastActive = Date.now();
+      }
+    };
+    const handleOnline = () => {
+      if (getSavedAuthSession() || (auth && auth.currentUser)) {
+        refreshAuthTokenIfActive();
+      }
+    };
+    document.addEventListener('visibilitychange', handleVisibility);
+    window.addEventListener('online', handleOnline);
+
     const handleAuthExpired = () => {
-      navigate('/login', { replace: true });
+      if (isSessionExpiredByInactivity()) {
+        performExplicitLogout();
+        navigate('/login', { replace: true });
+      }
     };
     window.addEventListener('auth:expired', handleAuthExpired);
 
@@ -185,12 +255,8 @@ const GlobalAuthListener = () => {
           const result = await signInWithCredential(auth, credential);
           if (result?.user) {
             const token = await result.user.getIdToken();
-            localStorage.setItem('token', token);
-            localStorage.setItem('mediskye_auth_id_token', token);
-            if (result.user.email) {
-              localStorage.setItem('mediskye_user_email', result.user.email);
-            }
-            saveAuthSnapshot(result.user, token);
+            saveAuthSession(result.user, token);
+            setUser(result.user);
             navigate('/chat', { replace: true });
           }
         }
@@ -200,28 +266,19 @@ const GlobalAuthListener = () => {
     };
     window.addEventListener('mediskye-native-google-auth', handleNativeGoogleAuth);
 
-    // Warm up Cloud Run container on initial mount & after >2 min inactivity
-    warmBackendConnection();
-    let lastActive = Date.now();
-    const handleVisibility = () => {
-      if (document.visibilityState === 'visible') {
-        const inactiveMs = Date.now() - lastActive;
-        if (inactiveMs > 2 * 60 * 1000) {
-          warmBackendConnection();
-        }
-        lastActive = Date.now();
-      } else {
-        lastActive = Date.now();
-      }
-    };
-    document.addEventListener('visibilitychange', handleVisibility);
-
     return () => {
+      unsubscribe();
+      clearInterval(interval45m);
+      activityEvents.forEach((evt) => {
+        window.removeEventListener(evt, handleUserActivity);
+      });
+      document.removeEventListener('visibilitychange', handleVisibility);
+      window.removeEventListener('online', handleOnline);
       window.removeEventListener('auth:expired', handleAuthExpired);
       window.removeEventListener('mediskye-native-google-auth', handleNativeGoogleAuth);
-      document.removeEventListener('visibilitychange', handleVisibility);
     };
   }, [navigate]);
+
   return null;
 };
 

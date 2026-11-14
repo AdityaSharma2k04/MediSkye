@@ -1,6 +1,16 @@
 // API Service for FastAPI backend
 import { logger } from './logger';
-import { auth, signOut, onAuthStateChanged } from './firebase';
+import {
+  auth,
+  signOut,
+  onAuthStateChanged,
+  isSessionExpiredByInactivity,
+  touchAuthActivity,
+  FIFTEEN_DAYS_MS,
+  getSavedAuthSession,
+  saveAuthSession,
+  performExplicitLogout,
+} from './firebase';
 
 const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:8000';
 
@@ -11,6 +21,9 @@ if (typeof window !== 'undefined' && auth && typeof onAuthStateChanged === 'func
         try {
           const token = await user.getIdToken();
           localStorage.setItem('token', token);
+          localStorage.setItem('mediskye_auth_id_token', token);
+          touchAuthActivity();
+          saveAuthSession(user, token);
         } catch (_) {}
       }
     });
@@ -223,48 +236,70 @@ export function purgeDocumentLocalCache(docId) {
   } catch (_) {}
 }
 
-const FIFTEEN_DAYS_MS = 15 * 24 * 60 * 60 * 1000;
-
-function isWithinFifteenDays() {
+export function isJwtExpiredOrExpiringSoon(jwtString, bufferSeconds = 300) {
+  if (!jwtString || typeof jwtString !== 'string') return true;
+  const parts = jwtString.split('.');
+  if (parts.length < 2) return true;
   try {
-    const lastActive = localStorage.getItem('mediskye_auth_last_active');
-    if (!lastActive) return true;
-    return Date.now() - Number(lastActive) <= FIFTEEN_DAYS_MS;
+    const base64Url = parts[1];
+    const base64 = base64Url.replace(/-/g, '+').replace(/_/g, '/');
+    const payload = JSON.parse(atob(base64));
+    if (!payload?.exp) return true;
+    return (payload.exp * 1000) - Date.now() < bufferSeconds * 1000;
   } catch (_) {
     return true;
   }
 }
 
-export async function getAuthToken() {
-  let token = localStorage.getItem('token') || localStorage.getItem('mediskye_auth_id_token');
+export function isWithinFifteenDays() {
+  return !isSessionExpiredByInactivity();
+}
+
+export async function getAuthToken(forceRefresh = false) {
+  if (typeof window === 'undefined') return null;
+
   if (auth) {
-    if (auth.currentUser) {
-      try {
-        const fresh = await auth.currentUser.getIdToken();
-        if (fresh) {
-          token = fresh;
-          localStorage.setItem('token', fresh);
-          localStorage.setItem('mediskye_auth_id_token', fresh);
-        }
-      } catch (_) {}
-    } else if (typeof auth.authStateReady === 'function') {
+    if (!auth.currentUser && typeof auth.authStateReady === 'function') {
       const snap = localStorage.getItem('mediskye_auth_user_snapshot');
       if (snap && isWithinFifteenDays()) {
         try {
           await auth.authStateReady();
-          if (auth.currentUser) {
-            const fresh = await auth.currentUser.getIdToken();
-            if (fresh) {
-              token = fresh;
-              localStorage.setItem('token', fresh);
-              localStorage.setItem('mediskye_auth_id_token', fresh);
-            }
-          }
         } catch (_) {}
       }
     }
+
+    if (auth.currentUser) {
+      const cachedToken = localStorage.getItem('mediskye_auth_id_token') || localStorage.getItem('token');
+      if (forceRefresh || !cachedToken || isJwtExpiredOrExpiringSoon(cachedToken, 300)) {
+        try {
+          const freshToken = await auth.currentUser.getIdToken(true);
+          if (freshToken) {
+            localStorage.setItem('mediskye_auth_id_token', freshToken);
+            localStorage.setItem('token', freshToken);
+            touchAuthActivity();
+            return freshToken;
+          }
+        } catch (err) {
+          logger.warn('Failed to force refresh Firebase auth token:', err);
+        }
+      } else {
+        try {
+          const token = await auth.currentUser.getIdToken(false);
+          if (token) {
+            localStorage.setItem('mediskye_auth_id_token', token);
+            localStorage.setItem('token', token);
+            return token;
+          }
+        } catch (err) {
+          logger.warn('Failed to get token without refresh:', err);
+        }
+      }
+    }
   }
-  return token || null;
+
+  // Fallback to raw cached token in localStorage (e.g., while offline)
+  const fallback = localStorage.getItem('token') || localStorage.getItem('mediskye_auth_id_token');
+  return fallback || null;
 }
 
 export function getAuthHeaders() {
@@ -273,38 +308,7 @@ export function getAuthHeaders() {
 }
 
 export async function getFreshAuthHeaders(forceRefresh = false) {
-  let token = localStorage.getItem('token') || localStorage.getItem('mediskye_auth_id_token');
-  if (auth) {
-    if (auth.currentUser) {
-      try {
-        const freshToken = await auth.currentUser.getIdToken(forceRefresh);
-        if (freshToken) {
-          token = freshToken;
-          localStorage.setItem('token', freshToken);
-          localStorage.setItem('mediskye_auth_id_token', freshToken);
-        }
-      } catch (e) {
-        logger.warn('Failed to refresh Firebase auth token:', e);
-      }
-    } else if (typeof auth.authStateReady === 'function') {
-      const snap = localStorage.getItem('mediskye_auth_user_snapshot');
-      if (snap && isWithinFifteenDays()) {
-        try {
-          await auth.authStateReady();
-          if (auth.currentUser) {
-            const freshToken = await auth.currentUser.getIdToken(forceRefresh);
-            if (freshToken) {
-              token = freshToken;
-              localStorage.setItem('token', freshToken);
-              localStorage.setItem('mediskye_auth_id_token', freshToken);
-            }
-          }
-        } catch (e) {
-          logger.warn('Failed to resolve authStateReady for fresh headers:', e);
-        }
-      }
-    }
-  }
+  const token = await getAuthToken(forceRefresh);
   return token ? { 'Authorization': `Bearer ${token}` } : {};
 }
 
@@ -331,16 +335,7 @@ export async function apiFetch(url, options = {}, timeoutMs = 30000) {
     });
   }
 
-  let token = localStorage.getItem('token');
-  if (auth && auth.currentUser) {
-    try {
-      const liveToken = await auth.currentUser.getIdToken();
-      if (liveToken) {
-        token = liveToken;
-        localStorage.setItem('token', liveToken);
-      }
-    } catch (_) {}
-  }
+  const token = await getAuthToken(false);
   const baseHeaders = token ? { 'Authorization': `Bearer ${token}` } : getAuthHeaders();
   const headers = {
     ...baseHeaders,
@@ -364,7 +359,7 @@ export async function apiFetch(url, options = {}, timeoutMs = 30000) {
     throw err;
   }
 
-  // 401 Interceptor: retry with fresh token if available
+  // 401 Interceptor: retry once with fresh token if available
   if (res.status === 401 && auth) {
     try {
       if (!auth.currentUser && typeof auth.authStateReady === 'function') {
@@ -374,10 +369,8 @@ export async function apiFetch(url, options = {}, timeoutMs = 30000) {
         }
       }
       if (auth.currentUser) {
-        const freshToken = await auth.currentUser.getIdToken(true);
+        const freshToken = await getAuthToken(true);
         if (freshToken) {
-          localStorage.setItem('token', freshToken);
-          localStorage.setItem('mediskye_auth_id_token', freshToken);
           const retryHeaders = {
             ...headers,
             'Authorization': `Bearer ${freshToken}`,
@@ -386,19 +379,15 @@ export async function apiFetch(url, options = {}, timeoutMs = 30000) {
         }
       }
     } catch (refreshErr) {
-      logger.warn('Token auto-refresh failed:', refreshErr);
+      logger.warn('Token auto-refresh failed on 401:', refreshErr);
     }
   }
 
   clearTimeout(timeoutId);
 
+  // If still 401, throw HTTP error but NEVER wipe login session on API failure
   if (res.status === 401) {
-    localStorage.removeItem('token');
-    localStorage.removeItem('mediskye_auth_id_token');
-    if (typeof window !== 'undefined') {
-      window.dispatchEvent(new Event('auth:expired'));
-    }
-    throw new Error('Session expired. Please log in again.');
+    throw new Error('Unauthorized request (401). Please check permissions or try again.');
   }
 
   return res;
@@ -453,7 +442,7 @@ export async function register(email, password, phi_consent_granted) {
  * Pure UI preferences (theme, language) are NOT auth/PHI state, so they are
  * preserved across logout to avoid a theme/language flash on re-login.
  */
-const PRESERVED_STORAGE_KEYS = new Set(['mediskye_theme', 'mediskye_language', 'mediskye_ui_lang']);
+const PRESERVED_STORAGE_KEYS = new Set(['mediskye_theme', 'mediskye_language', 'mediskye_ui_lang', 'mediskye_explicit_logout']);
 
 export function clearLocalAuthStorage() {
   try {
@@ -492,9 +481,7 @@ export async function logout() {
     logger.error('Logout error:', err);
   } finally {
     try {
-      if (auth && typeof signOut === 'function') {
-        await signOut(auth);
-      }
+      await performExplicitLogout();
     } catch (e) {
       // ignore
     }
@@ -761,11 +748,6 @@ export async function fetchLabMetrics(documentId, forceRefresh = false) {
 
     const data = await res.json().catch(() => ({}));
     if (!res.ok) {
-      if (res.status === 401) {
-        localStorage.removeItem('token');
-        window.dispatchEvent(new Event('auth:expired'));
-        throw new Error('Session expired. Please log in again.');
-      }
       const list = [];
       list._error = data.detail || `Failed to fetch metrics (${res.status})`;
       return list;
@@ -1429,16 +1411,12 @@ export async function detachChatDocument(chatId, docId) {
 // ── Chat History Export ──
 
 export async function exportDocumentData(documentId) {
+  const headers = await getFreshAuthHeaders();
   const res = await fetch(`${API_BASE}/users/me/documents/${documentId}/export`, {
     method: 'GET',
-    headers: getAuthHeaders(),
+    headers: { ...headers },
   });
   if (!res.ok) {
-    if (res.status === 401) {
-      localStorage.removeItem('token');
-      window.dispatchEvent(new Event('auth:expired'));
-      throw new Error('Session expired. Please log in again.');
-    }
     const data = await res.json().catch(() => null);
     throw new Error(data?.detail || 'Failed to export document data');
   }
@@ -1452,11 +1430,6 @@ export async function exportUserAccountData() {
     headers: { ...headers },
   });
   if (!res.ok) {
-    if (res.status === 401) {
-      localStorage.removeItem('token');
-      window.dispatchEvent(new Event('auth:expired'));
-      throw new Error('Session expired. Please log in again.');
-    }
     const data = await res.json().catch(() => null);
     throw new Error(data?.detail || 'Failed to export account data');
   }

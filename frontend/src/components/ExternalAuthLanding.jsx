@@ -5,6 +5,7 @@ import {
   GoogleAuthProvider,
   signInWithPopup,
   getFirebaseErrorMessage,
+  saveAuthSession,
 } from '../services/firebase';
 import { BrandMark } from './workbench/Brand';
 
@@ -24,6 +25,7 @@ export default function ExternalAuthLanding() {
       const cred = GoogleAuthProvider.credentialFromResult(result);
       const idToken = cred?.idToken || (await result.user.getIdToken());
       const accessToken = cred?.accessToken || '';
+      saveAuthSession(result.user, idToken);
 
       if (!idToken && !accessToken) {
         throw new Error('Google authentication succeeded but no valid token was returned. Please try again.');

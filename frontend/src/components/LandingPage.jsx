@@ -1,6 +1,7 @@
 import React, { lazy, Suspense, useEffect, useRef, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { Trans, useTranslation } from 'react-i18next';
+import { getSavedAuthSession } from '../services/firebase';
 import useIntersectionObserver from '../hooks/useIntersectionObserver';
 import { BrandLockup, BrandMark } from './workbench/Brand';
 import RangeBar from './clinical/RangeBar';
@@ -148,6 +149,11 @@ export default function LandingPage() {
 
   // If already authenticated, redirect to /chat
   useEffect(() => {
+    const session = getSavedAuthSession();
+    if (session) {
+      navigate('/chat', { replace: true });
+      return;
+    }
     const token = localStorage.getItem('token');
     if (token) {
       try {

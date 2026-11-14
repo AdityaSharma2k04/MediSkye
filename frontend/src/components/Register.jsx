@@ -12,6 +12,7 @@ import {
   updateProfile,
   reloadAndGetVerifiedToken,
   getFirebaseErrorMessage,
+  saveAuthSession,
 } from '../services/firebase';
 import api from '../services/api';
 import { useTranslation } from 'react-i18next';
@@ -116,6 +117,7 @@ export default function Register() {
     if (!token) {
       throw new Error('Authentication failed. Please try again.');
     }
+    saveAuthSession(user, token);
     const userEmail = user.email || '';
     const lastEmail = localStorage.getItem('mediskye_user_email');
     if (lastEmail && userEmail && lastEmail.toLowerCase() !== userEmail.toLowerCase()) {

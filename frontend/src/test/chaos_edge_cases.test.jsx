@@ -13,6 +13,13 @@ vi.mock('../services/firebase', () => ({
   signOut: vi.fn(),
   onAuthStateChanged: vi.fn(),
   getFirebaseErrorMessage: vi.fn((err) => err?.message || 'Auth error'),
+  touchAuthActivity: vi.fn(),
+  touchLastActive: vi.fn(),
+  isSessionExpiredByInactivity: vi.fn(() => false),
+  getSavedAuthSession: vi.fn(() => null),
+  saveAuthSession: vi.fn(),
+  performExplicitLogout: vi.fn(),
+  FIFTEEN_DAYS_MS: 15 * 24 * 60 * 60 * 1000,
 }));
 
 describe('Frontend Chaos QA & Edge Cases', () => {

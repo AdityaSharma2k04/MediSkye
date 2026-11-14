@@ -41,31 +41,97 @@ const firebaseConfig = {
 const app = initializeApp(firebaseConfig);
 export const auth = getAuth(app);
 
-// 15-Day Rolling Permanent Login & Inactive Purge Configuration
+// 15-Day Rolling Permanent Login & Inactivity Session Configuration
 export const FIFTEEN_DAYS_MS = 15 * 24 * 60 * 60 * 1000;
 
-export function touchLastActive() {
+export function touchAuthActivity() {
   if (typeof window !== "undefined") {
     try {
       localStorage.setItem("mediskye_auth_last_active", String(Date.now()));
     } catch (_) { }
   }
 }
+export const touchLastActive = touchAuthActivity;
 
-export function saveAuthSnapshot(user, token = null) {
-  if (typeof window !== "undefined" && user) {
+export function isSessionExpiredByInactivity() {
+  if (typeof window === "undefined") return false;
+  try {
+    const lastActive = localStorage.getItem("mediskye_auth_last_active");
+    if (!lastActive) {
+      localStorage.setItem("mediskye_auth_last_active", String(Date.now()));
+      return false;
+    }
+    const elapsed = Date.now() - Number(lastActive);
+    return elapsed > FIFTEEN_DAYS_MS;
+  } catch (_) {
+    return false;
+  }
+}
+
+export function clearSavedAuthSession() {
+  if (typeof window !== "undefined") {
     try {
-      const snap = {
-        uid: user.uid,
-        email: user.email,
-        displayName: user.displayName || user.email?.split("@")[0] || "",
-        photoURL: user.photoURL || null,
-      };
-      localStorage.setItem("mediskye_auth_user_snapshot", JSON.stringify(snap));
-      touchLastActive();
-      if (token) {
-        localStorage.setItem("mediskye_auth_id_token", token);
-      }
+      localStorage.removeItem("mediskye_auth_user_snapshot");
+      localStorage.removeItem("mediskye_auth_id_token");
+      localStorage.removeItem("mediskye_auth_last_active");
+      localStorage.removeItem("token");
+    } catch (_) { }
+  }
+}
+
+export function getSavedAuthSession() {
+  if (typeof window === "undefined") return null;
+  try {
+    if (localStorage.getItem("mediskye_explicit_logout") === "1") {
+      return null;
+    }
+    const snapStr = localStorage.getItem("mediskye_auth_user_snapshot");
+    if (!snapStr) return null;
+
+    if (isSessionExpiredByInactivity()) {
+      clearSavedAuthSession();
+      return null;
+    }
+
+    const snap = JSON.parse(snapStr);
+    if (!snap || !snap.uid) return null;
+    return snap;
+  } catch (_) {
+    return null;
+  }
+}
+
+export function saveAuthSession(firebaseUser, idToken = null) {
+  if (typeof window === "undefined" || !firebaseUser) return;
+  try {
+    localStorage.removeItem("mediskye_explicit_logout");
+    const snap = {
+      uid: firebaseUser.uid,
+      email: firebaseUser.email,
+      displayName: firebaseUser.displayName || firebaseUser.email?.split("@")[0] || "",
+      photoURL: firebaseUser.photoURL || null,
+    };
+    localStorage.setItem("mediskye_auth_user_snapshot", JSON.stringify(snap));
+    localStorage.setItem("mediskye_last_uid", firebaseUser.uid);
+    localStorage.setItem("mediskye_auth_last_active", String(Date.now()));
+    if (idToken) {
+      localStorage.setItem("mediskye_auth_id_token", idToken);
+      localStorage.setItem("token", idToken);
+    }
+  } catch (_) { }
+}
+export const saveAuthSnapshot = saveAuthSession;
+
+export async function performExplicitLogout() {
+  if (typeof window !== "undefined") {
+    try {
+      localStorage.setItem("mediskye_explicit_logout", "1");
+      clearSavedAuthSession();
+    } catch (_) { }
+  }
+  if (auth && typeof signOut === "function") {
+    try {
+      await signOut(auth);
     } catch (_) { }
   }
 }
@@ -73,22 +139,18 @@ export function saveAuthSnapshot(user, token = null) {
 export function checkAndPurgeIfInactive() {
   if (typeof window !== "undefined") {
     try {
-      const lastActive = localStorage.getItem("mediskye_auth_last_active");
-      if (lastActive) {
-        const elapsed = Date.now() - Number(lastActive);
-        if (elapsed > FIFTEEN_DAYS_MS) {
-          // Inactive for >15 days: purge everything and force re-login
-          for (let i = localStorage.length - 1; i >= 0; i--) {
-            const k = localStorage.key(i);
-            if (k && (k.startsWith("mediskye_auth_") || k.startsWith("mediskye_cached_") || k === "token")) {
-              localStorage.removeItem(k);
-            }
+      if (isSessionExpiredByInactivity()) {
+        clearSavedAuthSession();
+        for (let i = localStorage.length - 1; i >= 0; i--) {
+          const k = localStorage.key(i);
+          if (k && (k.startsWith("mediskye_auth_") || k.startsWith("mediskye_cached_") || k === "token")) {
+            localStorage.removeItem(k);
           }
-          if (auth && typeof signOut === "function") {
-            signOut(auth).catch(() => { });
-          }
-          return true; // was purged
         }
+        if (auth && typeof signOut === "function") {
+          signOut(auth).catch(() => { });
+        }
+        return true; // was purged
       }
     } catch (_) { }
   }
