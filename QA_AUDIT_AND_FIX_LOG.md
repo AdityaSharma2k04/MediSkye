@@ -382,3 +382,81 @@
      - Positioned the red `"Offline"` status pill in `Workbench.jsx` top action bar with `inline-flex` (always visible on mobile viewports alongside Search and RefreshCw).
 - **Verification Proof:**  
   `frontend/src/test/HumanQASimulation.test.jsx` (Journey 7 verifies native bridge detection, fetch-failure real-time offline pill transition, and recovery upon network event).
+
+---
+
+### QA-23: Cross-Profile Report Leakage & Contaminated Report Counts Across Self & Family Dependents
+- **Category:** `Data Isolation & Privacy / State Management`
+- **What Was Broken (Symptom):**  
+  1. Switching between patient profiles (e.g., from 'self' to a child dependent) leaked the account owner's ('self') lab reports and conversations into the child's profile view.
+  2. The Profile Switcher dropdown/sidebar displayed inflated or combined report counts (e.g., displaying the total account documents instead of isolating each profile's independent count).
+  3. Selecting a dependent profile and uploading a document or visiting the switcher caused documents with `dependent_id === null` to be reassigned to the active dependent profile due to a falsy fallback (`null || activePatId`).
+- **Root Cause & File/Line Location:**  
+  1. `backend/app/api/v1/endpoints/user.py` (`get_my_documents`, `get_general_chats`, `get_user_chat_sessions`): None of these endpoints accepted a `patient_id` parameter or filtered by `dependent_id`. They queried solely by `user_id == current_user.id`, returning all documents and sessions for the account across all family members.
+  2. `frontend/src/services/api.js` (`getUserDocuments`, `getGeneralChats`, `getChatSessions`): Endpoints were called without `patient_id` query parameters, and `normalizePatientId` was not uniformly applied to sanitize `'self'`, `null`, `undefined`, and dependent UUID strings.
+  3. `frontend/src/components/ChatApp.jsx` (`refreshDocuments`, `loadConversations`):
+     - `const docPat = doc.dependent_id || existing?.patient_id || activePatId;`: Because `null || activePatId` evaluates to `activePatId`, any document belonging to `'self'` (`dependent_id: null`) was reassigned to the active dependent whenever `activePatId` was a child ID.
+     - Conversation state arrays (`localNonDocConvs`, `syncedDocConvs`, `inFlightConvs`, and cached conversation trees) did not strictly filter by normalized patient ID matching `activePatId`.
+  4. `frontend/src/components/workbench/PatientSwitcher.jsx`: Filtered `passedDocsCount` and cached conversation IDs using lenient string containment or global counts rather than strictly matching `pid === 'self'` (where `dependent_id` is null) vs `pid === String(dep.id)`.
+- **The Fix & Code Changes:**  
+  1. In `backend/app/api/v1/endpoints/user.py`:
+     - Added `patient_id: Optional[str] = None` query parameter to `get_my_documents`, `get_general_chats`, and `get_user_chat_sessions`.
+     - When `patient_id` is a UUID string, verified ownership against `current_user.id` (raising 404 if not found or unauthorized) and filtered queries strictly by `Document.dependent_id == dep_uuid` (or `ChatSession.dependent_id == dep_uuid`).
+     - When `patient_id` is `'self'`, `None`, or omitted, filtered strictly by `Document.dependent_id.is_(None)` (or `ChatSession.dependent_id.is_(None)`).
+  2. In `frontend/src/services/api.js`:
+     - Exported `normalizePatientId(id)` helper returning `'self'` for falsy / `'self'` inputs and trimmed string for UUIDs.
+     - Updated `getUserDocuments`, `getGeneralChats`, and `getChatSessions` to append `patient_id` to query parameters.
+  3. In `frontend/src/components/ChatApp.jsx`:
+     - Added local `normalizePatientId` helper to maintain compatibility with test suites and mocks.
+     - Corrected document profile resolution in `refreshDocuments`:
+       ```javascript
+       const rawDep = doc.dependent_id !== undefined ? doc.dependent_id : (existing?.patient_id !== 'self' ? existing?.patient_id : null);
+       const docPat = rawDep ? String(rawDep) : 'self';
+       ```
+     - Strictly partitioned and filtered `localNonDocConvs`, `syncedDocConvs`, `inFlightConvs`, and cached sessions by `normalizePatientId(conv.patient_id) === activePatId`.
+  4. In `frontend/src/components/workbench/PatientSwitcher.jsx`:
+     - Isolated report counts per profile row so that `'self'` checks `(!doc.dependent_id || doc.patient_id === 'self')` and dependents check `(String(doc.dependent_id) === pid || String(doc.patient_id) === pid)`.
+- **Verification Proof:**  
+  - `backend/tests/test_profile_isolation.py`: 3 tests (`test_b1_user_documents_scoped_by_patient_id`, `test_b2_general_chats_scoped_by_patient_id`, `test_b3_chat_sessions_scoped_by_patient_id`) verifying strict HTTP parameter filtering and 404 on cross-user dependent access.
+  - `frontend/src/test/ProfileIsolation.test.jsx`: 5 tests (S1-S9) verifying patient ID normalization, document assignment isolation, conversation tree partitioning, and prevention of self document re-assignment.
+  - `frontend/src/test/HumanQASimulation.test.jsx`: All 7 QA journeys passing.
+
+---
+
+### QA-24: Repeated Full Report Walkthroughs on Follow-Up Queries & History Condensation
+- **Category:** `Prompt Engineering / Clinical RAG UX`
+- **What Was Broken (Symptom):**  
+  When users asked specific, narrow follow-up questions about an already-analyzed lab report (e.g., "what should I eat?", "is my ALT safe?", "explain my triglycerides in simple terms"), the AI repeatedly outputted the entire structured report walkthrough ("### 🟢 The Short Version", "### 📋 Key Findings", "### 💡 Questions for Your Doctor", disclaimers) over and over again on every turn, ignoring conversational context and feeling robotic.
+- **Root Cause & File/Line Location:**  
+  1. `backend/app/rag/prompt_builder.py` (`build_prompt`): Injected `REPORT_WALKTHROUGH_RULES` unconditionally for all document-grounded queries regardless of conversation history or turn index.
+  2. `backend/app/api/v1/endpoints/query.py`: Passed an arbitrary slice of the last 3 raw messages to `build_prompt` without detecting whether the query was a follow-up turn versus an explicit request to re-walk through the report.
+- **The Fix & Code Changes:**  
+  1. In `backend/app/rag/prompt_builder.py`:
+     - Created `FOLLOWUP_TURN_RULES`: Enforces direct, warm, concise answers tailored specifically to what the user asked. Forbids repeating the initial walkthrough template or headings on follow-up turns unless explicitly requested.
+     - Implemented `condense_chat_history(chat_history, max_turns=6, max_chars_per_turn=400)` to preserve conversational continuity without blowing context limits.
+     - Updated `build_prompt` to accept `is_followup_turn: bool = False`. When `is_followup_turn=True`, injects `SHARED_CORE_RULES + FOLLOWUP_TURN_RULES` and omits `REPORT_WALKTHROUGH_RULES` and `COMPARISON_RULES`.
+  2. In `backend/app/api/v1/endpoints/query.py`:
+     - Exported and implemented `is_explicit_overview_query(query_text: str) -> bool`: Uses regex pattern matching (`r"(?i)\b(walk\s*through|summarize|full\s+report|overview|give\s+me\s+a\s+summary|analyze\s+my\s+report)\b"`) while guarding with negative prefixes against follow-up questions like "can you summarize what diet changes I should make?".
+     - Set `is_followup_turn = bool(condensed_history) and not is_explicit_overview_query(req.query)` and passed it to `build_prompt`.
+- **Verification Proof:**  
+  - `backend/tests/test_followup_prompt.py`: Tests 1, 2, 3, and 4 asserting that `FOLLOWUP_TURN_RULES` are selected for follow-up turns, initial walkthrough rules are selected for turn 0, explicit re-summary requests reactivate walkthrough rules, and negative prefix queries are accurately classified as follow-ups.
+
+---
+
+### QA-25: Redundant Double Disclaimers & Safety Disclaimer Alignment
+- **Category:** `Clinical Safety / Content Hygiene`
+- **What Was Broken (Symptom):**  
+  Responses generated by the AI frequently ended with two stacked disclaimer paragraphs ("Disclaimer: ... Disclaimer: ..."), creating redundant clutter.
+- **Root Cause & File/Line Location:**  
+  1. `backend/app/rag/safety.py` (`append_disclaimer`): Checked if `DISCLAIMER_TEXT in response_text`. However, the prompt builder instructed the LLM to output a disclaimer ending with `"consult a qualified healthcare provider with any questions regarding a medical condition"`, whereas `safety.py`'s `DISCLAIMER_TEXT` ended with `"consult a licensed healthcare provider for medical decisions"`. Because the exact string didn't match, `append_disclaimer` falsely believed no disclaimer existed and appended a second one.
+  2. Furthermore, on conversational follow-up turns, appending a clinical disclaimer to every 2-sentence conversational clarification was intrusive.
+- **The Fix & Code Changes:**  
+  1. In `backend/app/rag/safety.py`:
+     - Aligned `DISCLAIMER_TEXT` in `safety.py` to match `prompt_builder.py`:
+       `"**Disclaimer:** MediSkye is an AI-powered educational tool, not a doctor. This analysis is for informational purposes only. Always consult a qualified healthcare provider with any questions regarding a medical condition."`
+     - Updated `append_disclaimer` to accept `is_followup_turn: bool = False`. When `is_followup_turn=True`, disclaimers are suppressed on follow-up turns.
+     - Added robust regex guards: `if re.search(r'(?i)\*{0,2}disclaimer:\*{0,2}', response_text)` or `if "educational tool" in response_text.lower() and "qualified healthcare provider" in response_text.lower()`, the disclaimer is deemed already present and duplicate appending is skipped.
+  2. In `backend/app/api/v1/endpoints/query.py`:
+     - Passed `is_followup_turn=is_followup_turn` to `append_disclaimer`.
+- **Verification Proof:**  
+  - `backend/tests/test_followup_prompt.py`: Test 5 asserting that responses already containing a model-generated disclaimer do not receive a duplicate, and follow-up turns suppress disclaimers.
