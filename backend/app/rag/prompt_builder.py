@@ -122,6 +122,19 @@ DOCTOR_INSTRUCTIONS = _REPORT_RULES
 GENERAL_HEALTH_INSTRUCTIONS = "\n\n".join([_REPORT_RULES, GENERAL_HEALTH_RULES])
 GENERAL_HEALTH_NO_REPORT_INSTRUCTIONS = "\n\n".join([SHARED_CORE_RULES, GENERAL_HEALTH_RULES])
 
+_COMPARISON_REQUEST_RE = re.compile(
+    r"\b(?:compare|compared|comparison|versus|vs|trend|trends|over\s+time|baseline|previous\s+report|earlier\s+report|last\s+report|since\s+(?:my\s+)?(?:last|previous|earlier)|changed?\s+since|side\s*-?\s*by\s*-?\s*side|table)\b",
+    re.IGNORECASE,
+)
+
+
+def _select_report_instructions(is_followup_turn: bool, user_query: str) -> str:
+    if not is_followup_turn:
+        return DOCTOR_INSTRUCTIONS
+    if _COMPARISON_REQUEST_RE.search(user_query):
+        return f"{SHARED_CORE_RULES}\n\n{FOLLOWUP_TURN_RULES}\n\n{COMPARISON_RULES}"
+    return f"{SHARED_CORE_RULES}\n\n{FOLLOWUP_TURN_RULES}"
+
 
 def condense_chat_history(chats: List[Union[Dict[str, Any], Any]]) -> str:
     """
@@ -497,24 +510,14 @@ def build_prompt(
     ranges_block = _format_reference_ranges(reference_ranges)
 
     # ── System instruction (trusted, immutable) ──
-    if is_followup_turn:
-        system_parts = [
-            SYSTEM_ROLE_PREFIX,
-            "",
-            UNTRUSTED_CONTENT_WARNING,
-            "",
-            SHARED_CORE_RULES,
-            "",
-            FOLLOWUP_TURN_RULES,
-        ]
-    else:
-        system_parts = [
-            SYSTEM_ROLE_PREFIX,
-            "",
-            UNTRUSTED_CONTENT_WARNING,
-            "",
-            DOCTOR_INSTRUCTIONS,
-        ]
+    report_instructions = _select_report_instructions(is_followup_turn=is_followup_turn, user_query=user_query)
+    system_parts = [
+        SYSTEM_ROLE_PREFIX,
+        "",
+        UNTRUSTED_CONTENT_WARNING,
+        "",
+        report_instructions,
+    ]
     if include_abnormal_flags_json and not is_followup_turn:
         system_parts.append(ABNORMAL_FLAGS_INSTRUCTION)
         flags_lang_note = " Keep the abnormal_flags JSON key in English."
@@ -621,7 +624,13 @@ def build_general_health_prompt(
     has_report_data = bool(docs_block or prior_labs_block or active_docs_metrics or (raw_report_text and raw_report_text.strip()))
 
     if has_report_data:
-        instructions = GENERAL_HEALTH_INSTRUCTIONS
+        if is_followup_turn:
+            if _COMPARISON_REQUEST_RE.search(user_query):
+                instructions = f"{SHARED_CORE_RULES}\n\n{FOLLOWUP_TURN_RULES}\n\n{COMPARISON_RULES}\n\n{GENERAL_HEALTH_RULES}"
+            else:
+                instructions = f"{SHARED_CORE_RULES}\n\n{FOLLOWUP_TURN_RULES}\n\n{GENERAL_HEALTH_RULES}"
+        else:
+            instructions = GENERAL_HEALTH_INSTRUCTIONS
         lang_suffix = f"\nWrite your entire response in {lang}, including headings and table headers. If the report is in another language, translate your explanation. Keep the abnormal_flags JSON key in English."
     else:
         instructions = GENERAL_HEALTH_NO_REPORT_INSTRUCTIONS

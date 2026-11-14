@@ -164,3 +164,46 @@ def test_5_safety_double_disclaimer_guard():
     text_followup = "Your platelets are 250,000 /mcL, well within normal limits."
     filtered_followup = append_disclaimer(text_followup, is_followup_turn=True)
     assert "Disclaimer:" not in filtered_followup
+
+
+def test_comparison_aware_followup_turn():
+    """
+    Test comparison-aware follow-up turns:
+    - On follow-up turns, if user asks to compare / trend / vs / previous report,
+      system prompt includes COMPARISON_RULES alongside FOLLOWUP_TURN_RULES.
+    - If user does not ask for comparison on follow-up, COMPARISON_RULES is absent.
+    - On initial turn (is_followup_turn=False), walkthrough and comparison rules are both present.
+    """
+    # 1. Comparison follow-up
+    sys_compare, _ = build_prompt(
+        user_query="compare this with my last report",
+        is_followup_turn=True,
+    )
+    assert "LONGITUDINAL COMPARISONS" in sys_compare
+    assert "FORMAT FOR FOLLOW-UP TURNS" in sys_compare
+    assert "### 🟢 The Short Version" not in sys_compare
+
+    # 2. Trend follow-up
+    sys_trend, _ = build_prompt(
+        user_query="show trend for my blood sugar over time",
+        is_followup_turn=True,
+    )
+    assert "LONGITUDINAL COMPARISONS" in sys_trend
+    assert "### 🟢 The Short Version" not in sys_trend
+
+    # 3. Non-comparison follow-up
+    sys_no_comp, _ = build_prompt(
+        user_query="what should I do to improve",
+        is_followup_turn=True,
+    )
+    assert "LONGITUDINAL COMPARISONS" not in sys_no_comp
+    assert "FORMAT FOR FOLLOW-UP TURNS" in sys_no_comp
+
+    # 4. Initial turn
+    sys_init, _ = build_prompt(
+        user_query="Explain my new lab report",
+        is_followup_turn=False,
+    )
+    assert "### 🟢 The Short Version" in sys_init
+    assert "LONGITUDINAL COMPARISONS" in sys_init
+
