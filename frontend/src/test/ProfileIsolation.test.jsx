@@ -223,4 +223,25 @@ describe('Profile Isolation & Switcher Tests (S1-S9)', () => {
       expect(screen.queryByText('Self Blood Work')).not.toBeInTheDocument();
     });
   });
+
+  describe('Regression: getDocumentChats forwards patient_id', () => {
+    it('appends patient_id query param when fetching standalone chat messages for a dependent', async () => {
+      const actualApi = await vi.importActual('../services/api');
+      const originalFetch = globalThis.fetch;
+      const fetchSpy = vi.fn().mockResolvedValue({
+        ok: true,
+        json: () => Promise.resolve([{ id: 'msg-1', message: 'Hello Child', role: 'user' }]),
+      });
+      globalThis.fetch = fetchSpy;
+      try {
+        await actualApi.getDocumentChats(null, 'session-child-1', 'dep-child-1');
+        expect(fetchSpy).toHaveBeenCalledWith(
+          expect.stringContaining('/users/me/chats?session_id=session-child-1&patient_id=dep-child-1'),
+          expect.any(Object)
+        );
+      } finally {
+        globalThis.fetch = originalFetch;
+      }
+    });
+  });
 });

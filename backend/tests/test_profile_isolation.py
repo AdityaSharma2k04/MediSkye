@@ -153,6 +153,25 @@ async def test_b1_b2_documents_and_chats_profile_isolation():
         chats_a = res_chats_a.json()
         assert all(c.get("dependent_id") == str(dep_a_id) for c in chats_a)
 
+        # Regression: Standalone chat session for dependent A called without patient_id (as getDocumentChats did)
+        res_dep_a_no_param = await ac.get("/users/me/chats?session_id=session-dep-a", headers=headers)
+        assert res_dep_a_no_param.status_code == 200
+        assert len(res_dep_a_no_param.json()) == 1, "Expected dependent chat session to return messages even if caller omitted patient_id"
+        assert res_dep_a_no_param.json()[0]["session_id"] == "session-dep-a"
+
+        # DECISION_1: Legacy callers without patient_id must receive all user records (LEGACY_ALL)
+        res_docs_legacy = await ac.get("/users/me/documents", headers=headers)
+        assert res_docs_legacy.status_code == 200
+        assert len(res_docs_legacy.json()) == 3
+
+        res_sess_legacy = await ac.get("/users/me/chats/sessions", headers=headers)
+        assert res_sess_legacy.status_code == 200
+        assert len(res_sess_legacy.json()) == 3
+
+        res_chats_legacy = await ac.get("/users/me/chats", headers=headers)
+        assert res_chats_legacy.status_code == 200
+        assert len(res_chats_legacy.json()) == 3
+
         # B2: Accessing documents with a foreign / non-existent dependent_id
         foreign_id = str(uuid.uuid4())
         res_foreign = await ac.get(f"/users/me/documents?patient_id={foreign_id}", headers=headers)

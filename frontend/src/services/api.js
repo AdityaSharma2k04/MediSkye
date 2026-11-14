@@ -1156,7 +1156,7 @@ export async function getUserDocuments(patientId = 'self') {
 
 export const getDocuments = getUserDocuments;
 
-export async function getDocumentChats(docId, sessionId = null) {
+export async function getDocumentChats(docId, sessionId = null, patientId = null) {
   const chatKey = docId ? `doc_${docId}` : (sessionId ? `session_${sessionId}` : null);
   if (typeof navigator !== 'undefined' && !navigator.onLine) {
     return chatKey ? getCachedChatMessages(chatKey) : [];
@@ -1165,6 +1165,12 @@ export async function getDocumentChats(docId, sessionId = null) {
     let url = docId ? `${API_BASE}/users/me/documents/${docId}/chats` : `${API_BASE}/users/me/chats`;
     if (!docId && sessionId) {
       url += `?session_id=${encodeURIComponent(sessionId)}`;
+      if (patientId) {
+        const normPat = normalizePatientId(patientId);
+        if (normPat) {
+          url += `&patient_id=${encodeURIComponent(normPat)}`;
+        }
+      }
     }
     const res = await fetch(url, {
       headers: getAuthHeaders(),
@@ -1985,7 +1991,7 @@ export async function syncSingleProfileToLocalCache(patientId = 'self', options 
     for (const sid of standaloneChatsBySession.keys()) {
       if (typeof navigator !== 'undefined' && !navigator.onLine) break;
       try {
-        const chats = await getDocumentChats(null, sid).catch(() => []);
+        const chats = await getDocumentChats(null, sid, pid).catch(() => []);
         if (Array.isArray(chats) && chats.length > 0) {
           const formatted = chats.map((c) => ({
             id: c.id,

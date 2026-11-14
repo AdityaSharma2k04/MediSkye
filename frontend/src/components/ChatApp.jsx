@@ -606,7 +606,7 @@ export default function ChatApp() {
     try {
       const chats = targetDocId
         ? await getDocumentChats(targetDocId)
-        : await getDocumentChats(null, targetSessionId);
+        : await getDocumentChats(null, targetSessionId, selectedPatientId);
       // Guard against race conditions if user clicked rapidly between two documents
       if (activeChatFetchRef.current !== fetchKey || (targetSessionId && sessionIdRef.current !== targetSessionId)) {
         return;
@@ -669,7 +669,7 @@ export default function ChatApp() {
       try {
         const chats = targetDocId
           ? await getDocumentChats(targetDocId)
-          : await getDocumentChats(null, targetSid);
+          : await getDocumentChats(null, targetSid, patId);
 
         if (Array.isArray(chats) && chats.length > 0) {
           const formatted = chats.map((c) => ({
