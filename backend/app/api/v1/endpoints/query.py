@@ -55,7 +55,7 @@ from app.rag.safety import (
     DISCLAIMER_TEXT,
 )
 from app.rag.retriever import load_hybrid_index, retrieve_relevant_docs, dynamic_retrieval_k, get_cached_hybrid_index
-from app.rag.output_filter import scan_output, SAFE_FALLBACK
+from app.rag.output_filter import scan_output, SAFE_FALLBACK, sanitize_clinical_prose
 from app.services.patient_service import calculate_age
 from app.services.patient_memory import get_active_facts, get_relevant_past_chunks, get_chat_documents
 from app.services.memory_formatter import format_facts_for_prompt, format_past_chats_for_prompt
@@ -244,6 +244,8 @@ def _sanitize_clinical_output(text: str, is_followup_turn: bool = False, user_qu
     """Enforce clinical communication style rules and tentative causal language."""
     if not text:
         return text
+
+    text = sanitize_clinical_prose(text, is_followup=is_followup_turn)
 
     banned_replacements = [
         (r'\babsolutely\b', 'certainly'),
@@ -1791,6 +1793,8 @@ async def get_or_generate_document_summary(
                 cached_metrics=raw_cm,
                 patient_profile=patient_profile,
             )
+
+        summary_text = sanitize_clinical_prose(summary_text)
 
         # Guard Against Caching Empty/Error Responses:
         if summary_text:

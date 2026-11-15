@@ -343,7 +343,7 @@ export default function ChatApp() {
   };
 
   const DEBOUNCE_OFFLINE_MS = (typeof window !== 'undefined' && (window.__VITEST__ || process.env.NODE_ENV === 'test')) ? 50 : 1200;
-  const HYDRATION_SAFETY_TIMEOUT_MS = (typeof window !== 'undefined' && (window.__VITEST__ || process.env.NODE_ENV === 'test')) ? 1500 : 8000;
+  const HYDRATION_SAFETY_TIMEOUT_MS = (typeof window !== 'undefined' && (window.__VITEST__ || process.env.NODE_ENV === 'test')) ? 1500 : 180000;
 
   const [isOnline, setIsOnline] = useState(getInitialOnlineState);
   const isOnlineRef = useRef(isOnline);
@@ -514,6 +514,11 @@ export default function ChatApp() {
     };
   }, [applyOnlineStatus]);
 
+  const dependentIdsKey = useMemo(
+    () => (dependents || []).map((d) => String(d?.id || d?.dependent_id || '')).sort().join(','),
+    [dependents]
+  );
+
   useEffect(() => {
     if (Array.isArray(dependents) && dependents.length > 0) {
       setProfileReportCounts((prev) => {
@@ -533,7 +538,7 @@ export default function ChatApp() {
         return updated ? next : prev;
       });
     }
-  }, [dependents]);
+  }, [dependentIdsKey]);
 
   const syncAllProfilesInBackground = useCallback(async (activePatId, depList = null, options = {}) => {
     return apiSyncAllProfiles(activePatId || selectedPatientId || 'self', depList || dependents || [], {
@@ -550,7 +555,7 @@ export default function ChatApp() {
       },
       ...options,
     });
-  }, [selectedPatientId, dependents]);
+  }, [selectedPatientId, dependentIdsKey]);
 
   // Preload lazy modal chunks in background idle time
   useEffect(() => {
@@ -1228,6 +1233,21 @@ export default function ChatApp() {
           if (needsLock) {
             await syncPromise;
           }
+
+          // Hydrate React state immediately from freshly synced local cache
+          const cachedConvs = typeof getCachedConversations === 'function' ? getCachedConversations(selectedPatientId || 'self') : [];
+          if (Array.isArray(cachedConvs) && cachedConvs.length > 0) {
+            setConversations(cachedConvs);
+          }
+          const cachedDeps = typeof getCachedDependents === 'function' ? getCachedDependents() : [];
+          if (Array.isArray(cachedDeps) && cachedDeps.length > 0) {
+            setDependents(cachedDeps);
+          }
+          if (currentUser?.id) {
+            try {
+              localStorage.setItem(userKey('mediskye_initial_sync_complete', currentUser.id), 'true');
+            } catch (_) {}
+          }
         } catch (err) {
           logger.warn('Initial workspace sync error:', err);
         } finally {
@@ -1237,7 +1257,7 @@ export default function ChatApp() {
 
       runInitialSync();
     }
-  }, [currentUser?.id, refreshDocuments, dependents, syncAllProfilesInBackground, isInitialSyncCompleted]);
+  }, [currentUser?.id, refreshDocuments, dependentIdsKey, syncAllProfilesInBackground, isInitialSyncCompleted]);
 
   // ── Enforce permanent dark theme on the DOM ──
   useEffect(() => {

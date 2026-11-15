@@ -35,6 +35,7 @@ from app.rag.prompt_builder import (
     generate_deterministic_fallback_summary,
     PROMPT_VERSION_PREFIX,
 )
+from app.rag.output_filter import sanitize_clinical_prose
 from sqlalchemy.orm.exc import StaleDataError
 from langchain_core.documents import Document as LCDocument
 
@@ -451,6 +452,7 @@ async def _warm_document_summary_cache(doc_id: uuid.UUID, user_uuid: uuid.UUID, 
                         cached_metrics=raw_cm,
                         patient_profile=patient_profile,
                     )
+                summary_text = sanitize_clinical_prose(summary_text)
                 if summary_text:
                     doc_obj.cached_summary = f"{PROMPT_VERSION_PREFIX}{summary_text}"
                     db.add(doc_obj)

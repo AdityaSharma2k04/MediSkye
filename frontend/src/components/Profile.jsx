@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { User, Users, HeartPulse, Save, X, Trash2, Edit2, Plus, Shield, Phone, Activity, Download, Loader2, CheckCircle } from 'lucide-react';
-import { getProfile, updateProfile, deleteAccount, clearLocalAuthStorage, getDependents, createDependent, updateDependent, deleteDependent, createMemoryFact, getMemoryFacts, exportUserAccountData } from '../services/api';
+import { getProfile, updateProfile, deleteAccount, clearLocalAuthStorage, getDependents, createDependent, updateDependent, deleteDependent, createMemoryFact, getMemoryFacts, exportUserAccountData, exportUserData } from '../services/api';
 import { invalidateMetrics } from '../hooks/useLabMetrics';
 import { logger } from '../services/logger';
 import { parseWeightToKgString } from '../lib/clinical';
@@ -379,30 +379,9 @@ export default function Profile({
     try {
       setIsExporting(true);
       setExportSuccessMessage(null);
-      const data = await exportUserAccountData();
-      const jsonStr = JSON.stringify(data, null, 2);
-      const blob = new Blob([jsonStr], { type: 'application/json' });
-      if (typeof URL !== 'undefined' && typeof URL.createObjectURL === 'function') {
-        const url = URL.createObjectURL(blob);
-        const a = document.createElement('a');
-        const today = new Date().toISOString().slice(0, 10);
-        a.href = url;
-        a.download = `MediSkye-Account-Export-${today}.json`;
-        document.body.appendChild(a);
-        a.click();
-        document.body.removeChild(a);
-        setTimeout(() => {
-          try {
-            URL.revokeObjectURL(url);
-          } catch (_) {}
-        }, 2000);
-      }
-
-      const msg = 'Your clinical database has been successfully exported and saved to your device.';
-      setExportSuccessMessage(msg);
-      if (typeof window !== 'undefined' && typeof window.alert === 'function') {
-        window.alert(msg);
-      }
+      const res = await exportUserData();
+      const filename = res?.filename || `MediSkye-Account-Export-${new Date().toISOString().slice(0, 10)}.json`;
+      setExportSuccessMessage(`Your clinical database has been successfully exported and saved to your device Downloads folder as ${filename}.`);
     } catch (err) {
       logger.error('Failed to export user account data:', err);
       alert(err.message || 'Failed to export account data. Please try again.');
@@ -682,7 +661,7 @@ export default function Profile({
         </div>
 
         {/* Scrollable Content Body */}
-        <div className="flex-1 overflow-y-auto p-5 sm:p-6 space-y-6">
+        <div className="flex-1 overflow-y-auto overscroll-contain p-5 sm:p-6 space-y-6">
           {errorMsg && (
             <div role="alert" className="text-xs text-red-300 bg-red-500/10 border border-red-500/30 rounded-xl px-4 py-3">
               {errorMsg}
@@ -899,11 +878,25 @@ export default function Profile({
 
               {exportSuccessMessage && (
                 <div
-                  data-testid="export-success-banner"
-                  className="mb-3 p-3 rounded-xl border border-emerald-500/30 bg-emerald-500/10 text-emerald-300 text-xs flex items-center gap-2 animate-fade-in"
+                  data-testid="export-success-notification"
+                  className="mb-3 p-3.5 rounded-xl border border-emerald-500/30 bg-emerald-500/10 text-emerald-200 text-xs flex flex-col gap-2 animate-fade-in"
                 >
-                  <CheckCircle className="w-4 h-4 text-emerald-400 shrink-0" />
-                  <span>{exportSuccessMessage}</span>
+                  <div className="flex items-center gap-2">
+                    <CheckCircle className="w-4 h-4 text-emerald-400 shrink-0" />
+                    <span className="font-semibold text-emerald-300">Clinical Data Export Complete</span>
+                  </div>
+                  <p data-testid="export-success-banner" className="text-xs text-emerald-200/90 leading-relaxed">
+                    {exportSuccessMessage}
+                  </p>
+                  <div className="flex justify-end pt-1">
+                    <button
+                      type="button"
+                      onClick={() => setExportSuccessMessage(null)}
+                      className="px-2.5 py-1 text-xs font-medium text-emerald-300 hover:text-emerald-100 bg-emerald-500/20 hover:bg-emerald-500/30 rounded-lg transition-colors"
+                    >
+                      Done
+                    </button>
+                  </div>
                 </div>
               )}
 

@@ -320,8 +320,8 @@ export default function Workbench(props) {
   return (
     <div className="flex-1 min-h-0 flex flex-col h-full">
       {/* ━━━ Header ━━━ */}
-      <header data-testid="workbench-header" className="shrink-0 z-20 border-b border-white/[0.06] bg-obsidian/85 backdrop-blur-xl pt-safe">
-        <div className="h-14 px-2 sm:px-3 flex items-center gap-1.5 sm:gap-2">
+      <header data-testid="workbench-header" className="shrink-0 z-20 border-b border-white/[0.06] bg-obsidian/85 backdrop-blur-xl pt-safe overflow-hidden">
+        <div className="h-14 px-2 sm:px-3 flex items-center gap-1.5 sm:gap-2 overflow-hidden shrink-0">
           {!isDesktop && (
             <IconButton label="Toggle sidebar" onClick={toggleSidebar} className="shrink-0">
               <Menu className="w-[18px] h-[18px]" />

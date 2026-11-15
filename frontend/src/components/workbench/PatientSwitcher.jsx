@@ -118,7 +118,7 @@ export default function PatientSwitcher({
   };
 
   const list = (
-    <div className="p-1.5 space-y-1">
+    <div className="p-1.5 space-y-1 max-h-72 overflow-y-auto overscroll-contain">
       {patients.map((p, i) => {
         const isActive = i === activeIdx;
         const pid = String(p.id);
@@ -228,7 +228,7 @@ export default function PatientSwitcher({
         aria-expanded={open}
         aria-disabled={isLocked}
         className={cn(
-          'ms-tap min-w-0 max-w-[220px] flex items-center gap-2 rounded-full pl-1 pr-2.5 h-9 border transition',
+          'ms-tap min-w-0 max-w-[220px] sm:max-w-[280px] whitespace-nowrap shrink-0 flex items-center gap-2 rounded-full pl-1 pr-2.5 h-9 border transition',
           'bg-white/[0.03] border-white/[0.08] hover:bg-white/[0.06] hover:border-white/[0.14]',
           !selfSelected && 'border-violet-400/30 bg-violet-500/[0.06]',
           isLocked && 'border-amber-400/30 bg-amber-500/[0.06] hover:border-amber-400/40 hover:bg-amber-500/[0.08] cursor-not-allowed'

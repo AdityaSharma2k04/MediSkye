@@ -9,7 +9,7 @@ from pydantic import BaseModel
 from fastapi import APIRouter, Depends, Header, Request, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
-from sqlalchemy import update
+from sqlalchemy import update, delete
 from sqlalchemy.orm.exc import StaleDataError
 from sqlalchemy.orm.attributes import flag_modified
 from langchain_community.vectorstores import FAISS
@@ -18,7 +18,7 @@ from app.core.auth import UserDTO, get_current_user
 from app.core.limiter import limiter
 from app.core.config import settings
 from app.db.database import get_db
-from app.db.models import User, Document, DependentProfile
+from app.db.models import User, Document, DependentProfile, PatientFact, utcnow
 from app.schemas.upload import MetricsResponse, LabMetricItem
 from app.services.upload_jobs import is_stale_building
 from app.rag.retriever import retrieve_relevant_docs, get_cached_hybrid_index, load_hybrid_index
@@ -32,6 +32,7 @@ from typing import Optional, List, Dict, Any, Union, Tuple
 from app.services.clinical_units import (
     normalize_clinical_unit,
     check_is_future_date,
+    extract_specimen_collection_date,
     canonical_biomarker_name,
     canonical_biomarker_key,
     compute_biomarker_delta,
@@ -575,6 +576,13 @@ Report text:
             return None
 
         try:
+            # If doc.collected_at is None, write back extracted collection date
+            if not doc.collected_at and combined_text:
+                extracted_date = extract_specimen_collection_date(combined_text)
+                if extracted_date:
+                    doc.collected_at = extracted_date
+                    flag_modified(doc, "collected_at")
+
             chunks_to_save = raw_chunks or (all_pages if page_docs else ordered_texts if 'ordered_texts' in locals() and ordered_texts else [])
             doc.cached_metrics = {
                 "metrics": raw_metrics,
@@ -582,6 +590,60 @@ Report text:
             }
             flag_modified(doc, "cached_metrics")
             db.add(doc)
+
+            # Task 4: Deterministically persist 100% of lab measurement facts at upload time
+            if raw_metrics and doc.user_id:
+                col_iso = None
+                if doc.collected_at:
+                    try:
+                        dt = parse_report_chronology(doc)
+                        if dt:
+                            col_iso = dt.strftime("%Y-%m-%d")
+                    except Exception:
+                        pass
+                    if not col_iso:
+                        col_iso = str(doc.collected_at).strip()
+
+                date_part = f" on {col_iso}" if col_iso else ""
+                report_label = doc.filename or doc.title or "Lab Report"
+                doc_uuid_str = str(doc.id)
+
+                # Remove existing measurement facts for this document to prevent duplicates
+                await db.execute(
+                    delete(PatientFact).where(
+                        PatientFact.user_id == doc.user_id,
+                        PatientFact.source_id == doc_uuid_str,
+                        PatientFact.fact_type == "measurement",
+                    )
+                )
+
+                for item in raw_metrics:
+                    test_name = str(item.get("test") or item.get("name") or "").strip()
+                    val_str = str(item.get("value") or "").strip()
+                    unit_str = str(item.get("unit") or "").strip()
+                    status_str = str(item.get("status") or "Normal").strip()
+                    c_key = canonical_biomarker_key(test_name, allow_urinalysis=True) or test_name.lower()
+
+                    u_part = f" {unit_str}" if (unit_str and unit_str.lower() != "qualitative") else ""
+                    fact_str = f"{test_name}: {val_str}{u_part} ({status_str}){date_part} [Source Report: {report_label}]"
+                    fact_str = re.sub(r'  +', ' ', fact_str).strip()
+
+                    pf = PatientFact(
+                        user_id=doc.user_id,
+                        dependent_id=doc.dependent_id,
+                        fact_type="measurement",
+                        fact_key=c_key,
+                        fact_text=fact_str,
+                        confidence=1.0,
+                        is_active=True,
+                        is_user_verified=False,
+                        source_type="pdf",
+                        source_id=doc_uuid_str,
+                        first_seen_at=utcnow(),
+                        last_seen_at=utcnow(),
+                    )
+                    db.add(pf)
+
             await db.commit()
             try:
                 await db.refresh(doc)

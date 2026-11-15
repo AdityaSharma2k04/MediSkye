@@ -15,6 +15,9 @@ DO NOT extract:
 - Questions, general medical knowledge, greetings, small talk
 - Speculation ("maybe I have...", "I might be...")
 - Anything not claimed by the user about themselves or a named family member
+- Doctor, physician, or clinician names (e.g., "Dr. Sethi", "Dr. Kulkarni") as family_history or personal facts
+- Lab measurements or biomarker results from chat conversation when discussing an uploaded report
+- Height, weight, age, or sex if merely repeated by the assistant or already known from profile
 
 For measurements and weight: always include units and approximate timing.
 

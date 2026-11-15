@@ -25,6 +25,7 @@ import {
   updateMemoryConsent,
   clearAllChats,
   exportUserAccountData,
+  exportUserData,
 } from '../services/api';
 import {
   updatePassword,
@@ -602,34 +603,19 @@ export default function SettingsModal({
 
   const [isExporting, setIsExporting] = useState(false);
   const [exportSuccessMessage, setExportSuccessMessage] = useState(null);
+  const [exportSuccessFilename, setExportSuccessFilename] = useState(null);
   const handleExportData = async () => {
     if (isExporting) return;
     try {
       setIsExporting(true);
       setExportSuccessMessage(null);
-      const data = await exportUserAccountData();
-      const jsonStr = JSON.stringify(data, null, 2);
-      const blob = new Blob([jsonStr], { type: 'application/json' });
-      if (typeof URL !== 'undefined' && typeof URL.createObjectURL === 'function') {
-        const url = URL.createObjectURL(blob);
-        const a = document.createElement('a');
-        const today = new Date().toISOString().slice(0, 10);
-        a.href = url;
-        a.download = `MediSkye-Account-Export-${today}.json`;
-        document.body.appendChild(a);
-        a.click();
-        document.body.removeChild(a);
-        setTimeout(() => {
-          try {
-            URL.revokeObjectURL(url);
-          } catch (_) {}
-        }, 2000);
-      }
-
-      const msg = 'Your clinical database has been successfully exported and saved to your device.';
-      setExportSuccessMessage(msg);
+      setExportSuccessFilename(null);
+      const res = await exportUserData();
+      const filename = res?.filename || `MediSkye-Account-Export-${new Date().toISOString().slice(0, 10)}.json`;
+      setExportSuccessFilename(filename);
+      setExportSuccessMessage(`Your clinical database has been successfully exported and saved to your device Downloads folder as ${filename}.`);
       if (typeof window !== 'undefined' && typeof window.alert === 'function') {
-        window.alert(msg);
+        window.alert('Your clinical database has been successfully exported and saved to your device.');
       }
     } catch (err) {
       logger.error('Failed to export user account data:', err);
@@ -901,11 +887,25 @@ export default function SettingsModal({
 
                 {exportSuccessMessage && (
                   <div
-                    data-testid="export-success-banner"
-                    className="p-3 rounded-xl border border-emerald-500/30 bg-emerald-500/10 text-emerald-300 text-xs flex items-center gap-2 animate-fade-in"
+                    data-testid="export-success-notification"
+                    className="p-3.5 rounded-xl border border-emerald-500/30 bg-emerald-500/10 text-emerald-200 text-xs flex flex-col gap-2 animate-fade-in"
                   >
-                    <CheckCircle className="w-4 h-4 text-emerald-400 shrink-0" />
-                    <span>{exportSuccessMessage}</span>
+                    <div className="flex items-center gap-2">
+                      <CheckCircle className="w-4 h-4 text-emerald-400 shrink-0" />
+                      <span className="font-semibold text-emerald-300">Clinical Data Export Complete</span>
+                    </div>
+                    <p data-testid="export-success-banner" className="text-xs text-emerald-200/90 leading-relaxed">
+                      {exportSuccessMessage}
+                    </p>
+                    <div className="flex justify-end pt-1">
+                      <button
+                        type="button"
+                        onClick={() => { setExportSuccessMessage(null); setExportSuccessFilename(null); }}
+                        className="px-2.5 py-1 text-xs font-medium text-emerald-300 hover:text-emerald-100 bg-emerald-500/20 hover:bg-emerald-500/30 rounded-lg transition-colors"
+                      >
+                        Done
+                      </button>
+                    </div>
                   </div>
                 )}
 

@@ -105,6 +105,22 @@ async def save_facts(
         if not fact_type or not fact_text:
             continue
 
+        # Task 4: In chat sessions where a document is attached, never re-extract measurements
+        if source_type == "chat" and source_document_name and fact_type.lower() == "measurement":
+            continue
+
+        # Task 4: Never save physician / doctor names as family history or patient facts
+        lower_fact = fact_text.lower()
+        if any(w in lower_fact for w in ("dr.", "dr ", "doctor", "physician", "sethi", "kulkarni", "bhandari")) and (
+            fact_type.lower() == "family_history" or "doctor" in lower_fact or "physician" in lower_fact
+        ):
+            continue
+
+        # Task 4: Never extract weight/height echoes from assistant chat turns
+        if fact_type.lower() in ("weight", "measurement") and source_type == "chat":
+            if re.search(r"weighs?\s+[0-9]+(?:\.[0-9]+)?\s*kg", fact_text, re.IGNORECASE):
+                continue
+
         # Attach exact source document name if available and not already formatted
         if source_document_name and "[Source Report:" not in fact_text:
             fact_text = f"{fact_text} [Source Report: {source_document_name}]"
@@ -329,7 +345,8 @@ async def process_chat_memory_extraction(
                     doc_context_items.append(f"[Document Findings: {doc_label}]\n" + "\n".join(flagged_or_near))
 
             messages_for_extraction = list(chats)
-            if doc_context_items:
+            # Only include doc context for standalone chats (without attached report) where doc facts are not already locked at upload time
+            if doc_context_items and not primary_doc and not source_doc_name:
                 messages_for_extraction.append({
                     "role": "system",
                     "content": "Active Medical Report Biomarkers:\n" + "\n\n".join(doc_context_items),

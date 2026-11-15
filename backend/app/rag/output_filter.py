@@ -43,6 +43,41 @@ _NEGATION_PREFIX_RE = re.compile(
 )
 
 
+def sanitize_clinical_prose(text: str, is_followup: bool = False) -> str:
+    """
+    Deterministic clinical prose sanitizer applied to final assistant responses and generated summaries.
+    - Replaces raw HTML entity &amp; with &.
+    - Replaces leaked raw PDF filenames (e.g. Qureshi.pdf, Menon.pdf, Verma.pdf, report-1.pdf) with 'your laboratory report'.
+    - Replaces over-certain or panicky phrases with methodical, balanced phrasing.
+    """
+    if not text or not isinstance(text, str):
+        return text or ""
+
+    s = text.replace("&amp;", "&")
+
+    # Replace leaked raw PDF filenames
+    s = re.sub(r"\b[A-Za-z0-9_-]+\.pdf\b", "your laboratory report", s, flags=re.IGNORECASE)
+
+    # Replace over-certain phrases
+    s = re.sub(r"\bhighly likely\b", "a possible", s, flags=re.IGNORECASE)
+
+    # Replace panic / reassurance phrases
+    s = re.sub(
+        r"There is absolutely no need to panic, as you are in a very strong and healthy position overall\.",
+        "While several markers on your report need attention, your core metabolic and cardiovascular readings provide a steady foundation to work from.",
+        s,
+        flags=re.IGNORECASE,
+    )
+    s = re.sub(
+        r"\b(?:there\s+is\s+)?(?:absolutely\s+)?no\s+need\s+to\s+(?:panic|worry)\b",
+        "these findings can be addressed methodically with your clinician",
+        s,
+        flags=re.IGNORECASE,
+    )
+
+    return s
+
+
 def scan_output(text: str) -> tuple[bool, str | None]:
     """
     Scan LLM output for possible injection success markers.

@@ -4,21 +4,6 @@ import React from 'react';
 import SettingsModal from '../components/SettingsModal';
 import * as api from '../services/api';
 
-vi.mock('../services/api', () => ({
-  getProfile: vi.fn().mockResolvedValue(null),
-  updateProfile: vi.fn(),
-  deleteAccount: vi.fn(),
-  getMemoryStatus: vi.fn().mockResolvedValue({ memory_consent_granted: false, fact_count: 0 }),
-  getMemoryFacts: vi.fn().mockResolvedValue([]),
-  getFacts: vi.fn().mockResolvedValue([]),
-  createFact: vi.fn(),
-  updateFact: vi.fn(),
-  deleteFact: vi.fn(),
-  updateMemoryConsent: vi.fn(),
-  clearAllMemoryFacts: vi.fn(),
-  exportUserAccountData: vi.fn().mockResolvedValue({ user: {}, documents: [] }),
-}));
-
 const {
   mockCredential,
   mockCredentialFn,
@@ -26,9 +11,18 @@ const {
   mockReauthenticateWithPopup,
   mockUpdatePassword,
   mockAuth,
+  exportUserAccountDataMock,
+  exportUserDataMock,
 } = vi.hoisted(() => {
+  const exportUserAccountDataMock = vi.fn().mockResolvedValue({ user: {}, documents: [] });
+  const exportUserDataMock = vi.fn().mockImplementation(async () => {
+    await exportUserAccountDataMock();
+    return { success: true, filename: 'MediSkye-Account-Export-2026-11-15.json', data: { user: {}, documents: [] } };
+  });
   const credential = { providerId: 'password', signInMethod: 'password' };
   return {
+    exportUserAccountDataMock,
+    exportUserDataMock,
     mockCredential: credential,
     mockCredentialFn: vi.fn().mockReturnValue(credential),
     mockReauthenticateWithCredential: vi.fn().mockResolvedValue({}),
@@ -42,6 +36,22 @@ const {
     },
   };
 });
+
+vi.mock('../services/api', () => ({
+  getProfile: vi.fn().mockResolvedValue(null),
+  updateProfile: vi.fn(),
+  deleteAccount: vi.fn(),
+  getMemoryStatus: vi.fn().mockResolvedValue({ memory_consent_granted: false, fact_count: 0 }),
+  getMemoryFacts: vi.fn().mockResolvedValue([]),
+  getFacts: vi.fn().mockResolvedValue([]),
+  createFact: vi.fn(),
+  updateFact: vi.fn(),
+  deleteFact: vi.fn(),
+  updateMemoryConsent: vi.fn(),
+  clearAllMemoryFacts: vi.fn(),
+  exportUserAccountData: exportUserAccountDataMock,
+  exportUserData: exportUserDataMock,
+}));
 
 vi.mock('firebase/auth', async (importOriginal) => {
   const actual = await importOriginal();
@@ -596,8 +606,8 @@ describe('SettingsModal Account fields & Deletion', () => {
     });
 
     await waitFor(() => {
-      expect(screen.getByTestId('export-success-banner')).toHaveTextContent(
-        'Your clinical database has been successfully exported and saved to your device.'
+      expect(screen.getByTestId('export-success-notification')).toHaveTextContent(
+        'Your clinical database has been successfully exported and saved to your device'
       );
     });
 

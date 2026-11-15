@@ -2012,7 +2012,48 @@ export async function exportUserAccountData() {
   }
   return await res.json();
 }
-export const exportUserData = exportUserAccountData;
+
+export async function exportUserData() {
+  const data = await exportUserAccountData();
+  const today = new Date().toISOString().slice(0, 10);
+  const filename = `MediSkye-Account-Export-${today}.json`;
+
+  if (typeof window !== 'undefined') {
+    const jsonStr = JSON.stringify(data, null, 2);
+    const blob = new Blob([jsonStr], { type: 'application/json' });
+
+    // Native sharing on Android Capacitor if supported
+    if (window.Capacitor?.isNativePlatform?.() && navigator.share && window.File) {
+      try {
+        const file = new File([blob], filename, { type: 'application/json' });
+        if (navigator.canShare && navigator.canShare({ files: [file] })) {
+          await navigator.share({
+            title: 'MediSkye Account Export',
+            text: 'Your clinical database export',
+            files: [file],
+          });
+        }
+      } catch (_) {}
+    }
+
+    if (typeof URL !== 'undefined' && typeof URL.createObjectURL === 'function') {
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = filename;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      setTimeout(() => {
+        try {
+          URL.revokeObjectURL(url);
+        } catch (_) {}
+      }, 2000);
+    }
+  }
+
+  return { success: true, filename, data };
+}
 
 // ── Custom Verification & Generic API Client ──
 
@@ -2345,7 +2386,7 @@ export async function syncSingleProfileToLocalCache(patientId = 'self', options 
 
     // 6. Concurrently pre-fetch lab metrics, summaries, facts, and trends
     const prefetchPromises = [];
-    for (const doc of safeDocs.slice(0, 10)) {
+    for (const doc of safeDocs) {
       const docId = doc.id;
       if (docId) {
         if (!getCachedDocMetrics(docId)) {

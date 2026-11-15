@@ -44,35 +44,48 @@ def extract_specimen_collection_date(text: Optional[str]) -> Optional[str]:
     """
     Extracts the specimen collection date from clinical document text or header.
     Matches formats like 'SAMPLE COLLECTED: 24 Oct 2026', 'Date: 24 Apr 2027',
-    'Collection Date: 2026-10-15', or explicit date stamps.
+    'Collection Date: 2026-10-15', 'Collected On\n| 08-Nov-2026 07:42',
+    'Collected On\n 09-Nov-2026 08:05', or explicit date stamps.
     Standardizes output to 'DD Mon YYYY' format (e.g., '24 Oct 2026').
     """
     if not text or not isinstance(text, str):
         return None
 
+    labels = (
+        r'(?:sample\s+collected|collection\s+date|date\s+of\s+collection|'
+        r'specimen\s+collected|collected\s+date|collected\s+on|received\s+on|'
+        r'reported\s+on|collected|date)'
+    )
+    sep = r'[\s|:|\-\n]{1,30}'
+
     patterns = [
-        r'(?:sample\s+collected|collection\s+date|date\s+of\s+collection|specimen\s+collected|collected\s+date|collected|date)\s*[:\-]?\s*([0-9]{1,2}\s+[A-Za-z]{3,9}\s+[0-9]{4})',
-        r'(?:sample\s+collected|collection\s+date|date\s+of\s+collection|specimen\s+collected|collected\s+date|collected|date)\s*[:\-]?\s*([0-9]{4}-[0-9]{2}-[0-9]{2})',
-        r'(?:sample\s+collected|collection\s+date|date\s+of\s+collection|specimen\s+collected|collected\s+date|collected|date)\s*[:\-]?\s*([0-9]{1,2}/[0-9]{1,2}/[0-9]{4})',
-        r'\b([0-9]{1,2}\s+(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\s+[0-9]{4})\b',
+        # Label + DD-Mon-YYYY or DD Mon YYYY (e.g. 08-Nov-2026, 24 Oct 2026)
+        rf'{labels}{sep}([0-9]{{1,2}}[-\s]+[A-Za-z]{{3,9}}[-\s]+[0-9]{{4}})',
+        # Label + YYYY-MM-DD
+        rf'{labels}{sep}([0-9]{{4}}-[0-9]{{2}}-[0-9]{{2}})',
+        # Label + DD/MM/YYYY
+        rf'{labels}{sep}([0-9]{{1,2}}/[0-9]{{1,2}}/[0-9]{{4}})',
+        # Label + Mon DD, YYYY or Mon DD YYYY (e.g. Nov 08, 2026)
+        rf'{labels}{sep}([A-Za-z]{{3,9}}[-\s]+[0-9]{{1,2}},?[-\s]+[0-9]{{4}})',
+        # Standalone DD Mon YYYY / DD-Mon-YYYY without label
+        r'\b([0-9]{1,2}[-\s]+(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*[-\s]+[0-9]{4})\b',
     ]
 
     for pat in patterns:
         m = re.search(pat, text, flags=re.IGNORECASE)
         if m:
             raw = m.group(1).strip()
-            # Normalize ISO YYYY-MM-DD
-            try:
-                dt = datetime.strptime(raw, '%Y-%m-%d')
-                return dt.strftime('%d %b %Y')
-            except ValueError:
-                pass
-            # Normalize DD/MM/YYYY
-            try:
-                dt = datetime.strptime(raw, '%d/%m/%Y')
-                return dt.strftime('%d %b %Y')
-            except ValueError:
-                pass
+            # Normalize to DD Mon YYYY
+            for fmt in (
+                "%d-%b-%Y", "%d %b %Y", "%d-%B-%Y", "%d %B %Y",
+                "%Y-%m-%d", "%d/%m/%Y",
+                "%b %d, %Y", "%b %d %Y", "%B %d, %Y", "%B %d %Y",
+            ):
+                try:
+                    dt = datetime.strptime(raw, fmt)
+                    return dt.strftime('%d %b %Y')
+                except ValueError:
+                    continue
             return raw
 
     return None
