@@ -102,6 +102,30 @@ const ACTIVITY_OPTIONS = [
   { value: 'very_active', label: 'Very Active (physical job or athlete)' },
 ];
 
+export function getBmiData(heightCm, weightKg) {
+  const h = parseFloat(heightCm);
+  const w = parseFloat(weightKg);
+  if (!h || !w || h <= 0 || w <= 0) return null;
+  const hm = h / 100.0;
+  const bmi = +(w / (hm * hm)).toFixed(1);
+  let category = 'Normal weight';
+  let badgeCls = 'bg-emerald-500/15 text-emerald-400 border-emerald-500/30';
+  if (bmi < 18.5) {
+    category = 'Underweight';
+    badgeCls = 'bg-amber-500/15 text-amber-400 border-amber-500/30';
+  } else if (bmi < 25.0) {
+    category = 'Normal weight';
+    badgeCls = 'bg-emerald-500/15 text-emerald-400 border-emerald-500/30';
+  } else if (bmi < 30.0) {
+    category = 'Overweight';
+    badgeCls = 'bg-orange-500/15 text-orange-400 border-orange-500/30';
+  } else {
+    category = 'Obese';
+    badgeCls = 'bg-rose-500/15 text-rose-400 border-rose-500/30';
+  }
+  return { bmi, category, badgeCls, formatted: `${bmi} kg/m² (${category})` };
+}
+
 export default function Profile({
   onClose,
   darkMode,
@@ -136,7 +160,8 @@ export default function Profile({
     emergency_contact_name: profile?.emergency_contact_name || '',
     emergency_contact_phone: profile?.emergency_contact_phone || '',
     height_cm: profile?.height_cm !== null && profile?.height_cm !== undefined ? String(profile?.height_cm) : '',
-    weight: '',
+    weight_kg: profile?.weight_kg !== null && profile?.weight_kg !== undefined ? String(profile?.weight_kg) : '',
+    weight: profile?.weight_kg !== null && profile?.weight_kg !== undefined ? String(profile?.weight_kg) : '',
     diet_type: profile?.diet_type || '',
     activity_level: profile?.activity_level || '',
     occupation: profile?.occupation || '',
@@ -156,6 +181,7 @@ export default function Profile({
     known_allergies: '',
     current_medications: '',
     height_cm: '',
+    weight_kg: '',
     weight: '',
     diet_type: '',
     activity_level: '',
@@ -164,6 +190,9 @@ export default function Profile({
 
   useEffect(() => {
     if (profile) {
+      const initialWeight = profile.weight_kg !== null && profile.weight_kg !== undefined
+        ? String(profile.weight_kg)
+        : (profile.weight ? String(profile.weight) : '');
       setFormData((prev) => ({
         ...prev,
         full_name: profile.full_name || '',
@@ -177,6 +206,8 @@ export default function Profile({
         emergency_contact_name: profile.emergency_contact_name || '',
         emergency_contact_phone: profile.emergency_contact_phone || '',
         height_cm: profile.height_cm !== null && profile.height_cm !== undefined ? String(profile.height_cm) : '',
+        weight_kg: initialWeight,
+        weight: initialWeight,
         diet_type: profile.diet_type || '',
         activity_level: profile.activity_level || '',
         occupation: profile.occupation || '',
@@ -201,7 +232,9 @@ export default function Profile({
         ]);
 
         let initialWeight = '';
-        if (Array.isArray(factsData)) {
+        if (profileData?.weight_kg !== null && profileData?.weight_kg !== undefined) {
+          initialWeight = String(profileData.weight_kg);
+        } else if (Array.isArray(factsData)) {
           const weightFacts = factsData
             .filter(f => (f.fact_type || f.category) === 'weight')
             .sort((a, b) => new Date(b.created_at || 0) - new Date(a.created_at || 0));
@@ -227,7 +260,8 @@ export default function Profile({
             emergency_contact_name: profileData.emergency_contact_name || prev.emergency_contact_name || '',
             emergency_contact_phone: profileData.emergency_contact_phone || prev.emergency_contact_phone || '',
             height_cm: profileData.height_cm !== null && profileData.height_cm !== undefined ? String(profileData.height_cm) : prev.height_cm,
-            weight: initialWeight || prev.weight,
+            weight_kg: initialWeight || prev.weight_kg || '',
+            weight: initialWeight || prev.weight || '',
             diet_type: profileData.diet_type || prev.diet_type || '',
             activity_level: profileData.activity_level || prev.activity_level || '',
             occupation: profileData.occupation || prev.occupation || '',
@@ -258,8 +292,9 @@ export default function Profile({
     setErrorMsg('');
     try {
       const payload = {};
+      const rawWeight = formData.weight_kg || formData.weight;
       for (const key in formData) {
-        if (key === 'weight') continue; // weight logged separately as fact
+        if (key === 'weight' || key === 'weight_kg') continue;
         if (key === 'height_cm') {
           const val = formData[key] ? parseFloat(formData[key]) : null;
           if (val !== null && (val < 30 || val > 280)) {
@@ -272,7 +307,27 @@ export default function Profile({
           payload[key] = formData[key] ? formData[key] : null;
         }
       }
+      if (rawWeight && String(rawWeight).trim()) {
+        const wVal = parseFloat(rawWeight);
+        if (wVal < 2 || wVal > 400) {
+          setErrorMsg('Weight must be between 2 and 400 kg');
+          setSaving(false);
+          return;
+        }
+        payload.weight_kg = wVal;
+      } else {
+        payload.weight_kg = null;
+      }
       const updatedUser = await updateProfile(payload);
+
+      try {
+        const cachedUserStr = localStorage.getItem('user');
+        if (cachedUserStr) {
+          const uObj = JSON.parse(cachedUserStr);
+          Object.assign(uObj, payload, updatedUser || {});
+          localStorage.setItem('user', JSON.stringify(uObj));
+        }
+      } catch (_) {}
 
       // If user supplied or updated weight, log as dynamic weight fact
       if (formData.weight && String(formData.weight).trim()) {
@@ -351,19 +406,23 @@ export default function Profile({
   const handleStartEditDependent = async (dep) => {
     setEditingDependentId(dep.id);
 
-    // Fetch existing weight facts for dependent
+    // Fetch existing weight facts for dependent or use stored weight_kg
     let depWeight = '';
-    try {
-      const depFacts = await getMemoryFacts(dep.id);
-      const weightFacts = (Array.isArray(depFacts) ? depFacts : [])
-        .filter(f => (f.fact_type || f.category) === 'weight')
-        .sort((a, b) => new Date(b.created_at || 0) - new Date(a.created_at || 0));
-      if (weightFacts.length > 0) {
-        const rawVal = weightFacts[0].fact_text || weightFacts[0].fact_value || '';
-        const match = rawVal.match(/([\d.]+)/);
-        if (match) depWeight = match[1];
-      }
-    } catch (e) {}
+    if (dep.weight_kg !== null && dep.weight_kg !== undefined) {
+      depWeight = String(dep.weight_kg);
+    } else {
+      try {
+        const depFacts = await getMemoryFacts(dep.id);
+        const weightFacts = (Array.isArray(depFacts) ? depFacts : [])
+          .filter(f => (f.fact_type || f.category) === 'weight')
+          .sort((a, b) => new Date(b.created_at || 0) - new Date(a.created_at || 0));
+        if (weightFacts.length > 0) {
+          const rawVal = weightFacts[0].fact_text || weightFacts[0].fact_value || '';
+          const match = rawVal.match(/([\d.]+)/);
+          if (match) depWeight = match[1];
+        }
+      } catch (e) {}
+    }
 
     setDependentForm({
       relationship: dep.relationship || 'Other',
@@ -375,6 +434,7 @@ export default function Profile({
       known_allergies: dep.known_allergies || '',
       current_medications: dep.current_medications || '',
       height_cm: dep.height_cm !== null && dep.height_cm !== undefined ? String(dep.height_cm) : '',
+      weight_kg: depWeight,
       weight: depWeight,
       diet_type: dep.diet_type || '',
       activity_level: dep.activity_level || '',
@@ -399,7 +459,19 @@ export default function Profile({
     setSaving(true);
     try {
       const payload = { ...dependentForm };
-      delete payload.weight; // weight logged separately
+      const rawW = dependentForm.weight_kg || dependentForm.weight;
+      if (rawW && String(rawW).trim()) {
+        const wVal = parseFloat(rawW);
+        if (wVal < 2 || wVal > 400) {
+          setErrorMsg('Weight must be between 2 and 400 kg');
+          setSaving(false);
+          return;
+        }
+        payload.weight_kg = wVal;
+      } else {
+        payload.weight_kg = null;
+      }
+      delete payload.weight;
       if (payload.height_cm) {
         payload.height_cm = parseFloat(payload.height_cm);
         if (payload.height_cm < 30 || payload.height_cm > 280) {
@@ -417,11 +489,24 @@ export default function Profile({
       let savedDep = null;
       if (editingDependentId) {
         savedDep = await updateDependent(editingDependentId, payload);
-        setDependents(prev => prev.map(d => d.id === editingDependentId ? savedDep : d));
+        setDependents(prev => prev.map(d => d.id === editingDependentId ? { ...d, ...savedDep } : d));
       } else {
         savedDep = await createDependent(payload);
         setDependents(prev => [...prev, savedDep]);
       }
+
+      try {
+        const currentDepsStr = localStorage.getItem('dependents');
+        if (currentDepsStr) {
+          const depsArr = JSON.parse(currentDepsStr);
+          if (Array.isArray(depsArr)) {
+            const nextDeps = editingDependentId
+              ? depsArr.map(d => d.id === editingDependentId ? { ...d, ...payload, ...savedDep } : d)
+              : [...depsArr, savedDep];
+            localStorage.setItem('dependents', JSON.stringify(nextDeps));
+          }
+        }
+      } catch (_) {}
 
       // Record weight fact if supplied
       if (dependentForm.weight && String(dependentForm.weight).trim() && savedDep?.id) {
@@ -661,13 +746,36 @@ export default function Profile({
                   />
                   <Input
                     label="Current Weight (kg)"
-                    name="weight"
+                    name="weight_kg"
                     type="number"
-                    value={formData.weight}
-                    onChange={handleChange}
+                    min="2"
+                    max="400"
+                    value={formData.weight_kg || formData.weight}
+                    onChange={(e) => {
+                      const v = e.target.value;
+                      setFormData(prev => ({ ...prev, weight_kg: v, weight: v }));
+                    }}
                     placeholder="e.g. 72.5"
                     darkMode={darkMode}
                   />
+                  {(() => {
+                    const bmiData = getBmiData(formData.height_cm, formData.weight_kg || formData.weight);
+                    if (!bmiData) return null;
+                    return (
+                      <div data-testid="profile-bmi-badge" className="sm:col-span-2 flex items-center justify-between p-3 rounded-xl bg-white/[0.03] border border-white/[0.08]">
+                        <div className="flex items-center gap-2">
+                          <Activity className="w-4 h-4 text-cyan-400" />
+                          <span className={`text-xs font-medium ${textPrimary}`}>Calculated BMI</span>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <span className="text-sm font-semibold text-white">{bmiData.bmi} kg/m²</span>
+                          <span className={`text-[11px] px-2 py-0.5 rounded-full font-medium border ${bmiData.badgeCls}`}>
+                            {bmiData.category}
+                          </span>
+                        </div>
+                      </div>
+                    );
+                  })()}
                   <Select
                     label="Dietary Pattern"
                     name="diet_type"
@@ -906,13 +1014,36 @@ export default function Profile({
                       />
                       <Input
                         label="Current Weight (kg)"
-                        name="weight"
+                        name="weight_kg"
                         type="number"
-                        value={dependentForm.weight}
-                        onChange={handleDependentFormChange}
+                        min="2"
+                        max="400"
+                        value={dependentForm.weight_kg || dependentForm.weight}
+                        onChange={(e) => {
+                          const v = e.target.value;
+                          setDependentForm(prev => ({ ...prev, weight_kg: v, weight: v }));
+                        }}
                         placeholder="e.g. 55"
                         darkMode={darkMode}
                       />
+                      {(() => {
+                        const bmiData = getBmiData(dependentForm.height_cm, dependentForm.weight_kg || dependentForm.weight);
+                        if (!bmiData) return null;
+                        return (
+                          <div data-testid="dependent-bmi-badge" className="sm:col-span-2 flex items-center justify-between p-3 rounded-xl bg-white/[0.03] border border-white/[0.08]">
+                            <div className="flex items-center gap-2">
+                              <Activity className="w-4 h-4 text-cyan-400" />
+                              <span className={`text-xs font-medium ${textPrimary}`}>Calculated BMI</span>
+                            </div>
+                            <div className="flex items-center gap-2">
+                              <span className="text-sm font-semibold text-white">{bmiData.bmi} kg/m²</span>
+                              <span className={`text-[11px] px-2 py-0.5 rounded-full font-medium border ${bmiData.badgeCls}`}>
+                                {bmiData.category}
+                              </span>
+                            </div>
+                          </div>
+                        );
+                      })()}
                       <Select
                         label="Dietary Pattern"
                         name="diet_type"
@@ -1048,6 +1179,10 @@ export default function Profile({
                               )}
                               {dep.biological_sex && <span>• {dep.biological_sex}</span>}
                               {dep.blood_type && <span>• {dep.blood_type}</span>}
+                              {(() => {
+                                const bmiData = getBmiData(dep.height_cm, dep.weight_kg);
+                                return bmiData ? <span>• BMI {bmiData.bmi} ({bmiData.category})</span> : null;
+                              })()}
                             </div>
                           </div>
                         </div>

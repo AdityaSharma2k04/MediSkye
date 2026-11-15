@@ -33,23 +33,36 @@ export function PatientAvatar({ name, index = 0, size = 'md', className }) {
 /** Builds the list of selectable patients (Self first). */
 export function buildPatients(currentUser, dependents = []) {
   const selfName = currentUser?.full_name || (currentUser?.email ? currentUser.email.split('@')[0] : 'My profile');
+  const selfWeight = currentUser?.weight_kg || currentUser?.weight;
+  const selfHeight = currentUser?.height_cm || currentUser?.height;
+  const selfBmi = (selfHeight && selfWeight && parseFloat(selfHeight) > 0 && parseFloat(selfWeight) > 0)
+    ? `BMI ${(parseFloat(selfWeight) / ((parseFloat(selfHeight) / 100) ** 2)).toFixed(1)}`
+    : null;
+
   return [
     {
       id: 'self',
       name: selfName,
       relationship: 'Self',
-      meta: [currentUser?.calculated_age ? `${currentUser.calculated_age} yrs` : null, currentUser?.biological_sex].filter(Boolean).join(', '),
+      meta: [currentUser?.calculated_age ? `${currentUser.calculated_age} yrs` : null, currentUser?.biological_sex, selfBmi].filter(Boolean).join(', '),
       report_count: currentUser?.report_count ?? currentUser?.document_count ?? 0,
       raw: currentUser,
     },
-    ...(Array.isArray(dependents) ? dependents : []).map((d) => ({
-      id: d.id,
-      name: d.full_name || d.name || 'Dependent',
-      relationship: d.relationship || 'Dependent',
-      meta: [d.calculated_age !== null && d.calculated_age !== undefined ? `${d.calculated_age} yrs` : null, d.biological_sex].filter(Boolean).join(', '),
-      report_count: d.report_count ?? d.document_count ?? 0,
-      raw: d,
-    })),
+    ...(Array.isArray(dependents) ? dependents : []).map((d) => {
+      const dWeight = d.weight_kg || d.weight;
+      const dHeight = d.height_cm || d.height;
+      const dBmi = (dHeight && dWeight && parseFloat(dHeight) > 0 && parseFloat(dWeight) > 0)
+        ? `BMI ${(parseFloat(dWeight) / ((parseFloat(dHeight) / 100) ** 2)).toFixed(1)}`
+        : null;
+      return {
+        id: d.id,
+        name: d.full_name || d.name || 'Dependent',
+        relationship: d.relationship || 'Dependent',
+        meta: [d.calculated_age !== null && d.calculated_age !== undefined ? `${d.calculated_age} yrs` : null, d.biological_sex, dBmi].filter(Boolean).join(', '),
+        report_count: d.report_count ?? d.document_count ?? 0,
+        raw: d,
+      };
+    }),
   ];
 }
 

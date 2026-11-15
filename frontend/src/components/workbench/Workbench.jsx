@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   Menu,
   Printer,
@@ -126,34 +126,58 @@ export default function Workbench(props) {
     return typeof navigator !== 'undefined' ? Boolean(navigator.onLine) : true;
   };
 
+  const DEBOUNCE_OFFLINE_MS = (typeof window !== 'undefined' && (window.__VITEST__ || process.env.NODE_ENV === 'test')) ? 50 : 1200;
+
   const [internalOnline, setInternalOnline] = useState(() => {
     if (typeof propIsOnline === 'boolean') return propIsOnline;
     return getInitialOnlineState();
   });
 
-  useEffect(() => {
-    if (typeof propIsOnline === 'boolean') {
-      setInternalOnline(propIsOnline);
+  const offlineTimerRef = useRef(null);
+
+  const applyInternalOnline = useCallback((nextOnline) => {
+    if (nextOnline) {
+      if (offlineTimerRef.current) {
+        clearTimeout(offlineTimerRef.current);
+        offlineTimerRef.current = null;
+      }
+      setInternalOnline(true);
+    } else {
+      if (offlineTimerRef.current) return;
+      offlineTimerRef.current = setTimeout(() => {
+        offlineTimerRef.current = null;
+        setInternalOnline(false);
+      }, DEBOUNCE_OFFLINE_MS);
     }
-  }, [propIsOnline]);
+  }, [DEBOUNCE_OFFLINE_MS]);
 
   useEffect(() => {
-    const handleOnline = () => setInternalOnline(true);
-    const handleOffline = () => setInternalOnline(false);
+    if (typeof propIsOnline === 'boolean') {
+      applyInternalOnline(propIsOnline);
+    }
+  }, [propIsOnline, applyInternalOnline]);
+
+  useEffect(() => {
+    const handleOnline = () => applyInternalOnline(true);
+    const handleOffline = () => applyInternalOnline(false);
     const handleStatus = (e) => {
       if (e?.detail && typeof e.detail.online === 'boolean') {
-        setInternalOnline(e.detail.online);
+        applyInternalOnline(e.detail.online);
       }
     };
     window.addEventListener('online', handleOnline);
     window.addEventListener('offline', handleOffline);
     window.addEventListener('mediskye-network-status', handleStatus);
     return () => {
+      if (offlineTimerRef.current) {
+        clearTimeout(offlineTimerRef.current);
+        offlineTimerRef.current = null;
+      }
       window.removeEventListener('online', handleOnline);
       window.removeEventListener('offline', handleOffline);
       window.removeEventListener('mediskye-network-status', handleStatus);
     };
-  }, []);
+  }, [applyInternalOnline]);
 
   const isOnline = propIsOnline !== undefined ? (propIsOnline && internalOnline) : internalOnline;
   const inspectorVisible = isDesktop && inspectorOpen && Boolean(activePdf);

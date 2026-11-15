@@ -28,7 +28,13 @@ from app.core.security import clean_filename_to_title
 from app.rag.index_storage import asave_index_artifacts, asave_index_artifacts_with_retry
 from app.api.v1.endpoints.metrics import extract_and_cache_metrics
 from app.services.clinical_units import extract_specimen_collection_date
-from app.rag.prompt_builder import build_document_summary_prompt, PROMPT_VERSION_PREFIX
+from app.core.clinical import compute_bmi_info
+from app.services.patient_service import calculate_age
+from app.rag.prompt_builder import (
+    build_document_summary_prompt,
+    generate_deterministic_fallback_summary,
+    PROMPT_VERSION_PREFIX,
+)
 from sqlalchemy.orm.exc import StaleDataError
 from langchain_core.documents import Document as LCDocument
 
@@ -397,7 +403,36 @@ async def _warm_document_summary_cache(doc_id: uuid.UUID, user_uuid: uuid.UUID, 
                 if not isinstance(raw_cm, list):
                     raw_cm = None
 
-                summary_prompt = build_document_summary_prompt(report_text, cached_metrics=raw_cm)
+                profile_obj = None
+                if doc_obj.dependent_id:
+                    dep_res = await db.execute(select(DependentProfile).filter(DependentProfile.id == doc_obj.dependent_id))
+                    profile_obj = dep_res.scalars().first()
+                else:
+                    user_res = await db.execute(select(User).filter(User.id == user_uuid))
+                    profile_obj = user_res.scalars().first()
+
+                patient_profile = None
+                if profile_obj:
+                    p_h = getattr(profile_obj, "height_cm", None)
+                    p_w = getattr(profile_obj, "weight_kg", None)
+                    patient_profile = {
+                        "name": getattr(profile_obj, "full_name", None),
+                        "full_name": getattr(profile_obj, "full_name", None),
+                        "calculated_age": calculate_age(getattr(profile_obj, "date_of_birth", None)),
+                        "biological_sex": getattr(profile_obj, "biological_sex", None),
+                        "height_cm": p_h,
+                        "weight_kg": p_w,
+                        "bmi_info": compute_bmi_info(p_h, p_w),
+                        "diet_type": getattr(profile_obj, "diet_type", None),
+                        "pre_existing_conditions": getattr(profile_obj, "pre_existing_conditions", None),
+                        "current_medications": getattr(profile_obj, "current_medications", None),
+                    }
+
+                summary_prompt = build_document_summary_prompt(
+                    report_text,
+                    cached_metrics=raw_cm,
+                    patient_profile=patient_profile,
+                )
 
                 response = await call_gemini_with_retry(
                     contents=summary_prompt,
@@ -410,6 +445,12 @@ async def _warm_document_summary_cache(doc_id: uuid.UUID, user_uuid: uuid.UUID, 
                 )
                 raw_text = getattr(response, "text", "") or ""
                 summary_text = strip_emojis(raw_text).strip()
+                if not summary_text:
+                    summary_text = generate_deterministic_fallback_summary(
+                        report_text,
+                        cached_metrics=raw_cm,
+                        patient_profile=patient_profile,
+                    )
                 if summary_text:
                     doc_obj.cached_summary = f"{PROMPT_VERSION_PREFIX}{summary_text}"
                     db.add(doc_obj)

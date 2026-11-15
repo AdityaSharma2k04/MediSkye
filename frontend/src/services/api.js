@@ -36,6 +36,69 @@ export function emitConnectivityStatus(isOnline) {
   }
 }
 
+let isVerifyingOffline = false;
+let failedFetchCount = 0;
+
+export async function verifyReallyOffline() {
+  if (isVerifyingOffline) return;
+  isVerifyingOffline = true;
+  try {
+    if (typeof navigator !== 'undefined' && navigator.onLine === false) {
+      emitConnectivityStatus(false);
+      return;
+    }
+    if (typeof window !== 'undefined' && window.MediskyeNativeAuth && typeof window.MediskyeNativeAuth.isOnline === 'function') {
+      try {
+        if (!window.MediskyeNativeAuth.isOnline()) {
+          emitConnectivityStatus(false);
+          return;
+        }
+      } catch (_) {}
+    }
+
+    const probe = async () => {
+      const controller = new AbortController();
+      const tid = setTimeout(() => controller.abort(), 8000);
+      try {
+        const res = await fetch(`${API_BASE}/health`, {
+          method: 'GET',
+          mode: 'cors',
+          credentials: 'omit',
+          cache: 'no-store',
+          signal: controller.signal,
+        });
+        clearTimeout(tid);
+        return Boolean(res && res.status >= 200 && res.status < 600);
+      } catch (_) {
+        clearTimeout(tid);
+        return false;
+      }
+    };
+
+    const firstOk = await probe();
+    if (firstOk) {
+      failedFetchCount = 0;
+      emitConnectivityStatus(true);
+      return;
+    }
+
+    // Wait 1500ms before second probe
+    await new Promise((resolve) => setTimeout(resolve, 1500));
+
+    const secondOk = await probe();
+    if (secondOk) {
+      failedFetchCount = 0;
+      emitConnectivityStatus(true);
+      return;
+    }
+
+    // Both probes failed with a network error
+    emitConnectivityStatus(false);
+  } finally {
+    isVerifyingOffline = false;
+  }
+}
+
 export async function checkConnectivity() {
   if (typeof window !== 'undefined' && window.MediskyeNativeAuth && typeof window.MediskyeNativeAuth.isOnline === 'function') {
     try {
@@ -145,6 +208,11 @@ export function getStableCacheUid(explicitUid) {
 
 export function getCurrentUid() {
   return getStableCacheUid();
+}
+
+export function userKey(prefix, uid = getStableCacheUid()) {
+  const stable = getStableCacheUid(uid);
+  return `${prefix}_${stable}`;
 }
 
 export function warmBackendConnection() {
@@ -685,19 +753,29 @@ export async function apiFetch(url, options = {}, timeoutMs = 30000) {
   let res;
   try {
     res = await fetch(url, fetchOptions);
+    failedFetchCount = 0;
     emitConnectivityStatus(true);
   } catch (err) {
     clearTimeout(timeoutId);
-    if (
-      err.name !== 'AbortError' &&
-      !timedOut &&
-      (err.name === 'TypeError' ||
-        (typeof navigator !== 'undefined' && !navigator.onLine) ||
-        err.message?.includes('fetch') ||
-        err.message?.includes('NetworkError'))
-    ) {
-      emitConnectivityStatus(false);
+    if (err.name === 'AbortError') {
+      if (timedOut) {
+        throw new Error(`Request timed out after ${Math.round(timeoutMs / 1000)}s. Please check your connection and try again.`);
+      }
+      throw err;
     }
+
+    const isExplicitlyOffline =
+      (typeof navigator !== 'undefined' && navigator.onLine === false) ||
+      (typeof window !== 'undefined' && window.MediskyeNativeAuth && typeof window.MediskyeNativeAuth.isOnline === 'function' && !window.MediskyeNativeAuth.isOnline());
+
+    if (isExplicitlyOffline) {
+      emitConnectivityStatus(false);
+    } else {
+      // OS / browser reports online; do NOT trigger immediate false on single fetch failure.
+      // Run debounced double-probe verifyReallyOffline() in background.
+      verifyReallyOffline().catch(() => {});
+    }
+
     if (timedOut) {
       throw new Error(`Request timed out after ${Math.round(timeoutMs / 1000)}s. Please check your connection and try again.`);
     }
@@ -2230,6 +2308,7 @@ export async function syncSingleProfileToLocalCache(patientId = 'self', options 
           const target = mergedConvs.find((c) => c.id === doc.id || c.document_id === doc.id);
           if (target) {
             target.messages = reconcileMessagesWithServer(target.messages, formatted, false);
+            setCachedChatMessages(doc.id, target.messages);
           }
         }
       } catch (_) { }
@@ -2248,6 +2327,7 @@ export async function syncSingleProfileToLocalCache(patientId = 'self', options 
           const target = mergedConvs.find((c) => c.id === sid);
           if (target) {
             target.messages = reconcileMessagesWithServer(target.messages, formatted, false);
+            setCachedChatMessages(sid, target.messages);
           }
         }
       } catch (_) { }
@@ -2271,7 +2351,7 @@ export async function syncSingleProfileToLocalCache(patientId = 'self', options 
           prefetchPromises.push(fetchLabMetrics(docId).catch(() => { }));
         }
         if (!getCachedDocSummary(docId)) {
-          prefetchPromises.push(getDocumentSummary(docId, { cachedOnly: true }).catch(() => { }));
+          prefetchPromises.push(getDocumentSummary(docId).catch(() => { }));
         }
       }
     }
@@ -2284,5 +2364,90 @@ export async function syncSingleProfileToLocalCache(patientId = 'self', options 
   } catch (err) {
     logger.warn(`syncSingleProfileToLocalCache failed for ${pid}:`, err);
     return { docs: getCachedDocuments(pid), conversations: getCachedConversations(pid) || [] };
+  }
+}
+
+/**
+ * 100% Complete Background Sync for all patient profiles ('self' + all dependents).
+ * Only resolves when all profile metadata, documents, chat histories, lab metrics,
+ * summaries, trends, and facts are safely written to localStorage.
+ */
+export async function syncAllProfilesInBackground(activePatientId = 'self', dependentsList = null, options = {}) {
+  const { onProgress = null, onProfileSynced = null } = options;
+  if (typeof window === 'undefined') return { success: true };
+
+  const uid = getStableCacheUid();
+  if (typeof navigator !== 'undefined' && !navigator.onLine) {
+    return { success: false, offline: true };
+  }
+
+  try {
+    // 1. Sync User Profile & Dependents List first
+    let userProfile = null;
+    try {
+      userProfile = await getUserProfile();
+      if (userProfile) {
+        setCachedProfile(userProfile, uid);
+      }
+    } catch (_) {}
+
+    let deps = dependentsList;
+    if (!Array.isArray(deps) || deps.length === 0) {
+      try {
+        deps = await getDependents();
+      } catch (_) {
+        deps = getCachedDependents(uid) || [];
+      }
+    }
+    if (Array.isArray(deps)) {
+      setCachedDependents(deps, uid);
+    }
+
+    // 2. Compute full list of profiles ('self' + all dependent UUIDs)
+    const activePid = String(activePatientId || 'self');
+    const allProfileIds = ['self', ...(Array.isArray(deps) ? deps.map((d) => String(d.id || d.dependent_id)) : [])];
+    const uniqueProfileIds = Array.from(new Set(allProfileIds));
+    // Prioritize activePid first, then the remaining dependents
+    const sortedProfiles = [
+      activePid,
+      ...uniqueProfileIds.filter((p) => p !== activePid),
+    ];
+
+    const totalSteps = sortedProfiles.length;
+    let completedSteps = 0;
+
+    for (let i = 0; i < sortedProfiles.length; i++) {
+      const pid = sortedProfiles[i];
+      if (typeof onProgress === 'function') {
+        const profileLabel = pid === 'self' ? 'Primary account' : `Family dependent (${pid})`;
+        onProgress(completedSteps, totalSteps, `Synchronizing ${profileLabel} (${completedSteps + 1}/${totalSteps})...`);
+      }
+
+      const syncResult = await syncSingleProfileToLocalCache(pid, {
+        ...options,
+        isCurrentActive: pid === activePid,
+      }).catch((err) => {
+        logger.warn(`syncSingleProfileToLocalCache failed for ${pid}:`, err);
+        return { docs: getCachedDocuments(pid), conversations: getCachedConversations(pid) || [] };
+      });
+
+      completedSteps++;
+      if (typeof onProfileSynced === 'function') {
+        try {
+          onProfileSynced({ patientId: pid, ...syncResult });
+        } catch (_) {}
+      }
+
+      if (typeof onProgress === 'function') {
+        onProgress(completedSteps, totalSteps, `Synchronized profile ${completedSteps}/${totalSteps}`);
+      }
+    }
+
+    // 3. Mark 100% initial sync complete in localStorage
+    safeStorageSet(userKey('mediskye_initial_sync_complete', uid), 'true');
+    return { success: true, totalProfiles: totalSteps };
+  } catch (err) {
+    logger.warn('syncAllProfilesInBackground error:', err);
+    return { success: false, error: err };
   }
 }

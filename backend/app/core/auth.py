@@ -56,6 +56,7 @@ class UserDTO(BaseModel):
     emergency_contact_name: Optional[str] = None
     emergency_contact_phone: Optional[str] = None
     height_cm: Optional[float] = None
+    weight_kg: Optional[float] = None
     diet_type: Optional[str] = None
     activity_level: Optional[str] = None
     occupation: Optional[str] = Field(default=None, exclude=True)
@@ -219,6 +220,7 @@ def _user_to_dto(user: User) -> UserDTO:
         emergency_contact_name=None,
         emergency_contact_phone=None,
         height_cm=user.height_cm,
+        weight_kg=user.weight_kg,
         diet_type=user.diet_type,
         activity_level=user.activity_level,
         occupation=None,

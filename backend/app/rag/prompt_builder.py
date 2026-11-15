@@ -4,6 +4,7 @@ from typing import Optional, List, Dict, Any, Tuple, Union
 from langchain_core.documents import Document
 
 from app.core.security import escape_xml_content, escape_xml_attr, safe_language
+from app.core.clinical import compute_bmi_info
 from app.rag.biomarkers import (
     build_extracted_biomarkers_and_hints,
     resolve_status,
@@ -291,6 +292,7 @@ def _format_patient_context(
     language_preference: str = "English",
     known_allergies: Optional[str] = None,
     height_cm: Optional[float] = None,
+    weight_kg: Optional[float] = None,
     diet_type: Optional[str] = None,
     activity_level: Optional[str] = None,
     occupation: Optional[str] = None,
@@ -314,8 +316,18 @@ def _format_patient_context(
         clinical_lines.append(f"- Current Medications: {escape_xml_content(str(current_medications))}")
     if not _is_empty_or_unknown(known_allergies):
         clinical_lines.append(f"- Known Allergies: {escape_xml_content(str(known_allergies))}")
-    if height_cm is not None:
-        clinical_lines.append(f"- Height: {height_cm} cm")
+
+    bmi_info = compute_bmi_info(height_cm, weight_kg)
+    if bmi_info:
+        clinical_lines.append(
+            f"- Height: {height_cm} cm | Weight: {weight_kg} kg | Calculated BMI: {bmi_info['bmi']} kg/m² ({bmi_info['category']})"
+        )
+    else:
+        if height_cm is not None:
+            clinical_lines.append(f"- Height: {height_cm} cm")
+        if weight_kg is not None:
+            clinical_lines.append(f"- Weight: {weight_kg} kg")
+
     if not _is_empty_or_unknown(diet_type):
         clinical_lines.append(f"- Diet: {escape_xml_content(str(diet_type))}")
     if not _is_empty_or_unknown(activity_level):
@@ -361,6 +373,7 @@ def _safe_sort_key(d: Any) -> str:
 def format_facts_for_prompt(
     facts: List[Any],
     height_cm: Optional[float] = None,
+    weight_kg: Optional[float] = None,
     diet_type: Optional[str] = None,
     activity_level: Optional[str] = None,
     occupation: Optional[str] = None,
@@ -405,8 +418,18 @@ def format_facts_for_prompt(
         lifestyle_lines.append(f"- Diet: {escape_xml_content(str(diet_type))}")
     if activity_level:
         lifestyle_lines.append(f"- Activity: {escape_xml_content(str(activity_level))}")
-    if height_cm is not None:
-        lifestyle_lines.append(f"- Height: {height_cm} cm")
+
+    bmi_info = compute_bmi_info(height_cm, weight_kg)
+    if bmi_info:
+        lifestyle_lines.append(
+            f"- Height: {height_cm} cm | Weight: {weight_kg} kg | Calculated BMI: {bmi_info['bmi']} kg/m² ({bmi_info['category']})"
+        )
+    else:
+        if height_cm is not None:
+            lifestyle_lines.append(f"- Height: {height_cm} cm")
+        if weight_kg is not None:
+            lifestyle_lines.append(f"- Weight: {weight_kg} kg")
+
     if occupation:
         lifestyle_lines.append(f"- Occupation: {escape_xml_content(str(occupation))}")
 
@@ -565,6 +588,7 @@ def build_prompt(
     documents: Optional[List[Dict[str, Any]]] = None,
     known_allergies: Optional[str] = None,
     height_cm: Optional[float] = None,
+    weight_kg: Optional[float] = None,
     diet_type: Optional[str] = None,
     activity_level: Optional[str] = None,
     occupation: Optional[str] = None,
@@ -587,6 +611,7 @@ def build_prompt(
         language_preference=lang,
         known_allergies=known_allergies,
         height_cm=height_cm,
+        weight_kg=weight_kg,
         diet_type=diet_type,
         activity_level=activity_level,
         occupation=occupation,
@@ -679,6 +704,7 @@ def build_general_health_prompt(
     documents: Optional[List[Dict[str, Any]]] = None,
     known_allergies: Optional[str] = None,
     height_cm: Optional[float] = None,
+    weight_kg: Optional[float] = None,
     diet_type: Optional[str] = None,
     activity_level: Optional[str] = None,
     occupation: Optional[str] = None,
@@ -701,6 +727,7 @@ def build_general_health_prompt(
         language_preference=lang,
         known_allergies=known_allergies,
         height_cm=height_cm,
+        weight_kg=weight_kg,
         diet_type=diet_type,
         activity_level=activity_level,
         occupation=occupation,
@@ -807,11 +834,13 @@ def build_document_summary_prompt(
     report_text: str,
     cached_metrics: Optional[List[Dict[str, Any]]] = None,
     language_preference: str = "English",
+    patient_profile: Optional[Dict[str, Any]] = None,
 ) -> str:
     """
     Constructs the standardized clinical summary prompt for document printing/exporting.
     Enforces clean markdown, no emojis, and strictly forbids
     the AI from outputting a metadata block or listing normal biomarkers in prose.
+    Includes Patient Profile & BMI Snapshot instruction when anthropometric data is present.
     """
     lang = safe_language(language_preference)
     truncation_marker = ""
@@ -829,6 +858,53 @@ def build_document_summary_prompt(
         if bm_block:
             biomarker_context = f"\n\n{bm_block}"
 
+    patient_profile_block = ""
+    bmi_instruction = ""
+    if patient_profile:
+        p_name = patient_profile.get("full_name") or patient_profile.get("name")
+        p_age = patient_profile.get("calculated_age") or patient_profile.get("age")
+        p_sex = patient_profile.get("biological_sex") or patient_profile.get("sex")
+        p_height = patient_profile.get("height_cm")
+        p_weight = patient_profile.get("weight_kg")
+        p_bmi_info = patient_profile.get("bmi_info") or compute_bmi_info(p_height, p_weight)
+        p_diet = patient_profile.get("diet_type")
+        p_cond = patient_profile.get("pre_existing_conditions")
+        p_meds = patient_profile.get("current_medications")
+
+        p_lines = []
+        if p_name:
+            p_lines.append(f"Name: {escape_xml_content(str(p_name))}")
+        if p_age:
+            p_lines.append(f"Age: {escape_xml_content(str(p_age))}")
+        if p_sex:
+            p_lines.append(f"Sex: {escape_xml_content(str(p_sex))}")
+        if p_height:
+            p_lines.append(f"Height: {p_height} cm")
+        if p_weight:
+            p_lines.append(f"Weight: {p_weight} kg")
+        if p_bmi_info:
+            p_lines.append(f"Calculated BMI: {p_bmi_info['formatted']}")
+        if p_diet:
+            p_lines.append(f"Diet: {escape_xml_content(str(p_diet))}")
+        if p_cond:
+            p_lines.append(f"Conditions: {escape_xml_content(str(p_cond))}")
+        if p_meds:
+            p_lines.append(f"Medications: {escape_xml_content(str(p_meds))}")
+
+        if p_lines:
+            patient_profile_block = f"\n\n<patient_profile>\n" + "\n".join(p_lines) + "\n</patient_profile>"
+
+        if p_height and p_weight and p_bmi_info:
+            bmi_formatted = p_bmi_info["formatted"]
+            age_str = f"{p_age} Y" if p_age else "Age Unspecified"
+            sex_str = f"{p_sex}" if p_sex else "Sex Unspecified"
+            name_str = f"{p_name}" if p_name else "Patient"
+            bmi_instruction = (
+                f"\n\nPATIENT PROFILE & BMI SNAPSHOT MANDATE:\n"
+                f"Because patient anthropometrics are provided in <patient_profile>, YOU MUST include a **Patient Profile & BMI Snapshot** line as the very first line of your summary before any headings in the following exact format:\n"
+                f"**Patient Profile & BMI Snapshot:** {name_str} | {age_str} | {sex_str} | Height: {p_height} cm | Weight: {p_weight} kg | Calculated BMI: {bmi_formatted}\n"
+            )
+
     lang_line = ""
     if lang.lower() != "english":
         lang_line = f"\nWrite your entire response in {lang}."
@@ -836,8 +912,9 @@ def build_document_summary_prompt(
     return (
         "Generate a comprehensive, structured clinical summary of this entire report suitable for printing. "
         "Use clean markdown. Do not use emojis. Include an overview, abnormal findings grouped by system, and next steps. "
+        f"{bmi_instruction}"
         "STRICT NEGATIVE CONSTRAINTS:\n"
-        "1. DO NOT output any patient metadata header or demographic block (such as 'Patient Name:', 'Specimen ID:', 'Age/Sex:', 'Collection Date:', 'Report Date:'). The report header and demographics cards are already handled by the print layout.\n"
+        "1. DO NOT output raw specimen/lab metadata headers like 'Specimen ID:', 'Collection Date:', or 'Report Date:' (the report header is handled by the print layout). However, when anthropometrics are provided, DO output the requested **Patient Profile & BMI Snapshot** line as specified above.\n"
         "2. DO NOT list or enumerate normal, in-range laboratory results, parameters, or analytes in narrative prose or bullet points. Discuss only abnormal findings, near-boundary markers, clinically notable shifts, and actionable next steps. Normal test results that are safely within range are presented in a dedicated table.\n"
         "3. Never say or imply that a test was measured, or is normal, unless it appears in the report text.\n"
         "4. Give repeat-testing timing only when <analysis_hints> provides it.\n\n"
@@ -845,4 +922,72 @@ def build_document_summary_prompt(
         f"{lang_line}\n\n"
         f"<report_content>\n{escaped_report}\n</report_content>"
         f"{biomarker_context}"
+        f"{patient_profile_block}"
     )
+
+
+def generate_deterministic_fallback_summary(
+    report_text: str,
+    cached_metrics: Optional[List[Dict[str, Any]]] = None,
+    patient_profile: Optional[Dict[str, Any]] = None,
+) -> str:
+    """
+    Generates a structured deterministic clinical summary when LLM generation is unavailable.
+    Guarantees inclusion of the Patient Profile & BMI Snapshot line at the top whenever height and weight are present.
+    """
+    sections = []
+    p_h = patient_profile.get("height_cm") if patient_profile else None
+    p_w = patient_profile.get("weight_kg") if patient_profile else None
+    p_bmi = patient_profile.get("bmi_info") if patient_profile else None
+    if not p_bmi and p_h and p_w:
+        p_bmi = compute_bmi_info(p_h, p_w)
+
+    if patient_profile and p_h and p_w and p_bmi:
+        name = patient_profile.get("full_name") or patient_profile.get("name") or "Patient"
+        age = patient_profile.get("calculated_age") or patient_profile.get("age") or "Age N/A"
+        sex = patient_profile.get("biological_sex") or patient_profile.get("sex") or "Sex N/A"
+        sections.append(
+            f"**Patient Profile & BMI Snapshot:** {name} | {age} Y | {sex} | Height: {p_h} cm | Weight: {p_w} kg | Calculated BMI: {p_bmi['formatted']}"
+        )
+        extra = []
+        if patient_profile.get("diet_type"):
+            extra.append(f"Diet: {patient_profile['diet_type']}")
+        if patient_profile.get("pre_existing_conditions"):
+            extra.append(f"Conditions: {patient_profile['pre_existing_conditions']}")
+        if patient_profile.get("current_medications"):
+            extra.append(f"Medications: {patient_profile['current_medications']}")
+        if extra:
+            sections.append("- " + " | ".join(extra))
+        sections.append("")
+
+    sections.append("### Clinical Overview")
+    sections.append("This structured clinical summary compiles key findings, out-of-range indicators, and biomarker patterns extracted from the laboratory report.")
+    sections.append("")
+
+    abnormal = []
+    if cached_metrics:
+        for m in cached_metrics:
+            status_val = str(m.get("status") or "").lower()
+            name = m.get("name") or m.get("biomarker") or "Marker"
+            val = m.get("value") or m.get("val") or ""
+            unit = m.get("unit") or ""
+            rng = m.get("range") or m.get("reference_range") or ""
+            rng_str = f" (Ref: {rng})" if rng else ""
+            if any(k in status_val for k in ("high", "low", "abnormal", "critical")):
+                abnormal.append(f"- **{name}**: {val} {unit} [{status_val.upper()}]{rng_str}")
+
+    if abnormal:
+        sections.append("### Abnormal Findings & Notable Biomarkers")
+        sections.extend(abnormal)
+        sections.append("")
+    else:
+        sections.append("### Diagnostic Findings")
+        sections.append("No critical out-of-range laboratory abnormalities were identified from the indexed report data.")
+        sections.append("")
+
+    sections.append("### Clinical Recommendations & Next Steps")
+    sections.append("- Discuss all laboratory findings and out-of-range biomarkers with your attending physician.")
+    sections.append("- Integrate these results with clinical symptoms, physical examinations, and ongoing treatment plans.")
+    sections.append("- Retest as clinically indicated according to standard diagnostic intervals.")
+
+    return "\n".join(sections)

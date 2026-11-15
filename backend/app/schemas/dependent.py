@@ -14,6 +14,7 @@ class DependentBase(BaseModel):
     known_allergies: Optional[str] = None
     current_medications: Optional[str] = None
     height_cm: Optional[float] = None
+    weight_kg: Optional[float] = None
     diet_type: Optional[str] = None
     activity_level: Optional[str] = None
     occupation: Optional[str] = None
@@ -24,6 +25,14 @@ class DependentBase(BaseModel):
         if v is not None:
             if v < 30.0 or v > 280.0:
                 raise ValueError("height_cm must be between 30 and 280 cm")
+        return v
+
+    @field_validator("weight_kg")
+    @classmethod
+    def validate_weight_kg(cls, v: Optional[float]) -> Optional[float]:
+        if v is not None:
+            if v < 2.0 or v > 400.0:
+                raise ValueError("weight_kg must be between 2 and 400 kg")
         return v
 
     @field_validator(
@@ -54,6 +63,7 @@ class DependentUpdate(BaseModel):
     known_allergies: Optional[str] = None
     current_medications: Optional[str] = None
     height_cm: Optional[float] = None
+    weight_kg: Optional[float] = None
     diet_type: Optional[str] = None
     activity_level: Optional[str] = None
     occupation: Optional[str] = None
@@ -64,6 +74,14 @@ class DependentUpdate(BaseModel):
         if v is not None:
             if v < 30.0 or v > 280.0:
                 raise ValueError("height_cm must be between 30 and 280 cm")
+        return v
+
+    @field_validator("weight_kg")
+    @classmethod
+    def validate_weight_kg(cls, v: Optional[float]) -> Optional[float]:
+        if v is not None:
+            if v < 2.0 or v > 400.0:
+                raise ValueError("weight_kg must be between 2 and 400 kg")
         return v
 
     @field_validator(
@@ -85,6 +103,7 @@ class DependentResponse(DependentBase):
     id: UUID
     user_id: UUID
     calculated_age: Optional[int] = None
+    bmi_info: Optional[dict] = None
     created_at: Optional[datetime] = None
     updated_at: Optional[datetime] = None
 

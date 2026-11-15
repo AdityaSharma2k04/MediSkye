@@ -103,6 +103,35 @@ async def lifespan(app: FastAPI):
                         sync_conn.execute(text("ALTER TABLE chats ADD COLUMN dependent_id CHAR(32)"))
                         sync_conn.execute(text("CREATE INDEX IF NOT EXISTS ix_chats_dependent_id ON chats(dependent_id)"))
 
+            # Ensure profile & clinical columns on users and dependent_profiles
+            if "users" in inspector.get_table_names():
+                user_cols = {c["name"] for c in inspector.get_columns("users")}
+                if "weight_kg" not in user_cols:
+                    if dialect == "postgresql":
+                        sync_conn.execute(text("ALTER TABLE users ADD COLUMN IF NOT EXISTS weight_kg DOUBLE PRECISION"))
+                    else:
+                        sync_conn.execute(text("ALTER TABLE users ADD COLUMN weight_kg FLOAT"))
+
+            if "dependent_profiles" in inspector.get_table_names():
+                dep_cols = {c["name"] for c in inspector.get_columns("dependent_profiles")}
+                dep_col_defs = [
+                    ("weight_kg", "DOUBLE PRECISION", "FLOAT"),
+                    ("height_cm", "DOUBLE PRECISION", "FLOAT"),
+                    ("diet_type", "VARCHAR(64)", "VARCHAR(64)"),
+                    ("activity_level", "VARCHAR(64)", "VARCHAR(64)"),
+                    ("occupation", "TEXT", "TEXT"),
+                    ("blood_type", "TEXT", "TEXT"),
+                    ("pre_existing_conditions", "TEXT", "TEXT"),
+                    ("known_allergies", "TEXT", "TEXT"),
+                    ("current_medications", "TEXT", "TEXT"),
+                ]
+                for col_name, pg_type, sqlite_type in dep_col_defs:
+                    if col_name not in dep_cols:
+                        if dialect == "postgresql":
+                            sync_conn.execute(text(f"ALTER TABLE dependent_profiles ADD COLUMN IF NOT EXISTS {col_name} {pg_type}"))
+                        else:
+                            sync_conn.execute(text(f"ALTER TABLE dependent_profiles ADD COLUMN {col_name} {sqlite_type}"))
+
         await conn.run_sync(_ensure_document_cache_columns)
 
     try:

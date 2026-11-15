@@ -31,9 +31,11 @@ from app.rag.prompt_builder import (
     build_general_health_prompt,
     build_casual_prompt,
     build_document_summary_prompt,
+    generate_deterministic_fallback_summary,
     PROMPT_VERSION_PREFIX,
     condense_chat_history,
 )
+from app.core.clinical import compute_bmi_info
 from app.services.clinical_units import parse_report_chronology, is_sample_document
 from app.rag.intent_router import classify_intent, QueryIntent
 from app.rag.safety import (
@@ -497,9 +499,30 @@ async def query_bot(
         or "English"
     )
     height_cm = getattr(active_profile, "height_cm", None)
+    weight_kg = getattr(active_profile, "weight_kg", None)
     diet_type = getattr(active_profile, "diet_type", None)
     activity_level = getattr(active_profile, "activity_level", None)
     occupation = getattr(active_profile, "occupation", None)
+
+    # Fallback to PatientFact if weight_kg is not set directly on profile model
+    if weight_kg is None:
+        try:
+            dep_id_filter = active_profile.id if isinstance(active_profile, DependentProfile) else None
+            stmt = select(PatientFact).filter(
+                PatientFact.user_id == current_user.id,
+                PatientFact.dependent_id == dep_id_filter,
+                PatientFact.fact_type == "weight",
+                PatientFact.is_active == True,
+            )
+            res = await db.execute(stmt)
+            for pf in res.scalars().all():
+                if pf.fact_text:
+                    m_match = re.search(r"(\d+(?:\.\d+)?)", pf.fact_text)
+                    if m_match:
+                        weight_kg = float(m_match.group(1))
+                        break
+        except Exception:
+            pass
 
     # ── Emergency keyword gate ──
     emergency_kind = detect_emergency(body.query)
@@ -946,6 +969,7 @@ async def query_bot(
                     past_chats=formatted_past_chats,
                     known_allergies=known_allergies,
                     height_cm=height_cm,
+                    weight_kg=weight_kg,
                     diet_type=diet_type,
                     activity_level=activity_level,
                     occupation=occupation,
@@ -968,6 +992,7 @@ async def query_bot(
                     past_chats=formatted_past_chats,
                     known_allergies=known_allergies,
                     height_cm=height_cm,
+                    weight_kg=weight_kg,
                     diet_type=diet_type,
                     activity_level=activity_level,
                     occupation=occupation,
@@ -1534,10 +1559,37 @@ async def get_or_generate_document_summary(
         raw_cm = None
 
     user_lang = getattr(current_user, "language_preference", "English") or "English"
+
+    profile_obj = None
+    if doc.dependent_id:
+        dep_res = await db.execute(select(DependentProfile).filter(DependentProfile.id == doc.dependent_id))
+        profile_obj = dep_res.scalars().first()
+    else:
+        user_res = await db.execute(select(User).filter(User.id == current_user.id))
+        profile_obj = user_res.scalars().first()
+
+    patient_profile = None
+    if profile_obj:
+        p_h = getattr(profile_obj, "height_cm", None)
+        p_w = getattr(profile_obj, "weight_kg", None)
+        patient_profile = {
+            "name": getattr(profile_obj, "full_name", None),
+            "full_name": getattr(profile_obj, "full_name", None),
+            "calculated_age": calculate_age(getattr(profile_obj, "date_of_birth", None)),
+            "biological_sex": getattr(profile_obj, "biological_sex", None),
+            "height_cm": p_h,
+            "weight_kg": p_w,
+            "bmi_info": compute_bmi_info(p_h, p_w),
+            "diet_type": getattr(profile_obj, "diet_type", None),
+            "pre_existing_conditions": getattr(profile_obj, "pre_existing_conditions", None),
+            "current_medications": getattr(profile_obj, "current_medications", None),
+        }
+
     summary_prompt = build_document_summary_prompt(
         report_text,
         cached_metrics=raw_cm,
         language_preference=user_lang,
+        patient_profile=patient_profile,
     )
 
     try:
@@ -1563,15 +1615,38 @@ async def get_or_generate_document_summary(
 
         if response is None or not getattr(response, "text", None):
             summary_model = getattr(settings, "PRIMARY_SUMMARY_MODEL", "gemini-3.6-flash")
-            response = await call_gemini_with_retry(
-                contents=summary_prompt,
-                model=summary_model,
-                user_id=current_user.id,
-                config=summary_config,
-            )
+            try:
+                response = await call_gemini_with_retry(
+                    contents=summary_prompt,
+                    model=summary_model,
+                    user_id=current_user.id,
+                    config=summary_config,
+                )
+            except Exception as llm_err:
+                logger.warning("LLM call failed for summary doc %s, falling back to deterministic: %s", document_id, llm_err)
+                fallback_summary = generate_deterministic_fallback_summary(
+                    report_text,
+                    cached_metrics=raw_cm,
+                    patient_profile=patient_profile,
+                )
+                if fallback_summary:
+                    doc.cached_summary = f"{PROMPT_VERSION_PREFIX}{fallback_summary}"
+                    db.add(doc)
+                    try:
+                        await db.commit()
+                    except Exception:
+                        await db.rollback()
+                    return DocumentSummaryResponse(summary=fallback_summary, cached=False)
+                raise
 
         raw_text = getattr(response, "text", "") or ""
         summary_text = strip_emojis(raw_text).strip()
+        if not summary_text:
+            summary_text = generate_deterministic_fallback_summary(
+                report_text,
+                cached_metrics=raw_cm,
+                patient_profile=patient_profile,
+            )
 
         # Guard Against Caching Empty/Error Responses:
         if summary_text:

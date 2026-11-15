@@ -57,6 +57,10 @@ import {
   setCachedConversations,
   prewarmPatientLocalCache,
   syncSingleProfileToLocalCache,
+  syncAllProfilesInBackground as apiSyncAllProfiles,
+  userKey,
+  getCurrentUid,
+  checkConnectivity,
   API_BASE_URL,
   getMemoryFacts,
   getMetricTrends,
@@ -338,25 +342,59 @@ export default function ChatApp() {
     return typeof navigator !== 'undefined' ? Boolean(navigator.onLine) : true;
   };
 
+  const DEBOUNCE_OFFLINE_MS = (typeof window !== 'undefined' && (window.__VITEST__ || process.env.NODE_ENV === 'test')) ? 50 : 1200;
+  const HYDRATION_SAFETY_TIMEOUT_MS = (typeof window !== 'undefined' && (window.__VITEST__ || process.env.NODE_ENV === 'test')) ? 1500 : 45000;
+
   const [isOnline, setIsOnline] = useState(getInitialOnlineState);
   const isOnlineRef = useRef(isOnline);
+  const offlineTimerRef = useRef(null);
+
+  const applyOnlineStatus = useCallback((nextOnline) => {
+    if (nextOnline) {
+      if (offlineTimerRef.current) {
+        clearTimeout(offlineTimerRef.current);
+        offlineTimerRef.current = null;
+      }
+      setIsOnline(true);
+      isOnlineRef.current = true;
+    } else {
+      if (!isOnlineRef.current) return;
+      if (offlineTimerRef.current) return;
+      offlineTimerRef.current = setTimeout(() => {
+        offlineTimerRef.current = null;
+        setIsOnline(false);
+        isOnlineRef.current = false;
+      }, DEBOUNCE_OFFLINE_MS);
+    }
+  }, [DEBOUNCE_OFFLINE_MS]);
+
   useEffect(() => {
     isOnlineRef.current = isOnline;
   }, [isOnline]);
 
+  const isInitialSyncCompleted = useCallback(() => {
+    try {
+      const uid = typeof getCurrentUid === 'function' ? getCurrentUid() : 'default';
+      return localStorage.getItem(userKey('mediskye_initial_sync_complete', uid)) === 'true';
+    } catch (_) {
+      return false;
+    }
+  }, []);
+
   const [isWorkspaceHydrating, setIsWorkspaceHydrating] = useState(() => {
     if (typeof navigator !== 'undefined' && !navigator.onLine) return false;
-    return true;
+    return !isInitialSyncCompleted();
   });
+  const [syncProgressLabel, setSyncProgressLabel] = useState('');
 
-  // Safety timeout: dismiss blocking hydration overlay after at most 6s even on slow connections
+  // Safety timeout: dismiss blocking hydration overlay after at most 45s (1.5s in Vitest)
   useEffect(() => {
     if (!isWorkspaceHydrating) return;
     const safetyTimer = setTimeout(() => {
       setIsWorkspaceHydrating(false);
-    }, 6000);
+    }, HYDRATION_SAFETY_TIMEOUT_MS);
     return () => clearTimeout(safetyTimer);
-  }, [isWorkspaceHydrating]);
+  }, [isWorkspaceHydrating, HYDRATION_SAFETY_TIMEOUT_MS]);
 
   useEffect(() => {
     if (!isOnline) {
@@ -404,16 +442,16 @@ export default function ChatApp() {
 
   useEffect(() => {
     const handleOnline = () => {
-      setIsOnline(true);
+      applyOnlineStatus(true);
       if (typeof handleManualCloudSyncRef.current === 'function') {
         handleManualCloudSyncRef.current().catch(() => { });
       }
     };
-    const handleOffline = () => setIsOnline(false);
+    const handleOffline = () => applyOnlineStatus(false);
 
     const handleNetworkStatus = (e) => {
       if (e?.detail && typeof e.detail.online === 'boolean') {
-        setIsOnline(e.detail.online);
+        applyOnlineStatus(e.detail.online);
         if (e.detail.online && typeof handleManualCloudSyncRef.current === 'function') {
           handleManualCloudSyncRef.current().catch(() => { });
         }
@@ -432,33 +470,21 @@ export default function ChatApp() {
         if (typeof window !== 'undefined' && window.MediskyeNativeAuth && typeof window.MediskyeNativeAuth.isOnline === 'function') {
           const nativeOn = Boolean(window.MediskyeNativeAuth.isOnline());
           if (!nativeOn) {
-            setIsOnline(false);
+            applyOnlineStatus(false);
             return;
           }
         }
         if (typeof navigator !== 'undefined' && !navigator.onLine) {
-          setIsOnline(false);
+          applyOnlineStatus(false);
           return;
         }
         if (import.meta.env?.MODE === 'test') {
-          // Avoid localhost connection refused errors in vitest environments without live backend
           return;
         }
-        const controller = new AbortController();
-        const tid = setTimeout(() => controller.abort(), 3000);
-        const res = await fetch(`${API_BASE_URL}/health`, {
-          method: 'GET',
-          cache: 'no-store',
-          signal: controller.signal,
-        });
-        clearTimeout(tid);
-        if (res.status >= 200 && res.status < 600) {
-          setIsOnline(true);
-        } else {
-          setIsOnline(false);
-        }
+        const online = await checkConnectivity();
+        applyOnlineStatus(online);
       } catch (_) {
-        setIsOnline(false);
+        applyOnlineStatus(false);
       }
     };
 
@@ -476,13 +502,17 @@ export default function ChatApp() {
     }, 10000);
 
     return () => {
+      if (offlineTimerRef.current) {
+        clearTimeout(offlineTimerRef.current);
+        offlineTimerRef.current = null;
+      }
       window.removeEventListener('online', handleOnline);
       window.removeEventListener('offline', handleOffline);
       window.removeEventListener('mediskye-network-status', handleNetworkStatus);
       document.removeEventListener('visibilitychange', handleVisibility);
       clearInterval(intervalId);
     };
-  }, []);
+  }, [applyOnlineStatus]);
 
   useEffect(() => {
     if (Array.isArray(dependents) && dependents.length > 0) {
@@ -505,36 +535,22 @@ export default function ChatApp() {
     }
   }, [dependents]);
 
-  const syncAllProfilesInBackground = useCallback(async (activePatId, depList = null) => {
-    if (typeof navigator !== 'undefined' && !navigator.onLine) return;
-    try {
-      let deps = depList;
-      if (!Array.isArray(deps)) {
-        deps = typeof getDependents === 'function' ? await getDependents().catch(() => []) : [];
-      }
-      const currentActive = String(activePatId || selectedPatientId || 'self');
-      const allProfileIds = ['self', ...(Array.isArray(deps) ? deps.map((d) => String(d.id)) : [])];
-      const otherProfileIds = allProfileIds.filter((pid) => pid !== currentActive);
-
-      if (typeof syncSingleProfileToLocalCache === 'function') {
-        await Promise.allSettled(
-          otherProfileIds.map((pid) =>
-            syncSingleProfileToLocalCache(pid, {
-              isCurrentActive: false,
-              updateUiCallback: ({ patientId, reportCount }) => {
-                setProfileReportCounts((prev) => ({
-                  ...prev,
-                  [String(patientId)]: reportCount,
-                }));
-              },
-            }).catch(() => {})
-          )
-        );
-      }
-    } catch (err) {
-      logger.warn('syncAllProfilesInBackground error:', err);
-    }
-  }, [selectedPatientId]);
+  const syncAllProfilesInBackground = useCallback(async (activePatId, depList = null, options = {}) => {
+    return apiSyncAllProfiles(activePatId || selectedPatientId || 'self', depList || dependents || [], {
+      onProgress: (done, total, label) => {
+        setSyncProgressLabel(label);
+        options?.onProgress?.(done, total, label);
+      },
+      onProfileSynced: ({ patientId, docs, reportCount, conversations: syncedConvs }) => {
+        setProfileReportCounts((prev) => ({
+          ...prev,
+          [String(patientId)]: reportCount ?? (docs || []).length,
+        }));
+        options?.onProfileSynced?.({ patientId, docs, reportCount, conversations: syncedConvs });
+      },
+      ...options,
+    });
+  }, [selectedPatientId, dependents]);
 
   // Preload lazy modal chunks in background idle time
   useEffect(() => {
@@ -1191,21 +1207,39 @@ export default function ChatApp() {
       if (userLoadedRef.current === currentUser.id) return;
       userLoadedRef.current = currentUser.id;
 
-      refreshDocuments(null, null, 'self').then((docs) => {
-        setIsWorkspaceHydrating(false);
-        // Always start on a fresh empty New Chat under self
-        setActivePdf(null);
-        // Pre-warm local cache for primary patient in background
-        prewarmPatientLocalCache('self', dependents || [], docs || []);
-        // Automatically pre-download ALL dependent profiles in the background
-        Promise.resolve(syncAllProfilesInBackground('self', dependents)).catch(() => {});
-      }).catch(() => {
-        setIsWorkspaceHydrating(false);
-        setActivePdf(null);
-        Promise.resolve(syncAllProfilesInBackground('self', dependents)).catch(() => {});
-      });
+      const runInitialSync = async () => {
+        try {
+          if (typeof navigator !== 'undefined' && !navigator.onLine) {
+            setIsWorkspaceHydrating(false);
+            return;
+          }
+
+          const needsLock = !isInitialSyncCompleted();
+          if (needsLock) {
+            setIsWorkspaceHydrating(true);
+          }
+
+          const syncPromise = syncAllProfilesInBackground('self', dependents || [], {
+            onProgress: (done, total, label) => setSyncProgressLabel(label),
+          });
+
+          const docs = await refreshDocuments(null, null, 'self').catch(() => []);
+          setActivePdf(null);
+          prewarmPatientLocalCache('self', dependents || [], docs || []);
+
+          if (needsLock) {
+            await syncPromise;
+          }
+        } catch (err) {
+          logger.warn('Initial workspace sync error:', err);
+        } finally {
+          setIsWorkspaceHydrating(false);
+        }
+      };
+
+      runInitialSync();
     }
-  }, [currentUser?.id, refreshDocuments, dependents, syncAllProfilesInBackground]);
+  }, [currentUser?.id, refreshDocuments, dependents, syncAllProfilesInBackground, isInitialSyncCompleted]);
 
   // ── Enforce permanent dark theme on the DOM ──
   useEffect(() => {
@@ -2351,8 +2385,8 @@ export default function ChatApp() {
         prewarmMessageHistories(conversations, patId);
       }, 50);
 
-      // 6. Pre-download all other dependent profiles in background
-      Promise.resolve(syncAllProfilesInBackground(patId, freshDeps)).catch(() => {});
+      // 6. Pre-download all profiles and lock sync overlay until 100% complete
+      await syncAllProfilesInBackground(patId, freshDeps);
 
       setSyncToast('Synced with cloud');
       setTimeout(() => setSyncToast(null), 2000);
@@ -2753,7 +2787,7 @@ export default function ChatApp() {
             Preparing Your Clinical Workspace
           </h2>
           <p className="text-sm text-slate-400 max-w-sm">
-            Syncing latest health records, biomarker trends, and encrypted consultations from the cloud...
+            {syncProgressLabel || 'Syncing latest health records, biomarker trends, and encrypted consultations from the cloud...'}
           </p>
           <div className="mt-6 flex items-center gap-2">
             <span className="w-2 h-2 rounded-full bg-cyan-400 animate-ping" />

@@ -90,6 +90,7 @@ public class MainActivity extends BridgeActivity {
                     public void onLost(Network network) {
                         if (pendingOfflineRunnable != null) {
                             networkHandler.removeCallbacks(pendingOfflineRunnable);
+                            pendingOfflineRunnable = null;
                         }
                         pendingOfflineRunnable = new Runnable() {
                             @Override
@@ -98,7 +99,7 @@ public class MainActivity extends BridgeActivity {
                                 pendingOfflineRunnable = null;
                             }
                         };
-                        networkHandler.postDelayed(pendingOfflineRunnable, 400);
+                        networkHandler.postDelayed(pendingOfflineRunnable, 1200);
                     }
 
                     @Override
@@ -118,7 +119,7 @@ public class MainActivity extends BridgeActivity {
                                         pendingOfflineRunnable = null;
                                     }
                                 };
-                                networkHandler.postDelayed(pendingOfflineRunnable, 400);
+                                networkHandler.postDelayed(pendingOfflineRunnable, 1200);
                             }
                         }
                     }

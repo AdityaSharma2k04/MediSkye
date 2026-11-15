@@ -47,6 +47,17 @@ vi.mock('../services/api', () => ({
   setCachedChatMessages: vi.fn(),
   prewarmPatientLocalCache: vi.fn().mockResolvedValue(),
   syncSingleProfileToLocalCache: vi.fn().mockResolvedValue({ docs: [], conversations: [] }),
+  userKey: vi.fn((prefix, uid) => `${prefix}_${uid || 'default'}`),
+  getCurrentUid: vi.fn(() => 'u_test'),
+  syncAllProfilesInBackground: vi.fn(async (activePatId, depList, opts) => {
+    const deps = Array.isArray(depList) ? depList : [];
+    for (const dep of deps) {
+      if (dep?.id) {
+        await api.syncSingleProfileToLocalCache(String(dep.id), opts);
+      }
+    }
+    return { success: true };
+  }),
   emitConnectivityStatus: vi.fn(),
   checkConnectivity: vi.fn(),
   API_BASE_URL: 'http://localhost:8000',

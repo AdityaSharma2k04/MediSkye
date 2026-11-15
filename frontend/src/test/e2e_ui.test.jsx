@@ -127,6 +127,10 @@ vi.mock('../services/api', () => ({
   getCachedTrends: vi.fn().mockReturnValue(null),
   setCachedTrends: vi.fn(),
   prewarmPatientLocalCache: vi.fn(),
+  syncSingleProfileToLocalCache: vi.fn().mockResolvedValue({ docs: [], conversations: [] }),
+  userKey: vi.fn((prefix, uid) => `${prefix}_${uid || 'default'}`),
+  getCurrentUid: vi.fn(() => 'u_test'),
+  syncAllProfilesInBackground: vi.fn().mockResolvedValue({ success: true }),
   api: {
     post: (...args) => mockApiPost(...args),
     get: vi.fn(),

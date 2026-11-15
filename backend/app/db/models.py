@@ -51,6 +51,7 @@ class User(Base):
 
     # Extended Personalization Profile Fields (static)
     height_cm = Column(Float, nullable=True)
+    weight_kg = Column(Float, nullable=True)
     diet_type = Column(String, nullable=True)       # vegetarian|non_vegetarian|vegan|eggetarian|jain|pescatarian|other
     activity_level = Column(String, nullable=True)  # sedentary|light|moderate|active|very_active
     occupation = Column(EncryptedString, nullable=True)
@@ -70,6 +71,7 @@ class User(Base):
                 "known_allergies": self.known_allergies,
                 "current_medications": self.current_medications,
                 "height_cm": self.height_cm,
+                "weight_kg": self.weight_kg,
                 "diet_type": self.diet_type,
                 "activity_level": self.activity_level,
                 "occupation": self.occupation,
@@ -104,6 +106,7 @@ class DependentProfile(Base):
 
     # Extended Personalization Profile Fields (static)
     height_cm = Column(Float, nullable=True)
+    weight_kg = Column(Float, nullable=True)
     diet_type = Column(String, nullable=True)
     activity_level = Column(String, nullable=True)
     occupation = Column(EncryptedString, nullable=True)

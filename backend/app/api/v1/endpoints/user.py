@@ -39,6 +39,7 @@ from app.schemas.user import (
 from app.schemas.dependent import DependentCreate, DependentUpdate, DependentResponse
 from app.core.audit import log_audit
 from app.core.limiter import limiter
+from app.core.clinical import compute_bmi_info
 from app.rag.prompt_builder import build_document_summary_prompt
 from app.core.security import clean_filename_to_title, sanitize_text
 from app.services.patient_service import calculate_age
@@ -54,6 +55,7 @@ router = APIRouter(tags=["Users & Dependents"])
 async def read_user_me(current_user: User = Depends(get_current_user_full)):
     user_res = UserResponse.model_validate(current_user)
     user_res.calculated_age = calculate_age(current_user.date_of_birth)
+    user_res.bmi_info = compute_bmi_info(current_user.height_cm, current_user.weight_kg)
     return user_res
 
 @router.put("/users/me", response_model=UserResponse)
@@ -76,6 +78,7 @@ async def update_user_me(
     await log_audit(db, "PROFILE_UPDATE", current_user.id, "profile", request.client.host if request.client else "unknown")
     user_res = UserResponse.model_validate(current_user)
     user_res.calculated_age = calculate_age(current_user.date_of_birth)
+    user_res.bmi_info = compute_bmi_info(current_user.height_cm, current_user.weight_kg)
     return user_res
 
 
@@ -713,6 +716,7 @@ async def clear_all_chats(
             obj.activity_level = None
             obj.occupation = None
             obj.height_cm = None
+            obj.weight_kg = None
             obj.date_of_birth = None
             obj.biological_sex = None
 
@@ -828,6 +832,8 @@ async def export_my_data(
         "known_allergies": current_user.known_allergies,
         "current_medications": current_user.current_medications,
         "height_cm": current_user.height_cm,
+        "weight_kg": current_user.weight_kg,
+        "bmi_info": compute_bmi_info(current_user.height_cm, current_user.weight_kg),
         "diet_type": current_user.diet_type,
         "activity_level": current_user.activity_level,
         "occupation": current_user.occupation,
@@ -859,6 +865,8 @@ async def export_my_data(
             "known_allergies": d.known_allergies,
             "current_medications": d.current_medications,
             "height_cm": d.height_cm,
+            "weight_kg": d.weight_kg,
+            "bmi_info": compute_bmi_info(d.height_cm, d.weight_kg),
             "diet_type": d.diet_type,
             "activity_level": d.activity_level,
             "occupation": d.occupation,
@@ -1111,6 +1119,7 @@ async def list_dependents(
     for dep in dependents:
         item = DependentResponse.model_validate(dep)
         item.calculated_age = calculate_age(dep.date_of_birth)
+        item.bmi_info = compute_bmi_info(dep.height_cm, dep.weight_kg)
         responses.append(item)
         
     return responses
@@ -1133,6 +1142,7 @@ async def create_dependent(
         known_allergies=dependent_in.known_allergies,
         current_medications=dependent_in.current_medications,
         height_cm=dependent_in.height_cm,
+        weight_kg=dependent_in.weight_kg,
         diet_type=dependent_in.diet_type,
         activity_level=dependent_in.activity_level,
         occupation=dependent_in.occupation,
@@ -1145,6 +1155,7 @@ async def create_dependent(
     
     item = DependentResponse.model_validate(dep)
     item.calculated_age = calculate_age(dep.date_of_birth)
+    item.bmi_info = compute_bmi_info(dep.height_cm, dep.weight_kg)
     return item
 
 @router.put("/users/me/dependents/{dependent_id}", response_model=DependentResponse)
@@ -1177,6 +1188,7 @@ async def update_dependent(
     
     item = DependentResponse.model_validate(dep)
     item.calculated_age = calculate_age(dep.date_of_birth)
+    item.bmi_info = compute_bmi_info(dep.height_cm, dep.weight_kg)
     return item
 
 @router.delete("/users/me/dependents/{dependent_id}", status_code=status.HTTP_204_NO_CONTENT)

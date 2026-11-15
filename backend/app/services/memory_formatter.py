@@ -2,6 +2,7 @@ import logging
 from typing import List, Dict, Any, Optional
 
 from app.core.security import escape_xml_content
+from app.core.clinical import compute_bmi_info
 
 logger = logging.getLogger(__name__)
 
@@ -57,8 +58,16 @@ def format_facts_for_prompt(
                 lines.append(f"- Diet: {escape_xml_content(str(profile.diet_type))}")
             if getattr(profile, "activity_level", None):
                 lines.append(f"- Activity: {escape_xml_content(str(profile.activity_level))}")
-            if getattr(profile, "height_cm", None) is not None:
-                lines.append(f"- Height: {profile.height_cm} cm")
+            h = getattr(profile, "height_cm", None)
+            w = getattr(profile, "weight_kg", None)
+            bmi_info = compute_bmi_info(h, w)
+            if bmi_info:
+                lines.append(f"- Height: {h} cm | Weight: {w} kg | Calculated BMI: {bmi_info['bmi']} kg/m² ({bmi_info['category']})")
+            else:
+                if h is not None:
+                    lines.append(f"- Height: {h} cm")
+                if w is not None:
+                    lines.append(f"- Weight: {w} kg")
             if getattr(profile, "occupation", None):
                 lines.append(f"- Occupation: {escape_xml_content(str(profile.occupation))}")
 
@@ -96,8 +105,16 @@ def format_facts_for_prompt(
             profile_lines.append(f"- Diet: {escape_xml_content(str(profile.diet_type))}")
         if getattr(profile, "activity_level", None):
             profile_lines.append(f"- Activity: {escape_xml_content(str(profile.activity_level))}")
-        if getattr(profile, "height_cm", None) is not None:
-            profile_lines.append(f"- Height: {profile.height_cm} cm")
+        h = getattr(profile, "height_cm", None)
+        w = getattr(profile, "weight_kg", None)
+        bmi_info = compute_bmi_info(h, w)
+        if bmi_info:
+            profile_lines.append(f"- Height: {h} cm | Weight: {w} kg | Calculated BMI: {bmi_info['bmi']} kg/m² ({bmi_info['category']})")
+        else:
+            if h is not None:
+                profile_lines.append(f"- Height: {h} cm")
+            if w is not None:
+                profile_lines.append(f"- Weight: {w} kg")
         if getattr(profile, "occupation", None):
             profile_lines.append(f"- Occupation: {escape_xml_content(str(profile.occupation))}")
         if profile_lines:
