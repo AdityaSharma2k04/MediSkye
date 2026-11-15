@@ -159,21 +159,45 @@ async def test_gemini_fallback_chain_raises_after_all_fail():
 
 
 @pytest.mark.asyncio
-async def test_gemini_does_not_fallback_on_400():
+async def test_gemini_falls_back_on_400_across_models():
     mock_client = MagicMock()
     mock_client.models.generate_content.side_effect = Exception("400 INVALID_ARGUMENT: Bad Request")
 
-    with pytest.raises(Exception) as exc_info:
+    with pytest.raises(GeminiUnavailableError) as exc_info:
         await call_gemini_with_retry(
             prompt="Analyze lab report",
             client=mock_client,
             max_attempts=3,
             backoff_delays=[0.001, 0.001, 0.001],
+            fallback_models=["model-a", "model-b"],
         )
 
-    assert "400 INVALID_ARGUMENT" in str(exc_info.value)
-    # Must raise immediately on attempt 1 with no retry or fallback
-    assert mock_client.models.generate_content.call_count == 1
+    assert "All models failed" in str(exc_info.value)
+    # Tries each fallback model once without looping attempts on non-retryable 400
+    assert mock_client.models.generate_content.call_count == 2
+
+
+@pytest.mark.asyncio
+async def test_gemini_retries_without_thinking_config_on_400():
+    mock_client = MagicMock()
+    class DummyConfig:
+        thinking_config = "some_config"
+
+    mock_resp = MagicMock()
+    # First call with thinking_config raises 400, second call without thinking_config succeeds
+    mock_client.models.generate_content.side_effect = [
+        Exception("400 INVALID_ARGUMENT: thinking_config not supported"),
+        mock_resp,
+    ]
+
+    res = await call_gemini_with_retry(
+        prompt="Analyze lab report",
+        client=mock_client,
+        config=DummyConfig(),
+        fallback_models=["gemini-3.5-flash"],
+    )
+    assert res == mock_resp
+    assert mock_client.models.generate_content.call_count == 2
 
 
 @pytest.mark.asyncio

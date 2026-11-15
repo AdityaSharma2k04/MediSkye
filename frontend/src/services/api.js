@@ -2164,10 +2164,10 @@ export async function syncSingleProfileToLocalCache(patientId = 'self', options 
     const safeDocs = Array.isArray(docs) ? docs : [];
     setCachedDocuments(safeDocs, pid);
 
-    // 2. Fetch chat sessions and general chats
+    // 2. Fetch chat sessions and general chats with exact patient ID
     const [chatSessions, generalChats] = await Promise.all([
       getChatSessions(pid).catch(() => []),
-      getGeneralChats().catch(() => []),
+      getGeneralChats(null, pid).catch(() => []),
     ]);
 
     // 3. Build merged conversations list for pid
@@ -2297,7 +2297,7 @@ export async function syncSingleProfileToLocalCache(patientId = 'self', options 
     // 5. Concurrently fetch and cache full chat messages for all conversations of pid
     const docChatPromises = safeDocs.map(async (doc) => {
       try {
-        const chats = await getDocumentChats(doc.id).catch(() => []);
+        const chats = await getDocumentChats(doc.id, null, pid).catch(() => []);
         if (Array.isArray(chats)) {
           const formatted = chats.map((c) => ({
             id: c.id,

@@ -121,6 +121,33 @@ def _is_retryable_error(exc: Exception) -> bool:
     return any(code in err_str for code in retryable_codes)
 
 
+def _has_thinking_config(cfg: Any) -> bool:
+    """Check if config has a thinking_config attached."""
+    if cfg is None:
+        return False
+    if isinstance(cfg, dict):
+        return "thinking_config" in cfg and cfg["thinking_config"] is not None
+    return hasattr(cfg, "thinking_config") and getattr(cfg, "thinking_config", None) is not None
+
+
+def _strip_thinking_config(cfg: Any) -> Any:
+    """Return a copy of config with thinking_config removed or set to None."""
+    if cfg is None:
+        return None
+    if isinstance(cfg, dict):
+        new_cfg = dict(cfg)
+        new_cfg.pop("thinking_config", None)
+        return new_cfg
+    try:
+        import copy
+        new_cfg = copy.copy(cfg)
+        if hasattr(new_cfg, "thinking_config"):
+            setattr(new_cfg, "thinking_config", None)
+        return new_cfg
+    except Exception:
+        return None
+
+
 def _sync_generate_content(api_client, model, contents, **kwargs):
     return api_client.models.generate_content(
         model=model,
@@ -217,6 +244,42 @@ async def call_gemini_with_retry(
                 last_exception = exc
                 err_str = str(exc).lower()
 
+                # Handle 400 / INVALID_ARGUMENT with thinking_config: retry immediately without thinking_config
+                is_400 = "400" in err_str or "invalid_argument" in err_str or "invalid argument" in err_str
+                if is_400 and _has_thinking_config(call_kwargs.get("config")):
+                    logger.info(
+                        "Model %s rejected thinking_config with 400; retrying immediately without thinking_config",
+                        current_model,
+                    )
+                    retry_kwargs = dict(call_kwargs)
+                    retry_kwargs["config"] = _strip_thinking_config(call_kwargs.get("config"))
+                    try:
+                        response = await asyncio.wait_for(
+                            asyncio.to_thread(
+                                _sync_generate_content,
+                                api_client,
+                                current_model,
+                                contents,
+                                **retry_kwargs,
+                            ),
+                            timeout=float(timeout),
+                        )
+                        input_tokens = getattr(getattr(response, "usage_metadata", None), "prompt_token_count", None)
+                        output_tokens = getattr(getattr(response, "usage_metadata", None), "candidates_token_count", None)
+                        logger.info(
+                            "Gemini call succeeded without thinking_config: model=%s user_id=%s attempt=%d input_tokens=%s output_tokens=%s",
+                            current_model,
+                            user_id or "anonymous",
+                            attempt,
+                            input_tokens,
+                            output_tokens,
+                        )
+                        return response
+                    except Exception as retry_exc:
+                        exc = retry_exc
+                        last_exception = retry_exc
+                        err_str = str(retry_exc).lower()
+
                 # Handle 404 / NOT_FOUND: Model not enabled or doesn't exist on project/region
                 if "404" in err_str or "not_found" in err_str or "not found" in err_str:
                     logger.warning(
@@ -229,7 +292,7 @@ async def call_gemini_with_retry(
                 is_retryable = _is_retryable_error(exc)
                 if not is_retryable:
                     logger.warning(
-                        "Non-retryable error on model %s: %s.",
+                        "Non-retryable error on model %s: %s. Trying next fallback model.",
                         current_model,
                         exc,
                     )
@@ -237,7 +300,9 @@ async def call_gemini_with_retry(
                         "per_day" in err_str or "generate_content_free_tier_requests" in err_str
                     ):
                         _llm_dead_until = time.monotonic() + _LLM_DAILY_COOLDOWN
-                    raise exc
+                        raise exc
+                    # Advance to next model in fallback chain
+                    break
 
                 logger.warning(
                     "Gemini call failed on attempt %d/%d for model %s: %s (retryable=%s)",

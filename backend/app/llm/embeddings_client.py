@@ -95,6 +95,32 @@ async def embed_content_with_retry(
                 last_exception = exc
                 err_str = str(exc).lower()
 
+                # Handle 400 with output_dimensionality: retry without output_dimensionality if rejected
+                is_400 = "400" in err_str or "invalid_argument" in err_str or "invalid argument" in err_str
+                if is_400 and ("output_dimensionality" in err_str or "dimensionality" in err_str or "dimension" in err_str):
+                    logger.info("Embedding model %s rejected output_dimensionality; retrying without it", target_model)
+                    try:
+                        from google.genai.types import EmbedContentConfig, HttpOptions
+                        opt = HttpOptions(timeout=int(timeout * 1000)) if timeout and timeout > 0 else None
+                        retry_kwargs = dict(call_kwargs)
+                        retry_kwargs["config"] = EmbedContentConfig(http_options=opt)
+                        response = await asyncio.wait_for(
+                            asyncio.to_thread(
+                                _sync_embed_content,
+                                api_client,
+                                target_model,
+                                contents,
+                                **retry_kwargs,
+                            ),
+                            timeout=float(timeout),
+                        )
+                        _WORKING_EMBEDDING_MODEL = target_model
+                        return response
+                    except Exception as retry_exc:
+                        exc = retry_exc
+                        last_exception = retry_exc
+                        err_str = str(retry_exc).lower()
+
                 # Handle 404 / NOT_FOUND: Mark model unavailable and try next model immediately
                 if "404" in err_str or "not_found" in err_str or "not found" in err_str:
                     logger.warning(

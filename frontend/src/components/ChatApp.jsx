@@ -343,7 +343,7 @@ export default function ChatApp() {
   };
 
   const DEBOUNCE_OFFLINE_MS = (typeof window !== 'undefined' && (window.__VITEST__ || process.env.NODE_ENV === 'test')) ? 50 : 1200;
-  const HYDRATION_SAFETY_TIMEOUT_MS = (typeof window !== 'undefined' && (window.__VITEST__ || process.env.NODE_ENV === 'test')) ? 1500 : 45000;
+  const HYDRATION_SAFETY_TIMEOUT_MS = (typeof window !== 'undefined' && (window.__VITEST__ || process.env.NODE_ENV === 'test')) ? 1500 : 8000;
 
   const [isOnline, setIsOnline] = useState(getInitialOnlineState);
   const isOnlineRef = useRef(isOnline);
@@ -1228,7 +1228,10 @@ export default function ChatApp() {
           prewarmPatientLocalCache('self', dependents || [], docs || []);
 
           if (needsLock) {
-            await syncPromise;
+            await Promise.race([
+              syncPromise,
+              new Promise((resolve) => setTimeout(resolve, HYDRATION_SAFETY_TIMEOUT_MS)),
+            ]);
           }
         } catch (err) {
           logger.warn('Initial workspace sync error:', err);
@@ -2385,8 +2388,11 @@ export default function ChatApp() {
         prewarmMessageHistories(conversations, patId);
       }, 50);
 
-      // 6. Pre-download all profiles and lock sync overlay until 100% complete
-      await syncAllProfilesInBackground(patId, freshDeps);
+      // 6. Pre-download all profiles and lock sync overlay until 100% complete (with safety timeout)
+      await Promise.race([
+        syncAllProfilesInBackground(patId, freshDeps),
+        new Promise((resolve) => setTimeout(resolve, HYDRATION_SAFETY_TIMEOUT_MS)),
+      ]);
 
       setSyncToast('Synced with cloud');
       setTimeout(() => setSyncToast(null), 2000);

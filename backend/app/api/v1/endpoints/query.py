@@ -23,7 +23,14 @@ from app.core.audit import log_audit
 from app.core.security import generate_title_from_query, sanitize_text
 from app.db.database import get_db, AsyncSessionLocal
 from app.db.models import Document, Chat, ChatDocument, DependentProfile, User, PatientFact
-from app.llm.gemini_client import GeminiUnavailableError, get_genai_client, call_gemini_with_retry, get_fallback_models
+from app.llm.gemini_client import (
+    GeminiUnavailableError,
+    get_genai_client,
+    call_gemini_with_retry,
+    get_fallback_models,
+    is_model_unavailable,
+    mark_model_unavailable,
+)
 from app.rag.index_storage import aensure_index_local
 from app.schemas.query import QueryRequest
 from app.rag.prompt_builder import (
@@ -233,6 +240,96 @@ def _clean_disclaimers(text: str, is_followup_turn: bool, has_critical_alert: bo
         return text
 
 
+def _sanitize_clinical_output(text: str, is_followup_turn: bool = False, user_query: str = "") -> str:
+    """Enforce clinical communication style rules and tentative causal language."""
+    if not text:
+        return text
+
+    banned_replacements = [
+        (r'\babsolutely\b', 'certainly'),
+        (r'\bhighly likely\b', 'likely'),
+        (r'\bexactly why\b', 'why'),
+        (r'\bprimary driver\b', 'key factor'),
+        (r'\bdirectly connected\b', 'associated'),
+        (r'\bpoints? away from\b', 'suggests against'),
+        (r'\bpoints? toward\b', 'suggests'),
+        (r'\bpoints? to\b', 'suggests'),
+        (r'\bconfirms that\b', 'indicates that'),
+        (r'\bconfirms the\b', 'corresponds to the'),
+        (r'\bno need to (?:panic|worry)\b', 'no immediate cause for alarm'),
+        (r'\bfantastic shape\b', 'reassuring health'),
+        (r'\brather than a sign of organ damage\b', 'rather than indicating organ dysfunction'),
+    ]
+    for pat, rep in banned_replacements:
+        text = re.sub(pat, rep, text, flags=re.IGNORECASE)
+
+    text = re.sub(r'^\s*It is (?:so |really |completely |incredibly )?(?:natural|wonderful|smart|excellent|understandable|common)\s+to\s+feel\s+', 'Feeling ', text, flags=re.IGNORECASE)
+    text = re.sub(r'^\s*It is (?:so |really |completely |incredibly )?(?:natural|wonderful|smart|excellent|understandable|common)\s+to\s+', 'It is reasonable to ', text, flags=re.IGNORECASE)
+
+    if is_followup_turn:
+        text = re.sub(r'(?m)^###\s+(.*)$', r'**\1**', text)
+
+    return text
+
+
+def _recover_document_chunks_in_memory(doc: Any, query: str, k: int = 8) -> list:
+    """Fall back to reconstructing document chunks from DB-cached raw chunks or text when FAISS index is missing."""
+    from langchain_core.documents import Document as LCDocument
+    from app.rag.hybrid_search import BM25Index
+
+    raw_chunks = None
+    if getattr(doc, "cached_metrics", None) and isinstance(doc.cached_metrics, dict):
+        raw_chunks = doc.cached_metrics.get("_raw_chunks")
+
+    chunk_docs: list[LCDocument] = []
+    if raw_chunks and isinstance(raw_chunks, list):
+        for idx, text in enumerate(raw_chunks):
+            if text and str(text).strip():
+                chunk_docs.append(LCDocument(
+                    page_content=str(text).strip(),
+                    metadata={
+                        "source": doc.title or doc.filename or "Medical Report",
+                        "filename": doc.filename or "report.pdf",
+                        "chunk_index": idx,
+                    }
+                ))
+    elif getattr(doc, "extracted_text", None) and doc.extracted_text.strip():
+        txt = doc.extracted_text.strip()
+        lines = [line.strip() for line in txt.split("\n") if line.strip()]
+        cur_block = []
+        cur_len = 0
+        idx = 0
+        for l in lines:
+            cur_block.append(l)
+            cur_len += len(l)
+            if cur_len >= 500:
+                chunk_docs.append(LCDocument(
+                    page_content="\n".join(cur_block),
+                    metadata={"source": doc.title or doc.filename, "filename": doc.filename, "chunk_index": idx}
+                ))
+                idx += 1
+                cur_block = []
+                cur_len = 0
+        if cur_block:
+            chunk_docs.append(LCDocument(
+                page_content="\n".join(cur_block),
+                metadata={"source": doc.title or doc.filename, "filename": doc.filename, "chunk_index": idx}
+            ))
+
+    if not chunk_docs:
+        return []
+
+    try:
+        bm25 = BM25Index(chunk_docs)
+        scored = bm25.search(query, k=k)
+        if scored:
+            return [doc_obj for doc_obj, _ in scored]
+    except Exception as e:
+        logger.warning("BM25 in-memory recovery failed: %s; returning first %d chunks", e, k)
+
+    return chunk_docs[:k]
+
+
 async def link_chat_documents_batch(
     db: AsyncSession,
     chat_id: uuid.UUID,
@@ -406,11 +503,17 @@ async def query_bot(
                 gcs_retrieved = False
 
         if not gcs_retrieved:
-            raise HTTPException(
-                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-                detail="Document index temporarily unavailable. Please retry in 2 seconds.",
-                headers={"Retry-After": "2"},
+            # Check if document has cached raw chunks or extracted text to recover in-memory
+            has_raw_fallback = bool(
+                (getattr(d, "cached_metrics", None) and isinstance(d.cached_metrics, dict) and d.cached_metrics.get("_raw_chunks"))
+                or getattr(d, "extracted_text", None)
             )
+            if not has_raw_fallback:
+                raise HTTPException(
+                    status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                    detail="Document index temporarily unavailable. Please retry in 2 seconds.",
+                    headers={"Retry-After": "2"},
+                )
 
     # ── Auto-naming helper (DB commit deferred until after 409 Conflict lock) ──
     updated_chat_title: Optional[str] = None
@@ -675,21 +778,27 @@ async def query_bot(
                         else:
                             resolved_path = str(await aensure_index_local(d.file_path))
                             if not os.path.exists(resolved_path):
-                                logger.warning("Index file missing after ensure_local: %s", resolved_path)
-                                continue
+                                logger.warning("Index file missing after ensure_local: %s; falling back to in-memory recovery", resolved_path)
+                                doc_chunks = _recover_document_chunks_in_memory(d, body.query, k=per_doc_k)
+                            else:
+                                def _load_and_retrieve(path, q):
+                                    v, b = load_hybrid_index(path)
+                                    return retrieve_relevant_docs(q, v, b, k=per_doc_k)
 
-                            def _load_and_retrieve(path, q):
-                                v, b = load_hybrid_index(path)
-                                return retrieve_relevant_docs(q, v, b, k=per_doc_k)
-
-                            doc_chunks = await asyncio.to_thread(_load_and_retrieve, resolved_path, body.query)
+                                doc_chunks = await asyncio.to_thread(_load_and_retrieve, resolved_path, body.query)
                         for c in doc_chunks:
                             c.metadata["source"] = d.title or d.filename
                             c.metadata["filename"] = d.filename
                         if doc_chunks:
                             all_doc_results.append(doc_chunks)
                     except Exception as e:
-                        logger.warning("Failed to search index for doc %s: %s", d.filename, e)
+                        logger.warning("Failed to search index for doc %s: %s; attempting in-memory chunk recovery", d.filename, e)
+                        fallback_chunks = _recover_document_chunks_in_memory(d, body.query, k=per_doc_k)
+                        if fallback_chunks:
+                            for c in fallback_chunks:
+                                c.metadata["source"] = d.title or d.filename
+                                c.metadata["filename"] = d.filename
+                            all_doc_results.append(fallback_chunks)
 
                 if len(all_doc_results) == 1:
                     retrieved_chunks = all_doc_results[0]
@@ -1011,6 +1120,8 @@ async def query_bot(
             last_stream_exception = None
 
             for model_idx, current_model in enumerate(models_to_try):
+                if is_model_unavailable(current_model):
+                    continue
                 if await request.is_disconnected():
                     logger.info("Client disconnected before model attempt %s; aborting stream loop.", current_model)
                     break
@@ -1023,22 +1134,44 @@ async def query_bot(
 
                 def _stream_producer(target_model=current_model, target_queue=queue, sentinel=SENTINEL):
                     from google.genai.types import GenerateContentConfig, ThinkingConfig
-                    from app.llm.gemini_client import get_genai_client
+                    from app.llm.gemini_client import get_genai_client, mark_model_unavailable
 
                     client = get_genai_client()
                     try:
-                        response = client.models.generate_content_stream(
-                            model=target_model,
-                            contents=user_content,
-                            config=GenerateContentConfig(
-                                system_instruction=system_instruction,
-                                thinking_config=ThinkingConfig(thinking_budget=0),
-                            ),
-                        )
+                        try:
+                            response = client.models.generate_content_stream(
+                                model=target_model,
+                                contents=user_content,
+                                config=GenerateContentConfig(
+                                    system_instruction=system_instruction,
+                                    thinking_config=ThinkingConfig(thinking_budget=0),
+                                ),
+                            )
+                        except Exception as first_exc:
+                            first_err = str(first_exc).lower()
+                            if "400" in first_err or "invalid_argument" in first_err or "invalid argument" in first_err:
+                                logger.info("Model %s rejected thinking_config with 400; retrying stream without thinking_config", target_model)
+                                response = client.models.generate_content_stream(
+                                    model=target_model,
+                                    contents=user_content,
+                                    config=GenerateContentConfig(
+                                        system_instruction=system_instruction,
+                                    ),
+                                )
+                            else:
+                                raise first_exc
+
+                        chunk_count = 0
                         for chunk in response:
+                            chunk_count += 1
                             loop.call_soon_threadsafe(target_queue.put_nowait, chunk)
+                        if chunk_count == 0:
+                            loop.call_soon_threadsafe(target_queue.put_nowait, ValueError(f"Model {target_model} returned empty stream"))
                         loop.call_soon_threadsafe(target_queue.put_nowait, sentinel)
                     except Exception as exc:
+                        err_str = str(exc).lower()
+                        if "404" in err_str or "not_found" in err_str or "not found" in err_str:
+                            mark_model_unavailable(target_model)
                         loop.call_soon_threadsafe(target_queue.put_nowait, exc)
                         loop.call_soon_threadsafe(target_queue.put_nowait, sentinel)
 
@@ -1226,7 +1359,8 @@ async def query_bot(
                     yield f'data: {json.dumps({"chunk": disclaimer})}\n\n'
                     visible_text += disclaimer
 
-            # Post-process visible text to enforce disclaimer rules (single disclaimer on first overview only, stripped on follow-ups unless critical/SAFE_FALLBACK)
+            # Post-process visible text to enforce tentative causal language and disclaimer rules
+            visible_text = _sanitize_clinical_output(visible_text, is_followup_turn, body.query)
             visible_text = _clean_disclaimers(visible_text, is_followup_turn, has_critical_alert=has_critical)
 
             # ── Output filter scan ──
@@ -1452,6 +1586,16 @@ def strip_emojis(text: str) -> str:
 
 async def _reconstruct_document_text(doc: Document) -> str:
     """Reconstruct full text of the document from stored chunks/content in order."""
+    # Check DB cached raw chunks or extracted text first if available
+    if getattr(doc, "cached_metrics", None) and isinstance(doc.cached_metrics, dict):
+        raw_chunks = doc.cached_metrics.get("_raw_chunks")
+        if raw_chunks and isinstance(raw_chunks, list):
+            valid = [str(c).strip() for c in raw_chunks if str(c).strip()]
+            if valid:
+                return "\n\n".join(valid)
+    if getattr(doc, "extracted_text", None) and doc.extracted_text.strip():
+        return doc.extracted_text.strip()
+
     if not doc.file_path:
         return f"Medical Report: {doc.title or doc.filename}"
 

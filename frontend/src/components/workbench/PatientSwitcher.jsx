@@ -156,7 +156,7 @@ export default function PatientSwitcher({
             });
             convDocCount = docIds.size;
           }
-        } catch (_) {}
+        } catch (_) { }
 
         const depReportCount = p.report_count ?? p.document_count ?? p.raw?.report_count ?? p.raw?.document_count ?? 0;
 

@@ -10,9 +10,8 @@ import { useNavigate } from 'react-router-dom';
 
 const Input = ({ label, name, type = 'text', placeholder = '', value, onChange, darkMode, required = false }) => (
   <div className="mb-4">
-    <label className={`block text-xs font-semibold mb-1.5 ${
-      darkMode ? 'text-ink-mute' : 'text-ink-faint'
-    }`}>
+    <label className={`block text-xs font-semibold mb-1.5 ${darkMode ? 'text-ink-mute' : 'text-ink-faint'
+      }`}>
       {label} {required && <span className="text-red-400">*</span>}
     </label>
     <input
@@ -22,20 +21,18 @@ const Input = ({ label, name, type = 'text', placeholder = '', value, onChange, 
       onChange={onChange}
       placeholder={placeholder}
       required={required}
-      className={`w-full rounded-lg border px-3 py-2 text-sm focus:outline-none focus:ring-1 transition-colors ${
-        darkMode
-          ? 'bg-graphite text-white placeholder:text-ink-faint border-white/[0.07] focus:border-cyan-500/50 focus:ring-cyan-500/20'
-          : 'bg-zinc-50 text-zinc-900 placeholder-zinc-400 border-zinc-200 focus:border-zinc-400 focus:ring-zinc-400'
-      }`}
+      className={`w-full rounded-lg border px-3 py-2 text-sm focus:outline-none focus:ring-1 transition-colors ${darkMode
+        ? 'bg-graphite text-white placeholder:text-ink-faint border-white/[0.07] focus:border-cyan-500/50 focus:ring-cyan-500/20'
+        : 'bg-zinc-50 text-zinc-900 placeholder-zinc-400 border-zinc-200 focus:border-zinc-400 focus:ring-zinc-400'
+        }`}
     />
   </div>
 );
 
 const Select = ({ label, name, value, onChange, options, darkMode, required = false }) => (
   <div className="mb-4">
-    <label className={`block text-xs font-semibold mb-1.5 ${
-      darkMode ? 'text-ink-mute' : 'text-ink-faint'
-    }`}>
+    <label className={`block text-xs font-semibold mb-1.5 ${darkMode ? 'text-ink-mute' : 'text-ink-faint'
+      }`}>
       {label} {required && <span className="text-red-400">*</span>}
     </label>
     <select
@@ -43,11 +40,10 @@ const Select = ({ label, name, value, onChange, options, darkMode, required = fa
       value={value || ''}
       onChange={onChange}
       required={required}
-      className={`w-full rounded-lg border px-3 py-2 text-sm focus:outline-none focus:ring-1 transition-colors ${
-        darkMode
-          ? 'bg-graphite text-white border-white/[0.07] focus:border-cyan-500/50 focus:ring-cyan-500/20'
-          : 'bg-zinc-50 text-zinc-900 border-zinc-200 focus:border-zinc-400 focus:ring-zinc-400'
-      }`}
+      className={`w-full rounded-lg border px-3 py-2 text-sm focus:outline-none focus:ring-1 transition-colors ${darkMode
+        ? 'bg-graphite text-white border-white/[0.07] focus:border-cyan-500/50 focus:ring-cyan-500/20'
+        : 'bg-zinc-50 text-zinc-900 border-zinc-200 focus:border-zinc-400 focus:ring-zinc-400'
+        }`}
     >
       <option value="">Select {label}</option>
       {options.map((opt) => (
@@ -61,20 +57,18 @@ const Select = ({ label, name, value, onChange, options, darkMode, required = fa
 
 const TextArea = ({ label, name, placeholder = '', value, onChange, darkMode, rows = 3 }) => (
   <div className="mb-4">
-    <label className={`block text-xs font-semibold mb-1.5 ${
-      darkMode ? 'text-ink-mute' : 'text-ink-faint'
-    }`}>{label}</label>
+    <label className={`block text-xs font-semibold mb-1.5 ${darkMode ? 'text-ink-mute' : 'text-ink-faint'
+      }`}>{label}</label>
     <textarea
       name={name}
       value={value || ''}
       onChange={onChange}
       placeholder={placeholder}
       rows={rows}
-      className={`w-full rounded-lg border px-3 py-2 text-sm focus:outline-none focus:ring-1 transition-colors resize-none ${
-        darkMode
-          ? 'bg-graphite text-white placeholder:text-ink-faint border-white/[0.07] focus:border-cyan-500/50 focus:ring-cyan-500/20'
-          : 'bg-zinc-50 text-zinc-900 placeholder-zinc-400 border-zinc-200 focus:border-zinc-400 focus:ring-zinc-400'
-      }`}
+      className={`w-full rounded-lg border px-3 py-2 text-sm focus:outline-none focus:ring-1 transition-colors resize-none ${darkMode
+        ? 'bg-graphite text-white placeholder:text-ink-faint border-white/[0.07] focus:border-cyan-500/50 focus:ring-cyan-500/20'
+        : 'bg-zinc-50 text-zinc-900 placeholder-zinc-400 border-zinc-200 focus:border-zinc-400 focus:ring-zinc-400'
+        }`}
     />
   </div>
 );
@@ -327,7 +321,7 @@ export default function Profile({
           Object.assign(uObj, payload, updatedUser || {});
           localStorage.setItem('user', JSON.stringify(uObj));
         }
-      } catch (_) {}
+      } catch (_) { }
 
       // If user supplied or updated weight, log as dynamic weight fact
       if (formData.weight && String(formData.weight).trim()) {
@@ -421,7 +415,7 @@ export default function Profile({
           const match = rawVal.match(/([\d.]+)/);
           if (match) depWeight = match[1];
         }
-      } catch (e) {}
+      } catch (e) { }
     }
 
     setDependentForm({
@@ -506,7 +500,7 @@ export default function Profile({
             localStorage.setItem('dependents', JSON.stringify(nextDeps));
           }
         }
-      } catch (_) {}
+      } catch (_) { }
 
       // Record weight fact if supplied
       if (dependentForm.weight && String(dependentForm.weight).trim() && savedDep?.id) {
@@ -557,17 +551,15 @@ export default function Profile({
     setPendingDeleteDependent({ id: depId, name: depName });
   };
 
-  const cardClass = `rounded-2xl p-6 border ${
-    darkMode ? 'bg-carbon border-white/[0.07]' : 'bg-white border-zinc-200'
-  }`;
+  const cardClass = `rounded-2xl p-6 border ${darkMode ? 'bg-carbon border-white/[0.07]' : 'bg-white border-zinc-200'
+    }`;
   const textPrimary = darkMode ? 'text-white' : 'text-zinc-900';
   const textSecondary = darkMode ? 'text-ink-mute' : 'text-ink-faint';
 
   if (loading) {
     return (
-      <div className={`fixed inset-0 z-50 flex items-center justify-center ${
-        darkMode ? 'bg-black/80 backdrop-blur-sm' : 'bg-graphite/40 backdrop-blur-sm'
-      }`}>
+      <div className={`fixed inset-0 z-50 flex items-center justify-center ${darkMode ? 'bg-black/80 backdrop-blur-sm' : 'bg-graphite/40 backdrop-blur-sm'
+        }`}>
         <div className="flex flex-col items-center gap-3">
           <div className="w-8 h-8 rounded-full border-2 border-zinc-500 border-t-white animate-spin" />
           <div className={`text-sm ${textSecondary}`}>Loading Profile...</div>
@@ -588,18 +580,15 @@ export default function Profile({
     >
       <div
         ref={modalRef}
-        className={`w-full sm:max-w-3xl rounded-t-[28px] sm:rounded-3xl border shadow-float overflow-hidden flex flex-col max-h-[94dvh] sm:max-h-[90dvh] ms-sheet-mobile sm:animate-modal-in ${
-          darkMode ? 'bg-carbon border-white/[0.07]' : 'bg-white border-zinc-200'
-        }`}
+        className={`w-full sm:max-w-3xl rounded-t-[28px] sm:rounded-3xl border shadow-float overflow-hidden flex flex-col max-h-[94dvh] sm:max-h-[90dvh] ms-sheet-mobile sm:animate-modal-in ${darkMode ? 'bg-carbon border-white/[0.07]' : 'bg-white border-zinc-200'
+          }`}
       >
         {/* Header */}
-        <div className={`p-5 flex items-center justify-between border-b ${
-          darkMode ? 'border-white/[0.07] bg-graphite/50' : 'border-zinc-200 bg-zinc-50'
-        }`}>
+        <div className={`p-5 flex items-center justify-between border-b ${darkMode ? 'border-white/[0.07] bg-graphite/50' : 'border-zinc-200 bg-zinc-50'
+          }`}>
           <div className="flex items-center gap-3">
-            <div className={`w-10 h-10 rounded-xl flex items-center justify-center ${
-              darkMode ? 'bg-slate2 text-white' : 'bg-zinc-200 text-zinc-800'
-            }`}>
+            <div className={`w-10 h-10 rounded-xl flex items-center justify-center ${darkMode ? 'bg-slate2 text-white' : 'bg-zinc-200 text-zinc-800'
+              }`}>
               <Shield className="w-5 h-5 text-cyan-300" />
             </div>
             <div>
@@ -610,9 +599,8 @@ export default function Profile({
           <button
             onClick={onClose}
             aria-label="Close profile modal"
-            className={`p-2 rounded-xl transition-colors ${
-              darkMode ? 'text-ink-mute hover:text-white hover:bg-slate2' : 'text-ink-faint hover:text-zinc-900 hover:bg-zinc-200'
-            }`}
+            className={`p-2 rounded-xl transition-colors ${darkMode ? 'text-ink-mute hover:text-white hover:bg-slate2' : 'text-ink-faint hover:text-zinc-900 hover:bg-zinc-200'
+              }`}
           >
             <X className="w-5 h-5" />
           </button>
@@ -623,13 +611,12 @@ export default function Profile({
           <button
             type="button"
             onClick={() => { setActiveTab('profile'); setIsEditingDependent(false); }}
-            className={`ms-tap flex items-center gap-2 pb-3 px-3 text-[13px] font-medium transition-all border-b-2 ${
-              activeTab === 'profile'
-                ? darkMode
-                  ? 'border-clinical-cyan text-white'
-                  : 'border-zinc-900 text-zinc-900'
-                : 'border-transparent text-ink-faint hover:text-ink-soft'
-            }`}
+            className={`ms-tap flex items-center gap-2 pb-3 px-3 text-[13px] font-medium transition-all border-b-2 ${activeTab === 'profile'
+              ? darkMode
+                ? 'border-clinical-cyan text-white'
+                : 'border-zinc-900 text-zinc-900'
+              : 'border-transparent text-ink-faint hover:text-ink-soft'
+              }`}
           >
             <User className="w-3.5 h-3.5" />
             My Profile
@@ -638,19 +625,17 @@ export default function Profile({
           <button
             type="button"
             onClick={() => setActiveTab('dependents')}
-            className={`ms-tap flex items-center gap-2 pb-3 px-3 text-[13px] font-medium transition-all border-b-2 ${
-              activeTab === 'dependents'
-                ? darkMode
-                  ? 'border-clinical-cyan text-white'
-                  : 'border-zinc-900 text-zinc-900'
-                : 'border-transparent text-ink-faint hover:text-ink-soft'
-            }`}
+            className={`ms-tap flex items-center gap-2 pb-3 px-3 text-[13px] font-medium transition-all border-b-2 ${activeTab === 'dependents'
+              ? darkMode
+                ? 'border-clinical-cyan text-white'
+                : 'border-zinc-900 text-zinc-900'
+              : 'border-transparent text-ink-faint hover:text-ink-soft'
+              }`}
           >
             <Users className="w-3.5 h-3.5" />
             Dependents ({dependents.length})
-            <span className={`text-xs px-1.5 py-0.5 rounded-full font-medium ${
-              darkMode ? 'bg-slate2 text-ink-soft' : 'bg-zinc-200 text-zinc-700'
-            }`}>
+            <span className={`text-xs px-1.5 py-0.5 rounded-full font-medium ${darkMode ? 'bg-slate2 text-ink-soft' : 'bg-zinc-200 text-zinc-700'
+              }`}>
               Caregiver
             </span>
           </button>
@@ -675,7 +660,7 @@ export default function Profile({
                   <User className="w-4 h-4 text-cyan-300" />
                   <h3 className={`font-medium text-sm ${textPrimary}`}>Personal Demographics</h3>
                 </div>
-                
+
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <Input
                     label="Full Name"
@@ -887,9 +872,8 @@ export default function Profile({
                   <button
                     type="button"
                     onClick={onClose}
-                    className={`px-4 py-2 rounded-xl text-xs font-medium border transition-colors ${
-                      darkMode ? 'border-white/[0.07] text-ink-soft hover:bg-slate2' : 'border-zinc-200 text-zinc-700 hover:bg-zinc-100'
-                    }`}
+                    className={`px-4 py-2 rounded-xl text-xs font-medium border transition-colors ${darkMode ? 'border-white/[0.07] text-ink-soft hover:bg-slate2' : 'border-zinc-200 text-zinc-700 hover:bg-zinc-100'
+                      }`}
                   >
                     Cancel
                   </button>
@@ -1109,9 +1093,8 @@ export default function Profile({
                     <button
                       type="button"
                       onClick={handleCancelDependentForm}
-                      className={`px-3 py-1.5 rounded-lg text-xs font-medium border ${
-                        darkMode ? 'border-white/[0.07] text-ink-soft hover:bg-slate2' : 'border-zinc-200 text-zinc-700 hover:bg-zinc-100'
-                      }`}
+                      className={`px-3 py-1.5 rounded-lg text-xs font-medium border ${darkMode ? 'border-white/[0.07] text-ink-soft hover:bg-slate2' : 'border-zinc-200 text-zinc-700 hover:bg-zinc-100'
+                        }`}
                     >
                       Cancel
                     </button>
@@ -1129,9 +1112,8 @@ export default function Profile({
               {/* Dependents Cards Grid */}
               <div className="space-y-3">
                 {dependents.length === 0 ? (
-                  <div className={`p-8 rounded-2xl border text-center ${
-                    darkMode ? 'bg-graphite/30 border-white/[0.07]' : 'bg-zinc-50 border-zinc-200'
-                  }`}>
+                  <div className={`p-8 rounded-2xl border text-center ${darkMode ? 'bg-graphite/30 border-white/[0.07]' : 'bg-zinc-50 border-zinc-200'
+                    }`}>
                     <Users className="w-10 h-10 mx-auto text-ink-faint mb-2 opacity-50" />
                     <p className={`text-sm font-medium ${textPrimary}`}>No Dependent Profiles</p>
                     <p className={`text-xs mt-1 max-w-sm mx-auto ${textSecondary}`}>
@@ -1151,25 +1133,22 @@ export default function Profile({
                   dependents.map((dep) => (
                     <div
                       key={dep.id}
-                      className={`p-4 rounded-xl border transition-all ${
-                        darkMode
-                          ? 'bg-graphite/60 border-white/[0.07] hover:border-white/[0.12]'
-                          : 'bg-zinc-50 border-zinc-200 hover:border-zinc-300'
-                      }`}
+                      className={`p-4 rounded-xl border transition-all ${darkMode
+                        ? 'bg-graphite/60 border-white/[0.07] hover:border-white/[0.12]'
+                        : 'bg-zinc-50 border-zinc-200 hover:border-zinc-300'
+                        }`}
                     >
                       <div className="flex items-start justify-between">
                         <div className="flex items-center gap-2.5">
-                          <div className={`w-8 h-8 rounded-lg flex items-center justify-center font-bold text-xs ${
-                            darkMode ? 'bg-slate2 text-ink' : 'bg-zinc-200 text-zinc-800'
-                          }`}>
+                          <div className={`w-8 h-8 rounded-lg flex items-center justify-center font-bold text-xs ${darkMode ? 'bg-slate2 text-ink' : 'bg-zinc-200 text-zinc-800'
+                            }`}>
                             {dep.full_name?.charAt(0) || 'D'}
                           </div>
                           <div>
                             <div className="flex items-center gap-2">
                               <span className={`font-semibold text-sm ${textPrimary}`}>{dep.full_name}</span>
-                              <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${
-                                darkMode ? 'bg-cyan-500/10 text-cyan-200 border border-cyan-500/25' : 'bg-indigo-50 text-indigo-700 border border-indigo-200'
-                              }`}>
+                              <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${darkMode ? 'bg-cyan-500/10 text-cyan-200 border border-cyan-500/25' : 'bg-indigo-50 text-indigo-700 border border-indigo-200'
+                                }`}>
                                 {dep.relationship}
                               </span>
                             </div>
@@ -1192,9 +1171,8 @@ export default function Profile({
                           <button
                             type="button"
                             onClick={() => handleStartEditDependent(dep)}
-                            className={`p-1.5 rounded-lg transition-colors ${
-                              darkMode ? 'text-ink-mute hover:text-white hover:bg-slate2' : 'text-ink-faint hover:text-zinc-900 hover:bg-zinc-200'
-                            }`}
+                            className={`p-1.5 rounded-lg transition-colors ${darkMode ? 'text-ink-mute hover:text-white hover:bg-slate2' : 'text-ink-faint hover:text-zinc-900 hover:bg-zinc-200'
+                              }`}
                             title="Edit Dependent"
                           >
                             <Edit2 className="w-3.5 h-3.5" />
