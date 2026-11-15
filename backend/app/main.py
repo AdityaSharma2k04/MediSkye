@@ -1,4 +1,5 @@
 import time
+import asyncio
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
@@ -18,6 +19,105 @@ from app.middleware.body_limit import BodySizeLimitMiddleware
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from app.core.observability import init_sentry
+
+async def _safe_startup_db_init():
+    """
+    Non-blocking, fault-tolerant background database initialization.
+    Guarantees table creation and schema adjustments with an 8-second timeout,
+    logging warnings instead of crashing the Uvicorn worker so Cloud Run
+    deployments never fail with container-failed-to-start.
+    """
+    async def _init_work():
+        import app.db.models
+        from app.db.database import engine, Base
+        from sqlalchemy import inspect, text
+
+        async with engine.begin() as conn:
+            # Ensure tables exist in any environment (including fresh Neon DB)
+            await conn.run_sync(Base.metadata.create_all)
+
+            def _ensure_document_cache_columns(sync_conn):
+                inspector = inspect(sync_conn)
+                table_names = set(inspector.get_table_names())
+                dialect = sync_conn.dialect.name
+                if "documents" in table_names:
+                    existing_cols = {c["name"] for c in inspector.get_columns("documents")}
+                    if "cached_metrics" not in existing_cols:
+                        if dialect == "postgresql":
+                            sync_conn.execute(text("ALTER TABLE documents ADD COLUMN IF NOT EXISTS cached_metrics JSON"))
+                        else:
+                            sync_conn.execute(text("ALTER TABLE documents ADD COLUMN cached_metrics JSON"))
+                    if "cached_summary" not in existing_cols:
+                        if dialect == "postgresql":
+                            sync_conn.execute(text("ALTER TABLE documents ADD COLUMN IF NOT EXISTS cached_summary TEXT"))
+                        else:
+                            sync_conn.execute(text("ALTER TABLE documents ADD COLUMN cached_summary TEXT"))
+                    if "index_status" not in existing_cols:
+                        if dialect == "postgresql":
+                            sync_conn.execute(text("ALTER TABLE documents ADD COLUMN IF NOT EXISTS index_status VARCHAR(20) DEFAULT 'building' NOT NULL"))
+                        else:
+                            sync_conn.execute(text("ALTER TABLE documents ADD COLUMN index_status VARCHAR(20) DEFAULT 'building' NOT NULL"))
+                    if "extracted_text" not in existing_cols:
+                        if dialect == "postgresql":
+                            sync_conn.execute(text("ALTER TABLE documents ADD COLUMN IF NOT EXISTS extracted_text TEXT"))
+                        else:
+                            sync_conn.execute(text("ALTER TABLE documents ADD COLUMN extracted_text TEXT"))
+
+                if "chats" in table_names:
+                    existing_chat_cols = {c["name"] for c in inspector.get_columns("chats")}
+                    if "dependent_id" not in existing_chat_cols:
+                        if dialect == "postgresql":
+                            sync_conn.execute(text("ALTER TABLE chats ADD COLUMN IF NOT EXISTS dependent_id UUID REFERENCES dependent_profiles(id) ON DELETE CASCADE"))
+                            sync_conn.execute(text("CREATE INDEX IF NOT EXISTS ix_chats_dependent_id ON chats(dependent_id)"))
+                        else:
+                            sync_conn.execute(text("ALTER TABLE chats ADD COLUMN dependent_id CHAR(32)"))
+                            sync_conn.execute(text("CREATE INDEX IF NOT EXISTS ix_chats_dependent_id ON chats(dependent_id)"))
+
+                # Ensure profile & clinical columns on users and dependent_profiles
+                if "users" in table_names:
+                    user_cols = {c["name"] for c in inspector.get_columns("users")}
+                    if "weight_kg" not in user_cols:
+                        if dialect == "postgresql":
+                            sync_conn.execute(text("ALTER TABLE users ADD COLUMN IF NOT EXISTS weight_kg DOUBLE PRECISION"))
+                        else:
+                            sync_conn.execute(text("ALTER TABLE users ADD COLUMN weight_kg FLOAT"))
+
+                if "dependent_profiles" in table_names:
+                    dep_cols = {c["name"] for c in inspector.get_columns("dependent_profiles")}
+                    dep_col_defs = [
+                        ("weight_kg", "DOUBLE PRECISION", "FLOAT"),
+                        ("height_cm", "DOUBLE PRECISION", "FLOAT"),
+                        ("diet_type", "VARCHAR(64)", "VARCHAR(64)"),
+                        ("activity_level", "VARCHAR(64)", "VARCHAR(64)"),
+                        ("occupation", "TEXT", "TEXT"),
+                        ("blood_type", "TEXT", "TEXT"),
+                        ("pre_existing_conditions", "TEXT", "TEXT"),
+                        ("known_allergies", "TEXT", "TEXT"),
+                        ("current_medications", "TEXT", "TEXT"),
+                    ]
+                    for col_name, pg_type, sqlite_type in dep_col_defs:
+                        if col_name not in dep_cols:
+                            if dialect == "postgresql":
+                                sync_conn.execute(text(f"ALTER TABLE dependent_profiles ADD COLUMN IF NOT EXISTS {col_name} {pg_type}"))
+                            else:
+                                sync_conn.execute(text(f"ALTER TABLE dependent_profiles ADD COLUMN {col_name} {sqlite_type}"))
+
+            await conn.run_sync(_ensure_document_cache_columns)
+
+        try:
+            from app.services.upload_jobs import fail_stale_building_documents
+            swept = await fail_stale_building_documents()
+            if swept:
+                logger.warning("Marked %d stale 'building' document(s) as failed on startup", swept)
+        except Exception as sweep_err:
+            logger.warning("Startup stale-document sweep skipped: %s", sweep_err)
+
+    try:
+        await asyncio.wait_for(_init_work(), timeout=8.0)
+        logger.info("Startup database initialization completed successfully.")
+    except Exception as exc:
+        logger.error("Startup DB init warning (container will still boot): %s", exc)
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -63,84 +163,9 @@ async def lifespan(app: FastAPI):
             except Exception as fb_err:
                 logger.warning("Firebase Admin initialization deferred/failed: %s", fb_err)
 
-    # DEV ONLY: auto-create tables for SQLite convenience
-    # In production, Alembic migrations are the source of truth
-    import app.db.models
-    from app.db.database import engine, Base
-    async with engine.begin() as conn:
-        if settings.ENV == "development":
-            await conn.run_sync(Base.metadata.create_all)
-
-        def _ensure_document_cache_columns(sync_conn):
-            from sqlalchemy import inspect, text
-            inspector = inspect(sync_conn)
-            if "documents" in inspector.get_table_names():
-                existing_cols = {c["name"] for c in inspector.get_columns("documents")}
-                dialect = sync_conn.dialect.name
-                if "cached_metrics" not in existing_cols:
-                    if dialect == "postgresql":
-                        sync_conn.execute(text("ALTER TABLE documents ADD COLUMN IF NOT EXISTS cached_metrics JSON"))
-                    else:
-                        sync_conn.execute(text("ALTER TABLE documents ADD COLUMN cached_metrics JSON"))
-                if "cached_summary" not in existing_cols:
-                    if dialect == "postgresql":
-                        sync_conn.execute(text("ALTER TABLE documents ADD COLUMN IF NOT EXISTS cached_summary TEXT"))
-                    else:
-                        sync_conn.execute(text("ALTER TABLE documents ADD COLUMN cached_summary TEXT"))
-                if "index_status" not in existing_cols:
-                    if dialect == "postgresql":
-                        sync_conn.execute(text("ALTER TABLE documents ADD COLUMN IF NOT EXISTS index_status VARCHAR(20) DEFAULT 'building' NOT NULL"))
-                    else:
-                        sync_conn.execute(text("ALTER TABLE documents ADD COLUMN index_status VARCHAR(20) DEFAULT 'building' NOT NULL"))
-
-            if "chats" in inspector.get_table_names():
-                existing_chat_cols = {c["name"] for c in inspector.get_columns("chats")}
-                if "dependent_id" not in existing_chat_cols:
-                    if dialect == "postgresql":
-                        sync_conn.execute(text("ALTER TABLE chats ADD COLUMN IF NOT EXISTS dependent_id UUID REFERENCES dependent_profiles(id) ON DELETE CASCADE"))
-                        sync_conn.execute(text("CREATE INDEX IF NOT EXISTS ix_chats_dependent_id ON chats(dependent_id)"))
-                    else:
-                        sync_conn.execute(text("ALTER TABLE chats ADD COLUMN dependent_id CHAR(32)"))
-                        sync_conn.execute(text("CREATE INDEX IF NOT EXISTS ix_chats_dependent_id ON chats(dependent_id)"))
-
-            # Ensure profile & clinical columns on users and dependent_profiles
-            if "users" in inspector.get_table_names():
-                user_cols = {c["name"] for c in inspector.get_columns("users")}
-                if "weight_kg" not in user_cols:
-                    if dialect == "postgresql":
-                        sync_conn.execute(text("ALTER TABLE users ADD COLUMN IF NOT EXISTS weight_kg DOUBLE PRECISION"))
-                    else:
-                        sync_conn.execute(text("ALTER TABLE users ADD COLUMN weight_kg FLOAT"))
-
-            if "dependent_profiles" in inspector.get_table_names():
-                dep_cols = {c["name"] for c in inspector.get_columns("dependent_profiles")}
-                dep_col_defs = [
-                    ("weight_kg", "DOUBLE PRECISION", "FLOAT"),
-                    ("height_cm", "DOUBLE PRECISION", "FLOAT"),
-                    ("diet_type", "VARCHAR(64)", "VARCHAR(64)"),
-                    ("activity_level", "VARCHAR(64)", "VARCHAR(64)"),
-                    ("occupation", "TEXT", "TEXT"),
-                    ("blood_type", "TEXT", "TEXT"),
-                    ("pre_existing_conditions", "TEXT", "TEXT"),
-                    ("known_allergies", "TEXT", "TEXT"),
-                    ("current_medications", "TEXT", "TEXT"),
-                ]
-                for col_name, pg_type, sqlite_type in dep_col_defs:
-                    if col_name not in dep_cols:
-                        if dialect == "postgresql":
-                            sync_conn.execute(text(f"ALTER TABLE dependent_profiles ADD COLUMN IF NOT EXISTS {col_name} {pg_type}"))
-                        else:
-                            sync_conn.execute(text(f"ALTER TABLE dependent_profiles ADD COLUMN {col_name} {sqlite_type}"))
-
-        await conn.run_sync(_ensure_document_cache_columns)
-
-    try:
-        from app.services.upload_jobs import fail_stale_building_documents
-        swept = await fail_stale_building_documents()
-        if swept:
-            logger.warning("Marked %d stale 'building' document(s) as failed on startup", swept)
-    except Exception as sweep_err:
-        logger.warning("Startup stale-document sweep skipped: %s", sweep_err)
+    # Run DB initialization asynchronously in background task so Uvicorn binds to $PORT in <100ms
+    # and Cloud Run startup probes never fail with container-failed-to-start.
+    asyncio.create_task(_safe_startup_db_init())
 
     yield
     

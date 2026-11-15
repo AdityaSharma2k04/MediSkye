@@ -133,6 +133,7 @@ class Document(Base):
     index_status = Column(String(20), default="local_ready", nullable=False)  # building | local_ready | synced
     cached_metrics = Column(EncryptedJSON, nullable=True)
     cached_summary = Column(EncryptedText, nullable=True)
+    extracted_text = Column(EncryptedText, nullable=True)
     collected_at = Column(String(64), nullable=True)
     created_at = Column(DateTime(timezone=True), default=utcnow)
 

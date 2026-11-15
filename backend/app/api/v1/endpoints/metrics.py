@@ -583,11 +583,12 @@ Report text:
                     doc.collected_at = extracted_date
                     flag_modified(doc, "collected_at")
 
-            chunks_to_save = raw_chunks or (all_pages if page_docs else ordered_texts if 'ordered_texts' in locals() and ordered_texts else [])
-            doc.cached_metrics = {
-                "metrics": raw_metrics,
-                "_raw_chunks": chunks_to_save,
-            }
+            has_extracted_text = bool(getattr(doc, "extracted_text", None) and str(doc.extracted_text).strip())
+            chunks_to_save = [] if has_extracted_text else (raw_chunks or (all_pages if page_docs else ordered_texts if 'ordered_texts' in locals() and ordered_texts else []))
+            cached_payload = {"metrics": raw_metrics}
+            if chunks_to_save:
+                cached_payload["_raw_chunks"] = chunks_to_save
+            doc.cached_metrics = cached_payload
             flag_modified(doc, "cached_metrics")
             db.add(doc)
 

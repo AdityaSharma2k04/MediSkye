@@ -15,6 +15,57 @@ if env_path.exists():
     load_dotenv(dotenv_path=env_path)
 
 
+def normalize_async_database_url(url: str) -> str:
+    """
+    Normalizes a Postgres/Neon database URL for SQLAlchemy + asyncpg:
+    1. Replaces postgres:// or postgresql:// with postgresql+asyncpg://
+    2. Strips unsupported query parameters (e.g. channel_binding)
+    3. Normalizes sslmode to ssl=require
+    """
+    if not url:
+        return url
+
+    s = str(url).strip()
+    if s.startswith("postgres://"):
+        s = "postgresql+asyncpg://" + s[len("postgres://"):]
+    elif s.startswith("postgresql://"):
+        s = "postgresql+asyncpg://" + s[len("postgresql://"):]
+
+    if not s.startswith("postgresql+asyncpg://"):
+        return s
+
+    import urllib.parse
+    parsed = urllib.parse.urlsplit(s)
+    if not parsed.query:
+        return s
+
+    query_params = urllib.parse.parse_qsl(parsed.query, keep_blank_values=True)
+    filtered_params = []
+
+    for k, v in query_params:
+        k_lower = k.lower()
+        if k_lower == "channel_binding":
+            # asyncpg does not support channel_binding
+            continue
+        elif k_lower == "sslmode":
+            # Convert sslmode to ssl=require
+            filtered_params.append(("ssl", "require"))
+        elif k_lower == "ssl":
+            filtered_params.append((k, v))
+        else:
+            filtered_params.append((k, v))
+
+    new_query = urllib.parse.urlencode(filtered_params)
+    normalized = urllib.parse.urlunsplit((
+        parsed.scheme,
+        parsed.netloc,
+        parsed.path,
+        new_query,
+        parsed.fragment
+    ))
+    return normalized
+
+
 class Settings(BaseSettings):
     PROJECT_NAME: str = "MediSkye AI Medical Assistant"
     VERSION: str = "2.0.0"
@@ -182,14 +233,7 @@ class Settings(BaseSettings):
     def _normalize_database_url(cls, value):
         if not value:
             return value
-        if isinstance(value, str):
-            s = value.strip()
-            if s.startswith("postgres://"):
-                s = "postgresql+asyncpg://" + s[len("postgres://"):]
-            elif s.startswith("postgresql://"):
-                s = "postgresql+asyncpg://" + s[len("postgresql://"):]
-            return s
-        return value
+        return normalize_async_database_url(value)
 
 
 settings = Settings()

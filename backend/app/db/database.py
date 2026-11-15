@@ -3,38 +3,42 @@ from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker, Asyn
 from sqlalchemy.orm import declarative_base
 from sqlalchemy.pool import StaticPool
 
-from app.core.config import settings
+from app.core.config import settings, normalize_async_database_url
 
 # For in-memory SQLite (used in tests), we must use StaticPool to share a single
 # connection across all sessions. Without this, each new connection gets a fresh
 # empty database, so tables created by one session are invisible to the next.
 _engine_kwargs = {}
-if ":memory:" in settings.DATABASE_URL:
+normalized_db_url = normalize_async_database_url(settings.DATABASE_URL)
+
+if ":memory:" in normalized_db_url:
     _engine_kwargs = {
         "connect_args": {"check_same_thread": False},
         "poolclass": StaticPool,
     }
-elif "postgresql" in settings.DATABASE_URL:
+elif "postgresql" in normalized_db_url:
     # ssl=require for Neon; statement_cache_size=0 disables asyncpg's prepared
     # statement cache, which is incompatible with PgBouncer (Neon pooler) in
     # transaction mode. pool_pre_ping handles scale-to-zero reconnects.
-    # pool_recycle=60 ensures idle connections are recycled before serverless PgBouncer drops them.
+    # pool_recycle=300 ensures idle connections are recycled before serverless PgBouncer drops them.
+    # timeout=10 in connect_args ensures stale serverless connections fail-fast without hanging container boot.
     _engine_kwargs = {
         "connect_args": {
             "ssl": "require",
             "statement_cache_size": 0,
             "prepared_statement_cache_size": 0,
             "command_timeout": 60,
+            "timeout": 10,
         },
         "pool_pre_ping": True,
-        "pool_recycle": 60,
+        "pool_recycle": 300,
         "pool_size": 5,
         "max_overflow": 10,
         "pool_timeout": 30,
     }
 
 engine = create_async_engine(
-    settings.DATABASE_URL,
+    normalized_db_url,
     echo=settings.DEBUG,
     future=True,
     **_engine_kwargs,

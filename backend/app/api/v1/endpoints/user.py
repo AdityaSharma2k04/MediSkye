@@ -10,6 +10,7 @@ import firebase_admin
 import firebase_admin.auth
 from fastapi import APIRouter, Depends, Request, status, HTTPException
 from sqlalchemy import func, delete, or_, update
+from sqlalchemy.orm import defer
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 
@@ -171,7 +172,15 @@ async def get_my_documents(
     db: AsyncSession = Depends(get_db)
 ):
     await purge_expired_sample_documents(db, current_user.id)
-    query = select(Document).filter(Document.user_id == current_user.id)
+    query = (
+        select(Document)
+        .options(
+            defer(Document.extracted_text),
+            defer(Document.cached_summary),
+            defer(Document.cached_metrics),
+        )
+        .filter(Document.user_id == current_user.id)
+    )
     if patient_id is not None and str(patient_id).strip():
         pid_clean = str(patient_id).strip().lower()
         if pid_clean == "self":
