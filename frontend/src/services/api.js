@@ -2012,6 +2012,7 @@ export async function exportUserAccountData() {
   }
   return await res.json();
 }
+export const exportUserData = exportUserAccountData;
 
 // ── Custom Verification & Generic API Client ──
 
@@ -2419,8 +2420,7 @@ export async function syncAllProfilesInBackground(activePatientId = 'self', depe
     for (let i = 0; i < sortedProfiles.length; i++) {
       const pid = sortedProfiles[i];
       if (typeof onProgress === 'function') {
-        const profileLabel = pid === 'self' ? 'Primary account' : `Family dependent (${pid})`;
-        onProgress(completedSteps, totalSteps, `Synchronizing ${profileLabel} (${completedSteps + 1}/${totalSteps})...`);
+        onProgress(completedSteps, totalSteps, 'Synchronizing clinical database...');
       }
 
       const syncResult = await syncSingleProfileToLocalCache(pid, {
@@ -2439,7 +2439,7 @@ export async function syncAllProfilesInBackground(activePatientId = 'self', depe
       }
 
       if (typeof onProgress === 'function') {
-        onProgress(completedSteps, totalSteps, `Synchronized profile ${completedSteps}/${totalSteps}`);
+        onProgress(completedSteps, totalSteps, 'Synchronized clinical database');
       }
     }
 

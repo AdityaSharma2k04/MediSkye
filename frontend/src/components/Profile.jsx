@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { User, Users, HeartPulse, Save, X, Trash2, Edit2, Plus, Shield, Phone, Activity } from 'lucide-react';
-import { getProfile, updateProfile, deleteAccount, clearLocalAuthStorage, getDependents, createDependent, updateDependent, deleteDependent, createMemoryFact, getMemoryFacts } from '../services/api';
+import { User, Users, HeartPulse, Save, X, Trash2, Edit2, Plus, Shield, Phone, Activity, Download, Loader2, CheckCircle } from 'lucide-react';
+import { getProfile, updateProfile, deleteAccount, clearLocalAuthStorage, getDependents, createDependent, updateDependent, deleteDependent, createMemoryFact, getMemoryFacts, exportUserAccountData } from '../services/api';
 import { invalidateMetrics } from '../hooks/useLabMetrics';
 import { logger } from '../services/logger';
 import { parseWeightToKgString } from '../lib/clinical';
@@ -369,6 +369,46 @@ export default function Profile({
 
   const handleDeleteAccount = () => {
     setPendingDeleteAccount(true);
+  };
+
+  const [isExporting, setIsExporting] = useState(false);
+  const [exportSuccessMessage, setExportSuccessMessage] = useState(null);
+
+  const handleExportData = async () => {
+    if (isExporting) return;
+    try {
+      setIsExporting(true);
+      setExportSuccessMessage(null);
+      const data = await exportUserAccountData();
+      const jsonStr = JSON.stringify(data, null, 2);
+      const blob = new Blob([jsonStr], { type: 'application/json' });
+      if (typeof URL !== 'undefined' && typeof URL.createObjectURL === 'function') {
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        const today = new Date().toISOString().slice(0, 10);
+        a.href = url;
+        a.download = `MediSkye-Account-Export-${today}.json`;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        setTimeout(() => {
+          try {
+            URL.revokeObjectURL(url);
+          } catch (_) {}
+        }, 2000);
+      }
+
+      const msg = 'Your clinical database has been successfully exported and saved to your device.';
+      setExportSuccessMessage(msg);
+      if (typeof window !== 'undefined' && typeof window.alert === 'function') {
+        window.alert(msg);
+      }
+    } catch (err) {
+      logger.error('Failed to export user account data:', err);
+      alert(err.message || 'Failed to export account data. Please try again.');
+    } finally {
+      setIsExporting(false);
+    }
   };
 
   // ── Dependent Handlers ──
@@ -857,16 +897,39 @@ export default function Profile({
                 </div>
               </div>
 
+              {exportSuccessMessage && (
+                <div
+                  data-testid="export-success-banner"
+                  className="mb-3 p-3 rounded-xl border border-emerald-500/30 bg-emerald-500/10 text-emerald-300 text-xs flex items-center gap-2 animate-fade-in"
+                >
+                  <CheckCircle className="w-4 h-4 text-emerald-400 shrink-0" />
+                  <span>{exportSuccessMessage}</span>
+                </div>
+              )}
+
               {/* Action Buttons */}
               <div className="flex items-center justify-between pt-2">
-                <button
-                  type="button"
-                  onClick={handleDeleteAccount}
-                  className="flex items-center gap-1.5 text-xs text-red-400 hover:text-red-300 transition-colors p-2 rounded-lg hover:bg-red-500/10"
-                >
-                  <Trash2 className="w-3.5 h-3.5" />
-                  Delete Account & Data
-                </button>
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={handleExportData}
+                    disabled={isExporting}
+                    className="flex items-center gap-1.5 text-xs text-cyan-400 hover:text-cyan-300 transition-colors p-2 rounded-lg hover:bg-cyan-500/10 disabled:opacity-60 disabled:cursor-not-allowed"
+                    title="Export your clinical database as JSON"
+                  >
+                    {isExporting ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Download className="w-3.5 h-3.5" />}
+                    {isExporting ? 'Exporting...' : 'Export My Data'}
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={handleDeleteAccount}
+                    className="flex items-center gap-1.5 text-xs text-red-400 hover:text-red-300 transition-colors p-2 rounded-lg hover:bg-red-500/10"
+                  >
+                    <Trash2 className="w-3.5 h-3.5" />
+                    Delete Account & Data
+                  </button>
+                </div>
 
                 <div className="flex items-center gap-3">
                   <button

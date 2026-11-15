@@ -1219,19 +1219,14 @@ export default function ChatApp() {
             setIsWorkspaceHydrating(true);
           }
 
-          const syncPromise = syncAllProfilesInBackground('self', dependents || [], {
-            onProgress: (done, total, label) => setSyncProgressLabel(label),
-          });
+          const syncPromise = syncAllProfilesInBackground('self', dependents || []);
 
           const docs = await refreshDocuments(null, null, 'self').catch(() => []);
           setActivePdf(null);
           prewarmPatientLocalCache('self', dependents || [], docs || []);
 
           if (needsLock) {
-            await Promise.race([
-              syncPromise,
-              new Promise((resolve) => setTimeout(resolve, HYDRATION_SAFETY_TIMEOUT_MS)),
-            ]);
+            await syncPromise;
           }
         } catch (err) {
           logger.warn('Initial workspace sync error:', err);
@@ -2388,11 +2383,8 @@ export default function ChatApp() {
         prewarmMessageHistories(conversations, patId);
       }, 50);
 
-      // 6. Pre-download all profiles and lock sync overlay until 100% complete (with safety timeout)
-      await Promise.race([
-        syncAllProfilesInBackground(patId, freshDeps),
-        new Promise((resolve) => setTimeout(resolve, HYDRATION_SAFETY_TIMEOUT_MS)),
-      ]);
+      // 6. Pre-download all profiles and lock sync overlay until 100% complete
+      await syncAllProfilesInBackground(patId, freshDeps);
 
       setSyncToast('Synced with cloud');
       setTimeout(() => setSyncToast(null), 2000);
@@ -2782,22 +2774,18 @@ export default function ChatApp() {
       {isWorkspaceHydrating && (
         <div
           data-testid="workspace-hydration-overlay"
-          className="fixed inset-0 z-[100] flex flex-col items-center justify-center bg-[#070B14]/95 backdrop-blur-md p-6 text-center select-none animate-fade-in"
+          className="fixed inset-0 z-[100] pointer-events-auto flex flex-col items-center justify-center bg-[#070B14]/95 backdrop-blur-md p-6 text-center select-none animate-fade-in"
         >
-          <div className="w-16 h-16 rounded-2xl bg-gradient-to-tr from-cyan-500 to-sky-400 p-0.5 shadow-2xl shadow-cyan-500/30 animate-pulse mb-6 flex items-center justify-center">
+          <div className="w-16 h-16 rounded-2xl bg-gradient-to-tr from-cyan-500 to-sky-400 p-0.5 shadow-2xl shadow-cyan-500/30 mb-6 flex items-center justify-center">
             <div className="w-full h-full bg-[#070B14] rounded-[14px] flex items-center justify-center">
               <BrandMark size={36} />
             </div>
           </div>
-          <h2 className="text-xl font-bold tracking-tight text-white mb-2">
-            Preparing Your Clinical Workspace
+          <h2 className="text-xl font-bold tracking-tight text-white mb-6">
+            Please wait while we load your clinical database
           </h2>
-          <p className="text-sm text-slate-400 max-w-sm">
-            {syncProgressLabel || 'Syncing latest health records, biomarker trends, and encrypted consultations from the cloud...'}
-          </p>
-          <div className="mt-6 flex items-center gap-2">
-            <span className="w-2 h-2 rounded-full bg-cyan-400 animate-ping" />
-            <span className="text-xs font-mono text-cyan-400">HYDRATING LOCAL CACHE</span>
+          <div className="flex items-center justify-center">
+            <div className="w-8 h-8 rounded-full border-2 border-cyan-400/20 border-t-cyan-400 animate-spin" />
           </div>
         </div>
       )}

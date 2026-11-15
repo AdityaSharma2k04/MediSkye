@@ -14,6 +14,8 @@ import {
   ExternalLink,
   Brain,
   Volume2,
+  CheckCircle,
+  Loader2,
 } from 'lucide-react';
 import ConfirmModal from './ConfirmModal';
 import useFocusTrap from '../hooks/useFocusTrap';
@@ -599,21 +601,36 @@ export default function SettingsModal({
   };
 
   const [isExporting, setIsExporting] = useState(false);
+  const [exportSuccessMessage, setExportSuccessMessage] = useState(null);
   const handleExportData = async () => {
+    if (isExporting) return;
     try {
       setIsExporting(true);
+      setExportSuccessMessage(null);
       const data = await exportUserAccountData();
       const jsonStr = JSON.stringify(data, null, 2);
       const blob = new Blob([jsonStr], { type: 'application/json' });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      const today = new Date().toISOString().slice(0, 10);
-      a.href = url;
-      a.download = `MediSkye-Account-Export-${today}.json`;
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
-      setTimeout(() => URL.revokeObjectURL(url), 2000);
+      if (typeof URL !== 'undefined' && typeof URL.createObjectURL === 'function') {
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        const today = new Date().toISOString().slice(0, 10);
+        a.href = url;
+        a.download = `MediSkye-Account-Export-${today}.json`;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        setTimeout(() => {
+          try {
+            URL.revokeObjectURL(url);
+          } catch (_) {}
+        }, 2000);
+      }
+
+      const msg = 'Your clinical database has been successfully exported and saved to your device.';
+      setExportSuccessMessage(msg);
+      if (typeof window !== 'undefined' && typeof window.alert === 'function') {
+        window.alert(msg);
+      }
     } catch (err) {
       logger.error('Failed to export user account data:', err);
       alert(err.message || 'Failed to export account data. Please try again.');
@@ -862,19 +879,35 @@ export default function SettingsModal({
                   onClick={handleExportData}
                   disabled={isExporting}
                   className={`w-full flex items-center justify-between px-3 py-2.5 rounded-xl border text-xs font-medium transition-colors ${
+                    isExporting ? 'opacity-60 cursor-not-allowed' : ''
+                  } ${
                     darkMode
                       ? 'border-white/[0.12] bg-slate2/60 text-ink hover:bg-slate2 hover:border-cyan-500/40'
                       : 'border-zinc-200 bg-zinc-50 text-zinc-800 hover:bg-zinc-100 hover:border-cyan-500/40'
                   }`}
                 >
                   <span className="flex items-center gap-2">
-                    <Download className="w-3.5 h-3.5 text-cyan-400" />
+                    {isExporting ? (
+                      <Loader2 className="w-3.5 h-3.5 text-cyan-400 animate-spin" />
+                    ) : (
+                      <Download className="w-3.5 h-3.5 text-cyan-400" />
+                    )}
                     {isExporting ? 'Exporting...' : 'Export my data'}
                   </span>
                   <span className={`text-xs px-2 py-0.5 rounded-md font-mono ${darkMode ? 'bg-slate2 text-ink-mute' : 'bg-zinc-200 text-zinc-600'}`}>
                     JSON
                   </span>
                 </button>
+
+                {exportSuccessMessage && (
+                  <div
+                    data-testid="export-success-banner"
+                    className="p-3 rounded-xl border border-emerald-500/30 bg-emerald-500/10 text-emerald-300 text-xs flex items-center gap-2 animate-fade-in"
+                  >
+                    <CheckCircle className="w-4 h-4 text-emerald-400 shrink-0" />
+                    <span>{exportSuccessMessage}</span>
+                  </div>
+                )}
 
                 {/* Per-Profile Reset: Reset Profile Chats & Memory */}
                 <div className={`p-3 rounded-xl border ${

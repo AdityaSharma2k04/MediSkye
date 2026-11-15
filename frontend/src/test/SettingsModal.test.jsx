@@ -16,6 +16,7 @@ vi.mock('../services/api', () => ({
   deleteFact: vi.fn(),
   updateMemoryConsent: vi.fn(),
   clearAllMemoryFacts: vi.fn(),
+  exportUserAccountData: vi.fn().mockResolvedValue({ user: {}, documents: [] }),
 }));
 
 const {
@@ -572,5 +573,37 @@ describe('SettingsModal Account fields & Deletion', () => {
       expect(onClearAllChats).toHaveBeenCalledTimes(1);
       expect(onClose).toHaveBeenCalled();
     });
+  });
+
+  it('triggers exportUserAccountData and displays export success message and alert', async () => {
+    const alertSpy = vi.spyOn(window, 'alert').mockImplementation(() => {});
+    render(
+      <SettingsModal
+        isOpen={true}
+        onClose={vi.fn()}
+        onClearAllChats={vi.fn()}
+        onOpenProfile={vi.fn()}
+        darkMode={true}
+        currentUser={{ id: 'u1', email: 'patient@example.com' }}
+      />
+    );
+
+    const exportBtn = screen.getByRole('button', { name: /export my data/i });
+    fireEvent.click(exportBtn);
+
+    await waitFor(() => {
+      expect(api.exportUserAccountData).toHaveBeenCalled();
+    });
+
+    await waitFor(() => {
+      expect(screen.getByTestId('export-success-banner')).toHaveTextContent(
+        'Your clinical database has been successfully exported and saved to your device.'
+      );
+    });
+
+    expect(alertSpy).toHaveBeenCalledWith(
+      'Your clinical database has been successfully exported and saved to your device.'
+    );
+    alertSpy.mockRestore();
   });
 });
