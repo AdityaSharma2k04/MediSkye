@@ -292,6 +292,28 @@ Compiled via Vite 5.4.21 (`npm run build`):
   6. In `frontend/src/services/api.js`, added `{ cachedOnly = false }` support to `getDocumentSummary` and updated `syncSingleProfileToLocalCache` to pass `{ cachedOnly: true }`.
 - **Proof:** `test_sentry_stale_data_recovery.py::test_document_summary_cached_only_and_stale_data_safety` proves that `GET /summary?cached_only=true` returns 200 OK with `summary=None` and 0 Gemini calls, and that concurrent deletion during on-demand generation returns the summary cleanly with 200 OK and 0 ERROR logs.
 
+#### CLINICAL-PROMPT-01: Follow-Up Clinical Quality Hardening, Stock Word Removal & Medication Change Guard
+- **Category:** `Clinical AI / Prompt Engineering & Safety`
+- **Symptom:** In multi-turn clinical QA evaluations, follow-up turns showed stock praise openers (e.g., "It is completely natural / wonderful / smart..."), unprompted repetition of planted phrases ("guideposts", "step-by-step"), unprompted repetition of retest timing ("8–12 weeks"), over-certain causal assertions ("highly likely", "absolutely", "exactly why"), and excessive length (>300 words). Furthermore, on follow-up questions asking whether to stop, skip, or change a prescribed medication, the single clinical safety disclaimer was stripped.
+- **Root Cause:**
+  1. `FOLLOWUP_TURN_RULES` in `backend/app/rag/prompt_builder.py` lacked explicit constraints against praise openers, over-certain causal verbs, and unsolicited follow-up tests.
+  2. `SHARED_CORE_RULES` contained planted stock phrases ("actionable guideposts they and their doctor can address step by step") and lacked explicit rules against assuming unstated sun exposure or assuming that a referring doctor prescribes patient medications.
+  3. `COMPARISON_RULES` did not mandate the `↘ Normal (Notable Drop)` directional status badge for in-range notable drops.
+  4. `_COMPARISON_REQUEST_RE` matched simple historical questions like "What did my last report say about ferritin?", causing unwanted table generation.
+  5. Assistant history condenser cap was 350 chars, truncating critical safety warnings at the end of assistant turns.
+  6. `has_critical` in `backend/app/api/v1/endpoints/query.py` only checked emergency banners and `SAFE_FALLBACK`, causing disclaimers to be stripped on medication change queries.
+- **The Fix & Code Changes:**
+  1. Upgraded `FOLLOWUP_TURN_RULES` in `backend/app/rag/prompt_builder.py` with 15 clinical quality clauses (compact format under 250 words, natural warmth without praise openers, tentative causal phrasing, lab interference neutrality, medication/supplement safety, kidney/electrolyte caution, suppressing unsolicited retests, warm forward-looking closings).
+  2. Updated Rule 5 in `<followup_turn_instruction>` across `build_prompt` and `build_general_health_prompt`.
+  3. Replaced planted stock words in `SHARED_CORE_RULES`, forbade unstated sun exposure assumptions, and forbade assuming referrer doctors prescribe medicines.
+  4. Strengthened `verified_absent_adjacent_tests` in `REPORT_WALKTHROUGH_RULES` Item 6 to forbid naming absent tests when the list is empty/none.
+  5. Enforced `↘ Normal (Notable Drop)` badge in `COMPARISON_RULES`.
+  6. Refined `_COMPARISON_REQUEST_RE` to distinguish explicit comparison requests from simple past-report questions.
+  7. Increased history condenser cap (`_cap_at_sentence_boundary`) from 350 to 500 characters.
+  8. Added `_MEDICATION_CHANGE_QUERY_RE` and `is_medication_change_query` in `backend/app/api/v1/endpoints/query.py`, and preserved the disclaimer on follow-ups when `is_medication_change_query(body.query)` is True.
+  9. Created `backend/tests/answer_lint.py`, `backend/tests/test_answer_lint.py`, and `backend/tests/test_followup_quality_rules.py`.
+- **Proof:** `test_followup_quality_rules.py` (8 passed), `test_followup_prompt.py` (13 passed), `test_answer_lint.py` (8 passed). Verification command `from app.rag import prompt_builder as p; print('🟡 The Short Version' in p.REPORT_WALKTHROUGH_RULES, p.PROMPT_VERSION, hasattr(p,'COMPARISON_RULES'))` prints `True v5 True`. Full test suite passed with 0 failures.
+
 ---
 
 **Sign-off:** Approved for production deployment across Web (`mediskye.pages.dev`), Windows Desktop Tauri v2 (`MediSkye.exe`), and Android Capacitor (`MediSkye.apk`).

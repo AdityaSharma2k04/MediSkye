@@ -93,6 +93,19 @@ def is_explicit_overview_query(query_text: str) -> bool:
     return bool(re.search(pattern, q.strip()))
 
 
+_MEDICATION_CHANGE_QUERY_RE = re.compile(
+    r"\b(?:should\s+i|can\s+i|do\s+i\s+need\s+to|is\s+it\s+ok(?:ay)?\s+to)\s+(?:stop|skip|quit|discontinue|double)\b"
+    r"|\b(?:stop|skip|quit|discontinue)\s+(?:taking|using|my)\b",
+    re.IGNORECASE,
+)
+
+
+def is_medication_change_query(query_text: Optional[str]) -> bool:
+    if not query_text:
+        return False
+    return bool(_MEDICATION_CHANGE_QUERY_RE.search(query_text))
+
+
 def compute_followup_turn_context(
     has_walked_through: bool,
     query_text: str,
@@ -1178,7 +1191,7 @@ async def query_bot(
                 raise GeminiUnavailableError("All fallback models failed to generate a response.")
 
             is_safe_fallback_text = (SAFE_FALLBACK in visible_text)
-            has_critical = bool(emergency_banner) or is_safe_fallback_text
+            has_critical = bool(emergency_banner) or is_safe_fallback_text or is_medication_change_query(body.query)
             preserve_disclaimer = (not is_followup_turn) or has_critical
 
             if intent != QueryIntent.CASUAL and preserve_disclaimer:

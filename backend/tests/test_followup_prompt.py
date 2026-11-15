@@ -227,7 +227,7 @@ def test_comparison_aware_followup_turn():
         is_followup_turn=True,
     )
     assert "LONGITUDINAL COMPARISONS" in sys_compare
-    assert "FOLLOW-UP TURN RULES" in sys_compare
+    assert "FOLLOW-UP TURNS" in sys_compare
     assert "### 🟢 The Short Version" not in sys_compare
 
     # 2. Trend follow-up
@@ -244,7 +244,7 @@ def test_comparison_aware_followup_turn():
         is_followup_turn=True,
     )
     assert "LONGITUDINAL COMPARISONS" not in sys_no_comp
-    assert "FOLLOW-UP TURN RULES" in sys_no_comp
+    assert "FOLLOW-UP TURNS" in sys_no_comp
 
     # 4. Initial turn
     sys_init, _ = build_prompt(
@@ -464,7 +464,8 @@ def test_followup_turn_rules_empathy_and_guidance_content():
     assert "3 to 5 short, practical actions" in system_instruction
     assert "is this serious?" in system_instruction
     assert "usually under 250 words" in system_instruction
-    assert "No headings and no tables" in system_instruction
+    assert "No headings (###)" in system_instruction
+    assert "no tables unless the user explicitly asks" in system_instruction
     assert "decisions to make with their clinician" in system_instruction
 
     # Check rule 5 in user_content
