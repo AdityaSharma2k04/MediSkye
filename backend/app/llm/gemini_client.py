@@ -35,19 +35,47 @@ _LLM_TRANSIENT_COOLDOWN = 30  # 30 seconds
 _LLM_DEAD_COOLDOWN = _LLM_TRANSIENT_COOLDOWN
 
 
+_UNAVAILABLE_MODEL_IDS: set[str] = set()
+
+
+def mark_model_unavailable(model: str) -> None:
+    """Permanently mark a model ID as unavailable for the process lifetime (e.g. on 404/NOT_FOUND)."""
+    if not model:
+        return
+    clean = model.removeprefix("models/")
+    _UNAVAILABLE_MODEL_IDS.add(model)
+    _UNAVAILABLE_MODEL_IDS.add(clean)
+
+
+def is_model_unavailable(model: str) -> bool:
+    """Check if model ID is marked unavailable."""
+    if not model:
+        return False
+    clean = model.removeprefix("models/")
+    return clean in _UNAVAILABLE_MODEL_IDS or model in _UNAVAILABLE_MODEL_IDS
+
+
 def reset_cooldown() -> None:
-    """Reset LLM cooldown timestamp (primarily for tests)."""
+    """Reset LLM cooldown timestamp and unavailable models (primarily for tests)."""
     global _llm_dead_until
     _llm_dead_until = 0.0
+    _UNAVAILABLE_MODEL_IDS.clear()
+
+
+def clear_unavailable_models() -> None:
+    """Clear sticky unavailable models cache (primarily for tests)."""
+    _UNAVAILABLE_MODEL_IDS.clear()
 
 
 FALLBACK_MODELS = [
+    "gemini-3.8-flash",
     "gemini-3.6-flash",
     "gemini-3.5-flash",
-    "gemini-3.8-flash",
 ]
 
 MODEL_FALLBACK_CHAIN = [
+    "gemini-3.8-flash",
+    "gemini-3.6-flash",
     "gemini-3.5-flash",
     "gemini-2.5-flash",
     "gemini-2.5-flash-lite",
@@ -60,10 +88,11 @@ MODEL_FALLBACK_CHAIN = [
 def get_fallback_models(primary_model: Optional[str] = None) -> list[str]:
     """
     Returns an ordered chain of fallback models for streaming/query:
-    1. Primary configured model (settings.GEMINI_MODEL)
+    1. Primary configured model (settings.PRIMARY_CHAT_MODEL or settings.GEMINI_MODEL)
     2. Configured fallback models from settings.resolved_fallback_models (or MODEL_FALLBACK_CHAIN)
+    Filters out models marked permanently unavailable for this process (e.g. via 404).
     """
-    primary = primary_model or settings.GEMINI_MODEL
+    primary = primary_model or getattr(settings, "PRIMARY_CHAT_MODEL", None) or settings.GEMINI_MODEL
     if settings.GOOGLE_GENAI_USE_ENTERPRISE and primary.startswith("models/"):
         primary = primary.removeprefix("models/")
 
@@ -73,7 +102,8 @@ def get_fallback_models(primary_model: Optional[str] = None) -> list[str]:
         target = m.removeprefix("models/") if settings.GOOGLE_GENAI_USE_ENTERPRISE and m.startswith("models/") else m
         if target not in chain:
             chain.append(target)
-    return chain
+    active_chain = [m for m in chain if not is_model_unavailable(m)]
+    return active_chain if active_chain else chain
 
 
 def _is_retryable_error(exc: Exception) -> bool:
@@ -147,7 +177,11 @@ async def call_gemini_with_retry(
     tried_models = []
     last_exception = None
 
-    for current_model in models_to_try:
+    active_models_to_try = [m for m in models_to_try if not is_model_unavailable(m)]
+    if not active_models_to_try:
+        active_models_to_try = models_to_try
+
+    for current_model in active_models_to_try:
         tried_models.append(current_model)
         for attempt in range(1, max_attempts + 1):
             try:
@@ -181,14 +215,24 @@ async def call_gemini_with_retry(
 
             except Exception as exc:
                 last_exception = exc
+                err_str = str(exc).lower()
+
+                # Handle 404 / NOT_FOUND: Model not enabled or doesn't exist on project/region
+                if "404" in err_str or "not_found" in err_str or "not found" in err_str:
+                    logger.warning(
+                        "Model %s returned 404 NOT_FOUND. Marking as unavailable for process lifetime and trying next model.",
+                        current_model,
+                    )
+                    mark_model_unavailable(current_model)
+                    break
+
                 is_retryable = _is_retryable_error(exc)
                 if not is_retryable:
                     logger.warning(
-                        "Non-retryable error on model %s: %s. Raising immediately.",
+                        "Non-retryable error on model %s: %s.",
                         current_model,
                         exc,
                     )
-                    err_str = str(exc).lower()
                     if ("resource_exhausted" in err_str or "429" in err_str) and (
                         "per_day" in err_str or "generate_content_free_tier_requests" in err_str
                     ):

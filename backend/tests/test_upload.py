@@ -345,7 +345,8 @@ async def test_upload_background_pre_generates_and_caches_metrics():
         doc_res = await session.execute(select(Document).filter(Document.id == uuid.UUID(job["document_id"])))
         doc_obj = doc_res.scalars().first()
         assert doc_obj is not None
-        assert doc_obj.cached_metrics == mock_metrics_result
+        cached_m = doc_obj.cached_metrics.get("metrics") if isinstance(doc_obj.cached_metrics, dict) else doc_obj.cached_metrics
+        assert cached_m == mock_metrics_result
 
 
 @pytest.mark.anyio

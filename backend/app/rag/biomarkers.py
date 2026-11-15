@@ -140,7 +140,7 @@ _CLINICAL_FOLLOWUP_HINTS: Dict[str, Dict[str, Any]] = {
 }
 
 
-def canonical_biomarker_key(name: str) -> Optional[str]:
+def canonical_biomarker_key(name: str, allow_urinalysis: bool = False) -> Optional[str]:
     """
     Returns the normalized canonical key for a clinical biomarker name using
     ordered, case-insensitive regex rules with word boundaries.
@@ -155,12 +155,58 @@ def canonical_biomarker_key(name: str) -> Optional[str]:
     n_clean = re.sub(r'\s+', ' ', n_clean).strip()
 
     # 0a. Urine Albumin-to-Creatinine Ratio (MUST precede urinalysis exclusions and individual renal markers)
-    if re.search(r'\b(?:albumin\s+(?:to\s+)?creatinine\s+ratio|uacr|acr)\b', n_clean):
+    if re.search(r'\b(?:albumin\s+(?:to\s+)?creatinine\s+ratio|uacr|urine\s+acr|acr)\b', n_clean):
         return "urine_acr"
 
-    # 0b. Urinalysis Dipstick & Microscopy Exclusions (return None so they NEVER collide with blood markers like WBC, RBC or Albumin)
-    if re.search(r'\b(?:leukocyte\s+esterase|leucocyte\s+esterase|pus\s+cells?|epithelial\s+cells?|urinary|urine(?!\s*acr|\s*albumin\s*(?:to|/)?\s*creatinine)|microalbumin|specific\s+gravity|urobilinogen|nitrites?|ketones?|casts|crystals|bacteria|yeast|mucus)\b', n_clean):
-        return None
+    # 0b. Urinalysis Dipstick & Microscopy Exclusions / Mapping
+    if not allow_urinalysis:
+        if re.search(r'\b(?:leukocyte\s+esterase|leucocyte\s+esterase|pus\s+cells?|epithelial\s+cells?|urinary|urine(?!\s*acr|\s*albumin\s*(?:to|/)?\s*creatinine)|microalbumin|specific\s+gravity|urobilinogen|nitrites?|ketones?|casts|crystals|bacteria|yeast|mucus)\b', n_clean):
+            return None
+    else:
+        if re.search(r'\b(?:urine\s+microalbumin|urinary\s+microalbumin|microalbumin\s*\(?urine\)?|microalbuminuria|microalbumin)\b', n_clean):
+            return "urine_microalbumin"
+        if re.search(r'\b(?:urine\s+creatinine|urinary\s+creatinine|creatinine\s*\(?urine\)?)\b', n_clean):
+            return "urine_creatinine"
+        if re.search(r'\b(?:urine\s+colou?r|urinary\s+colou?r|^colou?r$)\b', n_clean):
+            return "urine_color"
+        if re.search(r'\b(?:urine\s+appearance|urinary\s+appearance|^appearance$|clarity)\b', n_clean):
+            return "urine_appearance"
+        if re.search(r'\b(?:urine\s+specific\s+gravity|specific\s+gravity|sp\s*gr)\b', n_clean):
+            return "urine_specific_gravity"
+        if re.search(r'\b(?:urine\s+ph|urinary\s+ph|reaction\s*\(?ph\)?|^ph$)\b', n_clean):
+            return "urine_ph"
+        if re.search(r'\b(?:urine\s+ketones?|urinary\s+ketones?|^ketones?|ketone\s+bodies)\b', n_clean):
+            return "urine_ketones"
+        if re.search(r'\b(?:urine\s+urobilinogen|urinary\s+urobilinogen|urobilinogen)\b', n_clean):
+            return "urine_urobilinogen"
+        if re.search(r'\b(?:urine\s+nitrites?|urinary\s+nitrites?|nitrites?)\b', n_clean):
+            return "urine_nitrite"
+        if re.search(r'\b(?:leukocyte\s+esterase|leucocyte\s+esterase)\b', n_clean):
+            return "urine_leukocyte_esterase"
+        if re.search(r'\b(?:pus\s+cells?(?:\s*wbc)?|urine\s+pus\s+cells?|urine\s+wbc)\b', n_clean):
+            return "urine_pus_cells"
+        if re.search(r'\b(?:urine\s+epithelial\s+cells?|epithelial\s+cells?)\b', n_clean):
+            return "urine_epithelial_cells"
+        if re.search(r'\b(?:urine\s+casts?|urinary\s+casts?|^casts?|hyaline\s+casts?|granular\s+casts?)\b', n_clean):
+            return "urine_casts"
+        if re.search(r'\b(?:urine\s+crystals?|urinary\s+crystals?|^crystals?|calcium\s+oxalate|uric\s+acid\s+crystals?)\b', n_clean):
+            return "urine_crystals"
+        if re.search(r'\b(?:urine\s+bacteria|urinary\s+bacteria|^bacteria$)\b', n_clean):
+            return "urine_bacteria"
+        if re.search(r'\b(?:urine\s+yeast|urinary\s+yeast|^yeast$)\b', n_clean):
+            return "urine_yeast"
+        if re.search(r'\b(?:urine\s+mucus|urinary\s+mucus|^mucus$)\b', n_clean):
+            return "urine_mucus"
+        if re.search(r'\b(?:urine\s+protein|urinary\s+protein|^protein$)\b', n_clean):
+            return "urine_protein"
+        if re.search(r'\b(?:urine\s+blood|urinary\s+blood|^blood$|occult\s+blood)\b', n_clean):
+            return "urine_blood"
+        if re.search(r'\b(?:urine\s+rbc|urinary\s+rbc|urine\s+red\s+blood\s+cells?)\b', n_clean):
+            return "urine_rbc"
+        if re.search(r'\b(?:urine\s+glucose|urinary\s+glucose|urine\s+sugar)\b', n_clean):
+            return "urine_glucose"
+        if re.search(r'\b(?:urine\s+bilirubin|urinary\s+bilirubin)\b', n_clean):
+            return "urine_bilirubin"
 
     # 0c. Explicit Ratios (MUST precede individual lipid, renal, or liver markers so e.g. TC/HDL ratio never matches HDL)
     if re.search(r'\b(?:tc\s*/?\s*hdl(?:\s+ratio)?|total\s+cholesterol\s*/?\s*hdl(?:\s+ratio)?)\b', n_clean):
@@ -339,6 +385,44 @@ def canonical_biomarker_key(name: str) -> Optional[str]:
         return "total_protein"
     if re.search(r'\bphosphorus\b', n_clean):
         return "phosphorus"
+    if re.search(r'\b(?:neutrophils?|polymorphs?)\b', n_clean):
+        return "neutrophils"
+    if re.search(r'\b(?:lymphocytes?|lymphs?)\b', n_clean):
+        return "lymphocytes"
+    if re.search(r'\b(?:monocytes?)\b', n_clean):
+        return "monocytes"
+    if re.search(r'\b(?:eosinophils?|eos)\b', n_clean):
+        return "eosinophils"
+    if re.search(r'\b(?:basophils?)\b', n_clean):
+        return "basophils"
+    if re.search(r'\b(?:rdw(?:\s*-\s*(?:cv|sd))?)\b', n_clean):
+        return "rdw"
+    if re.search(r'\b(?:blood\s+urea|urea)\b', n_clean):
+        return "urea"
+    if re.search(r'\b(?:direct\s+bilirubin|bilirubin\s+direct|conjugated\s+bilirubin)\b', n_clean):
+        return "bilirubin_direct"
+    if re.search(r'\b(?:indirect\s+bilirubin|bilirubin\s+indirect|unconjugated\s+bilirubin)\b', n_clean):
+        return "bilirubin_indirect"
+    if re.search(r'\b(?:chloride|cl-?)\b', n_clean):
+        return "chloride"
+    if re.search(r'\b(?:prostate\s+specific\s+antigen|psa)\b', n_clean):
+        return "psa"
+    if re.search(r'\b(?:troponin(?:\s*-\s*[it])?|trop\s*-\s*[it])\b', n_clean):
+        return "troponin"
+    if re.search(r'\b(?:bnp|nt\s*-?\s*probnp|pro\s*-?\s*bnp)\b', n_clean):
+        return "bnp"
+    if re.search(r'\b(?:pt[\s/]*inr|inr|prothrombin\s+time)\b', n_clean):
+        return "inr"
+    if re.search(r'\b(?:activated\s+partial\s+thromboplastin\s+time|aptt|ptt)\b', n_clean):
+        return "aptt"
+    if re.search(r'\b(?:lactate\s+dehydrogenase|ldh)\b', n_clean):
+        return "ldh"
+    if re.search(r'\b(?:amylase|serum\s+amylase)\b', n_clean):
+        return "amylase"
+    if re.search(r'\b(?:lipase|serum\s+lipase)\b', n_clean):
+        return "lipase"
+    if re.search(r'\b(?:creatine\s+kinase|ck|cpk)\b', n_clean):
+        return "ck"
 
     logger.debug("Unknown biomarker name: %s", name)
     return None

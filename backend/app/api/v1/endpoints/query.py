@@ -968,7 +968,7 @@ async def query_bot(
 
             # ── Gemini stream with progressive fallback across models (at least 5 attempts) ──
             loop = asyncio.get_running_loop()
-            models_to_try = get_fallback_models()
+            models_to_try = get_fallback_models(getattr(settings, "PRIMARY_CHAT_MODEL", None))
             stream_succeeded = False
             last_stream_exception = None
 
@@ -1134,6 +1134,10 @@ async def query_bot(
                 if model_failed_with_exc:
                     last_stream_exception = model_failed_with_exc
                     logger.warning("Stream attempt on model %s failed: %s", current_model, model_failed_with_exc)
+                    err_str = str(model_failed_with_exc).lower()
+                    if "404" in err_str or "not_found" in err_str or "not found" in err_str:
+                        from app.llm.gemini_client import mark_model_unavailable
+                        mark_model_unavailable(current_model)
                     if attempt_yielded_to_client:
                         raise model_failed_with_exc
                     continue
@@ -1535,7 +1539,8 @@ async def get_or_generate_document_summary(
         if hasattr(client, "aio") and hasattr(client.aio, "models"):
             try:
                 gen_fn = client.aio.models.generate_content
-                res = gen_fn(model=settings.GEMINI_MODEL, contents=summary_prompt, config=summary_config)
+                summary_model = getattr(settings, "PRIMARY_SUMMARY_MODEL", "gemini-3.6-flash")
+                res = gen_fn(model=summary_model, contents=summary_prompt, config=summary_config)
                 if asyncio.iscoroutine(res):
                     response = await res
                 elif hasattr(res, "text") and isinstance(res.text, str) and res.text:
@@ -1544,8 +1549,10 @@ async def get_or_generate_document_summary(
                 logger.debug("client.aio generate_content error/bypassed: %s", aio_err)
 
         if response is None or not getattr(response, "text", None):
+            summary_model = getattr(settings, "PRIMARY_SUMMARY_MODEL", "gemini-3.6-flash")
             response = await call_gemini_with_retry(
                 contents=summary_prompt,
+                model=summary_model,
                 user_id=current_user.id,
                 config=summary_config,
             )

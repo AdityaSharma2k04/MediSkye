@@ -279,11 +279,18 @@ def reset_rate_limits_each_test():
 def reset_gemini_cooldown_each_test():
     """Ensure in-memory Gemini cooldown does not leak across test cases."""
     import app.llm.gemini_client as gc
+    import app.llm.embeddings_client as ec
     gc._llm_dead_until = 0.0
     gc.get_genai_client.cache_clear()
+    gc._UNAVAILABLE_MODEL_IDS.clear()
+    ec._UNAVAILABLE_EMBEDDING_MODELS.clear()
+    ec._WORKING_EMBEDDING_MODEL = None
     yield
     gc._llm_dead_until = 0.0
     gc.get_genai_client.cache_clear()
+    gc._UNAVAILABLE_MODEL_IDS.clear()
+    ec._UNAVAILABLE_EMBEDDING_MODELS.clear()
+    ec._WORKING_EMBEDDING_MODEL = None
 
 
 @pytest.fixture(autouse=True)

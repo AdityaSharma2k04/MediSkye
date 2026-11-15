@@ -192,8 +192,19 @@ async def process_upload_background(
                 if extracted_col_date:
                     doc_final.collected_at = extracted_col_date
                 await db_final.commit()
+                # Synchronous Lab Metrics Extraction to lock metrics at upload time
+                try:
+                    await extract_and_cache_metrics(
+                        doc_id=doc_id_val,
+                        page_docs=page_docs,
+                        db=db_final,
+                        user_id=user_uuid,
+                        raw_chunks=chunk_texts,
+                    )
+                except Exception as mex:
+                    logger.warning(f"[UPLOAD {job_id}] Synchronous metrics extraction error: {mex}")
         db_commit_ms = int((time.perf_counter() - t_db) * 1000)
-        logger.info(f"[UPLOAD {job_id}] DB commit (local_ready): {db_commit_ms}ms")
+        logger.info(f"[UPLOAD {job_id}] DB commit & metrics extraction (local_ready): {db_commit_ms}ms")
 
         # Step A (Fast Path): Mark upload job completed IMMEDIATELY as local_ready
         await update_job(job_id, status=UploadStatus.COMPLETED, document_id=str(doc_id_val), stage="ready")
@@ -298,7 +309,6 @@ async def _warm_document_metrics_cache(doc_id: uuid.UUID, user_uuid: uuid.UUID, 
                     res = await db.execute(select(Document).filter(Document.id == doc_id))
                     doc_obj = res.scalars().first()
                     if doc_obj:
-                        doc_obj.cached_metrics = metrics_result
                         raw_extracted = [
                             {
                                 "test": str(m.get("test") or m.get("name") or "").strip(),
@@ -310,15 +320,20 @@ async def _warm_document_metrics_cache(doc_id: uuid.UUID, user_uuid: uuid.UUID, 
                             for m in metrics_result
                             if isinstance(m, dict)
                         ]
-                        doc_obj.cached_metrics = raw_extracted
-                        flag_modified(doc_obj, "cached_metrics")
-                        db.add(doc_obj)
-                        try:
-                            await db.commit()
-                        except StaleDataError:
-                            await db.rollback()
-                            logger.info("Document %s was deleted while metrics prewarming was in-flight; discarding result.", doc_id)
-                            return
+                        if not isinstance(doc_obj.cached_metrics, dict) or "metrics" not in doc_obj.cached_metrics:
+                            all_chunk_texts = [getattr(d, "page_content", str(d)) for d in page_docs if getattr(d, "page_content", str(d))] if page_docs else []
+                            doc_obj.cached_metrics = {
+                                "metrics": raw_extracted,
+                                "_raw_chunks": all_chunk_texts,
+                            }
+                            flag_modified(doc_obj, "cached_metrics")
+                            db.add(doc_obj)
+                            try:
+                                await db.commit()
+                            except StaleDataError:
+                                await db.rollback()
+                                logger.info("Document %s was deleted while metrics prewarming was in-flight; discarding result.", doc_id)
+                                return
                     elapsed_ms = int((time.perf_counter() - t_start) * 1000)
                     logger.info("prewarm_ok doc_id=%s kind=%s elapsed_ms=%d", doc_id, "metrics", elapsed_ms)
 
@@ -386,6 +401,7 @@ async def _warm_document_summary_cache(doc_id: uuid.UUID, user_uuid: uuid.UUID, 
 
                 response = await call_gemini_with_retry(
                     contents=summary_prompt,
+                    model=getattr(settings, "PRIMARY_SUMMARY_MODEL", "gemini-3.6-flash"),
                     user_id=user_uuid,
                     config=GenerateContentConfig(
                         thinking_config=ThinkingConfig(thinking_budget=0),

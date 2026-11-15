@@ -158,7 +158,7 @@ def parse_report_chronology(doc: Any) -> Optional[datetime]:
     return None
 
 
-def canonical_biomarker_key(name: str) -> str:
+def canonical_biomarker_key(name: str, allow_urinalysis: bool = False) -> str:
     """
     Returns a normalized key for matching clinical biomarkers across reports using whole-word regexes.
     Order matters:
@@ -173,6 +173,12 @@ def canonical_biomarker_key(name: str) -> str:
     """
     if not name:
         return ""
+    if allow_urinalysis:
+        from app.rag.biomarkers import canonical_biomarker_key as _rag_canonical_key
+        r_key = _rag_canonical_key(name, allow_urinalysis=True)
+        if r_key and r_key.startswith("urine_"):
+            return r_key
+
     n = name.lower().strip()
     # Normalize punctuation and brackets
     n_clean = re.sub(r'[\(\)\[\]:,/]', ' ', n)

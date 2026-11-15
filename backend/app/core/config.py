@@ -36,12 +36,35 @@ class Settings(BaseSettings):
     ALLOW_UNVERIFIED_JWT_FALLBACK: bool = False
     CACHE_WARM_RETRY_DELAY_SECONDS: float = 2.0
     GOOGLE_API_KEY: str = Field(default_factory=lambda: os.getenv("GOOGLE_API_KEY", ""))
-    GEMINI_MODEL: str = "gemini-3.6-flash"
-    EMBEDDING_MODEL: str = "models/gemini-embedding-2"
-    GEMINI_FALLBACK_MODELS: List[str] = [
+    GEMINI_MODEL: str = "gemini-3.8-flash"
+    PRIMARY_CHAT_MODEL: str = "gemini-3.8-flash"
+    PRIMARY_METRICS_MODEL: str = "gemini-3.8-flash"
+    PRIMARY_SUMMARY_MODEL: str = "gemini-3.6-flash"
+    EMBEDDING_MODEL: str = "gemini-embedding-2"
+    MODEL_FALLBACK_CHAIN: List[str] = [
+        "gemini-3.8-flash",
         "gemini-3.6-flash",
         "gemini-3.5-flash",
+        "gemini-2.5-flash",
+        "gemini-2.5-flash-lite",
+        "gemini-2.0-flash",
+        "gemini-2.0-flash-lite",
+        "gemini-1.5-flash",
+    ]
+    GEMINI_FALLBACK_MODELS: List[str] = [
         "gemini-3.8-flash",
+        "gemini-3.6-flash",
+        "gemini-3.5-flash",
+        "gemini-2.5-flash",
+        "gemini-2.5-flash-lite",
+        "gemini-2.0-flash",
+        "gemini-2.0-flash-lite",
+        "gemini-1.5-flash",
+    ]
+    EMBEDDING_FALLBACK_CHAIN: List[str] = [
+        "gemini-embedding-2",
+        "gemini-embedding-001",
+        "text-embedding-004",
     ]
     FERNET_KEY: str
     JWT_SECRET_KEY: str
@@ -107,7 +130,14 @@ class Settings(BaseSettings):
 
     @property
     def resolved_fallback_models(self) -> List[str]:
-        models = self.GEMINI_FALLBACK_MODELS
+        models = self.GEMINI_FALLBACK_MODELS or self.MODEL_FALLBACK_CHAIN
+        if self.GOOGLE_GENAI_USE_ENTERPRISE:
+            return [m.removeprefix("models/") for m in models]
+        return list(models)
+
+    @property
+    def resolved_embedding_fallbacks(self) -> List[str]:
+        models = self.EMBEDDING_FALLBACK_CHAIN
         if self.GOOGLE_GENAI_USE_ENTERPRISE:
             return [m.removeprefix("models/") for m in models]
         return list(models)

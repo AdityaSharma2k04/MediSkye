@@ -1,6 +1,6 @@
 # 🧪 MediSkye Live E2E Clinical Test Run & Comprehensive QA Report
 
-> **Test Execution Timestamp:** `2026-11-15T05:12:13.964649+05:30`  
+> **Test Execution Timestamp:** `2026-11-15T05:46:10.872250+05:30`  
 > **Live Test Account:** `mediskye@test.com` | **Password:** `MediSkye@2026!`  
 > **Cloud Engine:** Google Cloud Run / Vertex AI (`asia-southeast1`)  
 > **LLM Primary:** `gemini-3.5-flash` | **Embeddings:** `text-embedding-004`  
@@ -16,7 +16,7 @@
 | **Profile 2 (`dep_1`)** | Aarav Verma *(Brother)* | 24 Y / Male | `Comprehensive Laboratory Report - Aarav Verma.pdf` | 24 Oct 2026 | **20** | 🟢 Complete | 🟢 Zero Repetition | 🟢 0 Double Disclaimers | 🟢 0 False Fallbacks | 🟢 100% Isolated |
 | **Profile 2 (`dep_1`)** | Aarav Verma *(Brother)* | 24 Y / Male | `6-Month Follow-Up Laboratory Report - Aarav Verma.pdf` | 24 Apr 2027 | **20** (Longitudinal) | 🟢 Complete + Table | 🟢 Zero Repetition | 🟢 0 Double Disclaimers | 🟢 0 False Fallbacks | 🟢 100% Isolated |
 | **Profile 3 (`dep_2`)** | Anjali Verma *(Sister)* | 34 Y / Female | `Verma.pdf` | 09 Nov 2026 | **11** | 🟢 Complete | 🟢 Zero Repetition | 🟢 0 Double Disclaimers | 🟢 0 False Fallbacks | 🟢 100% Isolated |
-| **Profile 4 (`dep_3`)** | Imran Qureshi *(Uncle)* | 45 Y / Male | `Qureshi.pdf` | 10 Nov 2026 | **8** | 🟢 Complete | 🟢 Zero Repetition | 🟢 0 Double Disclaimers | 🟢 0 False Fallbacks | 🟢 100% Isolated |
+| **Profile 4 (`dep_3`)** | Imran Qureshi *(Uncle)* | 45 Y / Male | `Qureshi.pdf` | 10 Nov 2026 | **19** | 🟢 Complete | 🟢 Zero Repetition | 🟢 0 Double Disclaimers | 🟢 0 False Fallbacks | 🟢 100% Isolated |
 | **Profile 5 (`dep_4`)** | Harish Menon *(Father)* | 61 Y / Male | `Menon.pdf` | 08 Nov 2026 | **21** | 🟢 Complete | 🟢 Zero Repetition | 🟢 0 Double Disclaimers | 🟢 0 False Fallbacks | 🟢 100% Isolated |
 
 ---
@@ -898,16 +898,27 @@ You are asking all the right questions, and going in with this list will help yo
 - **Specimen Collection Date:** `10 Nov 2026`
 - **Session ID:** `974a83a3-1a60-4c89-a7d0-4f01cdc98567`
 
-#### 🔬 Extracted Lab Metrics (8 Biomarkers)
+#### 🔬 Extracted Lab Metrics (19 Biomarkers)
 | Biomarker | Value | Unit | Reference Range | Clinical Status |
 | :--- | :--- | :--- | :--- | :--- |
-| Specific Gravity | 1.015 | ratio | 1.005 - 1.030 | 🟢 Normal |
-| pH | 6.0 | pH units | 4.6 - 8.0 | 🟢 Normal |
-| Protein | Trace | qualitative | Negative | 🔴 High |
-| Glucose | Negative | qualitative | Negative | 🟢 Normal |
-| Blood | Positive (+) | qualitative | Negative | 🔴 High |
-| Bilirubin | Negative | qualitative | Negative | 🟢 Normal |
+| Colour | Pale Yellow |  | Pale Yellow | 🟢 Normal |
+| Appearance | Clear |  | Clear | 🟢 Normal |
+| Specific Gravity | 1.015 |  | 1.005 - 1.030 | 🟢 Normal |
+| pH | 6.0 |  | 4.6 - 8.0 | 🟢 Normal |
+| Protein | Trace |  | Negative | 🔴 Abnormal |
+| Glucose | Negative |  | Negative | 🟢 Normal |
+| Ketones | Negative |  | Negative | 🟢 Normal |
+| Blood | Positive (+) |  | Negative | 🔴 Abnormal |
+| Bilirubin | Negative |  | Negative | 🟢 Normal |
+| Urobilinogen | Normal |  | Normal | 🟢 Normal |
+| Nitrite | Negative |  | Negative | 🟢 Normal |
+| Leucocyte Esterase | Negative |  | Negative | 🟢 Normal |
+| Pus Cells (WBC) | 2 - 3 | /HPF | 0 - 5 | 🟢 Normal |
 | Red Blood Cells (RBC) | 6 - 8 | /HPF | 0 - 2 | 🔴 High |
+| Epithelial Cells | 1 - 2 | /HPF | 0 - 5 | 🟢 Normal |
+| Casts | Nil |  | Nil | 🟢 Normal |
+| Crystals | Calcium oxalate, occasional |  | Nil | 🔴 Abnormal |
+| Bacteria | Nil |  | Nil | 🟢 Normal |
 | Urine Albumin / Creatinine Ratio | 48 | mg/g | < 30 | 🔴 High |
 
 ### 💬 5-Turn Clinical Conversation Log

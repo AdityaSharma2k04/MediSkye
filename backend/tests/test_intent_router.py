@@ -1,6 +1,7 @@
 import pytest
 from unittest.mock import MagicMock, patch
 
+from app.core.config import settings
 from app.rag.intent_router import (
     QueryIntent,
     classify_intent,
@@ -62,7 +63,7 @@ async def test_classify_intent_casual_llm_fallback():
     with patch("app.rag.intent_router.call_gemini_with_retry", return_value=mock_resp) as mock_gemini:
         intent = await classify_intent("who created you and what can you help me with?")
         assert intent == QueryIntent.CASUAL
-        assert mock_gemini.call_args.kwargs["model"] == "gemini-3.6-flash"
+        assert mock_gemini.call_args.kwargs["model"] == settings.GEMINI_MODEL
 
 
 def test_append_disclaimer_conditional():

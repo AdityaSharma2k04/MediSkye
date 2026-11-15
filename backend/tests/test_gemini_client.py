@@ -1,8 +1,16 @@
 import pytest
 from unittest.mock import MagicMock, AsyncMock, patch
-from app.llm.gemini_client import call_gemini_with_retry, GeminiUnavailableError, FALLBACK_MODELS
+from app.core.config import settings
+from app.llm.gemini_client import call_gemini_with_retry, GeminiUnavailableError, FALLBACK_MODELS, reset_cooldown
 from app.llm.embeddings_client import embed_content_with_retry
 from app.rag.intent_router import classify_intent, QueryIntent
+
+
+@pytest.fixture(autouse=True)
+def reset_llm_state():
+    reset_cooldown()
+    yield
+    reset_cooldown()
 
 
 @pytest.mark.asyncio
@@ -83,7 +91,7 @@ async def test_embed_content_with_retry_permanent_failure_raises_typed_error():
         )
 
     assert "Gemini Embeddings API unavailable after 3 attempts" in str(exc_info.value)
-    assert mock_client.models.embed_content.call_count == 3
+    assert mock_client.models.embed_content.call_count == len(settings.EMBEDDING_FALLBACK_CHAIN) * 3
 
 
 @pytest.mark.asyncio
@@ -105,8 +113,8 @@ async def test_gemini_fallback_chain_triggers_on_503():
     mock_fallback_resp.usage_metadata.prompt_token_count = 10
     mock_fallback_resp.usage_metadata.candidates_token_count = 15
 
-    # Primary model ("gemini-3.6-flash") fails 3 times with 503,
-    # then fallback model ("gemini-3.5-flash") succeeds on first attempt.
+    # Primary model fails 3 times with 503,
+    # then fallback model succeeds on first attempt.
     mock_client.models.generate_content.side_effect = [
         Exception("503 Service Unavailable"),
         Exception("503 Service Unavailable"),
@@ -121,13 +129,16 @@ async def test_gemini_fallback_chain_triggers_on_503():
         backoff_delays=[0.001, 0.001, 0.001],
     )
 
+    primary = settings.resolved_fallback_models[0]
+    secondary = settings.resolved_fallback_models[1]
+
     assert res == mock_fallback_resp
     assert mock_client.models.generate_content.call_count == 4
     calls = mock_client.models.generate_content.call_args_list
-    assert calls[0].kwargs["model"] == "gemini-3.6-flash"
-    assert calls[1].kwargs["model"] == "gemini-3.6-flash"
-    assert calls[2].kwargs["model"] == "gemini-3.6-flash"
-    assert calls[3].kwargs["model"] == "gemini-3.5-flash"
+    assert calls[0].kwargs["model"] == primary
+    assert calls[1].kwargs["model"] == primary
+    assert calls[2].kwargs["model"] == primary
+    assert calls[3].kwargs["model"] == secondary
 
 
 @pytest.mark.asyncio
@@ -144,8 +155,7 @@ async def test_gemini_fallback_chain_raises_after_all_fail():
         )
 
     assert "All models failed" in str(exc_info.value)
-    # 4 fallback models * 3 attempts = 12 total attempts
-    assert mock_client.models.generate_content.call_count == len(FALLBACK_MODELS) * 3
+    assert mock_client.models.generate_content.call_count == len(settings.resolved_fallback_models) * 3
 
 
 @pytest.mark.asyncio

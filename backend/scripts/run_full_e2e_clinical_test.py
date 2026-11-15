@@ -1037,7 +1037,7 @@ def build_markdown_report(data: Dict[str, Any]) -> str:
                         unit = m.get("unit") or ""
                         rr = m.get("range") or m.get("reference_range") or ""
                         st = m.get("status") or "Normal"
-                        st_icon = "🔴 High" if st == "High" else ("🟡 Low" if st == "Low" else "🟢 Normal")
+                        st_icon = "🔴 High" if st == "High" else ("🔴 Abnormal" if st in ("Abnormal", "abnormal") else ("🟡 Low" if st == "Low" else "🟢 Normal"))
                         prev_val = m.get("previous_value") or "—"
                         d_pct = m.get("delta_pct")
                         d_str = _fmt_signed_pct(d_pct)
@@ -1052,7 +1052,7 @@ def build_markdown_report(data: Dict[str, Any]) -> str:
                         unit = m.get("unit") or ""
                         rr = m.get("range") or m.get("reference_range") or ""
                         st = m.get("status") or "Normal"
-                        st_icon = "🔴 High" if st == "High" else ("🟡 Low" if st == "Low" else "🟢 Normal")
+                        st_icon = "🔴 High" if st == "High" else ("🔴 Abnormal" if st in ("Abnormal", "abnormal") else ("🟡 Low" if st == "Low" else "🟢 Normal"))
                         lines.append(f"| {test} | {val} | {unit} | {rr} | {st_icon} |")
             else:
                 lines.append("*(No lab metrics attached to general health session)*")

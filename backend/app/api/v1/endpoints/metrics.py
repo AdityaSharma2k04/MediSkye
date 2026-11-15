@@ -288,11 +288,17 @@ def _resolve_status(llm_status: Any, value: Any, rng: Any, sex: Optional[str]) -
     if derived is None and rng:
         val_str_clean = str(value or "").strip().lower()
         rng_clean = rng.strip().lower()
-        if re.match(r"^\s*(?:negative|non[-\s]?reactive|absent|nil|normal)\s*$", rng_clean, re.I):
-            if (re.search(r"\b(?:positive|reactive|detected|present|trace)\b", val_str_clean, re.I) or re.search(r"(?<!\w)\+[1-4]?(?!\w)", val_str_clean)) and not re.search(r"\b(?:non[-\s]?reactive|negative|absent|nil)\b", val_str_clean, re.I):
+        if re.match(r"^\s*(?:negative|non[-\s]?reactive|absent|nil|normal|clear|pale\s+yellow)\s*$", rng_clean, re.I):
+            if val_str_clean in ("negative", "non-reactive", "non reactive", "absent", "nil", "normal", "clear", "pale yellow", "none detected", "none", "0") or val_str_clean == rng_clean:
+                derived = "Normal"
+            elif (re.search(r"\b(?:positive|reactive|detected|present|trace|calcium\s+oxalate|crystals?|casts?)\b", val_str_clean, re.I) or re.search(r"(?<!\w)\+[1-4]?(?!\w)", val_str_clean)) and not re.search(r"\b(?:non[-\s]?reactive|negative|absent|nil)\b", val_str_clean, re.I):
                 if llm.lower() in ("high", "abnormal", "critical"):
                     return llm
                 return "High"
+            elif val_str_clean != rng_clean and not re.search(r"\b(?:non[-\s]?reactive|negative|absent|nil|normal|clear|pale\s+yellow)\b", val_str_clean, re.I):
+                if llm.lower() in ("high", "abnormal", "critical"):
+                    return llm
+                return "Abnormal"
             elif re.match(r"^\s*(?:negative|non[-\s]?reactive|absent|nil|none\s+detected)\s*$", val_str_clean, re.I):
                 return "Normal"
 
@@ -324,6 +330,8 @@ async def extract_and_cache_metrics(
     page_docs: Optional[List[Any]] = None,
     db: Optional[AsyncSession] = None,
     user_id: Optional[Union[uuid.UUID, str]] = None,
+    raw_chunks: Optional[List[str]] = None,
+    _internal_reextract: bool = False,
 ) -> Optional[List[Dict[str, Any]]]:
     """
     Modularized biomarker extraction and caching logic.
@@ -369,6 +377,10 @@ async def extract_and_cache_metrics(
             )
             lab_pages = [p for p in all_pages if any(kw in p.lower() for kw in keywords)]
             combined_text = "\n".join(lab_pages) if lab_pages else full_text
+    elif raw_chunks:
+        combined_text = "\n".join(raw_chunks)
+    elif isinstance(doc.cached_metrics, dict) and doc.cached_metrics.get("_raw_chunks") and not _internal_reextract:
+        combined_text = "\n".join(doc.cached_metrics["_raw_chunks"])
     elif doc.file_path:
         try:
             bm25_index = None
@@ -465,20 +477,22 @@ async def extract_and_cache_metrics(
 Extract structured clinical biomarker values from the following medical report text into a clean JSON array.
 
 CRITICAL EXTRACTION RULES:
-1. ONLY extract actual clinical biomarkers and laboratory analytes (e.g., Hemoglobin, HbA1c, TSH, LDL Cholesterol, Creatinine, WBC).
-2. DO NOT extract metadata, accreditation numbers, addresses, or text from document headers/footers.
+1. Extract ALL clinical tests, investigations, and analytes present in the report. This includes:
+   - Routine blood panels (e.g., Complete Blood Count, Liver/Kidney function, Lipid profile, Thyroid, Electrolytes, HbA1c, Glucose, Vitamins).
+   - ALL urinalysis investigations: Physical examination (Colour, Appearance, Specific Gravity, pH), Chemical examination (Protein, Glucose, Ketones, Blood, Bilirubin, Urobilinogen, Nitrite, Leucocyte Esterase), Microscopic examination (Pus Cells, Red Blood Cells, Epithelial Cells, Casts, Crystals, Bacteria), and Urine ACR.
+2. DO NOT extract metadata, accreditation numbers (ISO, NABL, CAP), clinic addresses, technician/doctor names, or text from document headers/footers.
 3. Strictly Ignore any line or test name containing: "ISO", "NABL", "CAP", "Certified", "Facility", "Hospital", "Lab", "Laboratory", "Helpline", "Boulevard", "Street", "Report ID", "Accession", "Sample", "Patient Name", "Referred By", "Page", or "Phone".
-4. Validation Rule: Every extracted item MUST have both a numeric/qualitative clinical value AND a valid physiological unit (e.g., mg/dL, g/dL, %, mIU/L, U/L, mmol/L, 10^3/uL, pg/mL) or be a recognized clinical ratio/index. If it lacks a valid unit or medical biomarker name, discard it.
+4. For qualitative tests or investigations where no physical unit is printed (e.g. Colour, Appearance, Ketones, Casts, Crystals, Bacteria, or dipstick tests), use 'qualitative' or '' for unit. Do NOT omit or discard tests simply because their unit is empty or qualitative!
 5. If no valid metrics are found, return an empty list `[]`.
 
 Return ONLY raw JSON with schema:
 [
   {{
-    "test": "Name of test (e.g. Hemoglobin, LDL Cholesterol)",
-    "value": "Observed value (e.g. 14.5)",
-    "unit": "Unit (e.g. g/dL, mg/dL)",
-    "range": "Reference range (e.g. 13.8 - 17.2)",
-    "status": "Normal" | "High" | "Low"
+    "test": "Investigation Name",
+    "value": "Observed value (e.g. 14.5, Trace, Positive (+), Clear, Nil)",
+    "unit": "Unit (e.g. g/dL, mg/dL, /HPF, or empty if none)",
+    "range": "Reference range (e.g. 13.8 - 17.2, Negative, Clear)",
+    "status": "Normal" | "High" | "Low" | "Abnormal"
   }}
 ]
 
@@ -487,6 +501,7 @@ Report text:
 """
             response = await call_gemini_with_retry(
                 contents=extract_prompt,
+                model=getattr(settings, "PRIMARY_METRICS_MODEL", "gemini-3.8-flash"),
                 user_id=effective_user_id,
                 backoff_delays=[1.5, 4.0, 16.0],
                 config=GenerateContentConfig(
@@ -524,7 +539,19 @@ Report text:
                 if not test_name or not val_str:
                     continue
 
-                c_key = canonical_biomarker_key(test_name)
+                c_key = canonical_biomarker_key(test_name, allow_urinalysis=True)
+                # Disambiguate urine investigations if test_name was generic like Glucose, Bilirubin, RBC, WBC
+                val_lower = val_str.lower()
+                unit_lower = unit_str.lower()
+                if c_key == "glucose" and (val_lower in ("negative", "nil", "normal", "trace", "present") or "qualitative" in unit_lower):
+                    c_key = "urine_glucose"
+                elif c_key == "bilirubin" and (val_lower in ("negative", "nil", "normal", "absent") or "qualitative" in unit_lower):
+                    c_key = "urine_bilirubin"
+                elif c_key == "rbc" and ("/hpf" in unit_lower or "/hpf" in val_lower):
+                    c_key = "urine_rbc"
+                elif c_key == "wbc" and ("/hpf" in unit_lower or "/hpf" in val_lower or "pus" in test_name.lower()):
+                    c_key = "urine_pus_cells"
+
                 if c_key in seen_canonical_keys:
                     continue
                 seen_canonical_keys.add(c_key)
@@ -548,7 +575,11 @@ Report text:
             return None
 
         try:
-            doc.cached_metrics = raw_metrics
+            chunks_to_save = raw_chunks or (all_pages if page_docs else ordered_texts if 'ordered_texts' in locals() and ordered_texts else [])
+            doc.cached_metrics = {
+                "metrics": raw_metrics,
+                "_raw_chunks": chunks_to_save,
+            }
             flag_modified(doc, "cached_metrics")
             db.add(doc)
             await db.commit()
@@ -650,14 +681,14 @@ async def _apply_longitudinal_deltas(
             for pm in raw_prior:
                 if isinstance(pm, dict):
                     t_name = pm.get("test") or pm.get("name") or ""
-                    key = canonical_biomarker_key(t_name)
+                    key = canonical_biomarker_key(t_name, allow_urinalysis=True)
                     if key:
                         prior_metrics_map[key] = pm
 
     result_items: List[LabMetricItem] = []
     for m in normalized_items:
         t_name = str(m.get("test") or m.get("name") or "").strip()
-        key = canonical_biomarker_key(t_name)
+        key = canonical_biomarker_key(t_name, allow_urinalysis=True)
         matched_prior = prior_metrics_map.get(key)
 
         prev_val = None
@@ -978,7 +1009,7 @@ async def get_patient_metric_trends(
             if not isinstance(m, dict):
                 continue
             t_name = str(m.get("test") or m.get("name") or "").strip()
-            base_key = canonical_biomarker_key(t_name)
+            base_key = canonical_biomarker_key(t_name, allow_urinalysis=True)
             if not base_key:
                 continue
             norm_key = normalize_biomarker_name(t_name)

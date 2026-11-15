@@ -167,40 +167,6 @@ export default function useLabMetrics(documentId, { enabled = true, messages = [
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [enabled, documentId]);
 
-  // Fallback metric extraction: ONLY if metrics are not loaded/cached yet,
-  // and strictly from the first assistant message (Turn 1).
-  useEffect(() => {
-    if (!documentId) return;
-    if (state.docId === documentId && Array.isArray(state.metrics) && state.metrics.length > 0) {
-      // Canonical metrics already loaded, NEVER overwrite, filter or reduce!
-      return;
-    }
-    if (!Array.isArray(messages) || messages.length === 0) return;
-
-    // Find the first assistant message (Turn 1 report walkthrough)
-    const firstAssistantMsg = messages.find(
-      (m) => m && (m.sender === 'assistant' || m.role === 'assistant' || m.role === 'ai')
-    );
-    if (!firstAssistantMsg) return;
-
-    const text = firstAssistantMsg.text || firstAssistantMsg.message || '';
-    const extracted = extractBiomarkersFromMessage(text);
-    if (extracted.length > 0) {
-      setState((prev) => {
-        if (prev.docId === documentId && Array.isArray(prev.metrics) && prev.metrics.length > 0) {
-          return prev;
-        }
-        return {
-          ...prev,
-          docId: documentId,
-          metrics: extracted,
-          loaded: true,
-          loading: false,
-        };
-      });
-    }
-  }, [documentId, messages, state.docId, state.metrics]);
-
   useEffect(() => {
     if (!documentId) {
       reqRef.current += 1;

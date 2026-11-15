@@ -7,6 +7,7 @@ from unittest.mock import MagicMock, AsyncMock, patch
 from httpx import AsyncClient, ASGITransport
 
 from app.main import app
+from app.core.config import settings
 from app.core.auth import get_password_hash
 from app.db.database import AsyncSessionLocal
 from app.db.models import User
@@ -220,11 +221,14 @@ async def test_streaming_falls_back_on_first_chunk_failure():
         chunk.text = "Answer from gemini-3.5-flash fallback."
         yield chunk
 
+    primary = settings.resolved_fallback_models[0]
+    secondary = settings.resolved_fallback_models[1]
+
     def stream_dispatcher(*args, **kwargs):
         model = kwargs.get("model")
-        if model == "gemini-3.6-flash":
+        if model == primary:
             return fail_first_chunk()
-        elif model == "gemini-3.5-flash":
+        elif model == secondary:
             return succeed_fallback()
         raise RuntimeError(f"Unexpected model called: {model}")
 
