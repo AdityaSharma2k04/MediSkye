@@ -118,7 +118,7 @@ export default function PatientSwitcher({
   };
 
   const list = (
-    <div className="p-1.5 space-y-1 max-h-72 overflow-y-auto overscroll-contain">
+    <div className="p-1.5 space-y-1 max-h-80 overflow-y-auto overscroll-contain">
       {patients.map((p, i) => {
         const isActive = i === activeIdx;
         const pid = String(p.id);
@@ -265,7 +265,7 @@ export default function PatientSwitcher({
               animate={{ opacity: 1, y: 0, scale: 1 }}
               exit={{ opacity: 0, y: -4, scale: 0.98 }}
               transition={{ duration: 0.16, ease: [0.22, 1, 0.36, 1] }}
-              className="absolute left-0 top-full mt-2 w-80 rounded-2xl ms-glass z-50 overflow-hidden"
+              className="absolute left-0 top-full mt-2 w-72 sm:w-80 rounded-2xl ms-glass z-[100] shadow-2xl border border-white/[0.12] overflow-hidden"
             >
               <div className="px-3.5 pt-3 pb-1 text-xs font-semibold text-ink-mute">Clinical analysis lens</div>
               {list}

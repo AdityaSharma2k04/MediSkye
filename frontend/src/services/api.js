@@ -2390,15 +2390,39 @@ export async function syncSingleProfileToLocalCache(patientId = 'self', options 
       const docId = doc.id;
       if (docId) {
         if (!getCachedDocMetrics(docId)) {
-          prefetchPromises.push(fetchLabMetrics(docId).catch(() => { }));
+          prefetchPromises.push(
+            fetchLabMetrics(docId)
+              .then((d) => {
+                if (d && Array.isArray(d)) setCachedDocMetrics(docId, d);
+              })
+              .catch(() => {})
+          );
         }
         if (!getCachedDocSummary(docId)) {
-          prefetchPromises.push(getDocumentSummary(docId).catch(() => { }));
+          prefetchPromises.push(
+            getDocumentSummary(docId, { patientId: pid })
+              .then((d) => {
+                if (d && d.summary) setCachedDocSummary(docId, d);
+              })
+              .catch(() => {})
+          );
         }
       }
     }
-    prefetchPromises.push(getFacts(pid).catch(() => []));
-    prefetchPromises.push(getMetricTrends(pid).catch(() => ({})));
+    prefetchPromises.push(
+      getFacts(pid)
+        .then((d) => {
+          if (d && Array.isArray(d)) setCachedMemoryFacts(d, pid);
+        })
+        .catch(() => [])
+    );
+    prefetchPromises.push(
+      getMetricTrends(pid)
+        .then((d) => {
+          if (d) setCachedTrends(d, pid);
+        })
+        .catch(() => ({}))
+    );
 
     await Promise.allSettled(prefetchPromises);
 
