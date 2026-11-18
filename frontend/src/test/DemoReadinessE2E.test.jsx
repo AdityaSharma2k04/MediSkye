@@ -450,4 +450,21 @@ All critical biomarkers have normalized since starting therapy.`;
     expect(screen.getByText('What is my fasting glucose?')).toBeInTheDocument();
     expect(screen.getByText(/Your fasting glucose is 95 mg\/dL/i)).toBeInTheDocument();
   });
+
+  it('persists active dependent profile across page reload (mount with cached dependent)', async () => {
+    // 1. Simulate prior session where Rohan was active and cached
+    api.setCachedProfile(mockUser);
+    api.setCachedDependents([mockRohan]);
+    localStorage.setItem('mediskye_patient_id', mockRohan.id);
+
+    // 2. Mount ChatApp (simulating a page reload)
+    render(<ChatApp />);
+    await waitFor(() => expect(api.getProfile).toHaveBeenCalled());
+
+    // 3. Verify that mediskye_patient_id was NOT overwritten to 'self'
+    expect(localStorage.getItem('mediskye_patient_id')).toBe(mockRohan.id);
+
+    // 4. Verify Rohan's name is rendered as the active profile
+    expect(await screen.findByText('Rohan Deshmukh')).toBeInTheDocument();
+  });
 });

@@ -123,6 +123,19 @@ function normalizePatientId(id) {
   return trimmed;
 }
 
+function getInitialPatientId() {
+  try {
+    const saved = typeof localStorage !== 'undefined' ? localStorage.getItem('mediskye_patient_id') : null;
+    const norm = normalizePatientId(saved);
+    if (norm === 'self') return 'self';
+    const cachedDeps = typeof getCachedDependents === 'function' ? getCachedDependents() : [];
+    if (Array.isArray(cachedDeps) && cachedDeps.some((d) => String(d?.id) === String(norm))) {
+      return norm;
+    }
+  } catch (_) {}
+  return 'self';
+}
+
 // ── Sample Lab Reports Pool ─────────────────────────────────
 export const SAMPLE_REPORTS = [
   { path: '/samples/report-1.pdf', panel: 'Lipid Panel' },
@@ -331,7 +344,7 @@ export default function ChatApp() {
     navigate('/login', { replace: true });
   };
 
-  const [initialDraft] = useState(() => createFreshDraftConversation('self'));
+  const [initialDraft] = useState(() => createFreshDraftConversation(getInitialPatientId()));
   const [sessionId, setSessionId] = useState(initialDraft.id);
   const sessionIdRef = useRef(sessionId);
   sessionIdRef.current = sessionId;
@@ -348,12 +361,12 @@ export default function ChatApp() {
   // ── Patient Context & User State ──
   const [currentUser, setCurrentUser] = useState(() => (typeof getCachedProfile === 'function' ? getCachedProfile() : null));
   const [dependents, setDependents] = useState(() => (typeof getCachedDependents === 'function' ? getCachedDependents() || [] : []));
-  const [selectedPatientId, setSelectedPatientId] = useState('self');
+  const [selectedPatientId, setSelectedPatientId] = useState(getInitialPatientId);
   const [profileInitialTab, setProfileInitialTab] = useState('profile');
 
-  // Default to primary ('self') profile on initial launch/mount
+  // Synchronize initial patient ID into localStorage
   useEffect(() => {
-    localStorage.setItem('mediskye_patient_id', 'self');
+    localStorage.setItem('mediskye_patient_id', selectedPatientId || 'self');
   }, []);
 
   // Cross-Tab Patient Profile Sync
@@ -790,7 +803,7 @@ export default function ChatApp() {
 
   // In-memory conversation state (Neon DB is the single source of truth, hydrated from local cache)
   const [conversations, setConversations] = useState(() => {
-    const initPatId = 'self';
+    const initPatId = selectedPatientId || 'self';
     const freshChat = initialDraft;
     const cachedConvs = typeof getCachedConversations === 'function' ? getCachedConversations(initPatId) : null;
     if (Array.isArray(cachedConvs) && cachedConvs.length > 0) {
@@ -1395,18 +1408,19 @@ export default function ChatApp() {
             setWorkspaceHydratingSafe(false);
           }
 
-          const syncPromise = syncAllProfilesInBackground('self', dependents || []);
+          const initPat = selectedPatientId || 'self';
+          const syncPromise = syncAllProfilesInBackground(initPat, dependents || []);
 
-          const docs = await refreshDocuments(null, null, 'self').catch(() => []);
+          const docs = await refreshDocuments(null, null, initPat).catch(() => []);
           setActivePdf(null);
-          prewarmPatientLocalCache('self', dependents || [], docs || []);
+          prewarmPatientLocalCache(initPat, dependents || [], docs || []);
 
           if (needsLock) {
             await syncPromise;
           }
 
           // Hydrate React state immediately from freshly synced local cache
-          const cachedConvs = typeof getCachedConversations === 'function' ? getCachedConversations(selectedPatientId || 'self') : [];
+          const cachedConvs = typeof getCachedConversations === 'function' ? getCachedConversations(initPat) : [];
           if (Array.isArray(cachedConvs) && cachedConvs.length > 0) {
             setConversations(cachedConvs);
           }
