@@ -1,8 +1,9 @@
-from pydantic import BaseModel, EmailStr, Field, ConfigDict, field_validator
-from typing import Optional
+from datetime import date, datetime
 from uuid import UUID
-from datetime import datetime, date
+
 from app.core.security import sanitize_text
+from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_validator
+
 
 class UserCreate(BaseModel):
     email: EmailStr
@@ -14,26 +15,26 @@ class UserCreate(BaseModel):
     phi_consent_granted: bool
 
 class UserUpdate(BaseModel):
-    full_name: Optional[str] = Field(None, max_length=120)
-    date_of_birth: Optional[date] = None
-    biological_sex: Optional[str] = None
-    blood_type: Optional[str] = None
-    pre_existing_conditions: Optional[str] = Field(None, max_length=2000)
-    known_allergies: Optional[str] = Field(None, max_length=1000)
-    current_medications: Optional[str] = Field(None, max_length=2000)
-    language_preference: Optional[str] = None
-    emergency_contact_name: Optional[str] = Field(None, max_length=120)
-    emergency_contact_phone: Optional[str] = Field(None, max_length=32)
-    height_cm: Optional[float] = None
-    weight_kg: Optional[float] = None
-    diet_type: Optional[str] = None
-    activity_level: Optional[str] = None
-    occupation: Optional[str] = Field(None, max_length=120)
-    memory_consent_granted: Optional[bool] = None
+    full_name: str | None = Field(None, max_length=120)
+    date_of_birth: date | None = None
+    biological_sex: str | None = None
+    blood_type: str | None = None
+    pre_existing_conditions: str | None = Field(None, max_length=2000)
+    known_allergies: str | None = Field(None, max_length=1000)
+    current_medications: str | None = Field(None, max_length=2000)
+    language_preference: str | None = None
+    emergency_contact_name: str | None = Field(None, max_length=120)
+    emergency_contact_phone: str | None = Field(None, max_length=32)
+    height_cm: float | None = None
+    weight_kg: float | None = None
+    diet_type: str | None = None
+    activity_level: str | None = None
+    occupation: str | None = Field(None, max_length=120)
+    memory_consent_granted: bool | None = None
 
     @field_validator("height_cm")
     @classmethod
-    def validate_height_cm(cls, v: Optional[float]) -> Optional[float]:
+    def validate_height_cm(cls, v: float | None) -> float | None:
         if v is not None:
             if v < 30.0 or v > 280.0:
                 raise ValueError("height_cm must be between 30 and 280 cm")
@@ -41,7 +42,7 @@ class UserUpdate(BaseModel):
 
     @field_validator("weight_kg")
     @classmethod
-    def validate_weight_kg(cls, v: Optional[float]) -> Optional[float]:
+    def validate_weight_kg(cls, v: float | None) -> float | None:
         if v is not None:
             if v < 2.0 or v > 400.0:
                 raise ValueError("weight_kg must be between 2 and 400 kg")
@@ -49,7 +50,7 @@ class UserUpdate(BaseModel):
 
     @field_validator("date_of_birth")
     @classmethod
-    def validate_dob(cls, v: Optional[date]) -> Optional[date]:
+    def validate_dob(cls, v: date | None) -> date | None:
         if v is not None:
             if v < date(1900, 1, 1) or v > date.today():
                 raise ValueError("date_of_birth must be between 1900-01-01 and today.")
@@ -57,7 +58,7 @@ class UserUpdate(BaseModel):
 
     @field_validator("language_preference")
     @classmethod
-    def validate_language(cls, v: Optional[str]) -> Optional[str]:
+    def validate_language(cls, v: str | None) -> str | None:
         if v is not None:
             from app.core.security import safe_language
             return safe_language(v)
@@ -73,7 +74,7 @@ class UserUpdate(BaseModel):
         mode="before",
     )
     @classmethod
-    def sanitize_user_strings(cls, v: Optional[str]) -> Optional[str]:
+    def sanitize_user_strings(cls, v: str | None) -> str | None:
         if isinstance(v, str):
             return sanitize_text(v)
         return v
@@ -83,23 +84,23 @@ class UserResponse(BaseModel):
     email: EmailStr
     created_at: datetime
     
-    full_name: Optional[str] = None
-    date_of_birth: Optional[date] = None
-    calculated_age: Optional[int] = None
-    biological_sex: Optional[str] = None
-    blood_type: Optional[str] = None
-    pre_existing_conditions: Optional[str] = None
-    known_allergies: Optional[str] = None
-    current_medications: Optional[str] = None
-    language_preference: Optional[str] = "English"
-    emergency_contact_name: Optional[str] = None
-    emergency_contact_phone: Optional[str] = None
-    height_cm: Optional[float] = None
-    weight_kg: Optional[float] = None
-    bmi_info: Optional[dict] = None
-    diet_type: Optional[str] = None
-    activity_level: Optional[str] = None
-    occupation: Optional[str] = None
+    full_name: str | None = None
+    date_of_birth: date | None = None
+    calculated_age: int | None = None
+    biological_sex: str | None = None
+    blood_type: str | None = None
+    pre_existing_conditions: str | None = None
+    known_allergies: str | None = None
+    current_medications: str | None = None
+    language_preference: str | None = "English"
+    emergency_contact_name: str | None = None
+    emergency_contact_phone: str | None = None
+    height_cm: float | None = None
+    weight_kg: float | None = None
+    bmi_info: dict | None = None
+    diet_type: str | None = None
+    activity_level: str | None = None
+    occupation: str | None = None
     memory_consent_granted: bool = False
 
     model_config = ConfigDict(from_attributes=True)
@@ -112,7 +113,7 @@ class Token(BaseModel):
 
 class MemoryConsentRequest(BaseModel):
     consent: bool
-    clear_existing: Optional[bool] = False
+    clear_existing: bool | None = False
 
 
 class RenameSessionRequest(BaseModel):
@@ -127,11 +128,11 @@ class PasswordChange(BaseModel):
 class PatientFactCreate(BaseModel):
     fact_type: str = Field(..., description="condition|medication|allergy|family_history|symptom|lifestyle|measurement|procedure|weight|sport_hobby")
     fact_text: str = Field(..., max_length=500)
-    confidence: Optional[float] = Field(1.0, ge=0.0, le=1.0)
-    source_type: Optional[str] = "user_edit"
-    source_excerpt: Optional[str] = None
-    dependent_id: Optional[UUID] = None
-    patient_id: Optional[str] = None
+    confidence: float | None = Field(1.0, ge=0.0, le=1.0)
+    source_type: str | None = "user_edit"
+    source_excerpt: str | None = None
+    dependent_id: UUID | None = None
+    patient_id: str | None = None
 
     @field_validator("fact_text", mode="before")
     @classmethod
@@ -142,15 +143,15 @@ class PatientFactCreate(BaseModel):
 
 
 class PatientFactUpdate(BaseModel):
-    fact_type: Optional[str] = None
-    fact_text: Optional[str] = Field(None, max_length=500)
-    confidence: Optional[float] = Field(None, ge=0.0, le=1.0)
-    is_active: Optional[bool] = None
-    is_user_verified: Optional[bool] = None
+    fact_type: str | None = None
+    fact_text: str | None = Field(None, max_length=500)
+    confidence: float | None = Field(None, ge=0.0, le=1.0)
+    is_active: bool | None = None
+    is_user_verified: bool | None = None
 
     @field_validator("fact_text", mode="before")
     @classmethod
-    def sanitize_fact_text_update(cls, v: Optional[str]) -> Optional[str]:
+    def sanitize_fact_text_update(cls, v: str | None) -> str | None:
         if isinstance(v, str):
             return sanitize_text(v)
         return v
@@ -159,19 +160,19 @@ class PatientFactUpdate(BaseModel):
 class PatientFactResponse(BaseModel):
     id: UUID
     user_id: UUID
-    dependent_id: Optional[UUID] = None
+    dependent_id: UUID | None = None
     fact_type: str
     fact_text: str
     confidence: float = 1.0
     is_active: bool = True
     is_user_verified: bool = False
     source_type: str = "chat"
-    source_id: Optional[str] = None
-    source_excerpt: Optional[str] = None
-    source_document_id: Optional[str] = None
-    first_seen_at: Optional[datetime] = None
-    last_seen_at: Optional[datetime] = None
-    created_at: Optional[datetime] = None
+    source_id: str | None = None
+    source_excerpt: str | None = None
+    source_document_id: str | None = None
+    first_seen_at: datetime | None = None
+    last_seen_at: datetime | None = None
+    created_at: datetime | None = None
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -179,12 +180,12 @@ class PatientFactResponse(BaseModel):
 class DocumentResponse(BaseModel):
     id: str
     filename: str
-    file_path: Optional[str] = None
-    title: Optional[str] = None
-    collected_at: Optional[str] = None
-    is_future_collection_date: Optional[bool] = False
-    created_at: Optional[str] = None
-    dependent_id: Optional[str] = None
+    file_path: str | None = None
+    title: str | None = None
+    collected_at: str | None = None
+    is_future_collection_date: bool | None = False
+    created_at: str | None = None
+    dependent_id: str | None = None
 
     model_config = ConfigDict(from_attributes=True)
 

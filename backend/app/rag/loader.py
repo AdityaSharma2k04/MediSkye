@@ -12,10 +12,9 @@ and sent to Gemini Vision for structured Markdown extraction,
 which preserves exact lab values that text extractors often scramble.
 """
 
-import os
 import asyncio
 import logging
-from typing import Optional
+import os
 
 from langchain_core.documents import Document
 from pypdf import PdfReader
@@ -113,9 +112,9 @@ async def process_image_path(image_type: str, image_bytes: bytes, source_meta: s
     else:
         def _extract_ocr():
             try:
-                import pytesseract
                 import cv2
                 import numpy as np
+                import pytesseract
                 nparr = np.frombuffer(image_bytes, np.uint8)
                 img = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
                 if img is None:
@@ -193,8 +192,8 @@ async def _extract_with_pymupdf(pdf_path: str) -> list[Document]:
 
 def _extract_with_ocr(pdf_path: str) -> list[Document]:
     try:
-        from pdf2image import convert_from_path
         import pytesseract
+        from pdf2image import convert_from_path
     except ImportError:
         return []
 
@@ -334,7 +333,7 @@ Rules:
 
 Output the structured Markdown extraction:"""
 
-    async def _process_single_page(page_idx: int) -> Optional[Document]:
+    async def _process_single_page(page_idx: int) -> Document | None:
         async with semaphore:
             def _render_and_fallback(p_idx):
                 with fitz.open(pdf_path) as pdf:

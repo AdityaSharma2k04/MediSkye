@@ -1,5 +1,5 @@
 import time
-from typing import Any, Optional
+from typing import Any
 
 
 class InMemoryCache:
@@ -30,11 +30,11 @@ class InMemoryCache:
             self.store.pop(oldest_key, None)
             self.expiry.pop(oldest_key, None)
 
-    async def get(self, key: str) -> Optional[Any]:
+    async def get(self, key: str) -> Any | None:
         self._evict_expired()
         return self.store.get(key)
 
-    async def set(self, key: str, value: Any, ex: Optional[int] = None) -> bool:
+    async def set(self, key: str, value: Any, ex: int | None = None) -> bool:
         self._ensure_capacity()
         self.store[key] = value
         if ex is not None:

@@ -1,18 +1,18 @@
+import asyncio
+import json
+import logging
 import re
 import uuid
-import logging
-import asyncio
-from datetime import datetime, UTC
-from typing import Dict, Any, Optional, List
+from datetime import UTC, datetime
+from typing import Any
+
+from app.core.config import settings
+from app.db.database import AsyncSessionLocal
+from app.db.models import Chat, ChatDocument, Document, PatientFact, User
+from app.services.fact_extractor import extract_facts
 from sqlalchemy import func
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
-import json
-
-from app.core.config import settings
-from app.db.models import PatientFact, Chat, User, Document, ChatDocument
-from app.db.database import AsyncSessionLocal
-from app.services.fact_extractor import extract_facts
 
 logger = logging.getLogger(__name__)
 
@@ -29,15 +29,15 @@ def _compute_fact_key(fact_type: str, fact_text: str) -> str:
 
 
 async def save_facts(
-    extraction_result: Dict[str, Any],
+    extraction_result: dict[str, Any],
     user_id: Any,
-    dependent_id: Optional[Any],
-    source_chat_id: Optional[Any],
+    dependent_id: Any | None,
+    source_chat_id: Any | None,
     session: AsyncSession,
-    source_document_name: Optional[str] = None,
+    source_document_name: str | None = None,
     source_type: str = "chat",
-    source_id: Optional[str] = None,
-) -> Dict[str, int]:
+    source_id: str | None = None,
+) -> dict[str, int]:
     """
     Persist extracted facts and handle retractions in a single transaction with retry:
     - Retractions: mark is_active = False (never hard-deleted).
@@ -129,7 +129,7 @@ async def save_facts(
         excerpt = fact.get("excerpt")
         fact_key_val = fact.get("key") or _compute_fact_key(fact_type, fact_text)
 
-        matched_existing: Optional[PatientFact] = None
+        matched_existing: PatientFact | None = None
         clean_new = re.sub(r"\s*\[Source Report:[^\]]+\]", "", fact_text, flags=re.IGNORECASE).strip().lower()
 
         for ef in active_facts:
@@ -151,18 +151,14 @@ async def save_facts(
                     break
                 # If the test & value are the same: check if they belong to the same source document
                 elif clean_ef == clean_new:
-                    if source_document_name and f"[source report: {source_document_name.strip().lower()}]" in ef.fact_text.lower():
-                        matched_existing = ef
-                        break
-                    elif not source_document_name and not re.search(r"\[Source Report:", ef.fact_text, re.IGNORECASE):
+                    if source_document_name and f"[source report: {source_document_name.strip().lower()}]" in ef.fact_text.lower() or not source_document_name and not re.search(r"\[Source Report:", ef.fact_text, re.IGNORECASE):
                         matched_existing = ef
                         break
 
         if matched_existing:
             matched_existing.last_seen_at = now
             matched_existing.is_active = True
-            if confidence > matched_existing.confidence:
-                matched_existing.confidence = confidence
+            matched_existing.confidence = max(matched_existing.confidence, confidence)
             if not matched_existing.fact_key:
                 matched_existing.fact_key = fact_key_val
             # If existing fact did not have source report attribution, add it
@@ -209,10 +205,10 @@ async def save_facts(
 async def process_chat_memory_extraction(
     chat_id: Any,
     user_id: Any,
-    dependent_id: Optional[Any] = None,
-    session_id: Optional[str] = None,
-    active_docs_metrics: Optional[List[Dict[str, Any]]] = None,
-    document_name: Optional[str] = None,
+    dependent_id: Any | None = None,
+    session_id: str | None = None,
+    active_docs_metrics: list[dict[str, Any]] | None = None,
+    document_name: str | None = None,
 ) -> None:
     """
     Background worker:
@@ -392,8 +388,8 @@ async def process_chat_memory_extraction(
 async def process_document_memory_extraction(
     doc_id: uuid.UUID,
     user_id: uuid.UUID,
-    dependent_id: Optional[uuid.UUID] = None,
-) -> Dict[str, int]:
+    dependent_id: uuid.UUID | None = None,
+) -> dict[str, int]:
     """
     Auto-extract durable clinical facts directly from an uploaded report when metrics cache warming completes.
     Gated on user's memory_consent_granted == True and settings.PATIENT_MEMORY_ENABLED.

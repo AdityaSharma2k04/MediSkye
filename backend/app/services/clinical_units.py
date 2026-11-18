@@ -1,9 +1,9 @@
 import re
-from datetime import datetime, UTC
-from typing import Optional, Dict, Any, Tuple
+from datetime import UTC, datetime
+from typing import Any
 
 
-def normalize_clinical_unit(unit: Optional[str]) -> str:
+def normalize_clinical_unit(unit: str | None) -> str:
     """
     Deterministic normalizer for clinical laboratory units.
     Replaces ASCII/caret representations with Unicode clinical superscripts:
@@ -40,7 +40,7 @@ def normalize_clinical_unit(unit: Optional[str]) -> str:
     return u
 
 
-def extract_specimen_collection_date(text: Optional[str]) -> Optional[str]:
+def extract_specimen_collection_date(text: str | None) -> str | None:
     """
     Extracts the specimen collection date from clinical document text or header.
     Matches formats like 'SAMPLE COLLECTED: 24 Oct 2026', 'Date: 24 Apr 2027',
@@ -91,7 +91,7 @@ def extract_specimen_collection_date(text: Optional[str]) -> Optional[str]:
     return None
 
 
-def check_is_future_date(date_str: Optional[str]) -> bool:
+def check_is_future_date(date_str: str | None) -> bool:
     """
     Checks if a formatted date string represents a date in the future
     relative to today's UTC calendar date.
@@ -111,7 +111,7 @@ def check_is_future_date(date_str: Optional[str]) -> bool:
     return False
 
 
-def parse_report_chronology(doc: Any) -> Optional[datetime]:
+def parse_report_chronology(doc: Any) -> datetime | None:
     """
     Parses specimen collection date (collected_at, format e.g. "24 Oct 2026") into a datetime.
     Supports Document ORM instances, dictionaries, or date strings.
@@ -435,10 +435,10 @@ def canonical_biomarker_key(name: str, allow_urinalysis: bool = False) -> str:
 
 def convert_to_standard(
     value: Any,
-    from_unit: Optional[str],
-    to_unit: Optional[str],
-    biomarker_key: Optional[str] = "",
-) -> Optional[float]:
+    from_unit: str | None,
+    to_unit: str | None,
+    biomarker_key: str | None = "",
+) -> float | None:
     """
     Converts a biomarker numeric value between standard clinical units.
     Supported conversions:
@@ -498,7 +498,7 @@ def convert_to_standard(
 canonical_biomarker_name = canonical_biomarker_key
 
 
-def _parse_first_float(s: Any) -> Optional[float]:
+def _parse_first_float(s: Any) -> float | None:
     if s is None:
         return None
     text = str(s).strip()
@@ -569,7 +569,7 @@ def compute_biomarker_delta(
     unit: str = "",
     canonical_key: str = "",
     prev_unit: str = "",
-) -> Tuple[Optional[str], Optional[str], Optional[str]]:
+) -> tuple[str | None, str | None, str | None]:
     """
     Computes absolute and percentage delta between current and previous values.
     Returns (delta_abs, delta_pct, delta_alert).

@@ -1,18 +1,18 @@
 import logging
-from sqlalchemy.ext.asyncio import AsyncSession
-from app.db.models import AuditLog
-from typing import Optional
 from uuid import UUID
+
+from app.db.models import AuditLog
+from sqlalchemy.ext.asyncio import AsyncSession
 
 logger = logging.getLogger(__name__)
 
 async def log_audit(
     db: AsyncSession,
     action_type: str,
-    user_id: Optional[UUID] = None,
-    resource: Optional[str] = None,
-    ip_address: Optional[str] = None,
-    dependent_id: Optional[UUID] = None
+    user_id: UUID | None = None,
+    resource: str | None = None,
+    ip_address: str | None = None,
+    dependent_id: UUID | None = None
 ):
     try:
         audit_entry = AuditLog(

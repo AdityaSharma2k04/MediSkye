@@ -1,67 +1,84 @@
-import re
-import os
-import json
-import uuid
-import time
 import asyncio
+import hashlib
+import json
 import logging
-from typing import Optional, List, Dict, Any, Tuple
+import os
+import re
+import time
+import uuid
 from pathlib import Path
+from typing import Any
 
-from fastapi import APIRouter, Depends, Request, HTTPException, status
-from fastapi.responses import StreamingResponse
-from pydantic import BaseModel, Field
-from sqlalchemy import func, update, or_, text
-from sqlalchemy.orm.exc import StaleDataError
-from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.future import select
-
-from app.core.config import settings
-from app.core.auth import UserDTO, get_current_user
-from app.core.limiter import limiter
 from app.core.audit import log_audit
+from app.core.auth import UserDTO, get_current_user
+from app.core.clinical import compute_bmi_info
+from app.core.config import settings
+from app.core.limiter import limiter
 from app.core.security import generate_title_from_query, sanitize_text
-from app.db.database import get_db, AsyncSessionLocal
-from app.db.models import Document, Chat, ChatDocument, DependentProfile, User, PatientFact
+from app.db.database import AsyncSessionLocal, get_db
+from app.db.models import (
+    Chat,
+    ChatDocument,
+    DependentProfile,
+    Document,
+    PatientFact,
+    User,
+)
 from app.llm.gemini_client import (
     GeminiUnavailableError,
-    get_genai_client,
     call_gemini_with_retry,
     get_fallback_models,
+    get_genai_client,
     is_model_unavailable,
-    mark_model_unavailable,
 )
 from app.rag.index_storage import aensure_index_local
-from app.schemas.query import QueryRequest
+from app.rag.intent_router import QueryIntent, classify_intent
+from app.rag.output_filter import SAFE_FALLBACK, sanitize_clinical_prose, scan_output
 from app.rag.prompt_builder import (
-    build_prompt,
-    build_general_health_prompt,
+    PROMPT_VERSION_PREFIX,
     build_casual_prompt,
     build_document_summary_prompt,
-    generate_deterministic_fallback_summary,
-    PROMPT_VERSION_PREFIX,
+    build_general_health_prompt,
+    build_prompt,
     condense_chat_history,
+    generate_deterministic_fallback_summary,
 )
-from app.core.clinical import compute_bmi_info
-from app.services.clinical_units import parse_report_chronology, is_sample_document
-from app.rag.intent_router import classify_intent, QueryIntent
+from app.rag.retriever import (
+    dynamic_retrieval_k,
+    get_cached_hybrid_index,
+    load_hybrid_index,
+    retrieve_relevant_docs,
+)
 from app.rag.safety import (
+    DISCLAIMER_TEXT,
+    EmergencyKind,
     append_disclaimer,
-    get_emergency_response,
-    is_emergency_query,
     detect_emergency,
     detect_emergency_language,
-    EmergencyKind,
-    DISCLAIMER_TEXT,
+    get_emergency_response,
 )
-from app.rag.retriever import load_hybrid_index, retrieve_relevant_docs, dynamic_retrieval_k, get_cached_hybrid_index
-from app.rag.output_filter import scan_output, SAFE_FALLBACK, sanitize_clinical_prose
-from app.services.patient_service import calculate_age
-from app.services.patient_memory import get_active_facts, get_relevant_past_chunks, get_chat_documents
-from app.services.memory_formatter import format_facts_for_prompt, format_past_chats_for_prompt
-from app.services.fact_persistence import process_chat_memory_extraction
+from app.schemas.query import QueryRequest
 from app.services.chat_indexer import index_chat_message
+from app.services.clinical_units import is_sample_document, parse_report_chronology
+from app.services.fact_persistence import process_chat_memory_extraction
+from app.services.memory_formatter import (
+    format_facts_for_prompt,
+    format_past_chats_for_prompt,
+)
+from app.services.patient_memory import (
+    get_active_facts,
+    get_chat_documents,
+    get_relevant_past_chunks,
+)
+from app.services.patient_service import calculate_age
 from app.services.upload_jobs import is_stale_building
+from fastapi import APIRouter, Depends, HTTPException, Request, status
+from fastapi.responses import StreamingResponse
+from pydantic import BaseModel, Field
+from sqlalchemy import text
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.future import select
+from sqlalchemy.orm.exc import StaleDataError
 
 logger = logging.getLogger(__name__)
 
@@ -103,13 +120,14 @@ def is_explicit_overview_query(query_text: str) -> bool:
 
 
 _MEDICATION_CHANGE_QUERY_RE = re.compile(
-    r"\b(?:should\s+i|can\s+i|do\s+i\s+need\s+to|is\s+it\s+ok(?:ay)?\s+to)\s+(?:stop|skip|quit|discontinue|double)\b"
-    r"|\b(?:stop|skip|quit|discontinue)\s+(?:taking|using|my)\b",
+    r"\b(?:should\s+i|can\s+i|do\s+i\s+need\s+to|is\s+it\s+ok(?:ay)?\s+to)\s+(?:stop|skip|quit|discontinue|double|cut|halve|reduce|increase|take\s+more|take\s+an\s+extra)\b"
+    r"|\b(?:stop|skip|quit|discontinue)\s+(?:taking|using|my|pill|dose)\b"
+    r"|\b(?:take\s+more|cut\s+dose|skip\s+pill|extra\s+dose|increase\s+dose|lower\s+dose|reduce\s+dose|change\s+dose|change\s+my\s+medication)\b",
     re.IGNORECASE,
 )
 
 
-def is_medication_change_query(query_text: Optional[str]) -> bool:
+def is_medication_change_query(query_text: str | None) -> bool:
     if not query_text:
         return False
     return bool(_MEDICATION_CHANGE_QUERY_RE.search(query_text))
@@ -118,9 +136,9 @@ def is_medication_change_query(query_text: Optional[str]) -> bool:
 def compute_followup_turn_context(
     has_walked_through: bool,
     query_text: str,
-    session_id: Optional[str] = None,
-    document_id: Optional[str] = None,
-) -> Tuple[bool, str]:
+    session_id: str | None = None,
+    document_id: str | None = None,
+) -> tuple[bool, str]:
     """
     Determine if a turn is a follow-up and log diagnostic context without leaking query text.
     """
@@ -295,8 +313,8 @@ def _sanitize_clinical_output(text: str, is_followup_turn: bool = False, user_qu
 
 def _recover_document_chunks_in_memory(doc: Any, query: str, k: int = 8) -> list:
     """Fall back to reconstructing document chunks from DB-cached raw chunks or text when FAISS index is missing."""
-    from langchain_core.documents import Document as LCDocument
     from app.rag.hybrid_search import BM25Index
+    from langchain_core.documents import Document as LCDocument
 
     raw_chunks = None
     if getattr(doc, "cached_metrics", None) and isinstance(doc.cached_metrics, dict):
@@ -390,9 +408,9 @@ async def query_bot(
         body.query = clean_q
 
     # ── Resolve documents associated with active session / chat ──
-    chat_docs: List[Document] = []
-    primary_doc: Optional[Document] = None
-    target_chat_id: Optional[uuid.UUID] = None
+    chat_docs: list[Document] = []
+    primary_doc: Document | None = None
+    target_chat_id: uuid.UUID | None = None
 
     effective_session_id = body.session_id.strip() if (body.session_id and body.session_id.strip()) else None
 
@@ -537,7 +555,7 @@ async def query_bot(
                 )
 
     # ── Auto-naming helper (DB commit deferred until after 409 Conflict lock) ──
-    updated_chat_title: Optional[str] = None
+    updated_chat_title: str | None = None
     DEFAULT_TITLES = {
         "New Conversation",
         "New conversation",
@@ -568,7 +586,7 @@ async def query_bot(
 
     # ── Profile & PHI Context Resolution ──
     active_profile = current_user
-    active_dep_id: Optional[uuid.UUID] = None
+    active_dep_id: uuid.UUID | None = None
     target_patient_id = body.patient_id
     if not target_patient_id and primary_doc and primary_doc.dependent_id:
         target_patient_id = str(primary_doc.dependent_id)
@@ -651,7 +669,7 @@ async def query_bot(
     # ── Emergency keyword gate ──
     emergency_kind = detect_emergency(body.query)
     emergency_language = detect_emergency_language(body.query) or language_preference
-    emergency_banner: Optional[str] = None
+    emergency_banner: str | None = None
 
     if emergency_kind in (EmergencyKind.SELF_HARM, EmergencyKind.MEDICAL):
         if needs_doc_title_update and primary_doc and updated_chat_title:
@@ -684,7 +702,7 @@ async def query_bot(
         async def emergency_stream():
             yield f'data: {json.dumps({"title": updated_chat_title or current_session_title, "document_id": primary_doc_id_str, "session_id": effective_session_id}, ensure_ascii=False)}\n\n'
             yield f'data: {json.dumps({"chunk": ai_msg}, ensure_ascii=False)}\n\n'
-            yield f'data: [DONE]\n\n'
+            yield 'data: [DONE]\n\n'
 
         return StreamingResponse(emergency_stream(), media_type="text/event-stream")
 
@@ -744,7 +762,7 @@ async def query_bot(
             async def emergency_stream():
                 yield f'data: {json.dumps({"title": updated_chat_title or current_session_title, "document_id": str(primary_doc.id) if primary_doc else None, "session_id": effective_session_id}, ensure_ascii=False)}\n\n'
                 yield f'data: {json.dumps({"chunk": ai_msg}, ensure_ascii=False)}\n\n'
-                yield f'data: [DONE]\n\n'
+                yield 'data: [DONE]\n\n'
             return StreamingResponse(emergency_stream(), media_type="text/event-stream")
         elif intent == QueryIntent.DOCUMENT_QA and not has_document:
             intent = QueryIntent.GENERAL_HEALTH
@@ -828,11 +846,15 @@ async def query_bot(
                 if len(all_doc_results) == 1:
                     retrieved_chunks = all_doc_results[0]
                 elif len(all_doc_results) > 1:
-                    scores: Dict[str, float] = {}
-                    doc_chunk_map: Dict[str, Any] = {}
+                    scores: dict[str, float] = {}
+                    doc_chunk_map: dict[str, Any] = {}
                     for doc_list in all_doc_results:
                         for rank, c in enumerate(doc_list):
-                            c_key = c.page_content.strip()
+                            c_meta = getattr(c, "metadata", {}) or {}
+                            d_id = str(c_meta.get("document_id") or c_meta.get("filename") or "")
+                            chk_id = str(c_meta.get("chunk_id") or "")
+                            chash = hashlib.sha256(c.page_content.encode("utf-8")).hexdigest()[:16]
+                            c_key = f"{d_id}:{chk_id}:{chash}"
                             scores[c_key] = scores.get(c_key, 0.0) + (1.0 / (60.0 + rank))
                             if c_key not in doc_chunk_map:
                                 doc_chunk_map[c_key] = c
@@ -844,7 +866,7 @@ async def query_bot(
             # ── Memory retrieval (Tier 1 facts always, Tier 2 past chunks for DOCUMENT_QA only) ──
             formatted_facts = None
             formatted_past_chats = None
-            prior_documents_metrics: List[Dict[str, Any]] = []
+            prior_documents_metrics: list[dict[str, Any]] = []
 
             # ── Historical lab reports (cached_metrics) for longitudinal comparison ──
             if intent in (QueryIntent.DOCUMENT_QA, QueryIntent.GENERAL_HEALTH):
@@ -1158,8 +1180,11 @@ async def query_bot(
                 SENTINEL = object()
 
                 def _stream_producer(target_model=current_model, target_queue=queue, sentinel=SENTINEL):
+                    from app.llm.gemini_client import (
+                        get_genai_client,
+                        mark_model_unavailable,
+                    )
                     from google.genai.types import GenerateContentConfig, ThinkingConfig
-                    from app.llm.gemini_client import get_genai_client, mark_model_unavailable
 
                     client = get_genai_client()
                     try:
@@ -1212,9 +1237,9 @@ async def query_bot(
                 while True:
                     try:
                         item = await asyncio.wait_for(queue.get(), timeout=35.0)
-                    except asyncio.TimeoutError:
+                    except TimeoutError:
                         logger.warning("Stream token queue read timed out for model=%s user_id=%s", current_model, current_user.id)
-                        model_failed_with_exc = asyncio.TimeoutError(f"Model {current_model} queue read timeout")
+                        model_failed_with_exc = TimeoutError(f"Model {current_model} queue read timeout")
                         break
 
                     if item is SENTINEL:
@@ -1455,7 +1480,7 @@ async def query_bot(
                 _background_tasks.add(task)
                 task.add_done_callback(_background_tasks.discard)
 
-            yield f'data: [DONE]\n\n'
+            yield 'data: [DONE]\n\n'
 
         except (asyncio.CancelledError, GeneratorExit):
             logger.info(
@@ -1581,9 +1606,9 @@ async def query_bot(
 # ─── Task 3: Dedicated Cached Document Summary ──────────────────────────────
 
 class DocumentSummaryResponse(BaseModel):
-    summary: Optional[str] = None
+    summary: str | None = None
     cached: bool = False
-    status: Optional[str] = None
+    status: str | None = None
 
 
 EMOJI_PATTERN = re.compile(

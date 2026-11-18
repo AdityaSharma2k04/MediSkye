@@ -1,8 +1,9 @@
 import io
+
 import pymupdf as fitz  # PyMuPDF (package renamed from 'fitz')
-from PIL import Image
-from fastapi import HTTPException, status
 from app.core.config import settings
+from fastapi import HTTPException, status
+from PIL import Image
 
 PDF_MAGIC = b"%PDF"
 PNG_MAGIC = b"\x89PNG\r\n\x1a\n"

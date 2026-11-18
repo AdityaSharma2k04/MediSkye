@@ -1,28 +1,28 @@
-import uuid
 import asyncio
-import secrets
-import logging
 import hashlib
+import logging
+import secrets
+import threading
 import time
+import uuid
 from collections import OrderedDict
 from contextlib import asynccontextmanager
-import threading
-from datetime import datetime, timedelta, UTC
-from typing import Optional, Any
+from datetime import UTC, datetime, timedelta
+from typing import Any
+
 import jwt
-from passlib.context import CryptContext
-from pydantic import BaseModel, ConfigDict, Field
+from app.core.config import settings
+from app.core.redis_client import redis_client
+from app.db.database import get_db
+from app.db.models import User
 from fastapi import Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordBearer
+from passlib.context import CryptContext
+from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import func
 from sqlalchemy.exc import IntegrityError, InvalidRequestError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
-
-from app.core.config import settings
-from app.db.database import get_db
-from app.db.models import User
-from app.core.redis_client import redis_client
 
 # JWT Settings
 SECRET_KEY = settings.JWT_SECRET_KEY
@@ -43,24 +43,24 @@ class UserDTO(BaseModel):
     email: str
     created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
     email_verified: bool = True
-    language_preference: Optional[str] = "English"
+    language_preference: str | None = "English"
     phi_consent_granted: bool = False
     memory_consent_granted: bool = False
-    full_name: Optional[str] = None
-    date_of_birth: Optional[Any] = None
-    biological_sex: Optional[str] = None
-    blood_type: Optional[str] = Field(default=None, exclude=True)
-    pre_existing_conditions: Optional[str] = Field(default=None, exclude=True)
-    known_allergies: Optional[str] = Field(default=None, exclude=True)
-    current_medications: Optional[str] = Field(default=None, exclude=True)
-    emergency_contact_name: Optional[str] = None
-    emergency_contact_phone: Optional[str] = None
-    height_cm: Optional[float] = None
-    weight_kg: Optional[float] = None
-    diet_type: Optional[str] = None
-    activity_level: Optional[str] = None
-    occupation: Optional[str] = Field(default=None, exclude=True)
-    token_invalid_before: Optional[datetime] = None
+    full_name: str | None = None
+    date_of_birth: Any | None = None
+    biological_sex: str | None = None
+    blood_type: str | None = Field(default=None, exclude=True)
+    pre_existing_conditions: str | None = Field(default=None, exclude=True)
+    known_allergies: str | None = Field(default=None, exclude=True)
+    current_medications: str | None = Field(default=None, exclude=True)
+    emergency_contact_name: str | None = None
+    emergency_contact_phone: str | None = None
+    height_cm: float | None = None
+    weight_kg: float | None = None
+    diet_type: str | None = None
+    activity_level: str | None = None
+    occupation: str | None = Field(default=None, exclude=True)
+    token_invalid_before: datetime | None = None
 
     model_config = ConfigDict(from_attributes=True, arbitrary_types_allowed=True)
 
@@ -80,7 +80,7 @@ def _hash_token(token: str) -> str:
     return hashlib.sha256(token.encode("utf-8")).hexdigest()
 
 
-def get_cached_user_dto(token: str) -> Optional[UserDTO]:
+def get_cached_user_dto(token: str) -> UserDTO | None:
     key = _hash_token(token)
     now = time.time()
     with _TOKEN_CACHE_LOCK:
@@ -193,7 +193,7 @@ async def _single_flight(key: str):
             yield
     finally:
         slot[1] -= 1
-        if slot[1] == 0 and _INFLIGHT_RESOLUTIONS.get(key) is slot:
+        if slot[1] <= 0 and _INFLIGHT_RESOLUTIONS.get(key) is slot:
             _INFLIGHT_RESOLUTIONS.pop(key, None)
 
 
@@ -228,7 +228,7 @@ def _user_to_dto(user: User) -> UserDTO:
     )
 
 
-def _token_revoked(iat, cutoff: Optional[datetime]) -> bool:
+def _token_revoked(iat, cutoff: datetime | None) -> bool:
     if cutoff is None or iat is None:
         return False
     try:
@@ -261,7 +261,7 @@ def get_password_hash(password: str) -> str:
     return pwd_context.hash(password_bytes)
 
 
-def create_access_token(data: dict, expires_delta: Optional[timedelta] = None):
+def create_access_token(data: dict, expires_delta: timedelta | None = None):
     to_encode = data.copy()
     now = datetime.now(UTC)
     lifetime = expires_delta if expires_delta is not None else timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
@@ -276,7 +276,7 @@ def create_access_token(data: dict, expires_delta: Optional[timedelta] = None):
 
 logger = logging.getLogger(__name__)
 
-async def _resolve_firebase_user(decoded_token: dict, db: AsyncSession) -> Optional[User]:
+async def _resolve_firebase_user(decoded_token: dict, db: AsyncSession) -> User | None:
     fb_email = decoded_token.get("email")
     if not fb_email:
         return None
@@ -349,7 +349,7 @@ _JWKS_CLIENT = jwt.PyJWKClient(
 )
 
 
-async def _resolve_user_full(token: str, db: AsyncSession) -> Optional[User]:
+async def _resolve_user_full(token: str, db: AsyncSession) -> User | None:
     decoded_token = None
 
     # 1. Attempt Firebase ID token verification first via firebase_admin

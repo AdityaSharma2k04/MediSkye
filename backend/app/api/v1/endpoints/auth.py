@@ -5,6 +5,21 @@ from datetime import UTC, datetime
 from typing import Any
 from urllib.parse import parse_qs, urlencode, urlsplit
 
+from app.core.audit import log_audit
+from app.core.auth import (
+    create_access_token,
+    get_current_user_full,
+    get_password_hash,
+    oauth2_scheme,
+    verify_password,
+)
+from app.core.config import settings
+from app.core.limiter import limiter
+from app.core.logging import logger
+from app.db.database import get_db
+from app.db.models import User
+from app.schemas.user import CustomVerificationRequest, Token, UserCreate, UserResponse
+from app.services.email_service import send_email_via_gmail
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request, status
 from fastapi.security import OAuth2PasswordRequestForm
 from firebase_admin import auth
@@ -13,22 +28,6 @@ from sqlalchemy import func
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
-
-from app.core.auth import (
-    create_access_token,
-    get_password_hash,
-    oauth2_scheme,
-    verify_password,
-    get_current_user_full,
-)
-from app.core.audit import log_audit
-from app.core.config import settings
-from app.core.logging import logger
-from app.core.limiter import limiter
-from app.db.database import get_db
-from app.db.models import User
-from app.schemas.user import CustomVerificationRequest, Token, UserCreate, UserResponse
-from app.services.email_service import send_email_via_gmail
 
 router = APIRouter(tags=["Authentication"])
 CUSTOM_AUTH_ACTION_URL = "https://mediskye.pages.dev/auth/action"
@@ -235,10 +234,12 @@ async def logout(
     Logout the user by setting token_invalid_before in the database, inserting the JWT into
     the revoked_tokens database blocklist, and recording in the in-memory blocklist.
     """
-    import jwt, time
+    import time
+
+    import jwt
     from app.core.auth import (
-        SECRET_KEY,
         ALGORITHM,
+        SECRET_KEY,
         evict_token_cache_by_token,
         evict_token_cache_for_user,
         mark_token_revoked_in_memory,

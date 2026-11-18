@@ -1,19 +1,19 @@
-import uuid
 import asyncio
 import logging
-from typing import List, Dict, Any, Optional
+import uuid
+from typing import Any
+
 import numpy as np
+from app.core.config import settings
+from app.db.models import Chat, ChatChunk, ChatDocument, Document, PatientFact
 from sqlalchemy import func
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 
-from app.core.config import settings
-from app.db.models import PatientFact, ChatChunk, ChatDocument, Document, Chat
-
 logger = logging.getLogger(__name__)
 
 
-def _cosine_similarity(vec1: List[float], vec2: List[float]) -> float:
+def _cosine_similarity(vec1: list[float], vec2: list[float]) -> float:
     a = np.array(vec1, dtype=float)
     b = np.array(vec2, dtype=float)
     norm_a = np.linalg.norm(a)
@@ -25,10 +25,10 @@ def _cosine_similarity(vec1: List[float], vec2: List[float]) -> float:
 
 async def get_active_facts(
     user_id: Any,
-    dependent_id: Optional[Any],
+    dependent_id: Any | None,
     session: AsyncSession,
     limit: int = 25,
-) -> Dict[str, List[PatientFact]]:
+) -> dict[str, list[PatientFact]]:
     """
     Retrieve active patient facts ordered by:
     (is_user_verified DESC, confidence DESC, last_seen_at DESC)
@@ -136,7 +136,7 @@ async def get_active_facts(
             except (ValueError, TypeError):
                 pass
 
-    grouped: Dict[str, List[PatientFact]] = {}
+    grouped: dict[str, list[PatientFact]] = {}
     for f in facts:
         ft = f.fact_type.lower()
         if ft not in grouped:
@@ -149,11 +149,11 @@ async def get_active_facts(
 async def get_relevant_past_chunks(
     query: str,
     user_id: Any,
-    dependent_id: Optional[Any],
-    exclude_chat_id: Optional[Any],
+    dependent_id: Any | None,
+    exclude_chat_id: Any | None,
     session: AsyncSession,
     k: int = 5,
-) -> List[ChatChunk]:
+) -> list[ChatChunk]:
     """
     Retrieve top-k semantically relevant ChatChunks from past sessions via cosine similarity.
     Excludes the current chat_id.
@@ -182,7 +182,7 @@ async def get_relevant_past_chunks(
     if not chunks:
         return []
 
-    final_chunks: List[ChatChunk] = []
+    final_chunks: list[ChatChunk] = []
 
     if not query or not query.strip():
         final_chunks = list(chunks[:k])
@@ -263,7 +263,7 @@ async def get_relevant_past_chunks(
 async def get_chat_documents(
     chat_id: Any,
     session: AsyncSession,
-) -> List[Document]:
+) -> list[Document]:
     """
     Retrieve all documents associated with a chat session (via ChatDocument or legacy Chat.document_id).
     """

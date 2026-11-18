@@ -1,5 +1,5 @@
-from fastapi.responses import JSONResponse
 from fastapi import HTTPException
+from fastapi.responses import JSONResponse
 
 MAX_JSON_BODY_BYTES = 1_048_576  # 1MB limit for JSON payloads
 MAX_UPLOAD_BODY_BYTES = 51 * 1024 * 1024  # 51MB (50MB document + 1MB buffer)

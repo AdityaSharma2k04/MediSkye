@@ -1,13 +1,13 @@
-import uuid
-from datetime import datetime, timedelta, UTC
-from typing import Optional, Any
-from enum import Enum
 import logging
-from sqlalchemy import select, delete, update
-from sqlalchemy.ext.asyncio import AsyncSession
+import uuid
+from datetime import UTC, datetime, timedelta
+from enum import Enum
+from typing import Any
 
 from app.db.database import AsyncSessionLocal
-from app.db.models import UploadJob, Document
+from app.db.models import Document, UploadJob
+from sqlalchemy import delete, select, update
+from sqlalchemy.ext.asyncio import AsyncSession
 
 logger = logging.getLogger(__name__)
 
@@ -45,7 +45,7 @@ def _job_to_dict(job: UploadJob) -> dict:
     }
 
 
-async def create_job(user_id: str | uuid.UUID, session: Optional[AsyncSession] = None) -> str:
+async def create_job(user_id: str | uuid.UUID, session: AsyncSession | None = None) -> str:
     """Persist a new upload job in PostgreSQL/Neon and return the unique job_id."""
     job_id = str(uuid.uuid4())
     _job_stages[job_id] = "validating"
@@ -73,9 +73,9 @@ async def create_job(user_id: str | uuid.UUID, session: Optional[AsyncSession] =
 
 async def update_job(
     job_id: str,
-    session: Optional[AsyncSession] = None,
+    session: AsyncSession | None = None,
     **kwargs: Any,
-) -> Optional[dict]:
+) -> dict | None:
     """Update fields on a persisted upload job in PostgreSQL."""
     async def _update(s: AsyncSession):
         stmt = select(UploadJob).filter(UploadJob.id == job_id)
@@ -111,7 +111,7 @@ async def update_job(
             return await _update(s)
 
 
-async def get_job(job_id: str, session: Optional[AsyncSession] = None) -> Optional[dict]:
+async def get_job(job_id: str, session: AsyncSession | None = None) -> dict | None:
     """Retrieve an upload job from PostgreSQL by job_id."""
     async def _get(s: AsyncSession):
         stmt = select(UploadJob).filter(UploadJob.id == job_id)
@@ -128,7 +128,7 @@ async def get_job(job_id: str, session: Optional[AsyncSession] = None) -> Option
             return await _get(s)
 
 
-async def clear_jobs(session: Optional[AsyncSession] = None) -> None:
+async def clear_jobs(session: AsyncSession | None = None) -> None:
     """Clear all upload jobs from database (useful for test resets)."""
     async def _clear(s: AsyncSession):
         await s.execute(delete(UploadJob))
@@ -143,7 +143,7 @@ async def clear_jobs(session: Optional[AsyncSession] = None) -> None:
 
 async def cleanup_stale_jobs(
     max_age_hours: int = 24,
-    session: Optional[AsyncSession] = None,
+    session: AsyncSession | None = None,
 ) -> int:
     """Delete upload jobs older than max_age_hours to prevent database bloat."""
     cutoff = datetime.now(UTC) - timedelta(hours=max_age_hours)
@@ -182,7 +182,7 @@ def is_stale_building(doc, max_age_minutes: int = STALE_BUILDING_MINUTES) -> boo
 
 async def fail_stale_building_documents(
     max_age_minutes: int = STALE_BUILDING_MINUTES,
-    session: Optional[AsyncSession] = None,
+    session: AsyncSession | None = None,
 ) -> int:
     """Mark documents stuck in 'building' longer than max_age_minutes as 'failed'. Returns rows updated."""
     cutoff = datetime.now(UTC) - timedelta(minutes=max_age_minutes)
@@ -202,7 +202,7 @@ async def fail_stale_building_documents(
         return await _run(s)
 
 
-async def purge_expired_sample_documents(db: AsyncSession, user_id: Optional[uuid.UUID] = None) -> int:
+async def purge_expired_sample_documents(db: AsyncSession, user_id: uuid.UUID | None = None) -> int:
     """
     Finds all Document rows (for user_id if given, or globally) where is_sample_document(doc) is True
     AND doc.created_at < datetime.now(UTC) - timedelta(hours=24) (handling naive and timezone-aware created_at).
@@ -210,13 +210,21 @@ async def purge_expired_sample_documents(db: AsyncSession, user_id: Optional[uui
     local/GCS index files, and Document rows, and commits.
     Returns the count of purged sample documents.
     """
-    from app.services.clinical_units import is_sample_document
-    from app.db.models import Document, Chat, ChatDocument, ChatChunk, PatientFact, UploadJob
+    import shutil
+
+    from app.core.config import settings
+    from app.db.models import (
+        Chat,
+        ChatChunk,
+        ChatDocument,
+        Document,
+        PatientFact,
+        UploadJob,
+    )
     from app.rag.index_storage import adelete_index_artifacts
     from app.rag.retriever import evict_index_cache
-    from app.core.config import settings
+    from app.services.clinical_units import is_sample_document
     from sqlalchemy import or_
-    import shutil
 
     now = datetime.now(UTC)
     cutoff = now - timedelta(hours=24)

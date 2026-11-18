@@ -2,8 +2,8 @@
 
 MONITORING ONLY — detects and logs. Does NOT modify responses.
 """
-import re
 import logging
+import re
 
 logger = logging.getLogger(__name__)
 

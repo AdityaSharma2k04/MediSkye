@@ -1,8 +1,8 @@
 import logging
-from typing import List, Dict, Any, Optional
+from typing import Any
 
-from app.core.security import escape_xml_content
 from app.core.clinical import compute_bmi_info
+from app.core.security import escape_xml_content
 
 logger = logging.getLogger(__name__)
 
@@ -21,13 +21,13 @@ TYPE_HEADINGS = {
 
 
 def format_facts_for_prompt(
-    facts_by_type: Dict[str, List[Any]],
-    profile: Optional[Any] = None,
+    facts_by_type: dict[str, list[Any]],
+    profile: Any | None = None,
 ) -> str:
     """
     Format grouped patient facts and static profile fields into clean clinical sections for prompt injection.
     """
-    sections: List[str] = []
+    sections: list[str] = []
 
     # Priority order of sections
     type_order = [
@@ -44,7 +44,7 @@ def format_facts_for_prompt(
     ]
 
     # Include any additional types present in facts_by_type
-    for k in facts_by_type.keys():
+    for k in facts_by_type:
         if k not in type_order:
             type_order.append(k)
 
@@ -123,7 +123,7 @@ def format_facts_for_prompt(
     return "\n\n".join(sections)
 
 
-def format_past_chats_for_prompt(chunks: List[Any]) -> str:
+def format_past_chats_for_prompt(chunks: list[Any]) -> str:
     """
     Format semantic chat chunks for injection into <relevant_past_conversations>.
     Attaches exact source report name if linked to a document:
@@ -195,7 +195,7 @@ def format_past_chats_for_prompt(chunks: List[Any]) -> str:
     return "\n\n".join(formatted)
 
 
-def format_multi_doc_context(chunks_with_source: List[Any]) -> str:
+def format_multi_doc_context(chunks_with_source: list[Any]) -> str:
     """
     Format multi-document chunks with XML tags indicating document filename.
     """

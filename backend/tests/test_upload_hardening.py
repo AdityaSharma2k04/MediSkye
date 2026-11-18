@@ -65,12 +65,14 @@ def test_image_validation_accepts_valid_jpeg_and_webp():
     buf_jpg = io.BytesIO()
     img.save(buf_jpg, format="JPEG")
     valid_jpg_bytes = buf_jpg.getvalue()
-    validate_file_upload(valid_jpg_bytes, filename="lab_camera_shot.jpg")
+    res_jpg = validate_file_upload(valid_jpg_bytes, filename="lab_camera_shot.jpg")
+    assert res_jpg is None
 
     buf_webp = io.BytesIO()
     img.save(buf_webp, format="WEBP")
     valid_webp_bytes = buf_webp.getvalue()
-    validate_file_upload(valid_webp_bytes, filename="lab_camera_shot.webp")
+    res_webp = validate_file_upload(valid_webp_bytes, filename="lab_camera_shot.webp")
+    assert res_webp is None
 
 
 @pytest.mark.asyncio

@@ -1,12 +1,13 @@
-import uuid
-import re
 import asyncio
 import logging
-from datetime import datetime, UTC
-from typing import List, Optional, Any
-from sqlalchemy.ext.asyncio import AsyncSession
+import re
+import uuid
+from datetime import UTC, datetime
+from typing import Any
+
 from app.db.models import ChatChunk
 from app.rag.embedder import get_embedder
+from sqlalchemy.ext.asyncio import AsyncSession
 
 logger = logging.getLogger(__name__)
 
@@ -27,7 +28,7 @@ def is_greeting_or_trivial(text: str) -> bool:
     return False
 
 
-def chunk_text_sliding_window(text: str, chunk_size: int = 1200, overlap: int = 200) -> List[str]:
+def chunk_text_sliding_window(text: str, chunk_size: int = 1200, overlap: int = 200) -> list[str]:
     """Splits text into chunks of specified size and overlap."""
     if len(text) <= chunk_size:
         return [text]
@@ -46,12 +47,12 @@ def chunk_text_sliding_window(text: str, chunk_size: int = 1200, overlap: int = 
 
 async def index_chat_message(
     chat_id: Any,
-    message_id: Optional[Any],
+    message_id: Any | None,
     text: str,
     user_id: Any,
-    dependent_id: Optional[Any],
+    dependent_id: Any | None,
     session: AsyncSession,
-) -> List[ChatChunk]:
+) -> list[ChatChunk]:
     """
     Chunk, embed, and index a chat message into ChatChunk rows.
     - Skips if text < 50 characters or is a greeting.

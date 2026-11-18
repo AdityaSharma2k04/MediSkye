@@ -1,13 +1,13 @@
 import os
 import re
-import uuid
 import secrets
-from typing import Optional, Any
-from fastapi import Header, HTTPException, status
+from typing import Any
+
 from app.core.config import settings
+from fastapi import Header, HTTPException, status
 
 
-def verify_api_key(x_api_key: Optional[str] = Header(default=None, alias="X-API-Key")) -> None:
+def verify_api_key(x_api_key: str | None = Header(default=None, alias="X-API-Key")) -> None:
     if not settings.MEDISKYE_API_KEY:
         return
     if not x_api_key or not secrets.compare_digest(x_api_key, settings.MEDISKYE_API_KEY):
@@ -101,7 +101,7 @@ def clean_filename_to_title(filename: str) -> str:
     return title or "New Conversation"
 
 
-def safe_language(value: Optional[str], default: str = "English") -> str:
+def safe_language(value: str | None, default: str = "English") -> str:
     """Allow only alphabetic characters, spaces, hyphens, and parentheses up to 40 chars."""
     if not value or not isinstance(value, str):
         return default

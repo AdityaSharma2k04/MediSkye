@@ -9,10 +9,9 @@ using RRF to get the best of keyword-exact and semantic-meaning retrieval.
 import hashlib
 import hmac
 import json
-import re
 import logging
+import re
 from pathlib import Path
-from typing import Optional
 
 from langchain_core.documents import Document
 from rank_bm25 import BM25Okapi
@@ -98,7 +97,7 @@ def save_bm25_index(bm25_index: BM25Index, index_path: str) -> None:
         json.dump(payload, f, ensure_ascii=False)
 
 
-def load_bm25_index(index_path: str) -> Optional[BM25Index]:
+def load_bm25_index(index_path: str) -> BM25Index | None:
     """Load BM25 index from JSON format if it exists. Does not use pickle."""
     p = Path(index_path)
     stem = p.name.removesuffix(".index")
@@ -122,7 +121,7 @@ def load_bm25_index(index_path: str) -> Optional[BM25Index]:
     return None
 
 
-def sign_faiss_index(index_dir: Path | str) -> Optional[Path]:
+def sign_faiss_index(index_dir: Path | str) -> Path | None:
     """Compute and write HMAC-SHA256 signature for FAISS index files (index.faiss, index.pkl)."""
     target = Path(index_dir)
     if not target.exists() or not target.is_dir():

@@ -1,7 +1,7 @@
-from typing import Optional, Dict, Any
+from typing import Any
 
 
-def compute_bmi_info(height_cm: Optional[float], weight_kg: Optional[float]) -> Optional[Dict[str, Any]]:
+def compute_bmi_info(height_cm: float | None, weight_kg: float | None) -> dict[str, Any] | None:
     """
     Calculates Body Mass Index (BMI) and standard WHO clinical categorization.
     Expects height in centimeters and weight in kilograms.
@@ -12,12 +12,12 @@ def compute_bmi_info(height_cm: Optional[float], weight_kg: Optional[float]) -> 
       - Overweight: 25.0 - 29.9
       - Obese: >= 30.0
     """
-    if not height_cm or not weight_kg:
+    if height_cm is None or weight_kg is None:
         return None
     try:
         h = float(height_cm)
         w = float(weight_kg)
-        if h <= 0 or w <= 0:
+        if h <= 0 or w <= 0 or h > 300 or w > 600:
             return None
         height_m = h / 100.0
         bmi = round(w / (height_m * height_m), 1)

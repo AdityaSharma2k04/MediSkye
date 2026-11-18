@@ -1,10 +1,9 @@
+import asyncio
+import logging
 import os
 import re
 import shutil
-import asyncio
-import logging
 from pathlib import Path
-from typing import Optional
 
 from app.core.config import settings
 
@@ -141,7 +140,7 @@ async def asave_index_artifacts_with_retry(
     file_path: str | Path,
     max_attempts: int = 3,
     initial_delay: float = 0.5,
-    max_retries: Optional[int] = None,
+    max_retries: int | None = None,
 ) -> bool:
     """
     Asynchronously upload index artifacts to GCS with exponential backoff retry.
@@ -184,9 +183,7 @@ def ensure_index_local(file_path: str | Path) -> Path:
 
     # Fast cache hit
     if target_path.exists():
-        if target_path.is_dir() and (target_path / "index.faiss").exists():
-            return target_path
-        elif target_path.is_file():
+        if target_path.is_dir() and (target_path / "index.faiss").exists() or target_path.is_file():
             return target_path
 
     bucket_name = settings.GCS_INDEX_BUCKET

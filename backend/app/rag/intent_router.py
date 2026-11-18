@@ -11,10 +11,10 @@ This router is the second gate — it catches edge cases the keywords miss and
 intelligently skips FAISS for general questions to save latency and tokens.
 """
 
-from enum import Enum
 import logging
 import re
-from typing import Optional, Any
+from enum import Enum
+from typing import Any
 
 from app.core.config import settings
 from app.core.security import escape_xml_content
@@ -140,7 +140,7 @@ def is_emergency_query_fast_path(query: str) -> bool:
 async def classify_intent(
     query: str,
     has_document: bool = False,
-    document_id: Optional[Any] = None,
+    document_id: Any | None = None,
     **kwargs,
 ) -> QueryIntent:
     """

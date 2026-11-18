@@ -1,16 +1,21 @@
 import asyncio
 import logging
-from typing import Any, Optional, List
+from typing import Any
+
 from app.core.config import settings
-from app.llm.gemini_client import GeminiUnavailableError, _is_retryable_error, get_genai_client
+from app.llm.gemini_client import (
+    GeminiUnavailableError,
+    _is_retryable_error,
+    get_genai_client,
+)
 
 logger = logging.getLogger(__name__)
 
-_WORKING_EMBEDDING_MODEL: Optional[str] = None
+_WORKING_EMBEDDING_MODEL: str | None = None
 _UNAVAILABLE_EMBEDDING_MODELS: set[str] = set()
 
 
-def get_embedding_models_to_try(primary_model: Optional[str] = None) -> List[str]:
+def get_embedding_models_to_try(primary_model: str | None = None) -> list[str]:
     """Return prioritized list of embedding models to try, filtering out permanently unavailable ones."""
     primary = primary_model or _WORKING_EMBEDDING_MODEL or settings.resolved_embedding_model
     if settings.GOOGLE_GENAI_USE_ENTERPRISE and primary.startswith("models/"):
@@ -36,13 +41,13 @@ def _sync_embed_content(api_client, model, contents, **kwargs):
 
 async def embed_content_with_retry(
     contents: Any,
-    model: Optional[str] = None,
+    model: str | None = None,
     max_attempts: int = 3,
     timeout: int = 30,
-    user_id: Optional[Any] = None,
-    config: Optional[Any] = None,
-    client: Optional[Any] = None,
-    backoff_delays: Optional[list[float]] = None,
+    user_id: Any | None = None,
+    config: Any | None = None,
+    client: Any | None = None,
+    backoff_delays: list[float] | None = None,
     **kwargs,
 ) -> Any:
     """

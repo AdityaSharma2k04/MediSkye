@@ -1,7 +1,7 @@
 from datetime import date
-from typing import Optional
 
-def calculate_age(dob: Optional[date]) -> Optional[int]:
+
+def calculate_age(dob: date | None) -> int | None:
     """
     Calculate exact age dynamically based on the current system date.
     

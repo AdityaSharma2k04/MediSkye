@@ -1,43 +1,54 @@
-import os
-import re
+import asyncio
 import json
+import logging
+import os
 import tempfile
 import time
 import uuid
-import asyncio
-import logging
-from typing import Optional
-from fastapi import APIRouter, BackgroundTasks, Depends, File, Form, HTTPException, UploadFile, status, Request
+
+from app.api.v1.endpoints.metrics import extract_and_cache_metrics
+from app.core.audit import log_audit
+from app.core.auth import UserDTO, get_current_user
+from app.core.clinical import compute_bmi_info
+from app.core.config import settings
+from app.core.limiter import limiter
+from app.core.security import clean_filename_to_title
+from app.db.database import get_db
+from app.db.models import DependentProfile, Document, User
+from app.rag import retriever
+from app.rag.index_storage import (
+    asave_index_artifacts,
+    asave_index_artifacts_with_retry,
+)
+from app.rag.loader import extract_text_from_file
+from app.rag.output_filter import sanitize_clinical_prose
+from app.rag.prompt_builder import (
+    PROMPT_VERSION_PREFIX,
+    build_document_summary_prompt,
+    generate_deterministic_fallback_summary,
+)
+from app.rag.retriever import acreate_hybrid_index
+from app.schemas.upload import UploadJobResponse, UploadStatusResponse
+from app.services.clinical_units import extract_specimen_collection_date
+from app.services.patient_service import calculate_age
+from app.services.pdf_service import validate_file_upload
+from app.services.upload_jobs import UploadStatus, create_job, get_job, update_job
+from fastapi import (
+    APIRouter,
+    BackgroundTasks,
+    Depends,
+    File,
+    Form,
+    HTTPException,
+    Request,
+    UploadFile,
+    status,
+)
+from langchain_core.documents import Document as LCDocument
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 from sqlalchemy.orm.attributes import flag_modified
-
-from app.core.config import settings
-from app.core.auth import UserDTO, get_current_user
-from app.core.limiter import limiter
-from app.db.database import get_db
-from app.db.models import Document, DependentProfile, User
-from app.schemas.upload import UploadJobResponse, UploadStatusResponse
-from app.services.pdf_service import validate_file_upload
-from app.rag.loader import PDFExtractionError, extract_text_from_file
-from app.core.audit import log_audit
-from app.rag import retriever
-from app.rag.retriever import acreate_hybrid_index
-from app.services.upload_jobs import create_job, update_job, get_job, UploadStatus
-from app.core.security import clean_filename_to_title
-from app.rag.index_storage import asave_index_artifacts, asave_index_artifacts_with_retry
-from app.api.v1.endpoints.metrics import extract_and_cache_metrics
-from app.services.clinical_units import extract_specimen_collection_date
-from app.core.clinical import compute_bmi_info
-from app.services.patient_service import calculate_age
-from app.rag.prompt_builder import (
-    build_document_summary_prompt,
-    generate_deterministic_fallback_summary,
-    PROMPT_VERSION_PREFIX,
-)
-from app.rag.output_filter import sanitize_clinical_prose
 from sqlalchemy.orm.exc import StaleDataError
-from langchain_core.documents import Document as LCDocument
 
 logger = logging.getLogger(__name__)
 
@@ -51,17 +62,17 @@ async def process_upload_background(
     tmp_path: str,
     filename: str,
     user_id: str,
-    dependent_id: Optional[str] = None,
-    chat_id: Optional[str] = None,
+    dependent_id: str | None = None,
+    chat_id: str | None = None,
     client_host: str = "unknown",
-    custom_title: Optional[str] = None,
+    custom_title: str | None = None,
 ):
     """
     Background worker for PDF extraction, embedding, FAISS indexing, and DB commitment.
     Creates its own AsyncSessionLocal to ensure DB operations outlive the HTTP request.
     """
     from app.db.database import AsyncSessionLocal
-    from app.db.models import Document, ChatDocument, Chat
+    from app.db.models import Chat, ChatDocument, Document
 
     t_start = time.monotonic()
     logger.info(f"[UPLOAD {job_id}] START")
@@ -350,7 +361,9 @@ async def _warm_document_metrics_cache(doc_id: uuid.UUID, user_uuid: uuid.UUID, 
                         if doc_obj and is_sample_document(doc_obj):
                             logger.info("Skipping document memory extraction for sample report: doc_id=%s", doc_id)
                         else:
-                            from app.services.fact_persistence import process_document_memory_extraction
+                            from app.services.fact_persistence import (
+                                process_document_memory_extraction,
+                            )
                             await process_document_memory_extraction(
                                 doc_id=doc_id,
                                 user_id=user_uuid,
@@ -373,9 +386,9 @@ async def _warm_document_metrics_cache(doc_id: uuid.UUID, user_uuid: uuid.UUID, 
 
 
 async def _warm_document_summary_cache(doc_id: uuid.UUID, user_uuid: uuid.UUID, page_docs: list) -> None:
+    from app.api.v1.endpoints.query import strip_emojis
     from app.db.database import AsyncSessionLocal
     from app.db.models import Document
-    from app.api.v1.endpoints.query import strip_emojis
     from app.llm.gemini_client import call_gemini_with_retry
     from google.genai.types import GenerateContentConfig, ThinkingConfig
 
@@ -483,9 +496,9 @@ async def upload_file(
     request: Request,
     background_tasks: BackgroundTasks,
     file: UploadFile = File(...),
-    patient_id: Optional[str] = Form(None),
-    chat_id: Optional[str] = Form(None),
-    title: Optional[str] = Form(None),
+    patient_id: str | None = Form(None),
+    chat_id: str | None = Form(None),
+    title: str | None = Form(None),
     current_user: UserDTO = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):

@@ -1,10 +1,14 @@
-import os
 import logging
+import os
+
 import sentry_sdk
 from sentry_sdk.integrations.fastapi import FastApiIntegration
 from sentry_sdk.integrations.starlette import StarletteIntegration
+
 try:
-    from sentry_sdk.integrations.sqlalchemy import SqlalchemyIntegration as SqlAlchemyIntegration
+    from sentry_sdk.integrations.sqlalchemy import (
+        SqlalchemyIntegration as SqlAlchemyIntegration,
+    )
 except ImportError:
     from sentry_sdk.integrations.sqlalchemy import SqlAlchemyIntegration
 

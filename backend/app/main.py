@@ -1,24 +1,28 @@
-import time
 import asyncio
+import time
 from contextlib import asynccontextmanager
+
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from slowapi import _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
 from slowapi.middleware import SlowAPIMiddleware
-from app.core.limiter import limiter
+from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from app.api.v1.router import api_router
 from app.core.config import settings
+from app.core.limiter import limiter
 from app.core.logging import logger, setup_logging
-from app.middleware.error_handler import global_exception_handler, http_exception_handler
+from app.core.observability import init_sentry
+from app.middleware.body_limit import BodySizeLimitMiddleware
+from app.middleware.error_handler import (
+    global_exception_handler,
+    http_exception_handler,
+)
 from app.middleware.request_id import RequestIDMiddleware
 from app.middleware.security_headers import SecurityHeadersMiddleware
-from app.middleware.body_limit import BodySizeLimitMiddleware
-from starlette.exceptions import HTTPException as StarletteHTTPException
 
-from app.core.observability import init_sentry
 
 async def _safe_startup_db_init():
     """
@@ -28,9 +32,9 @@ async def _safe_startup_db_init():
     deployments never fail with container-failed-to-start.
     """
     async def _init_work():
-        import app.db.models
-        from app.db.database import engine, Base
         from sqlalchemy import inspect, text
+
+        from app.db.database import Base, engine
 
         async with engine.begin() as conn:
             # Ensure tables exist in any environment (including fresh Neon DB)

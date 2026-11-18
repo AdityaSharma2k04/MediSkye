@@ -1,9 +1,8 @@
+from app.core.config import normalize_async_database_url, settings
 from sqlalchemy import event
-from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker, AsyncSession
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 from sqlalchemy.orm import declarative_base
 from sqlalchemy.pool import StaticPool
-
-from app.core.config import settings, normalize_async_database_url
 
 # For in-memory SQLite (used in tests), we must use StaticPool to share a single
 # connection across all sessions. Without this, each new connection gets a fresh

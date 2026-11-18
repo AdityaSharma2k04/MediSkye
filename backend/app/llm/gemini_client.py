@@ -1,9 +1,11 @@
 import asyncio
-from functools import lru_cache
 import logging
 import time
-from typing import Any, Optional, List
+from functools import lru_cache
+from typing import Any
+
 from google import genai
+
 from app.core.config import settings
 
 logger = logging.getLogger(__name__)
@@ -85,7 +87,7 @@ MODEL_FALLBACK_CHAIN = [
 ]
 
 
-def get_fallback_models(primary_model: Optional[str] = None) -> list[str]:
+def get_fallback_models(primary_model: str | None = None) -> list[str]:
     """
     Returns an ordered chain of fallback models for streaming/query:
     1. Primary configured model (settings.PRIMARY_CHAT_MODEL or settings.GEMINI_MODEL)
@@ -142,7 +144,7 @@ def _strip_thinking_config(cfg: Any) -> Any:
         import copy
         new_cfg = copy.copy(cfg)
         if hasattr(new_cfg, "thinking_config"):
-            setattr(new_cfg, "thinking_config", None)
+            new_cfg.thinking_config = None
         return new_cfg
     except Exception:
         return None
@@ -159,14 +161,14 @@ def _sync_generate_content(api_client, model, contents, **kwargs):
 async def call_gemini_with_retry(
     contents: Any = None,
     prompt: Any = None,
-    model: Optional[str] = None,
+    model: str | None = None,
     max_attempts: int = 3,
     timeout: int = 30,
-    user_id: Optional[Any] = None,
-    config: Optional[Any] = None,
-    client: Optional[Any] = None,
-    backoff_delays: Optional[list[float]] = None,
-    fallback_models: Optional[list[str]] = None,
+    user_id: Any | None = None,
+    config: Any | None = None,
+    client: Any | None = None,
+    backoff_delays: list[float] | None = None,
+    fallback_models: list[str] | None = None,
     **kwargs,
 ) -> Any:
     """

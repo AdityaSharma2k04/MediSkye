@@ -1,9 +1,10 @@
 import traceback
+
+from app.core.config import settings
+from app.core.logging import logger
 from fastapi import Request, status
 from fastapi.responses import JSONResponse
 from starlette.exceptions import HTTPException as StarletteHTTPException
-from app.core.logging import logger
-from app.core.config import settings
 
 
 async def http_exception_handler(request: Request, exc: StarletteHTTPException):

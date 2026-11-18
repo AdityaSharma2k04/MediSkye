@@ -24,7 +24,6 @@ chunk — keeping the table intact is the correct tradeoff for medical data.
 from __future__ import annotations
 
 import re
-from typing import List, Tuple, Optional
 
 from langchain_core.documents import Document
 from langchain_text_splitters import RecursiveCharacterTextSplitter
@@ -50,25 +49,24 @@ TABLE_SEP_RE = re.compile(r"^[ \t]*\|(?:\s*:?-+:?\s*\|)+[ \t]*$")
 
 def _count_table_columns(line: str) -> int:
     s = line.strip()
-    if s.startswith("|"):
-        s = s[1:]
+    s = s.removeprefix("|")
     if s.endswith("|") and not s.endswith(r"\|"):
         s = s[:-1]
     return len(re.split(r"(?<!\\)\|", s))
 
 
-def _propagate_table_headers(page_docs: List[Document]) -> List[Document]:
+def _propagate_table_headers(page_docs: list[Document]) -> list[Document]:
     """
     Carries over Markdown table headers across page boundaries when a table
     continues onto page N+1 without repeating the column header row.
     """
-    updated_docs: List[Document] = []
-    last_header: Optional[Tuple[str, str, int]] = None
+    updated_docs: list[Document] = []
+    last_header: tuple[str, str, int] | None = None
 
     for doc in page_docs:
         content = doc.page_content or ""
         lines = content.split("\n")
-        new_lines: List[str] = []
+        new_lines: list[str] = []
         i = 0
         while i < len(lines):
             line = lines[i]
@@ -129,9 +127,9 @@ class MedicalTextSplitter(RecursiveCharacterTextSplitter):
         )
 
     # ── Block protection ──────────────────────────────────────────────
-    def _protect_blocks(self, text: str) -> Tuple[str, List[str]]:
+    def _protect_blocks(self, text: str) -> tuple[str, list[str]]:
         """Replace table blocks and bullet runs with opaque tokens."""
-        protected: List[str] = []
+        protected: list[str] = []
 
         def _store(match: re.Match) -> str:
             token = _BLOCK_TOKEN_TEMPLATE.format(idx=len(protected))
@@ -143,7 +141,7 @@ class MedicalTextSplitter(RecursiveCharacterTextSplitter):
         return text, protected
 
     @staticmethod
-    def _restore_blocks(text: str, protected: List[str]) -> str:
+    def _restore_blocks(text: str, protected: list[str]) -> str:
         """Restore protected blocks after splitting."""
         if not protected:
             return text
@@ -152,7 +150,7 @@ class MedicalTextSplitter(RecursiveCharacterTextSplitter):
             text,
         )
 
-    def split_text(self, text: str) -> List[str]:
+    def split_text(self, text: str) -> list[str]:
         protected_text, protected = self._protect_blocks(text)
         if not protected:
             return super().split_text(text)
@@ -161,10 +159,10 @@ class MedicalTextSplitter(RecursiveCharacterTextSplitter):
 
 
 def split_medical_documents(
-    page_docs: List[Document],
+    page_docs: list[Document],
     chunk_size: int = 1200,
     chunk_overlap: int = 200,
-) -> List[Document]:
+) -> list[Document]:
     """Split documents with table/bullet-aware chunking (CPU-bound)."""
     propagated_docs = _propagate_table_headers(page_docs)
     splitter = MedicalTextSplitter(

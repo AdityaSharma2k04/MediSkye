@@ -1,13 +1,13 @@
-import re
+import asyncio
 import json
 import logging
-import asyncio
-import uuid
+import re
 import time
-from typing import List, Dict, Any, Optional
+import uuid
 from pathlib import Path
-import numpy as np
+from typing import Any
 
+import numpy as np
 from app.core.config import settings
 
 logger = logging.getLogger(__name__)
@@ -48,7 +48,7 @@ TYPE_SYNONYMS = {
 MAX_FACT_TEXT_LENGTH = 500
 
 
-def _normalize_parsed_json(parsed: Any) -> Optional[dict]:
+def _normalize_parsed_json(parsed: Any) -> dict | None:
     if isinstance(parsed, list):
         return {"facts": parsed, "retractions": []}
     if isinstance(parsed, dict):
@@ -69,7 +69,7 @@ def _normalize_parsed_json(parsed: Any) -> Optional[dict]:
     return None
 
 
-def _extract_json_data(response_text: str) -> Optional[dict]:
+def _extract_json_data(response_text: str) -> dict | None:
     """
     Robust JSON extractor: handles direct JSON, markdown code fences,
     top-level arrays, and embedded objects/arrays while guarding against
@@ -188,7 +188,7 @@ def _validate_extracted_facts(data: dict) -> dict:
     return {"facts": valid_facts, "retractions": valid_retractions}
 
 
-def _cosine_similarity(vec1: List[float], vec2: List[float]) -> float:
+def _cosine_similarity(vec1: list[float], vec2: list[float]) -> float:
     a = np.array(vec1, dtype=float)
     b = np.array(vec2, dtype=float)
     norm_a = np.linalg.norm(a)
@@ -198,7 +198,7 @@ def _cosine_similarity(vec1: List[float], vec2: List[float]) -> float:
     return float(np.dot(a, b) / (norm_a * norm_b))
 
 
-def _normalize_existing_facts(existing_facts: List[Any]) -> List[Dict[str, Any]]:
+def _normalize_existing_facts(existing_facts: list[Any]) -> list[dict[str, Any]]:
     normalized = []
     for f in existing_facts:
         if isinstance(f, dict):
@@ -214,7 +214,7 @@ def _normalize_existing_facts(existing_facts: List[Any]) -> List[Dict[str, Any]]
     return normalized
 
 
-def _format_conversation(messages: List[Any]) -> str:
+def _format_conversation(messages: list[Any]) -> str:
     lines = []
     for m in messages:
         if isinstance(m, dict):
@@ -235,13 +235,13 @@ def _format_conversation(messages: List[Any]) -> str:
 
 
 async def extract_facts(
-    messages: List[Any],
-    existing_facts: List[Any],
+    messages: list[Any],
+    existing_facts: list[Any],
     user_id: Any,
-    dependent_id: Optional[Any] = None,
-    document_name: Optional[str] = None,
-    backoff_delays: Optional[List[float]] = None,
-) -> Dict[str, Any]:
+    dependent_id: Any | None = None,
+    document_name: str | None = None,
+    backoff_delays: list[float] | None = None,
+) -> dict[str, Any]:
     """
     Extract durable patient facts and retractions from recent conversation messages using Gemini.
     Retries across up to 5 progressive fallback models with exponential backoff on API errors,
@@ -275,9 +275,9 @@ async def extract_facts(
 
     from app.llm import gemini_client
     from app.llm.gemini_client import (
+        GeminiUnavailableError,
         get_fallback_models,
         get_genai_client,
-        GeminiUnavailableError,
     )
     from google.genai.types import GenerateContentConfig, ThinkingConfig
 
@@ -398,7 +398,7 @@ async def extract_facts(
                     texts_to_embed.add(ef_text)
 
     # Batch embed unique texts once to avoid N×M API calls
-    embedding_cache: Dict[str, List[float]] = {}
+    embedding_cache: dict[str, list[float]] = {}
     if embedder and texts_to_embed:
         try:
             unique_list = list(texts_to_embed)

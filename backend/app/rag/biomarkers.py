@@ -1,6 +1,7 @@
-import re
 import logging
-from typing import Optional, List, Dict, Any, Tuple, Union
+import re
+from typing import Any
+
 from app.core.security import escape_xml_content
 
 logger = logging.getLogger(__name__)
@@ -13,7 +14,7 @@ LOW_ONLY_KEYS = {
 
 HIGH_ONLY_KEYS = {
     "creatinine", "bun", "uric_acid", "alt", "ast", "ggt", "alp", "bilirubin",
-    "bilirubin_total", "bilirubin_direct", "glucose", "hba1c", "total_cholesterol",
+    "total_bilirubin", "bilirubin_total", "bilirubin_direct", "glucose", "hba1c", "total_cholesterol",
     "ldl", "triglycerides", "non_hdl", "apob", "homocysteine", "crp", "hs_crp"
 }
 
@@ -27,7 +28,7 @@ _RETEST_COMMON_STRING = (
     "repeat testing is commonly scheduled after about 8–12 weeks."
 )
 
-_CLINICAL_FOLLOWUP_HINTS: Dict[str, Dict[str, Any]] = {
+_CLINICAL_FOLLOWUP_HINTS: dict[str, dict[str, Any]] = {
     "vitamin_b12": {
         "states": {"LOW", "LOW-NORMAL"},
         "context": (
@@ -140,7 +141,7 @@ _CLINICAL_FOLLOWUP_HINTS: Dict[str, Dict[str, Any]] = {
 }
 
 
-def canonical_biomarker_key(name: str, allow_urinalysis: bool = False) -> Optional[str]:
+def canonical_biomarker_key(name: str, allow_urinalysis: bool = False) -> str | None:
     """
     Returns the normalized canonical key for a clinical biomarker name using
     ordered, case-insensitive regex rules with word boundaries.
@@ -446,14 +447,16 @@ def _normalize_numeric_string(s: str) -> str:
     elif s.count(',') > 1:
         s = s.replace(',', '')
     elif ',' in s:
-        if re.search(r',\d{3}$', s):
+        if s.startswith('0,') or re.match(r'^0,\d+$', s):
+            s = s.replace(',', '.')
+        elif re.search(r',\d{3}$', s):
             s = s.replace(',', '')
         elif re.search(r',\d{1,2}$', s):
             s = s.replace(',', '.')
     return s
 
 
-def parse_numeric_value(raw: Any) -> Optional[float]:
+def parse_numeric_value(raw: Any) -> float | None:
     """
     Parse a numeric value from string or float/int.
     Handles thousands comma (150,000 -> 150000, 4,500.50 -> 4500.5),
@@ -485,7 +488,7 @@ def parse_numeric_value(raw: Any) -> Optional[float]:
     return None
 
 
-def parse_reference_range(raw_range: Any) -> Optional[Dict[str, Any]]:
+def parse_reference_range(raw_range: Any) -> dict[str, Any] | None:
     """
     Parse a reference range string into structured bounds:
     Bounded: {'type': 'bounded', 'low': float, 'high': float}
@@ -542,9 +545,9 @@ def parse_reference_range(raw_range: Any) -> Optional[Dict[str, Any]]:
 def resolve_status(
     value: Any,
     interval: Any,
-    stored_status: Optional[str] = None,
+    stored_status: str | None = None,
     test_name: str = "",
-    status_mismatches: Optional[List[str]] = None,
+    status_mismatches: list[str] | None = None,
 ) -> str:
     """
     Resolve biomarker status according to Section 4.4 policy:
@@ -610,12 +613,12 @@ def resolve_status(
 
 
 def evaluate_near_boundary_flag(
-    key: Optional[str],
+    key: str | None,
     value: Any,
     interval: Any,
-    unit: Optional[str] = None,
+    unit: str | None = None,
     status: str = "Normal",
-) -> Optional[Tuple[str, int]]:
+) -> tuple[str, int] | None:
     """
     Evaluate near-boundary marker flag for Normal biomarkers.
     Returns (flag_label, percentage) e.g. ("LOW-NORMAL", 4) or None.
@@ -699,9 +702,9 @@ def evaluate_near_boundary_flag(
 
 
 def get_verified_absent_adjacent_tests(
-    metric_names: List[str],
+    metric_names: list[str],
     raw_report_text: str = "",
-) -> List[str]:
+) -> list[str]:
     """
     Check for verified absent adjacent tests when len(metrics) >= 5 and raw_report_text is non-empty.
     Synonym matching in raw_report_text suppresses candidates.
@@ -752,7 +755,7 @@ def get_verified_absent_adjacent_tests(
 
 
 def build_extracted_biomarkers_and_hints(
-    active_docs_metrics: Optional[Union[List[Dict[str, Any]], Dict[str, Any]]] = None,
+    active_docs_metrics: list[dict[str, Any]] | dict[str, Any] | None = None,
     raw_report_text: str = "",
 ) -> str:
     """
@@ -767,7 +770,7 @@ def build_extracted_biomarkers_and_hints(
         return ""
 
     # Flatten metric rows
-    flat_metrics: List[Dict[str, Any]] = []
+    flat_metrics: list[dict[str, Any]] = []
     if isinstance(active_docs_metrics, list):
         for item in active_docs_metrics:
             if isinstance(item, dict):
@@ -782,17 +785,17 @@ def build_extracted_biomarkers_and_hints(
     if not flat_metrics:
         return ""
 
-    status_mismatches: List[str] = []
-    unclassified_analytes: List[str] = []
-    out_of_range_markers: List[str] = []
-    high_markers: List[str] = []
-    low_markers: List[str] = []
-    other_flagged_markers: List[str] = []
-    in_range_markers: List[str] = []
-    near_boundaries: List[Dict[str, Any]] = []
-    followup_hints: List[str] = []
-    metric_lines: List[str] = []
-    extracted_names: List[str] = []
+    status_mismatches: list[str] = []
+    unclassified_analytes: list[str] = []
+    out_of_range_markers: list[str] = []
+    high_markers: list[str] = []
+    low_markers: list[str] = []
+    other_flagged_markers: list[str] = []
+    in_range_markers: list[str] = []
+    near_boundaries: list[dict[str, Any]] = []
+    followup_hints: list[str] = []
+    metric_lines: list[str] = []
+    extracted_names: list[str] = []
 
     for m in flat_metrics:
         test_name = str(m.get("test") or "").strip()

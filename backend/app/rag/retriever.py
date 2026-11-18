@@ -8,30 +8,27 @@ During query: loads both indexes and performs hybrid retrieval using
 Reciprocal Rank Fusion (RRF) to combine semantic and keyword results.
 """
 
-import os
 import asyncio
 import logging
-from pathlib import Path
-from typing import Optional
-
+import os
 import re
-from langchain_community.vectorstores.faiss import FAISS
-from langchain_core.documents import Document
-
-from collections import OrderedDict
 import threading
+from collections import OrderedDict
+from pathlib import Path
+
 from app.rag.chunking import MedicalTextSplitter
 from app.rag.embedder import get_embedder
 from app.rag.hybrid_search import (
     BM25Index,
-    save_bm25_index,
     load_bm25_index,
     reciprocal_rank_fusion,
+    save_bm25_index,
     sign_faiss_index,
     verify_faiss_index,
 )
-from app.rag.index_storage import ensure_index_local, aensure_index_local
-from app.core.config import settings
+from app.rag.index_storage import aensure_index_local, ensure_index_local
+from langchain_community.vectorstores.faiss import FAISS
+from langchain_core.documents import Document
 
 logger = logging.getLogger(__name__)
 
@@ -77,7 +74,7 @@ def cache_hybrid_index(key, vectorstore, bm25_index) -> None:
             _HYBRID_INDEX_CACHE[norm_key] = (vectorstore, bm25_index)
 
 
-def get_cached_hybrid_index(key) -> Optional[tuple]:
+def get_cached_hybrid_index(key) -> tuple | None:
     """Retrieve (vectorstore, bm25_index) from in-memory LRU cache."""
     if not key:
         return None
@@ -282,7 +279,7 @@ def load_hybrid_index(index_path: str):
 def retrieve_relevant_docs(
     query: str,
     vectorstore,
-    bm25_index: Optional[BM25Index] = None,
+    bm25_index: BM25Index | None = None,
     k: int = RETRIEVAL_K,
 ) -> list[Document]:
     """
@@ -336,10 +333,10 @@ async def retrieve_cross_document(
     Loads each document's hybrid index, retrieves relevant chunks,
     and merges using reciprocal rank fusion with a boost for the active document.
     """
-    import re
     import uuid
-    from sqlalchemy.future import select
+
     from app.db.models import Document as DBDocument
+    from sqlalchemy.future import select
 
     d_id = uuid.UUID(str(dependent_id)) if (dependent_id and isinstance(dependent_id, str)) else dependent_id
     filters = [

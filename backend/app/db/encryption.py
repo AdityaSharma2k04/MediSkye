@@ -1,11 +1,13 @@
 import json
 import logging
-from typing import Optional
-import sqlalchemy.types as types
-from cryptography.fernet import Fernet, InvalidToken
+
 from app.core.config import settings
+from cryptography.fernet import Fernet, InvalidToken
+from sqlalchemy import types
 
 logger = logging.getLogger(__name__)
+
+_RAW_FALLBACK_COUNT = 0
 
 
 def _init_fernet() -> Fernet:
@@ -69,8 +71,9 @@ class EncryptedString(types.TypeDecorator):
             if isinstance(value, str) and value.startswith("gAAAAA"):
                 logger.error("EncryptedString: Fernet-looking value could not be decrypted (wrong key or corruption).")
                 raise DataDecryptionError("Corrupted or undecryptable Fernet ciphertext token") from exc
-            # If decryption fails (e.g., data was already in DB unencrypted), log and return as is
-            logger.warning("Fernet decryption failed; falling back to raw database value.")
+            global _RAW_FALLBACK_COUNT
+            _RAW_FALLBACK_COUNT += 1
+            logger.info("EncryptedString: falling back to raw legacy plaintext value (total fallbacks: %d)", _RAW_FALLBACK_COUNT)
             return value
 
 
@@ -81,7 +84,7 @@ def _looks_like_token(value) -> bool:
     return isinstance(value, str) and value.startswith(_TOKEN_PREFIX)
 
 
-def _try_decrypt(value: str) -> Optional[str]:
+def _try_decrypt(value: str) -> str | None:
     try:
         return fernet.decrypt(value.encode("utf-8")).decode("utf-8")
     except Exception:
@@ -115,6 +118,9 @@ class EncryptedText(types.TypeDecorator):
             if isinstance(value, str) and value.startswith("gAAAAA"):
                 logger.error("EncryptedText: Fernet-looking value could not be decrypted (wrong key or corruption).")
                 raise DataDecryptionError("Corrupted or undecryptable Fernet ciphertext token") from exc
+            global _RAW_FALLBACK_COUNT
+            _RAW_FALLBACK_COUNT += 1
+            logger.info("EncryptedText: falling back to raw legacy plaintext value (total fallbacks: %d)", _RAW_FALLBACK_COUNT)
             return value  # legacy plaintext row, not yet backfilled
 
 

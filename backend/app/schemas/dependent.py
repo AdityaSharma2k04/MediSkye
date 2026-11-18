@@ -1,27 +1,28 @@
-from pydantic import BaseModel, ConfigDict, field_validator
-from typing import Optional
+from datetime import date, datetime
 from uuid import UUID
-from datetime import datetime, date
+
 from app.core.security import sanitize_text
+from pydantic import BaseModel, ConfigDict, field_validator
+
 
 class DependentBase(BaseModel):
     relationship: str
     full_name: str
-    date_of_birth: Optional[date] = None
-    biological_sex: Optional[str] = None
-    blood_type: Optional[str] = None
-    pre_existing_conditions: Optional[str] = None
-    known_allergies: Optional[str] = None
-    current_medications: Optional[str] = None
-    height_cm: Optional[float] = None
-    weight_kg: Optional[float] = None
-    diet_type: Optional[str] = None
-    activity_level: Optional[str] = None
-    occupation: Optional[str] = None
+    date_of_birth: date | None = None
+    biological_sex: str | None = None
+    blood_type: str | None = None
+    pre_existing_conditions: str | None = None
+    known_allergies: str | None = None
+    current_medications: str | None = None
+    height_cm: float | None = None
+    weight_kg: float | None = None
+    diet_type: str | None = None
+    activity_level: str | None = None
+    occupation: str | None = None
 
     @field_validator("height_cm")
     @classmethod
-    def validate_height_cm(cls, v: Optional[float]) -> Optional[float]:
+    def validate_height_cm(cls, v: float | None) -> float | None:
         if v is not None:
             if v < 30.0 or v > 280.0:
                 raise ValueError("height_cm must be between 30 and 280 cm")
@@ -29,7 +30,7 @@ class DependentBase(BaseModel):
 
     @field_validator("weight_kg")
     @classmethod
-    def validate_weight_kg(cls, v: Optional[float]) -> Optional[float]:
+    def validate_weight_kg(cls, v: float | None) -> float | None:
         if v is not None:
             if v < 2.0 or v > 400.0:
                 raise ValueError("weight_kg must be between 2 and 400 kg")
@@ -45,7 +46,7 @@ class DependentBase(BaseModel):
         mode="before",
     )
     @classmethod
-    def sanitize_dependent_strings(cls, v: Optional[str]) -> Optional[str]:
+    def sanitize_dependent_strings(cls, v: str | None) -> str | None:
         if isinstance(v, str):
             return sanitize_text(v)
         return v
@@ -54,23 +55,23 @@ class DependentCreate(DependentBase):
     pass
 
 class DependentUpdate(BaseModel):
-    relationship: Optional[str] = None
-    full_name: Optional[str] = None
-    date_of_birth: Optional[date] = None
-    biological_sex: Optional[str] = None
-    blood_type: Optional[str] = None
-    pre_existing_conditions: Optional[str] = None
-    known_allergies: Optional[str] = None
-    current_medications: Optional[str] = None
-    height_cm: Optional[float] = None
-    weight_kg: Optional[float] = None
-    diet_type: Optional[str] = None
-    activity_level: Optional[str] = None
-    occupation: Optional[str] = None
+    relationship: str | None = None
+    full_name: str | None = None
+    date_of_birth: date | None = None
+    biological_sex: str | None = None
+    blood_type: str | None = None
+    pre_existing_conditions: str | None = None
+    known_allergies: str | None = None
+    current_medications: str | None = None
+    height_cm: float | None = None
+    weight_kg: float | None = None
+    diet_type: str | None = None
+    activity_level: str | None = None
+    occupation: str | None = None
 
     @field_validator("height_cm")
     @classmethod
-    def validate_height_cm(cls, v: Optional[float]) -> Optional[float]:
+    def validate_height_cm(cls, v: float | None) -> float | None:
         if v is not None:
             if v < 30.0 or v > 280.0:
                 raise ValueError("height_cm must be between 30 and 280 cm")
@@ -78,7 +79,7 @@ class DependentUpdate(BaseModel):
 
     @field_validator("weight_kg")
     @classmethod
-    def validate_weight_kg(cls, v: Optional[float]) -> Optional[float]:
+    def validate_weight_kg(cls, v: float | None) -> float | None:
         if v is not None:
             if v < 2.0 or v > 400.0:
                 raise ValueError("weight_kg must be between 2 and 400 kg")
@@ -94,7 +95,7 @@ class DependentUpdate(BaseModel):
         mode="before",
     )
     @classmethod
-    def sanitize_dependent_update_strings(cls, v: Optional[str]) -> Optional[str]:
+    def sanitize_dependent_update_strings(cls, v: str | None) -> str | None:
         if isinstance(v, str):
             return sanitize_text(v)
         return v
@@ -102,9 +103,9 @@ class DependentUpdate(BaseModel):
 class DependentResponse(DependentBase):
     id: UUID
     user_id: UUID
-    calculated_age: Optional[int] = None
-    bmi_info: Optional[dict] = None
-    created_at: Optional[datetime] = None
-    updated_at: Optional[datetime] = None
+    calculated_age: int | None = None
+    bmi_info: dict | None = None
+    created_at: datetime | None = None
+    updated_at: datetime | None = None
 
     model_config = ConfigDict(from_attributes=True)

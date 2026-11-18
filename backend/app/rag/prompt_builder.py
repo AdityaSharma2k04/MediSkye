@@ -1,15 +1,15 @@
 import re
-from datetime import datetime, date
-from typing import Optional, List, Dict, Any, Tuple, Union
-from langchain_core.documents import Document
+from datetime import date, datetime
+from typing import Any
 
-from app.core.security import escape_xml_content, escape_xml_attr, safe_language
 from app.core.clinical import compute_bmi_info
+from app.core.security import escape_xml_attr, escape_xml_content, safe_language
 from app.rag.biomarkers import (
     build_extracted_biomarkers_and_hints,
-    resolve_status,
     canonical_biomarker_key,
+    resolve_status,
 )
+from langchain_core.documents import Document
 
 PROMPT_VERSION = "v5"
 PROMPT_VERSION_PREFIX = f"<!-- prompt_version:{PROMPT_VERSION} -->\n"
@@ -150,7 +150,7 @@ _COMPARISON_REQUEST_RE = re.compile(
 )
 
 
-def _select_report_instructions(is_followup_turn: bool, user_query: Optional[str]) -> str:
+def _select_report_instructions(is_followup_turn: bool, user_query: str | None) -> str:
     if not is_followup_turn:
         return DOCTOR_INSTRUCTIONS
     if _COMPARISON_REQUEST_RE.search(user_query or ""):
@@ -180,7 +180,7 @@ def _cap_at_sentence_boundary(text: str, max_chars: int = 500) -> str:
     return sub[:max_chars - 1].strip() + "."
 
 
-def _condense_session_history_str(history: Optional[str]) -> str:
+def _condense_session_history_str(history: str | None) -> str:
     """
     Condense a pre-formatted or raw string of conversation history.
     Parses User / Doctor / Assistant lines, strips raw markdown artifacts,
@@ -215,7 +215,7 @@ def _condense_session_history_str(history: Optional[str]) -> str:
     return condense_chat_history(chats)
 
 
-def condense_chat_history(chats: Union[List[Union[Dict[str, Any], Any]], str, None]) -> str:
+def condense_chat_history(chats: list[dict[str, Any] | Any] | str | None) -> str:
     """
     Format and condense chat history for prompt inclusion.
     Considers the last 6 turns (up to 12 messages).
@@ -231,7 +231,7 @@ def condense_chat_history(chats: Union[List[Union[Dict[str, Any], Any]], str, No
 
     target_chats = chats[-12:]
 
-    def _get_role_and_msg(c: Any) -> Tuple[str, str]:
+    def _get_role_and_msg(c: Any) -> tuple[str, str]:
         if isinstance(c, dict):
             r = str(c.get("role") or "")
             m = c.get("message", "") or c.get("content", "") or ""
@@ -245,7 +245,7 @@ def condense_chat_history(chats: Union[List[Union[Dict[str, Any], Any]], str, No
             return (r_clean, str(m).strip())
         return ("Doctor", str(m).strip())
 
-    formatted_lines: List[str] = []
+    formatted_lines: list[str] = []
 
     for c in target_chats:
         role, orig_msg = _get_role_and_msg(c)
@@ -292,20 +292,20 @@ def condense_chat_history(chats: Union[List[Union[Dict[str, Any], Any]], str, No
 
 
 def _format_patient_context(
-    calculated_age: Optional[str] = None,
-    biological_sex: Optional[str] = None,
-    pre_existing_conditions: Optional[str] = None,
-    current_medications: Optional[str] = None,
+    calculated_age: str | None = None,
+    biological_sex: str | None = None,
+    pre_existing_conditions: str | None = None,
+    current_medications: str | None = None,
     language_preference: str = "English",
-    known_allergies: Optional[str] = None,
-    height_cm: Optional[float] = None,
-    weight_kg: Optional[float] = None,
-    diet_type: Optional[str] = None,
-    activity_level: Optional[str] = None,
-    occupation: Optional[str] = None,
+    known_allergies: str | None = None,
+    height_cm: float | None = None,
+    weight_kg: float | None = None,
+    diet_type: str | None = None,
+    activity_level: str | None = None,
+    occupation: str | None = None,
 ) -> str:
     lang = safe_language(language_preference)
-    clinical_lines: List[str] = []
+    clinical_lines: list[str] = []
 
     def _is_empty_or_unknown(val: Any) -> bool:
         if val is None:
@@ -348,7 +348,7 @@ def _format_patient_context(
     if not _is_empty_or_unknown(occupation):
         clinical_lines.append(f"- Occupation: {escape_xml_content(str(occupation))}")
 
-    lines: List[str] = []
+    lines: list[str] = []
     if not clinical_lines:
         lines.append("- Profile status: no health profile saved; do not assume any diet, supplements, medications or conditions")
     else:
@@ -384,20 +384,20 @@ def _safe_sort_key(d: Any) -> str:
 
 
 def format_facts_for_prompt(
-    facts: List[Any],
-    height_cm: Optional[float] = None,
-    weight_kg: Optional[float] = None,
-    diet_type: Optional[str] = None,
-    activity_level: Optional[str] = None,
-    occupation: Optional[str] = None,
+    facts: list[Any],
+    height_cm: float | None = None,
+    weight_kg: float | None = None,
+    diet_type: str | None = None,
+    activity_level: str | None = None,
+    occupation: str | None = None,
 ) -> str:
     """
     Format extracted PatientFact items and profile fields into organized sections
     for inclusion in the prompt's <remembered_facts> block.
     Supports both real PatientFact ORM columns and dict/test keys.
     """
-    by_category: Dict[str, List[str]] = {}
-    weights: List[Tuple[Any, str]] = []  # (date_val, val)
+    by_category: dict[str, list[str]] = {}
+    weights: list[tuple[Any, str]] = []  # (date_val, val)
 
     for f in (facts or []):
         cat = getattr(f, "fact_type", None) or getattr(f, "category", None) or (f.get("category") if isinstance(f, dict) else None) or (f.get("fact_type") if isinstance(f, dict) else "other")
@@ -423,10 +423,10 @@ def format_facts_for_prompt(
             item_text = f"- {escape_xml_content(str(key))}: {escape_xml_content(val_str)}" if key else f"- {escape_xml_content(val_str)}"
             by_category.setdefault(cat_clean, []).append(item_text)
 
-    blocks: List[str] = []
+    blocks: list[str] = []
 
     # Lifestyle & Profile Block (from optional profile parameters for backward compatibility)
-    lifestyle_lines: List[str] = []
+    lifestyle_lines: list[str] = []
     if diet_type:
         lifestyle_lines.append(f"- Diet: {escape_xml_content(str(diet_type))}")
     if activity_level:
@@ -485,7 +485,7 @@ def format_facts_for_prompt(
             blocks.append(f"{label}:\n" + "\n".join(items))
 
     # Any remaining unmapped categories survive under "Other Recorded Facts"
-    other_items: List[str] = []
+    other_items: list[str] = []
     for remaining_cat, items in sorted(by_category.items()):
         other_items.extend(items)
     if other_items:
@@ -495,10 +495,10 @@ def format_facts_for_prompt(
 
 
 def _format_uploaded_documents(
-    retrieved_docs: Optional[List[Document]] = None,
-    documents: Optional[List[Dict[str, Any]]] = None,
+    retrieved_docs: list[Document] | None = None,
+    documents: list[dict[str, Any]] | None = None,
 ) -> str:
-    blocks: List[str] = []
+    blocks: list[str] = []
 
     if documents:
         for doc in documents:
@@ -524,7 +524,7 @@ def _format_uploaded_documents(
     return "\n".join(blocks) if blocks else ""
 
 
-def _format_reference_ranges(reference_ranges: Optional[Dict[str, Any]]) -> str:
+def _format_reference_ranges(reference_ranges: dict[str, Any] | None) -> str:
     if not reference_ranges:
         return ""
 
@@ -534,7 +534,7 @@ def _format_reference_ranges(reference_ranges: Optional[Dict[str, Any]]) -> str:
     )
 
 
-def _format_prior_lab_reports(prior_documents_metrics: Optional[List[Dict[str, Any]]]) -> str:
+def _format_prior_lab_reports(prior_documents_metrics: list[dict[str, Any]] | None) -> str:
     """
     Format historical lab reports' cached_metrics into structured XML blocks
     for longitudinal biomarker comparison across chat sessions.
@@ -542,7 +542,7 @@ def _format_prior_lab_reports(prior_documents_metrics: Optional[List[Dict[str, A
     if not prior_documents_metrics:
         return ""
 
-    blocks: List[str] = []
+    blocks: list[str] = []
     for doc in prior_documents_metrics:
         fname = doc.get("filename") or "prior_report.pdf"
         title = doc.get("title") or fname
@@ -588,15 +588,15 @@ def _format_prior_lab_reports(prior_documents_metrics: Optional[List[Dict[str, A
 
 
 def _check_future_collection_date(
-    documents: Optional[List[Dict[str, Any]]] = None,
+    documents: list[dict[str, Any]] | None = None,
     raw_report_text: str = "",
-) -> Optional[str]:
+) -> str | None:
     """
     Detects if the specimen collection date is in the future relative to today's date.
     Returns a <future_collection_date_notice> block if true.
     """
     today_iso = date.today().isoformat()
-    future_dates: List[str] = []
+    future_dates: list[str] = []
 
     if documents:
         for doc in documents:
@@ -625,8 +625,8 @@ def _check_future_collection_date(
 
 
 def _check_renal_guardrail(
-    active_docs_metrics: Optional[Union[List[Dict[str, Any]], Dict[str, Any]]] = None,
-) -> Optional[str]:
+    active_docs_metrics: list[dict[str, Any]] | dict[str, Any] | None = None,
+) -> str | None:
     """
     Checks if active report has reduced eGFR (< 60) or abnormal electrolytes (potassium, sodium, phosphorus, calcium, uric_acid).
     If triggered, returns the <clinical_dietary_guardrail> XML block.
@@ -634,13 +634,13 @@ def _check_renal_guardrail(
     if not active_docs_metrics:
         return None
 
-    raw_list: List[Dict[str, Any]] = []
+    raw_list: list[dict[str, Any]] = []
     if isinstance(active_docs_metrics, dict):
         raw_list = active_docs_metrics.get("metrics") or []
     elif isinstance(active_docs_metrics, list):
         raw_list = active_docs_metrics
 
-    triggered_reasons: List[str] = []
+    triggered_reasons: list[str] = []
     for m in raw_list:
         if not isinstance(m, dict):
             continue
@@ -685,29 +685,29 @@ def _check_renal_guardrail(
 
 def build_prompt(
     user_query: str,
-    retrieved_docs: Optional[List[Document]] = None,
+    retrieved_docs: list[Document] | None = None,
     calculated_age: str = "Unknown",
     biological_sex: str = "Unspecified",
     pre_existing_conditions: str = "None reported",
     current_medications: str = "None reported",
     language_preference: str = "English",
-    reference_ranges: Optional[Dict[str, Any]] = None,
-    patient_facts: Optional[str] = None,
-    past_chats: Optional[str] = None,
-    documents: Optional[List[Dict[str, Any]]] = None,
-    known_allergies: Optional[str] = None,
-    height_cm: Optional[float] = None,
-    weight_kg: Optional[float] = None,
-    diet_type: Optional[str] = None,
-    activity_level: Optional[str] = None,
-    occupation: Optional[str] = None,
+    reference_ranges: dict[str, Any] | None = None,
+    patient_facts: str | None = None,
+    past_chats: str | None = None,
+    documents: list[dict[str, Any]] | None = None,
+    known_allergies: str | None = None,
+    height_cm: float | None = None,
+    weight_kg: float | None = None,
+    diet_type: str | None = None,
+    activity_level: str | None = None,
+    occupation: str | None = None,
     include_abnormal_flags_json: bool = True,
-    prior_documents_metrics: Optional[List[Dict[str, Any]]] = None,
-    active_docs_metrics: Optional[Union[List[Dict[str, Any]], Dict[str, Any]]] = None,
+    prior_documents_metrics: list[dict[str, Any]] | None = None,
+    active_docs_metrics: list[dict[str, Any]] | dict[str, Any] | None = None,
     raw_report_text: str = "",
     is_followup_turn: bool = False,
-    current_session_history: Optional[str] = None,
-) -> Tuple[str, str]:
+    current_session_history: str | None = None,
+) -> tuple[str, str]:
     """
     Build a clinical synthesis prompt for DOCUMENT_QA queries with personalized medical memory.
     """
@@ -815,23 +815,23 @@ def build_general_health_prompt(
     pre_existing_conditions: str = "None reported",
     current_medications: str = "None reported",
     language_preference: str = "English",
-    reference_ranges: Optional[Dict[str, Any]] = None,
-    patient_facts: Optional[str] = None,
-    past_chats: Optional[str] = None,
-    documents: Optional[List[Dict[str, Any]]] = None,
-    known_allergies: Optional[str] = None,
-    height_cm: Optional[float] = None,
-    weight_kg: Optional[float] = None,
-    diet_type: Optional[str] = None,
-    activity_level: Optional[str] = None,
-    occupation: Optional[str] = None,
-    prior_documents_metrics: Optional[List[Dict[str, Any]]] = None,
-    retrieved_docs: Optional[List[Document]] = None,
-    active_docs_metrics: Optional[Union[List[Dict[str, Any]], Dict[str, Any]]] = None,
+    reference_ranges: dict[str, Any] | None = None,
+    patient_facts: str | None = None,
+    past_chats: str | None = None,
+    documents: list[dict[str, Any]] | None = None,
+    known_allergies: str | None = None,
+    height_cm: float | None = None,
+    weight_kg: float | None = None,
+    diet_type: str | None = None,
+    activity_level: str | None = None,
+    occupation: str | None = None,
+    prior_documents_metrics: list[dict[str, Any]] | None = None,
+    retrieved_docs: list[Document] | None = None,
+    active_docs_metrics: list[dict[str, Any]] | dict[str, Any] | None = None,
     raw_report_text: str = "",
     is_followup_turn: bool = False,
-    current_session_history: Optional[str] = None,
-) -> Tuple[str, str]:
+    current_session_history: str | None = None,
+) -> tuple[str, str]:
     """
     Build a prompt for GENERAL_HEALTH queries with conversational doctor framing.
     """
@@ -939,7 +939,7 @@ def build_general_health_prompt(
 def build_casual_prompt(
     user_query: str,
     language_preference: str = "English",
-) -> Tuple[str, str]:
+) -> tuple[str, str]:
     """
     Build a lightweight conversational prompt for CASUAL queries.
     """
@@ -957,9 +957,9 @@ def build_casual_prompt(
 
 def build_document_summary_prompt(
     report_text: str,
-    cached_metrics: Optional[List[Dict[str, Any]]] = None,
+    cached_metrics: list[dict[str, Any]] | None = None,
     language_preference: str = "English",
-    patient_profile: Optional[Dict[str, Any]] = None,
+    patient_profile: dict[str, Any] | None = None,
 ) -> str:
     """
     Constructs the standardized clinical summary prompt for document printing/exporting.
@@ -1017,7 +1017,7 @@ def build_document_summary_prompt(
             p_lines.append(f"Medications: {escape_xml_content(str(p_meds))}")
 
         if p_lines:
-            patient_profile_block = f"\n\n<patient_profile>\n" + "\n".join(p_lines) + "\n</patient_profile>"
+            patient_profile_block = "\n\n<patient_profile>\n" + "\n".join(p_lines) + "\n</patient_profile>"
 
         if p_height and p_weight and p_bmi_info:
             bmi_formatted = p_bmi_info["formatted"]
@@ -1054,8 +1054,8 @@ def build_document_summary_prompt(
 
 def generate_deterministic_fallback_summary(
     report_text: str,
-    cached_metrics: Optional[List[Dict[str, Any]]] = None,
-    patient_profile: Optional[Dict[str, Any]] = None,
+    cached_metrics: list[dict[str, Any]] | None = None,
+    patient_profile: dict[str, Any] | None = None,
 ) -> str:
     """
     Generates a structured deterministic clinical summary when LLM generation is unavailable.

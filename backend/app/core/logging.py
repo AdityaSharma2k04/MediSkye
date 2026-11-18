@@ -1,8 +1,9 @@
+import contextvars
 import json
 import logging
 import sys
-import contextvars
-from datetime import datetime, timezone
+from datetime import UTC, datetime
+
 from app.core.config import settings
 
 request_id_var: contextvars.ContextVar[str] = contextvars.ContextVar("request_id", default="")
@@ -26,7 +27,7 @@ class JSONFormatter(logging.Formatter):
         uid = getattr(record, "user_id", None) or user_id_var.get() or ""
 
         log_data = {
-            "timestamp": datetime.fromtimestamp(record.created, tz=timezone.utc).isoformat(),
+            "timestamp": datetime.fromtimestamp(record.created, tz=UTC).isoformat(),
             "level": record.levelname,
             "logger": record.name,
             "message": record.getMessage(),

@@ -1,9 +1,10 @@
 import re
 import unicodedata
 from enum import Enum
-from typing import Optional, Any
+from typing import Any
 
 from app.rag.output_filter import SAFE_FALLBACK
+
 
 class EmergencyKind(str, Enum):
     MEDICAL = "medical"
@@ -14,11 +15,11 @@ _SELF_HARM = re.compile(
     r"want(?:ed)? to die|(?:don'?t|do not|no longer) want to "
     r"(?:live(?!\s+(?:on|off|without|near|alone|with\s+(?!(?:this|it|that|myself)\b))\b)|be alive)|"
     r"better off dead|self[- ]?harm|hurt(?:ing)? myself)\b",
-    re.I,
+    re.IGNORECASE,
 )
 _RISK_QUESTION_EXCLUSION = re.compile(
     r"\b(risk\s+of|chance\s+of|prevent\w*|family\s+history\s+of|what\s+is\s+a|does\s+my\s+.*?\s+raise|can\s+high\s+.*?\s+cause)\b",
-    re.I,
+    re.IGNORECASE,
 )
 _PAST_OR_DOCUMENTED_EXCLUSION = re.compile(
     r"\b("
@@ -33,23 +34,23 @@ _PAST_OR_DOCUMENTED_EXCLUSION = re.compile(
     r"last\s+(?:week|month|year)|"
     r"in\s+(?:19\d\d|20\d\d)"
     r")\b",
-    re.I,
+    re.IGNORECASE,
 )
-_ACUTE_OVERRIDE = re.compile(r"\b(right now|currently|at the moment|today|now|suddenly)\b", re.I)
+_ACUTE_OVERRIDE = re.compile(r"\b(right now|currently|at the moment|today|now|suddenly)\b", re.IGNORECASE)
 _MEDICAL = re.compile(
     r"\b(chest (?:pain|tightness|pressure)|can'?t breathe|cannot breathe|can not breathe|"
     r"(?:trouble|difficulty|shortness of) breath\w*|severe bleeding|coughing (?:up )?blood|"
     r"unconscious|unresponsive|seizure|overdos\w*|anaphyla\w*|"
     r"(?:having|had|think i'?m having|experiencing) a (?:heart attack|stroke))\b",
-    re.I,
+    re.IGNORECASE,
 )
-_ACUTE_UNQUALIFIED = re.compile(r"\b(heart attack|stroke)\b", re.I)
+_ACUTE_UNQUALIFIED = re.compile(r"\b(heart attack|stroke)\b", re.IGNORECASE)
 
 def _nfc(s: str) -> str:
     return unicodedata.normalize("NFC", s)
 
 def _rx(pattern: str) -> "re.Pattern":
-    return re.compile(_nfc(pattern), re.I)
+    return re.compile(_nfc(pattern), re.IGNORECASE)
 
 _LOCALIZED = {
     "Hindi": {
@@ -149,7 +150,7 @@ def _localized_hit(query: str):
             return EmergencyKind.MEDICAL, lang
     return None
 
-def detect_emergency(query: str) -> Optional[EmergencyKind]:
+def detect_emergency(query: str) -> EmergencyKind | None:
     if not query:
         return None
     if _SELF_HARM.search(query):
@@ -172,7 +173,7 @@ def detect_emergency(query: str) -> Optional[EmergencyKind]:
         return localized[0]
     return None
 
-def detect_emergency_language(query: str) -> Optional[str]:
+def detect_emergency_language(query: str) -> str | None:
     if not query:
         return None
     hit = _localized_hit(query)
@@ -257,13 +258,13 @@ _LANGUAGE_ALIASES = {
     "french": "French", "fr": "French", "german": "German", "de": "German",
 }
 
-def _normalize_language(language: Optional[str]) -> str:
+def _normalize_language(language: str | None) -> str:
     if not language:
         return "English"
     key = str(language).strip().lower().split("-")[0].split("_")[0]
     return _LANGUAGE_ALIASES.get(key, "English")
 
-def get_emergency_response(kind: EmergencyKind = EmergencyKind.MEDICAL, language: Optional[str] = None) -> str:
+def get_emergency_response(kind: EmergencyKind = EmergencyKind.MEDICAL, language: str | None = None) -> str:
     medical, crisis = _BANNERS[_normalize_language(language)]
     return crisis if kind == EmergencyKind.SELF_HARM else medical
 
@@ -278,7 +279,7 @@ DISCLAIMER_TEXT = (
 
 def append_disclaimer(
     response_text: str,
-    intent: Optional[Any] = None,
+    intent: Any | None = None,
     is_followup_turn: bool = False,
     has_critical_alert: bool = False,
 ) -> str:

@@ -1,46 +1,47 @@
-import json
-import uuid
-import re
-import logging
 import asyncio
 import copy
-from datetime import datetime, UTC
-from pydantic import BaseModel
-from fastapi import APIRouter, Depends, Header, Request, HTTPException, status
-from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.future import select
-from sqlalchemy import update, delete
-from sqlalchemy.orm.exc import StaleDataError
-from sqlalchemy.orm.attributes import flag_modified
-from langchain_community.vectorstores import FAISS
+import json
+import logging
+import re
+import uuid
+from datetime import UTC, datetime
+from typing import Any
 
 from app.core.auth import UserDTO, get_current_user
-from app.core.limiter import limiter
 from app.core.config import settings
+from app.core.limiter import limiter
 from app.db.database import get_db
-from app.db.models import User, Document, DependentProfile, PatientFact, utcnow
-from app.schemas.upload import MetricsResponse, LabMetricItem
-from app.services.upload_jobs import is_stale_building
-from app.rag.retriever import retrieve_relevant_docs, get_cached_hybrid_index, load_hybrid_index
-from app.rag.index_storage import aensure_index_local
+from app.db.models import DependentProfile, Document, PatientFact, User, utcnow
+from app.llm.gemini_client import GeminiUnavailableError, call_gemini_with_retry
 from app.rag.embedder import get_embedder
-from app.llm.gemini_client import call_gemini_with_retry, GeminiUnavailableError
-from google.genai.types import GenerateContentConfig, ThinkingConfig
-
-from typing import Optional, List, Dict, Any, Union, Tuple
-
+from app.rag.index_storage import aensure_index_local
+from app.rag.retriever import (
+    get_cached_hybrid_index,
+    load_hybrid_index,
+    retrieve_relevant_docs,
+)
+from app.schemas.upload import LabMetricItem, MetricsResponse
 from app.services.clinical_units import (
-    normalize_clinical_unit,
-    check_is_future_date,
-    extract_specimen_collection_date,
-    canonical_biomarker_name,
+    _parse_first_float,
     canonical_biomarker_key,
+    check_is_future_date,
     compute_biomarker_delta,
     convert_to_standard,
-    parse_report_chronology,
-    _parse_first_float,
+    extract_specimen_collection_date,
     is_sample_document,
+    normalize_clinical_unit,
+    parse_report_chronology,
 )
+from app.services.upload_jobs import is_stale_building
+from fastapi import APIRouter, Depends, Header, HTTPException, Request, status
+from google.genai.types import GenerateContentConfig, ThinkingConfig
+from langchain_community.vectorstores import FAISS
+from pydantic import BaseModel
+from sqlalchemy import delete
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.future import select
+from sqlalchemy.orm.attributes import flag_modified
+from sqlalchemy.orm.exc import StaleDataError
 
 logger = logging.getLogger(__name__)
 
@@ -71,7 +72,7 @@ _RANGE_DEMOGRAPHIC = re.compile(
 )
 
 
-def _status_from_range(value: Any, rng: str) -> Optional[str]:
+def _status_from_range(value: Any, rng: str) -> str | None:
     """Derive Low / High / Normal / None from a numeric or comparator value and reference range."""
     if value is None or not rng:
         return None
@@ -174,7 +175,7 @@ _STRATUM = re.compile(
     r"(?P<label>adult\s+male|adult\s+female|female|male|women|woman|men|man|girls?|boys?|"
     r"(?-i:\b[MF]\b)|child(?:ren)?|infants?|neonates?|newborns?|pediatric|adults?)"
     r"\s*[:\-–—(]?\s*(?P<lo>-?\d+(?:\.\d+)?)\s*(?:-|–|—|to)\s*(?P<hi>-?\d+(?:\.\d+)?)",
-    re.I,
+    re.IGNORECASE,
 )
 
 
@@ -187,7 +188,7 @@ def _stratum_class(label: str) -> str:
     return "other"
 
 
-def _status_from_demographic_ranges(value: Any, rng: str, sex: Optional[str]) -> Optional[str]:
+def _status_from_demographic_ranges(value: Any, rng: str, sex: str | None) -> str | None:
     """High/Low/Normal for 'Male: a-b; Female: c-d' style ranges, or None if unresolved."""
     v = _parse_first_float(value)
     if v is None or not rng:
@@ -212,11 +213,11 @@ def _status_from_demographic_ranges(value: Any, rng: str, sex: Optional[str]) ->
 
 _MULTI_TIER_BAND_RE = re.compile(
     r'(?P<label>[a-zA-Z\s]+?)\s*[:=]\s*(?:(?P<op>[<>]=?|≤|≥)\s*)?(?P<lo>-?\d+(?:\.\d+)?)(?:\s*(?:-|–|—|to)\s*(?P<hi>-?\d+(?:\.\d+)?))?',
-    re.I
+    re.IGNORECASE
 )
 
 
-def _status_from_multi_tier(val_float: float, rng: str) -> Optional[str]:
+def _status_from_multi_tier(val_float: float, rng: str) -> str | None:
     """Parse multi-tier reference bands (e.g. Desirable: <200, Borderline: 200-239, High: >=240)."""
     if not rng:
         return None
@@ -254,7 +255,7 @@ def _status_from_multi_tier(val_float: float, rng: str) -> Optional[str]:
     return None
 
 
-def _resolve_status(llm_status: Any, value: Any, rng: Any, sex: Optional[str]) -> str:
+def _resolve_status(llm_status: Any, value: Any, rng: Any, sex: str | None) -> str:
     llm = str(llm_status or "").strip()
     rng = str(rng or "")
     v_float = _parse_first_float(value)
@@ -289,18 +290,18 @@ def _resolve_status(llm_status: Any, value: Any, rng: Any, sex: Optional[str]) -
     if derived is None and rng:
         val_str_clean = str(value or "").strip().lower()
         rng_clean = rng.strip().lower()
-        if re.match(r"^\s*(?:negative|non[-\s]?reactive|absent|nil|normal|clear|pale\s+yellow)\s*$", rng_clean, re.I):
+        if re.match(r"^\s*(?:negative|non[-\s]?reactive|absent|nil|normal|clear|pale\s+yellow)\s*$", rng_clean, re.IGNORECASE):
             if val_str_clean in ("negative", "non-reactive", "non reactive", "absent", "nil", "normal", "clear", "pale yellow", "none detected", "none", "0") or val_str_clean == rng_clean:
                 derived = "Normal"
-            elif (re.search(r"\b(?:positive|reactive|detected|present|trace|calcium\s+oxalate|crystals?|casts?)\b", val_str_clean, re.I) or re.search(r"(?<!\w)\+[1-4]?(?!\w)", val_str_clean)) and not re.search(r"\b(?:non[-\s]?reactive|negative|absent|nil)\b", val_str_clean, re.I):
+            elif (re.search(r"\b(?:positive|reactive|detected|present|trace|calcium\s+oxalate|crystals?|casts?)\b", val_str_clean, re.IGNORECASE) or re.search(r"(?<!\w)\+[1-4]?(?!\w)", val_str_clean)) and not re.search(r"\b(?:non[-\s]?reactive|negative|absent|nil)\b", val_str_clean, re.IGNORECASE):
                 if llm.lower() in ("high", "abnormal", "critical"):
                     return llm
                 return "High"
-            elif val_str_clean != rng_clean and not re.search(r"\b(?:non[-\s]?reactive|negative|absent|nil|normal|clear|pale\s+yellow)\b", val_str_clean, re.I):
+            elif val_str_clean != rng_clean and not re.search(r"\b(?:non[-\s]?reactive|negative|absent|nil|normal|clear|pale\s+yellow)\b", val_str_clean, re.IGNORECASE):
                 if llm.lower() in ("high", "abnormal", "critical"):
                     return llm
                 return "Abnormal"
-            elif re.match(r"^\s*(?:negative|non[-\s]?reactive|absent|nil|none\s+detected)\s*$", val_str_clean, re.I):
+            elif re.match(r"^\s*(?:negative|non[-\s]?reactive|absent|nil|none\s+detected)\s*$", val_str_clean, re.IGNORECASE):
                 return "Normal"
 
     if not llm:
@@ -313,7 +314,7 @@ def _resolve_status(llm_status: Any, value: Any, rng: Any, sex: Optional[str]) -
     return llm                      # High/Low/Critical/Abnormal/Borderline etc. are preserved as-is
 
 
-async def _load_patient_sex(db: AsyncSession, doc: Any) -> Optional[str]:
+async def _load_patient_sex(db: AsyncSession, doc: Any) -> str | None:
     """'male'/'female' from the dependent's profile if the document belongs to one, else the owner's."""
     try:
         if getattr(doc, "dependent_id", None):
@@ -327,13 +328,13 @@ async def _load_patient_sex(db: AsyncSession, doc: Any) -> Optional[str]:
 
 
 async def extract_and_cache_metrics(
-    doc_id: Union[uuid.UUID, str],
-    page_docs: Optional[List[Any]] = None,
-    db: Optional[AsyncSession] = None,
-    user_id: Optional[Union[uuid.UUID, str]] = None,
-    raw_chunks: Optional[List[str]] = None,
+    doc_id: uuid.UUID | str,
+    page_docs: list[Any] | None = None,
+    db: AsyncSession | None = None,
+    user_id: uuid.UUID | str | None = None,
+    raw_chunks: list[str] | None = None,
     _internal_reextract: bool = False,
-) -> Optional[List[Dict[str, Any]]]:
+) -> list[dict[str, Any]] | None:
     """
     Modularized biomarker extraction and caching logic.
     Can be invoked during document upload (passing page_docs) or on-demand from the metrics API.
@@ -406,7 +407,7 @@ async def extract_and_cache_metrics(
                 raise HTTPException(status_code=500, detail="Could not load document index.")
 
         if not combined_text and vectorstore is not None:
-            def _extract_ordered_chunks(v, b) -> List[str]:
+            def _extract_ordered_chunks(v, b) -> list[str]:
                 # 1. BM25 corpus retains original chunk ordering
                 if b is not None and hasattr(b, "chunks") and isinstance(b.chunks, (list, tuple)) and b.chunks:
                     texts = [getattr(c, "page_content", "") for c in b.chunks if isinstance(getattr(c, "page_content", None), str) and getattr(c, "page_content", "").strip()]
@@ -471,7 +472,7 @@ async def extract_and_cache_metrics(
     _IGNORED_TEST_NAME = re.compile(
         r"\b(iso\s*15189|nabl|certified|accreditation|central facility|hospital|laborator(?:y|ies)|helpline|"
         r"boulevard|street|report id|accession|patient name|referred by|phone)\b",
-        re.I,
+        re.IGNORECASE,
     )
 
     effective_user_id = user_id or doc.user_id
@@ -620,6 +621,7 @@ Report text:
                 await db.execute(
                     delete(PatientFact).where(
                         PatientFact.user_id == doc.user_id,
+                        PatientFact.dependent_id == doc.dependent_id,
                         PatientFact.source_id == doc_uuid_str,
                         PatientFact.fact_type == "measurement",
                     )
@@ -678,10 +680,10 @@ Report text:
 
 async def _apply_longitudinal_deltas(
     doc: Document,
-    raw_list: List[Any],
-    current_user: Union[User, UserDTO],
+    raw_list: list[Any],
+    current_user: User | UserDTO,
     db: AsyncSession,
-) -> Tuple[List[LabMetricItem], Optional[str], Optional[str]]:
+) -> tuple[list[LabMetricItem], str | None, str | None]:
     # Deepcopy raw_list to prevent any in-memory delta mutations from touching DB state
     raw_copied = copy.deepcopy(raw_list)
 
@@ -755,7 +757,7 @@ async def _apply_longitudinal_deltas(
                     if key:
                         prior_metrics_map[key] = pm
 
-    result_items: List[LabMetricItem] = []
+    result_items: list[LabMetricItem] = []
     for m in normalized_items:
         t_name = str(m.get("test") or m.get("name") or "").strip()
         key = canonical_biomarker_key(t_name, allow_urinalysis=True)
@@ -809,7 +811,7 @@ async def _apply_longitudinal_deltas(
 async def _get_or_extract_metrics(
     doc_id: uuid.UUID,
     force_refresh: bool,
-    current_user: Union[User, UserDTO],
+    current_user: User | UserDTO,
     db: AsyncSession,
 ) -> MetricsResponse:
     result = await db.execute(select(Document).filter(Document.id == doc_id))
@@ -960,7 +962,7 @@ async def get_document_metrics(
 
 class MetricTrendPoint(BaseModel):
     document_id: str
-    collected_at: Optional[str] = None
+    collected_at: str | None = None
     value: float
     raw_value: str
     status: str
@@ -971,20 +973,20 @@ class MetricTrendSeries(BaseModel):
     name: str
     unit: str
     reference_range: str
-    points: List[MetricTrendPoint]
+    points: list[MetricTrendPoint]
 
 
 class MetricTrendReport(BaseModel):
     document_id: str
     title: str
-    collected_at: Optional[str] = None
+    collected_at: str | None = None
 
 
 class MetricTrendsResponse(BaseModel):
     patient_id: str
     generated_at: str
-    reports: List[MetricTrendReport]
-    series: List[MetricTrendSeries]
+    reports: list[MetricTrendReport]
+    series: list[MetricTrendSeries]
 
 
 
@@ -998,9 +1000,9 @@ def normalize_biomarker_name(name: str) -> str:
 @limiter.limit(settings.RATE_LIMIT_METRICS)
 async def get_patient_metric_trends(
     request: Request,
-    patient_id: Optional[str] = None,
+    patient_id: str | None = None,
     limit: int = 8,
-    keys: Optional[str] = None,
+    keys: str | None = None,
     current_user: UserDTO = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
@@ -1009,11 +1011,20 @@ async def get_patient_metric_trends(
         try:
             dep_uuid = uuid.UUID(patient_id)
         except ValueError:
-            return MetricTrendsResponse(
-                patient_id=patient_id,
-                generated_at=datetime.now(UTC).isoformat(),
-                reports=[],
-                series=[],
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Dependent profile not found",
+            )
+        dep_exists = await db.scalar(
+            select(DependentProfile.id).where(
+                DependentProfile.id == dep_uuid,
+                DependentProfile.user_id == current_user.id,
+            )
+        )
+        if not dep_exists:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Dependent profile not found",
             )
 
     filters = [
@@ -1050,8 +1061,8 @@ async def get_patient_metric_trends(
     # Take up to `limit` reports (most recent limit, sorted chronologically oldest to newest)
     target_docs = docs[-limit:] if len(docs) > limit else docs
 
-    reports: List[MetricTrendReport] = []
-    series_map: Dict[str, Dict[str, Any]] = {}
+    reports: list[MetricTrendReport] = []
+    series_map: dict[str, dict[str, Any]] = {}
     requested_keys = set(k.strip().lower() for k in keys.split(",")) if keys else None
 
     for d in target_docs:

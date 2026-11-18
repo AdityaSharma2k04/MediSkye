@@ -21,7 +21,7 @@ from sqlalchemy import select
 def test_get_bm25_path():
     path = "/tmp/indexes/user_1_doc_2.index"
     bm25 = get_bm25_path(path)
-    assert bm25.name == "user_1_doc_2_bm25.pkl"
+    assert bm25.name == "user_1_doc_2_bm25.json"
 
 
 def test_ensure_index_local_cache_hit(tmp_path):

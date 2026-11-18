@@ -1,11 +1,12 @@
-import os
 import json
+import os
 import tempfile
 from pathlib import Path
-from typing import Annotated, List, Optional
+from typing import Annotated
+
 from dotenv import load_dotenv
 from pydantic import Field, field_validator
-from pydantic_settings import BaseSettings, SettingsConfigDict, NoDecode
+from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
 
 # Load root .env file if available
 env_path = Path(__file__).resolve().parent.parent.parent.parent / ".env"
@@ -46,6 +47,9 @@ def normalize_async_database_url(url: str) -> str:
         k_lower = k.lower()
         if k_lower == "channel_binding":
             # asyncpg does not support channel_binding
+            continue
+        elif k_lower == "statement_cache_size":
+            # statement_cache_size must be configured in connect_args, not in the query string
             continue
         elif k_lower == "sslmode":
             # Convert sslmode to ssl=require
@@ -92,7 +96,7 @@ class Settings(BaseSettings):
     PRIMARY_METRICS_MODEL: str = "gemini-3.8-flash"
     PRIMARY_SUMMARY_MODEL: str = "gemini-3.6-flash"
     EMBEDDING_MODEL: str = "gemini-embedding-2"
-    MODEL_FALLBACK_CHAIN: List[str] = [
+    MODEL_FALLBACK_CHAIN: list[str] = [
         "gemini-3.8-flash",
         "gemini-3.6-flash",
         "gemini-3.5-flash",
@@ -102,7 +106,7 @@ class Settings(BaseSettings):
         "gemini-2.0-flash-lite",
         "gemini-1.5-flash",
     ]
-    GEMINI_FALLBACK_MODELS: List[str] = [
+    GEMINI_FALLBACK_MODELS: list[str] = [
         "gemini-3.8-flash",
         "gemini-3.6-flash",
         "gemini-3.5-flash",
@@ -112,7 +116,7 @@ class Settings(BaseSettings):
         "gemini-2.0-flash-lite",
         "gemini-1.5-flash",
     ]
-    EMBEDDING_FALLBACK_CHAIN: List[str] = [
+    EMBEDDING_FALLBACK_CHAIN: list[str] = [
         "gemini-embedding-2",
         "gemini-embedding-001",
         "text-embedding-004",
@@ -122,12 +126,12 @@ class Settings(BaseSettings):
     MEDISKYE_API_KEY: str = ""
     # Comma-separated list of allowed origins. In production, set this to your
     # Cloudflare Pages URL via the ALLOWED_ORIGINS env var on Hugging Face Spaces.
-    ALLOWED_ORIGINS: Annotated[List[str], NoDecode] = [
+    ALLOWED_ORIGINS: Annotated[list[str], NoDecode] = [
         "http://localhost:3000",
         "http://localhost:5173",
     ]
     # Native WebView origins for Android (Capacitor) and Windows Desktop (Tauri v2)
-    NATIVE_APP_ORIGINS: List[str] = [
+    NATIVE_APP_ORIGINS: list[str] = [
         "https://localhost",
         "http://localhost",
         "capacitor://localhost",
@@ -146,7 +150,7 @@ class Settings(BaseSettings):
     GOOGLE_GENAI_USE_ENTERPRISE: bool = False
 
     # Vector Index & Cloud Storage Persistence
-    GCS_INDEX_BUCKET: Optional[str] = None
+    GCS_INDEX_BUCKET: str | None = None
     INDEX_STORAGE_DIR: Path = Field(
         default_factory=lambda: Path(os.getenv("INDEX_STORAGE_DIR", str(Path(tempfile.gettempdir()) / "mediskye_indexes")))
     )
@@ -154,7 +158,7 @@ class Settings(BaseSettings):
     # File Upload Limits
     MEDISKYE_MAX_UPLOAD_MB: int = 50
     MAX_PDF_PAGES: int = 100
-    ALLOWED_EXTENSIONS: List[str] = [".pdf", ".jpg", ".jpeg", ".png", ".webp"]
+    ALLOWED_EXTENSIONS: list[str] = [".pdf", ".jpg", ".jpeg", ".png", ".webp"]
 
     # Rate Limits
     RATE_LIMIT_UPLOAD: str = "10/minute"
@@ -180,14 +184,14 @@ class Settings(BaseSettings):
         return model
 
     @property
-    def resolved_fallback_models(self) -> List[str]:
+    def resolved_fallback_models(self) -> list[str]:
         models = self.GEMINI_FALLBACK_MODELS or self.MODEL_FALLBACK_CHAIN
         if self.GOOGLE_GENAI_USE_ENTERPRISE:
             return [m.removeprefix("models/") for m in models]
         return list(models)
 
     @property
-    def resolved_embedding_fallbacks(self) -> List[str]:
+    def resolved_embedding_fallbacks(self) -> list[str]:
         models = self.EMBEDDING_FALLBACK_CHAIN
         if self.GOOGLE_GENAI_USE_ENTERPRISE:
             return [m.removeprefix("models/") for m in models]

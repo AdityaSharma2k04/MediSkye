@@ -1,6 +1,7 @@
 import uuid
-from starlette.middleware.base import BaseHTTPMiddleware
+
 from app.core.logging import request_id_var, user_id_var
+from starlette.middleware.base import BaseHTTPMiddleware
 
 
 class RequestIDMiddleware(BaseHTTPMiddleware):

@@ -1,52 +1,60 @@
-import uuid
-import json
-import shutil
 import asyncio
+import json
 import logging
-from typing import List, Optional
+import shutil
+import uuid
+from datetime import UTC, datetime
 from uuid import UUID
-from datetime import datetime, UTC
+
 import firebase_admin
 import firebase_admin.auth
-from fastapi import APIRouter, Depends, Request, status, HTTPException
-from sqlalchemy import func, delete, or_, update
-from sqlalchemy.orm import defer
-from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.future import select
-
-from app.db.database import get_db
-from app.db.models import User, DependentProfile, Document, Chat, ChatDocument, PatientFact, ChatChunk, UploadJob, AuditLog
+from app.core.audit import log_audit
 from app.core.auth import (
     UserDTO,
+    evict_token_cache_for_user,
     get_current_user,
     get_current_user_full,
-    evict_token_cache_for_user,
-    verify_password,
     get_password_hash,
+    verify_password,
 )
+from app.core.clinical import compute_bmi_info
+from app.core.limiter import limiter
+from app.core.security import clean_filename_to_title, sanitize_text
+from app.db.database import get_db
+from app.db.models import (
+    AuditLog,
+    Chat,
+    ChatChunk,
+    ChatDocument,
+    DependentProfile,
+    Document,
+    PatientFact,
+    UploadJob,
+    User,
+)
+from app.rag.index_storage import adelete_index_artifacts
+from app.schemas.dependent import DependentCreate, DependentResponse, DependentUpdate
 from app.schemas.user import (
+    DocumentResponse,
+    MemoryConsentRequest,
+    PasswordChange,
+    PatientFactCreate,
+    PatientFactResponse,
+    PatientFactUpdate,
+    ReassignDocumentPatientRequest,
+    RenameDocumentRequest,
+    RenameSessionRequest,
     UserResponse,
     UserUpdate,
-    PasswordChange,
-    MemoryConsentRequest,
-    RenameSessionRequest,
-    PatientFactResponse,
-    PatientFactCreate,
-    PatientFactUpdate,
-    DocumentResponse,
-    RenameDocumentRequest,
-    ReassignDocumentPatientRequest,
 )
-from app.schemas.dependent import DependentCreate, DependentUpdate, DependentResponse
-from app.core.audit import log_audit
-from app.core.limiter import limiter
-from app.core.clinical import compute_bmi_info
-from app.rag.prompt_builder import build_document_summary_prompt
-from app.core.security import clean_filename_to_title, sanitize_text
+from app.services.clinical_units import check_is_future_date, normalize_clinical_unit
 from app.services.patient_service import calculate_age
-from app.services.clinical_units import normalize_clinical_unit, check_is_future_date
-from app.rag.index_storage import adelete_index_artifacts
 from app.services.upload_jobs import purge_expired_sample_documents
+from fastapi import APIRouter, Depends, HTTPException, Request, status
+from sqlalchemy import delete, func, or_, update
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.future import select
+from sqlalchemy.orm import defer
 
 logger = logging.getLogger(__name__)
 
@@ -144,8 +152,9 @@ async def delete_user_me(
     await db.commit()
     evict_token_cache_for_user(user_id)
     try:
-        from app.core.redis_client import redis_client
         import time as _time
+
+        from app.core.redis_client import redis_client
         await redis_client.setex(f"user_revoked_at:{user_email.lower().strip()}", 3600, str(_time.time()))
     except Exception as rev_err:
         logger.debug("Could not record user_revoked_at in redis_client: %s", rev_err)
@@ -159,15 +168,14 @@ async def delete_user_me(
     except Exception as e:
         logger.error("firebase_delete_failed user_id=%s error=%s", user_id, e)
 
-    return None
 
 # ==========================================
 # User Documents & History Endpoints
 # ==========================================
 
-@router.get("/users/me/documents", response_model=List[DocumentResponse])
+@router.get("/users/me/documents", response_model=list[DocumentResponse])
 async def get_my_documents(
-    patient_id: Optional[str] = None,
+    patient_id: str | None = None,
     current_user: UserDTO = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
@@ -264,9 +272,9 @@ async def reassign_user_document_patient(
 
 @router.get("/users/me/chats")
 async def get_general_chats(
-    document_id: Optional[str] = None,
-    session_id: Optional[str] = None,
-    patient_id: Optional[str] = None,
+    document_id: str | None = None,
+    session_id: str | None = None,
+    patient_id: str | None = None,
     current_user: UserDTO = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
@@ -359,7 +367,7 @@ async def get_document_chats(
 
 @router.get("/users/me/chats/sessions")
 async def get_user_chat_sessions(
-    patient_id: Optional[str] = None,
+    patient_id: str | None = None,
     current_user: UserDTO = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
@@ -440,9 +448,9 @@ async def rename_chat_session(
 async def _resolve_patient_scope(
     db: AsyncSession,
     user_id: UUID,
-    patient_id: Optional[str] = None,
-    dependent_id: Optional[str] = None,
-) -> Optional[UUID]:
+    patient_id: str | None = None,
+    dependent_id: str | None = None,
+) -> UUID | None:
     """
     Resolves patient/dependent scope.
     Returns:
@@ -481,7 +489,7 @@ async def delete_chat_session(
     db: AsyncSession = Depends(get_db),
 ):
     """Delete all chats in a session and cascade delete extracted patient facts and documents."""
-    target_doc_uuid: Optional[UUID] = None
+    target_doc_uuid: UUID | None = None
     if session_id.startswith("doc-"):
         try:
             target_doc_uuid = uuid.UUID(session_id[4:])
@@ -572,13 +580,12 @@ async def delete_chat_session(
         await db.delete(target_doc)
 
     await db.commit()
-    return None
 
 
 @router.delete("/users/me/chats", status_code=status.HTTP_200_OK)
 async def clear_all_chats(
-    patient_id: Optional[str] = None,
-    dependent_id: Optional[str] = None,
+    patient_id: str | None = None,
+    dependent_id: str | None = None,
     clear_patient_context: bool = True,
     current_user: UserDTO = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
@@ -589,7 +596,7 @@ async def clear_all_chats(
     """
     raw_scope = patient_id if patient_id is not None else dependent_id
     is_unscoped = (raw_scope is None or str(raw_scope).strip().lower() in ("all", "*", ""))
-    scoped_dep_id: Optional[UUID] = None
+    scoped_dep_id: UUID | None = None
     if not is_unscoped:
         scoped_dep_id = await _resolve_patient_scope(db, current_user.id, patient_id, dependent_id)
 
@@ -607,8 +614,8 @@ async def clear_all_chats(
     doc_id_strs = [str(d) for d in doc_ids]
 
     # Clean up FAISS / BM25 index artifacts, index cache and vector cache
-    from app.rag.retriever import evict_index_cache
     from app.core.config import settings
+    from app.rag.retriever import evict_index_cache
 
     for doc in target_docs:
         if doc.file_path:
@@ -726,8 +733,6 @@ async def clear_all_chats(
             obj.occupation = None
             obj.height_cm = None
             obj.weight_kg = None
-            obj.date_of_birth = None
-            obj.biological_sex = None
 
         if is_unscoped or scoped_dep_id is None:
             user_res = await db.execute(select(User).filter(User.id == current_user.id))
@@ -788,10 +793,9 @@ async def delete_single_chat(
     await db.execute(delete(ChatDocument).where(ChatDocument.chat_id == chat_id))
     await db.delete(chat)
     await db.commit()
-    return None
 
 
-def _normalize_cached_metrics(cached) -> List[dict]:
+def _normalize_cached_metrics(cached) -> list[dict]:
     """Normalize Document.cached_metrics into a plain list of dicts with standardized units."""
     if cached is None:
         return []
@@ -812,7 +816,7 @@ def _normalize_cached_metrics(cached) -> List[dict]:
         elif hasattr(item, "model_dump"):
             d = item.model_dump()
         if d is not None:
-            if "unit" in d and d["unit"]:
+            if d.get("unit"):
                 d["unit"] = normalize_clinical_unit(d["unit"])
             metrics.append(d)
     return metrics
@@ -1105,13 +1109,12 @@ async def delete_my_document(
 
     await db.delete(doc)
     await db.commit()
-    return None
 
 # ==========================================
 # Dependent Profile Endpoints (Caregiver Mode)
 # ==========================================
 
-@router.get("/users/me/dependents", response_model=List[DependentResponse])
+@router.get("/users/me/dependents", response_model=list[DependentResponse])
 async def list_dependents(
     request: Request,
     current_user: UserDTO = Depends(get_current_user),
@@ -1228,8 +1231,8 @@ async def delete_dependent(
     dep_doc_ids = [d.id for d in dep_docs]
 
     # 2. Purge local and GCS index artifacts & vector cache
-    from app.rag.retriever import evict_index_cache
     from app.core.config import settings
+    from app.rag.retriever import evict_index_cache
 
     for d in dep_docs:
         if d.file_path:
@@ -1324,7 +1327,6 @@ async def delete_dependent(
     await log_audit(db, "DEPENDENT_DELETED", current_user.id, "dependent", request.client.host if request.client else "unknown")
     await db.delete(dep)
     await db.commit()
-    return None
 
 
 # ==========================================
@@ -1369,8 +1371,8 @@ async def update_memory_consent(
 @router.get("/users/me/memory/status")
 @router.get("/memory/status")
 async def get_memory_status(
-    patient_id: Optional[str] = None,
-    dependent_id: Optional[str] = None,
+    patient_id: str | None = None,
+    dependent_id: str | None = None,
     current_user: UserDTO = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
@@ -1393,12 +1395,12 @@ async def get_memory_status(
     }
 
 
-@router.get("/users/me/facts", response_model=List[PatientFactResponse])
-@router.get("/users/me/memory/facts", response_model=List[PatientFactResponse])
-@router.get("/memory/facts", response_model=List[PatientFactResponse])
+@router.get("/users/me/facts", response_model=list[PatientFactResponse])
+@router.get("/users/me/memory/facts", response_model=list[PatientFactResponse])
+@router.get("/memory/facts", response_model=list[PatientFactResponse])
 async def get_user_facts(
-    patient_id: Optional[str] = None,
-    dependent_id: Optional[str] = None,
+    patient_id: str | None = None,
+    dependent_id: str | None = None,
     current_user: UserDTO = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
@@ -1472,8 +1474,8 @@ async def get_user_facts(
 async def create_user_fact(
     body: PatientFactCreate,
     request: Request,
-    patient_id: Optional[str] = None,
-    dependent_id: Optional[str] = None,
+    patient_id: str | None = None,
+    dependent_id: str | None = None,
     current_user: UserDTO = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
@@ -1510,8 +1512,8 @@ async def update_user_fact(
     fact_id: UUID,
     body: PatientFactUpdate,
     request: Request,
-    patient_id: Optional[str] = None,
-    dependent_id: Optional[str] = None,
+    patient_id: str | None = None,
+    dependent_id: str | None = None,
     current_user: UserDTO = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
@@ -1552,8 +1554,8 @@ async def update_user_fact(
 async def delete_memory_fact(
     fact_id: UUID,
     request: Request,
-    patient_id: Optional[str] = None,
-    dependent_id: Optional[str] = None,
+    patient_id: str | None = None,
+    dependent_id: str | None = None,
     current_user: UserDTO = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
@@ -1585,8 +1587,8 @@ async def delete_memory_fact(
 @router.delete("/memory/facts")
 async def clear_all_memory_facts(
     request: Request,
-    patient_id: Optional[str] = None,
-    dependent_id: Optional[str] = None,
+    patient_id: str | None = None,
+    dependent_id: str | None = None,
     current_user: UserDTO = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):

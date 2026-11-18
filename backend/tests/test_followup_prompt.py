@@ -343,7 +343,7 @@ async def test_route_followup_emergency_disclaimer_preservation():
             assert res_ctrl.status_code == 200
             assert "Disclaimer:" not in res_ctrl.text, "Ordinary follow-up must NOT have any disclaimer"
 
-            # Turn 3: Emergency follow-up query that sets emergency_banner but continues to LLM
+            # Turn 3: Emergency follow-up query triggers immediate emergency triage stream under C7
             res_emerg = await ac.post(
                 "/query",
                 json={
@@ -354,10 +354,10 @@ async def test_route_followup_emergency_disclaimer_preservation():
             )
             assert res_emerg.status_code == 200
             assert "EMERGENCY WARNING" in res_emerg.text
-            # Assert exactly one Disclaimer: in final text
-            assert res_emerg.text.count("Disclaimer:") == 1, (
-                f"Emergency follow-up must preserve exactly one disclaimer, found {res_emerg.text.count('Disclaimer:')}"
-            )
+            assert "[DONE]" in res_emerg.text
+
+            # Under C7, LLM was called only for Turn 1 and Turn 2 (not Turn 3)
+            assert mock_client.models.generate_content_stream.call_count == 2
 
             # Also check persisted AI chat message in DB
             async with AsyncSessionLocal() as session:
@@ -369,7 +369,7 @@ async def test_route_followup_emergency_disclaimer_preservation():
                     )
                 ).scalars().all()
                 latest_ai_chat = chats[0]
-                assert latest_ai_chat.message.count("Disclaimer:") == 1
+                assert "EMERGENCY WARNING" in latest_ai_chat.message
 
             from app.api.v1.endpoints.upload import _background_warm_tasks
             if _background_warm_tasks:

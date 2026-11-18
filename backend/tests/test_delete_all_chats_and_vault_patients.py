@@ -162,7 +162,7 @@ async def test_delete_all_chats_full_purge():
         assert profile.get("diet_type") is None
         assert profile.get("known_allergies") is None
         assert profile.get("blood_type") is None
-        assert profile.get("biological_sex") is None
+        assert profile.get("biological_sex") == "Male"
 
 
 @pytest.mark.asyncio

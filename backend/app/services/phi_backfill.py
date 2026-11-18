@@ -2,13 +2,12 @@
 import json
 import logging
 from dataclasses import dataclass
-from typing import Any, List, Optional
+from typing import Any
 
 import sqlalchemy as sa
-from sqlalchemy.ext.asyncio import AsyncSession
-
 from app.db.encryption import fernet
 from app.db.models import Chat, DependentProfile, Document, User
+from sqlalchemy.ext.asyncio import AsyncSession
 
 logger = logging.getLogger(__name__)
 
@@ -45,7 +44,7 @@ class Stats:
     updated: int = 0
 
 
-def _decrypt(raw: str) -> Optional[str]:
+def _decrypt(raw: str) -> str | None:
     try:
         return fernet.decrypt(raw.encode("utf-8")).decode("utf-8")
     except Exception:
@@ -58,7 +57,7 @@ def _raw_col(target: Target):
     return sa.type_coerce(col, sa.JSON() if target.kind == "json" else sa.Text())
 
 
-async def preflight_column_limits(session: AsyncSession, dialect_name: str) -> List[str]:
+async def preflight_column_limits(session: AsyncSession, dialect_name: str) -> list[str]:
     """Postgres only: abort if any target column has a length limit (tokens are longer than plaintext)."""
     if dialect_name != "postgresql":
         return []
@@ -70,7 +69,7 @@ async def preflight_column_limits(session: AsyncSession, dialect_name: str) -> L
     return [f"{t}.{c} has a length limit of {n}; widen it before encrypting" for t, c, n in rows if n is not None]
 
 
-async def preflight_key_matches(session: AsyncSession) -> Optional[str]:
+async def preflight_key_matches(session: AsyncSession) -> str | None:
     """Refuse to run if FERNET_KEY cannot decrypt already-encrypted production data (wrong key)."""
     raw = sa.type_coerce(Chat.__table__.c.message, sa.Text())
     rows = (await session.execute(
@@ -151,7 +150,7 @@ async def _process_target(session, target: Target, *, mode: str, apply: bool, ba
     return stats
 
 
-async def run_backfill(session: AsyncSession, *, mode: str = "encrypt", apply: bool = False, batch_size: int = 100) -> List[Stats]:
+async def run_backfill(session: AsyncSession, *, mode: str = "encrypt", apply: bool = False, batch_size: int = 100) -> list[Stats]:
     if mode not in ("encrypt", "revert"):
         raise ValueError("mode must be 'encrypt' or 'revert'")
     results = []

@@ -1,25 +1,27 @@
 import uuid
-from datetime import datetime, UTC
+from datetime import UTC, datetime
+
 from sqlalchemy import (
-    Column,
-    String,
-    DateTime,
-    ForeignKey,
-    Date,
-    Boolean,
     JSON,
+    Boolean,
+    Column,
+    Date,
+    DateTime,
     Float,
-    Integer,
-    Text,
+    ForeignKey,
     Index,
+    Integer,
+    String,
+    Text,
     UniqueConstraint,
     func,
 )
 from sqlalchemy.dialects.postgresql import UUID
-from sqlalchemy.orm import relationship as orm_relationship
 from sqlalchemy.ext.hybrid import hybrid_property
+from sqlalchemy.orm import relationship as orm_relationship
+
 from .database import Base
-from .encryption import EncryptedString, EncryptedText, EncryptedJSON
+from .encryption import EncryptedJSON, EncryptedString, EncryptedText
 
 
 def utcnow():

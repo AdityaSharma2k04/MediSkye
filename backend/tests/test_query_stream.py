@@ -535,8 +535,9 @@ async def test_emergency_keywords_with_document_show_banner_and_answer():
             )
             assert res.status_code == 200
             assert "EMERGENCY WARNING" in res.text
-            assert "Hemoglobin is 14.2" in res.text
             assert "[DONE]" in res.text
+            # Under C7, acute present-symptom emergencies halt immediately without calling LLM
+            mock_client.models.generate_content_stream.assert_not_called()
 
             from app.api.v1.endpoints.upload import _background_warm_tasks
             if _background_warm_tasks:
