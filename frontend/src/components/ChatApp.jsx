@@ -919,17 +919,11 @@ export default function ChatApp() {
             : await getDocumentChats(null, targetSid);
 
         if (Array.isArray(chats) && chats.length > 0) {
-          const formatted = chats.map((c) => ({
-            id: c.id,
-            sender: c.role === 'ai' ? 'assistant' : 'user',
-            text: c.role === 'ai' ? c.message : (c.message || '').replace(/^["'“”‘’]+|["'“”‘’]+$/g, '').trim(),
-            timestamp: c.created_at
-              ? new Date(c.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
-              : '',
-          }));
+          const formatted = chats.map(normalizeChatMessage);
+          const cleanDocId = targetDocId ? String(targetDocId).replace(/^doc_/, '') : null;
           setConversations((prev) => {
             const next = prev.map((item) => {
-              const isTarget = item.id === targetSid || (targetDocId && (item.id === targetDocId || item.document_id === targetDocId));
+              const isTarget = isMatchingConversation(item, targetSid, cleanDocId);
               if (!isTarget) return item;
               if (item.messages && item.messages.length > 0) return item;
               return { ...item, messages: formatted };
@@ -938,6 +932,8 @@ export default function ChatApp() {
               if (typeof setCachedConversations === 'function') {
                 setCachedConversations(next, patId);
               }
+              const prewarmCacheKey = cleanDocId ? `doc_${cleanDocId}` : `session_${targetSid}`;
+              safeSetCachedChatMessages(prewarmCacheKey, formatted);
             } catch (_) { }
             return next;
           });
@@ -984,13 +980,13 @@ export default function ChatApp() {
       if (depsRes) {
         setDependents(depsRes);
         if (Array.isArray(depsRes) && depsRes.length > 0) {
-          Promise.resolve(syncAllProfilesInBackground('self', depsRes)).catch(() => {});
+          Promise.resolve(syncAllProfilesInBackground(selectedPatientId || 'self', depsRes)).catch(() => {});
         }
       }
     } catch (e) {
       logger.error('Failed to load patient context:', e);
     }
-  }, [syncAllProfilesInBackground]);
+  }, [syncAllProfilesInBackground, selectedPatientId]);
 
   useEffect(() => {
     refreshPatientContext();
@@ -2284,7 +2280,7 @@ export default function ChatApp() {
     // Drop ONLY the trailing assistant message; the user's question is preserved.
     setConversations((prev) =>
       prev.map((c) => {
-        if (c.id !== sessionId) return c;
+        if (!isMatchingConversation(c, sessionId, activePdf?.id)) return c;
         const msgs = [...c.messages];
         if (msgs.length > 0 && (msgs[msgs.length - 1].sender === 'assistant' || msgs[msgs.length - 1].sender === 'ai' || msgs[msgs.length - 1].role === 'assistant')) {
           msgs.pop();
@@ -2438,7 +2434,6 @@ export default function ChatApp() {
     setSessionId(newId);
     setActivePdf(null);
     setConversations([{ id: newId, title: 'New Conversation', messages: [], pdf: null, patient_id: selectedPatientId }]);
-    setPdfs([]);
     invalidateMetrics();
 
     try {
@@ -2542,25 +2537,25 @@ export default function ChatApp() {
       }
     } catch (_) { }
     setConversations((prev) => prev.filter((c) => c.dependent_id !== deletedDepId && c.patient_id !== deletedDepId));
-    setPdfs((prev) => prev.filter((p) => p.dependent_id !== deletedDepId));
     await refreshPatientContext();
     await refreshDocuments();
   }, [selectedPatientId, refreshPatientContext, refreshDocuments]);
 
   const handleDeleteChat = async (id, skipConfirm = false) => {
-    const chat = conversations.find((c) => c.id === id);
-    const targetDocId = chat?.document_id || (chat?.pdf ? id : null);
+    const chat = conversations.find((c) => isMatchingConversation(c, id));
+    const targetDocId = chat?.document_id || chat?.pdf?.id || (chat?.pdf ? String(id).replace(/^doc_/, '') : null);
+    const cleanDocId = targetDocId ? String(targetDocId).replace(/^doc_/, '') : null;
 
     // 0ms Optimistic UI update: immediately remove from state and advance active session
     setConversations((prev) => {
-      const newConversations = prev.filter((c) => c.id !== id && (!targetDocId || c.document_id !== targetDocId));
+      const newConversations = prev.filter((c) => !isMatchingConversation(c, id, cleanDocId));
       if (newConversations.length === 0) {
         const newId = generateSessionId();
         setSessionId(newId);
         setActivePdf(null);
         return [{ id: newId, title: 'New Conversation', messages: [], pdf: null, patient_id: selectedPatientId }];
       }
-      if (id === sessionId || (targetDocId && targetDocId === sessionId)) {
+      if (isMatchingConversation(chat, sessionId, cleanDocId)) {
         const nextChat = newConversations[0];
         setSessionId(nextChat.id);
         setActivePdf(nextChat.pdf || null);
@@ -2588,8 +2583,9 @@ export default function ChatApp() {
     const trimmed = newTitle.trim().slice(0, 60);
     if (!trimmed) return;
 
-    const chat = conversations.find((c) => c.id === id);
-    const targetDocId = chat?.document_id || (chat?.pdf ? id : null);
+    const chat = conversations.find((c) => isMatchingConversation(c, id));
+    const targetDocId = chat?.document_id || chat?.pdf?.id || (chat?.pdf ? String(id).replace(/^doc_/, '') : null);
+    const cleanDocId = targetDocId ? String(targetDocId).replace(/^doc_/, '') : null;
 
     // If it has a real document_id, persist to backend first
     if (targetDocId) {
@@ -2597,7 +2593,7 @@ export default function ChatApp() {
         const res = await renameDocument(targetDocId, trimmed);
         const savedTitle = res?.title || trimmed;
         setConversations((prev) =>
-          prev.map((c) => (c.id === id ? { ...c, title: savedTitle } : c))
+          prev.map((c) => (isMatchingConversation(c, id, cleanDocId) ? { ...c, title: savedTitle } : c))
         );
         await refreshDocuments();
       } catch (err) {
@@ -2608,12 +2604,12 @@ export default function ChatApp() {
         const res = await renameChatSession(id, trimmed);
         const savedTitle = res?.title || trimmed;
         setConversations((prev) =>
-          prev.map((c) => (c.id === id ? { ...c, title: savedTitle } : c))
+          prev.map((c) => (isMatchingConversation(c, id, cleanDocId) ? { ...c, title: savedTitle } : c))
         );
       } catch (err) {
         logger.error('Failed to rename chat session:', err);
         setConversations((prev) =>
-          prev.map((c) => (c.id === id ? { ...c, title: trimmed } : c))
+          prev.map((c) => (isMatchingConversation(c, id, cleanDocId) ? { ...c, title: trimmed } : c))
         );
       }
     }
@@ -2769,11 +2765,11 @@ export default function ChatApp() {
       ]);
       if (freshProfile) {
         setCurrentUser(freshProfile);
-        setCachedProfile(currentUser?.id || freshProfile.id, freshProfile);
+        setCachedProfile(freshProfile);
       }
       if (Array.isArray(freshDeps)) {
         setDependents(freshDeps);
-        setCachedDependents(currentUser?.id || freshProfile?.id, freshDeps);
+        setCachedDependents(freshDeps);
       }
 
       // 2. Refresh documents & chats from Neon DB
