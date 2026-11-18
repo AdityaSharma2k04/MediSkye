@@ -20,6 +20,22 @@ _RISK_QUESTION_EXCLUSION = re.compile(
     r"\b(risk\s+of|chance\s+of|prevent\w*|family\s+history\s+of|what\s+is\s+a|does\s+my\s+.*?\s+raise|can\s+high\s+.*?\s+cause)\b",
     re.I,
 )
+_PAST_OR_DOCUMENTED_EXCLUSION = re.compile(
+    r"\b("
+    r"history\s+of|"
+    r"past(?:\s+history)?|"
+    r"prior(?:\s+history)?|"
+    r"previous(?:\s+history)?|"
+    r"(?:report|doctor|physician|chart|note|test|scan|biopsy|ekg|ecg)\s+(?:says|said|noted|mentions?|mentioned|showed?|indicat\w*)|"
+    r"noted\s+(?:in|on)\s+(?:my|the)\s+(?:lab\s+)?report|"
+    r"diagnosed(?:\s+with)?\s+(?:in\s+\d{4}|\d+\s+years?\s+ago)|"
+    r"\b\d+\s+(?:days?|weeks?|months?|years?)\s+ago|"
+    r"last\s+(?:week|month|year)|"
+    r"in\s+(?:19\d\d|20\d\d)"
+    r")\b",
+    re.I,
+)
+_ACUTE_OVERRIDE = re.compile(r"\b(right now|currently|at the moment|today|now|suddenly)\b", re.I)
 _MEDICAL = re.compile(
     r"\b(chest (?:pain|tightness|pressure)|can'?t breathe|cannot breathe|can not breathe|"
     r"(?:trouble|difficulty|shortness of) breath\w*|severe bleeding|coughing (?:up )?blood|"
@@ -141,11 +157,18 @@ def detect_emergency(query: str) -> Optional[EmergencyKind]:
     localized = _localized_hit(query)
     if localized and localized[0] == EmergencyKind.SELF_HARM:
         return EmergencyKind.SELF_HARM
-    if _MEDICAL.search(query):
+
+    # Check for historical/past documentation exclusions unless acute present-tense override matches
+    is_excluded = bool(
+        (_RISK_QUESTION_EXCLUSION.search(query) or _PAST_OR_DOCUMENTED_EXCLUSION.search(query))
+        and not _ACUTE_OVERRIDE.search(query)
+    )
+
+    if _MEDICAL.search(query) and not is_excluded:
         return EmergencyKind.MEDICAL
-    if _ACUTE_UNQUALIFIED.search(query) and not _RISK_QUESTION_EXCLUSION.search(query):
+    if _ACUTE_UNQUALIFIED.search(query) and not is_excluded:
         return EmergencyKind.MEDICAL
-    if localized:
+    if localized and not is_excluded:
         return localized[0]
     return None
 

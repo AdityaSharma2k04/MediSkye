@@ -6,7 +6,35 @@ from cryptography.fernet import Fernet, InvalidToken
 from app.core.config import settings
 
 logger = logging.getLogger(__name__)
-fernet = Fernet(settings.FERNET_KEY.encode() if isinstance(settings.FERNET_KEY, str) else settings.FERNET_KEY)
+
+
+def _init_fernet() -> Fernet:
+    key = getattr(settings, "FERNET_KEY", None)
+    is_prod = (
+        getattr(settings, "is_production", False)
+        or str(getattr(settings, "ENVIRONMENT", "")).lower() in ("production", "prod")
+        or str(getattr(settings, "ENV", "")).lower() in ("production", "prod")
+    )
+    if not key or not str(key).strip():
+        if is_prod:
+            raise RuntimeError(
+                "CRITICAL SECURITY CONFIGURATION ERROR: FERNET_KEY environment variable is required in production. "
+                "Data encryption cannot proceed without a valid key."
+            )
+        logger.warning("FERNET_KEY is unset in non-production mode; generating ephemeral test key.")
+        key = Fernet.generate_key()
+    elif isinstance(key, str):
+        key = key.encode("utf-8")
+    try:
+        return Fernet(key)
+    except Exception as e:
+        if is_prod:
+            raise RuntimeError(f"CRITICAL SECURITY CONFIGURATION ERROR: Invalid FERNET_KEY in production: {e}") from e
+        logger.warning("Invalid FERNET_KEY in non-production mode; falling back to ephemeral test key: %s", e)
+        return Fernet(Fernet.generate_key())
+
+
+fernet = _init_fernet()
 
 
 class DataDecryptionError(RuntimeError):

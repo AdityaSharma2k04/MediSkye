@@ -44,6 +44,48 @@ def test_detect_emergency_risk_question_exclusions():
     assert detect_emergency("I don't want to live with high cholesterol forever") is None
 
 
+def test_detect_emergency_past_or_documented_chest_pain_excluded():
+    """Verify that historical or documented report findings do NOT trigger acute emergency."""
+    assert detect_emergency("My report notes chest pain 3 weeks ago during stress test, what did the doctor conclude?") is None
+    assert detect_emergency("Doctor noted chest pain on the report from last year") is None
+    assert detect_emergency("History of heart attack in 2021") is None
+    assert detect_emergency("Diagnosed with stroke 2 years ago") is None
+    assert detect_emergency("Previous history of chest tightness mentioned on chart") is None
+
+
+def test_detect_emergency_acute_chest_pain_triggers_even_with_past_references():
+    """Verify that acute present symptoms trigger emergency, even if past context is mentioned."""
+    assert detect_emergency("I am having severe chest pain right now") == EmergencyKind.MEDICAL
+    assert detect_emergency("Chest pain and shortness of breath suddenly started right now") == EmergencyKind.MEDICAL
+    assert detect_emergency("My report says chest pain 3 weeks ago but I have crushing chest pain right now") == EmergencyKind.MEDICAL
+
+
+@pytest.mark.asyncio
+async def test_emergency_query_with_attached_document_halts_immediately():
+    """Verify that acute emergency query halts immediately even if document_id is attached."""
+    from app.rag.intent_router import classify_intent, QueryIntent
+    intent = await classify_intent(
+        "I am having severe crushing chest pain right now",
+        has_document=True,
+        document_id="aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee",
+    )
+    assert intent == QueryIntent.EMERGENCY
+
+
+@pytest.mark.asyncio
+async def test_historical_chest_pain_with_attached_document_allows_document_qa():
+    """Verify that historical mention of chest pain allows normal DOCUMENT_QA when document is attached."""
+    from app.rag.intent_router import classify_intent, QueryIntent
+    intent = await classify_intent(
+        "My report notes chest pain 3 weeks ago during stress test, what did the doctor conclude?",
+        has_document=True,
+        document_id="aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee",
+    )
+    assert intent == QueryIntent.DOCUMENT_QA
+
+
+
+
 def test_get_emergency_response():
     assert get_emergency_response(EmergencyKind.SELF_HARM) == CRISIS_RESPONSE
     assert get_emergency_response(EmergencyKind.MEDICAL) == MEDICAL_EMERGENCY_RESPONSE

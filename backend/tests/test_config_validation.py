@@ -41,4 +41,13 @@ async def test_lifespan_succeeds_with_fresh_key(monkeypatch):
     monkeypatch.setattr(settings, "FERNET_KEY", fresh_key)
     test_app = FastAPI()
     async with lifespan(test_app):
-        pass  # Startup completed without exception
+        assert settings.FERNET_KEY == fresh_key
+
+
+def test_encryption_module_fails_fast_in_production_without_key(monkeypatch):
+    from app.core.config import settings
+    monkeypatch.setattr(settings, "ENV", "production")
+    monkeypatch.setattr(settings, "FERNET_KEY", "")
+    from app.db import encryption
+    with pytest.raises(RuntimeError, match="FERNET_KEY environment variable is required in production"):
+        encryption._init_fernet()

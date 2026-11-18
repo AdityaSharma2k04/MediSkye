@@ -634,12 +634,7 @@ async def query_bot(
     emergency_language = detect_emergency_language(body.query) or language_preference
     emergency_banner: Optional[str] = None
 
-    if emergency_kind == EmergencyKind.SELF_HARM or (
-        emergency_kind == EmergencyKind.MEDICAL
-        and not has_document
-        and not getattr(body, "document_id", None)
-        and not raw_doc_ids
-    ):
+    if emergency_kind in (EmergencyKind.SELF_HARM, EmergencyKind.MEDICAL):
         if needs_doc_title_update and primary_doc and updated_chat_title:
             primary_doc.title = updated_chat_title
             db.add(primary_doc)
@@ -673,9 +668,6 @@ async def query_bot(
             yield f'data: [DONE]\n\n'
 
         return StreamingResponse(emergency_stream(), media_type="text/event-stream")
-
-    if emergency_kind == EmergencyKind.MEDICAL:
-        emergency_banner = get_emergency_response(EmergencyKind.MEDICAL, emergency_language)
 
     session_lock_key = f"{current_user.id}:{effective_session_id or 'general'}"
     if session_lock_key in _active_query_sessions:
@@ -719,10 +711,16 @@ async def query_bot(
             document_id=doc_id_param,
         )
         if intent == QueryIntent.EMERGENCY:
-            emergency_banner = get_emergency_response(EmergencyKind.MEDICAL, emergency_language)
-            intent = QueryIntent.DOCUMENT_QA if has_document else QueryIntent.GENERAL_HEALTH
-        elif emergency_banner and intent != QueryIntent.DOCUMENT_QA:
-            intent = QueryIntent.GENERAL_HEALTH
+            ai_msg = get_emergency_response(EmergencyKind.MEDICAL, emergency_language)
+            try:
+                await db.close()
+            except Exception:
+                pass
+            async def emergency_stream():
+                yield f'data: {json.dumps({"title": updated_chat_title or current_session_title, "document_id": str(primary_doc.id) if primary_doc else None, "session_id": effective_session_id}, ensure_ascii=False)}\n\n'
+                yield f'data: {json.dumps({"chunk": ai_msg}, ensure_ascii=False)}\n\n'
+                yield f'data: [DONE]\n\n'
+            return StreamingResponse(emergency_stream(), media_type="text/event-stream")
         elif intent == QueryIntent.DOCUMENT_QA and not has_document:
             intent = QueryIntent.GENERAL_HEALTH
 
