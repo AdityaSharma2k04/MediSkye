@@ -2,9 +2,9 @@ import time
 from typing import Any, Optional
 
 
-class MockRedis:
+class InMemoryCache:
     """
-    TTL-aware bounded in-memory MockRedis implementation.
+    TTL-aware bounded in-memory cache implementation.
     Evicts expired keys on access, bounds max size to 4096 keys,
     and supports get, set, setex, and delete while preserving
     direct .store access for tests.
@@ -59,4 +59,8 @@ class MockRedis:
         return count
 
 
-redis_client = MockRedis()
+# Aliases for backward compatibility with existing tests and imports
+MockRedis = InMemoryCache
+in_memory_cache = InMemoryCache()
+redis_client = in_memory_cache
+

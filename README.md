@@ -365,7 +365,7 @@ gcloud builds submit --config cloudbuild.yaml
 * **Fernet Symmetric Encryption at Rest:** 18 sensitive patient columns—including diagnoses, medications, allergies, blood markers, and conversational facts—are encrypted with Fernet (`AES-128-CBC` + `HMAC-SHA256`) prior to SQL persistence.
 * **Transient PHI in Hot Cache:** High-throughput in-memory token caches utilize `UserDTO` to strip decrypted clinical PHI, preventing plaintext medical data from lingering in RAM.
 * **Strict Single-Tenant Patient Boundaries:** All database queries are explicitly filtered by `user_id` and validated against dependent profile ownership before query execution.
-* **Instant Token Revocation:** Password resets, manual logouts, and account deletions instantly invalidate tokens via in-memory SHA-256 digest blacklists, Redis caches, and database timestamp cutoffs (`token_invalid_before`).
+* **Instant Token Revocation:** Password resets, manual logouts, and account deletions instantly invalidate tokens via in-memory SHA-256 digest blacklists, a durable PostgreSQL `revoked_tokens` blocklist, and database timestamp cutoffs (`token_invalid_before`).
 * **Zero-Retention LLM Privacy:** Prompts dispatched to Google Cloud Vertex AI / Gemini are processed under enterprise privacy terms where customer data is not retained or used for foundation model training.
 * **Fault-Tolerant Container Lifespan:** An 8.0-second timeout guard on database initialization allows Cloud Run containers to boot reliably even during transient serverless cold starts.
 

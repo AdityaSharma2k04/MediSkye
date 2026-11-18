@@ -302,3 +302,19 @@ class UploadJob(Base):
 
     user = orm_relationship("User", back_populates="upload_jobs")
 
+
+class RevokedToken(Base):
+    """
+    Durable database-backed token blocklist for single-device and single-token revocation.
+    Checked on auth cache miss alongside user.token_invalid_before.
+    """
+    __tablename__ = "revoked_tokens"
+
+    jti = Column(String(64), primary_key=True)
+    user_id = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=True, index=True)
+    expires_at = Column(DateTime(timezone=True), nullable=False, index=True)
+    revoked_at = Column(DateTime(timezone=True), default=utcnow, nullable=False)
+
+    user = orm_relationship("User")
+
+

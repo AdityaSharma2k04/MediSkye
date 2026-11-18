@@ -232,7 +232,8 @@ async def logout(
     db: AsyncSession = Depends(get_db),
 ):
     """
-    Logout the user by setting token_invalid_before in the database and adding JWT to the Redis blocklist.
+    Logout the user by setting token_invalid_before in the database, inserting the JWT into
+    the revoked_tokens database blocklist, and recording in the in-memory blocklist.
     """
     import jwt, time
     from app.core.auth import (
@@ -243,6 +244,7 @@ async def logout(
         mark_token_revoked_in_memory,
     )
     from app.core.redis_client import redis_client
+    from app.db.models import RevokedToken
 
     mark_token_revoked_in_memory(token)
     evict_token_cache_by_token(token)
@@ -253,8 +255,10 @@ async def logout(
             ttl = int(exp - time.time())
             if ttl > 0:
                 await redis_client.setex(f"blocked_token:{jti}", ttl, "true")
-    except jwt.InvalidTokenError:
-        pass
+            exp_dt = datetime.fromtimestamp(exp, tz=UTC)
+            db.add(RevokedToken(jti=jti, user_id=user.id, expires_at=exp_dt))
+    except (jwt.InvalidTokenError, Exception) as tok_err:
+        logger.debug("Could not record RevokedToken row: %s", tok_err)
 
     user.token_invalid_before = datetime.now(UTC)
     db.add(user)

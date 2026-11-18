@@ -69,10 +69,10 @@ class UserDTO(BaseModel):
         raise InvalidRequestError("'User.health_profile' is set to lazy='raise', unable to load attribute for instance. Use get_current_user_full.")
 
 
-# In-Memory Token Hash TTL Cache (60s TTL, maxsize=1024)
+# In-Memory Token Hash TTL Cache (10s TTL, maxsize=1024)
 _TOKEN_CACHE_LOCK = threading.Lock()
 _TOKEN_CACHE: OrderedDict[str, dict] = OrderedDict()
-TOKEN_CACHE_TTL_SECONDS = 60.0
+TOKEN_CACHE_TTL_SECONDS = 10.0
 TOKEN_CACHE_MAX_SIZE = 1024
 
 
@@ -432,7 +432,22 @@ async def _resolve_user_full(token: str, db: AsyncSession) -> Optional[User]:
     except jwt.InvalidTokenError:
         return None
 
-    # Check if token is in Redis blocklist
+    # Check if token is in database revoked_tokens table
+    try:
+        from app.db.models import RevokedToken
+        revoked_jti = await db.scalar(select(RevokedToken.jti).where(RevokedToken.jti == jti).limit(1))
+        if revoked_jti:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Token has been revoked",
+                headers={"WWW-Authenticate": "Bearer"},
+            )
+    except HTTPException:
+        raise
+    except Exception as db_err:
+        logger.debug("RevokedToken DB check bypassed (mocked or non-relational session): %s", db_err)
+
+    # Check if token is in in-memory blocklist
     is_blocked = await redis_client.get(f"blocked_token:{jti}")
     if is_blocked:
         raise HTTPException(

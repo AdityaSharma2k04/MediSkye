@@ -31,6 +31,7 @@ def _scrub(obj):
 def _before_send(event, hint=None):
     event.pop("request", None)
     event.pop("user", None)
+    event.pop("breadcrumbs", None)
     if "extra" in event:
         event["extra"] = _scrub(event["extra"])
     if "contexts" in event:

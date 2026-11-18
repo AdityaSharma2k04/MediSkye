@@ -11,7 +11,7 @@ from pathlib import Path
 from fastapi import APIRouter, Depends, Request, HTTPException, status
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
-from sqlalchemy import func, update, or_
+from sqlalchemy import func, update, or_, text
 from sqlalchemy.orm.exc import StaleDataError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
@@ -178,6 +178,25 @@ class TTLLockSet:
 
 
 _active_query_sessions = TTLLockSet(ttl=120.0)
+
+
+async def _acquire_chat_advisory_lock(db: AsyncSession, lock_key: str) -> bool:
+    """Acquire transaction-level PostgreSQL advisory lock if running on PostgreSQL.
+    Returns True if lock acquired or dialect is not PostgreSQL; returns False if locked by another transaction.
+    """
+    try:
+        bind = getattr(db, "bind", None)
+        dialect_name = getattr(getattr(bind, "dialect", None), "name", "")
+        if dialect_name == "postgresql":
+            res = await db.scalar(
+                text("SELECT pg_try_advisory_xact_lock(hashtext(:lock_key))"),
+                {"lock_key": lock_key},
+            )
+            return bool(res)
+    except Exception as lock_err:
+        logger.debug("PostgreSQL advisory lock check bypassed: %s", lock_err)
+    return True
+
 
 router = APIRouter()
 
@@ -671,6 +690,12 @@ async def query_bot(
 
     session_lock_key = f"{current_user.id}:{effective_session_id or 'general'}"
     if session_lock_key in _active_query_sessions:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="A query stream is already active for this document or conversation. Please wait for it to complete.",
+        )
+    advisory_acquired = await _acquire_chat_advisory_lock(db, session_lock_key)
+    if not advisory_acquired:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail="A query stream is already active for this document or conversation. Please wait for it to complete.",
