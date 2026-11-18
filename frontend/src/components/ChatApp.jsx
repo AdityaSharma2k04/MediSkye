@@ -3103,7 +3103,12 @@ export default function ChatApp() {
             setMemoryOpen(true);
           }}
           onDeleteAccount={handleDeleteAccount}
-          onProfileUpdated={(updated) => setCurrentUser(updated)}
+          onProfileUpdated={(updated) => {
+            if (updated) {
+              setCurrentUser(updated);
+              setCachedProfile(updated);
+            }
+          }}
           language={language}
           setLanguage={setLanguage}
           currentUser={currentUser}

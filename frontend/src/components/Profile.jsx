@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { User, Users, HeartPulse, Save, X, Trash2, Edit2, Plus, Shield, Phone, Activity, Download, Loader2, CheckCircle } from 'lucide-react';
-import { getProfile, updateProfile, deleteAccount, clearLocalAuthStorage, getDependents, createDependent, updateDependent, deleteDependent, createMemoryFact, getMemoryFacts, exportUserAccountData, exportUserData } from '../services/api';
+import { getProfile, updateProfile, deleteAccount, clearLocalAuthStorage, getDependents, createDependent, updateDependent, deleteDependent, createMemoryFact, getMemoryFacts, exportUserAccountData, exportUserData, setCachedProfile, setCachedDependents } from '../services/api';
 import { invalidateMetrics } from '../hooks/useLabMetrics';
 import { logger } from '../services/logger';
 import { parseWeightToKgString } from '../lib/clinical';
@@ -313,6 +313,10 @@ export default function Profile({
         payload.weight_kg = null;
       }
       const updatedUser = await updateProfile(payload);
+      const mergedUser = { ...(formData || {}), ...(payload || {}), ...(updatedUser || {}) };
+      if (typeof setCachedProfile === 'function') {
+        setCachedProfile(mergedUser);
+      }
 
       try {
         const cachedUserStr = localStorage.getItem('user');
@@ -500,25 +504,21 @@ export default function Profile({
       }
 
       let savedDep = null;
+      let nextDeps = [];
       if (editingDependentId) {
         savedDep = await updateDependent(editingDependentId, payload);
-        setDependents(prev => prev.map(d => d.id === editingDependentId ? { ...d, ...savedDep } : d));
+        nextDeps = dependents.map(d => d.id === editingDependentId ? { ...d, ...payload, ...savedDep } : d);
       } else {
         savedDep = await createDependent(payload);
-        setDependents(prev => [...prev, savedDep]);
+        nextDeps = [...dependents, savedDep];
+      }
+      setDependents(nextDeps);
+      if (typeof setCachedDependents === 'function') {
+        setCachedDependents(nextDeps);
       }
 
       try {
-        const currentDepsStr = localStorage.getItem('dependents');
-        if (currentDepsStr) {
-          const depsArr = JSON.parse(currentDepsStr);
-          if (Array.isArray(depsArr)) {
-            const nextDeps = editingDependentId
-              ? depsArr.map(d => d.id === editingDependentId ? { ...d, ...payload, ...savedDep } : d)
-              : [...depsArr, savedDep];
-            localStorage.setItem('dependents', JSON.stringify(nextDeps));
-          }
-        }
+        localStorage.setItem('dependents', JSON.stringify(nextDeps));
       } catch (_) { }
 
       // Record weight fact if supplied
@@ -555,7 +555,14 @@ export default function Profile({
     setErrorMsg('');
     try {
       await deleteDependent(depId);
-      setDependents(prev => prev.filter(d => d.id !== depId));
+      const remaining = dependents.filter(d => d.id !== depId);
+      setDependents(remaining);
+      if (typeof setCachedDependents === 'function') {
+        setCachedDependents(remaining);
+      }
+      try {
+        localStorage.setItem('dependents', JSON.stringify(remaining));
+      } catch (_) { }
       if (onDependentDeleted) onDependentDeleted(depId);
       if (onProfileUpdated) onProfileUpdated();
     } catch (err) {

@@ -93,9 +93,9 @@ const TONE_CLASSES = {
 
 const markdownComponents = {
   table: ({ node, ...props }) => (
-    <div className="not-prose my-4 -mx-1 sm:mx-0">
-      <div className="ms-table-card">
-        <table {...props} />
+    <div className="not-prose my-4 -mx-1 sm:mx-0 max-w-full overflow-hidden">
+      <div className="ms-table-card overflow-x-auto max-w-full scrollbar-thin">
+        <table className="w-full min-w-full table-auto" {...props} />
       </div>
     </div>
   ),
