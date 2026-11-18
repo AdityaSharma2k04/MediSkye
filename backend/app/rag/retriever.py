@@ -22,7 +22,14 @@ from collections import OrderedDict
 import threading
 from app.rag.chunking import MedicalTextSplitter
 from app.rag.embedder import get_embedder
-from app.rag.hybrid_search import BM25Index, save_bm25_index, load_bm25_index, reciprocal_rank_fusion
+from app.rag.hybrid_search import (
+    BM25Index,
+    save_bm25_index,
+    load_bm25_index,
+    reciprocal_rank_fusion,
+    sign_faiss_index,
+    verify_faiss_index,
+)
 from app.rag.index_storage import ensure_index_local, aensure_index_local
 from app.core.config import settings
 
@@ -174,6 +181,10 @@ def build_hybrid_index_from_embeddings(
     # Build FAISS vectorstore from precomputed embeddings without calling API
     vectorstore = FAISS.from_embeddings(text_embeddings, embedder, metadatas=metadatas)
     vectorstore.save_local(index_path)
+    try:
+        sign_faiss_index(index_path)
+    except Exception as sig_err:
+        logger.warning("Could not sign FAISS index at %s: %s", index_path, sig_err)
 
     # Build BM25 index over the same chunks
     bm25_index = BM25Index(chunks)
@@ -228,6 +239,10 @@ def create_hybrid_index(page_docs: list[Document], index_path: str):
     # Build FAISS vectorstore
     vectorstore = FAISS.from_documents(chunks, get_embedder())
     vectorstore.save_local(index_path)
+    try:
+        sign_faiss_index(index_path)
+    except Exception as sig_err:
+        logger.warning("Could not sign FAISS index at %s: %s", index_path, sig_err)
     
     # Build BM25 index over the same chunks
     bm25_index = BM25Index(chunks)
@@ -248,6 +263,12 @@ def load_hybrid_index(index_path: str):
         return cached
 
     resolved_path = str(ensure_index_local(index_path))
+    target_path = Path(resolved_path)
+    if target_path.is_dir() and (target_path / "index.sig").exists():
+        if not verify_faiss_index(target_path):
+            logger.error("Tampering detected: FAISS index at %s failed HMAC verification!", target_path)
+            raise ValueError(f"FAISS index at {target_path} failed integrity check.")
+
     vectorstore = FAISS.load_local(resolved_path, get_embedder(), allow_dangerous_deserialization=True)
     bm25_index = load_bm25_index(resolved_path)
 

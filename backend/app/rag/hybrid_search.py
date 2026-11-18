@@ -7,7 +7,8 @@ using RRF to get the best of keyword-exact and semantic-meaning retrieval.
 """
 
 import hashlib
-import pickle
+import hmac
+import json
 import re
 import logging
 from pathlib import Path
@@ -78,20 +79,86 @@ def reciprocal_rank_fusion(
 
 # ─── Persistence ─────────────────────────────────────────────────────────
 def save_bm25_index(bm25_index: BM25Index, index_path: str) -> None:
-    """Pickle the BM25 index alongside the FAISS index."""
-    bm25_path = Path(index_path).parent / (Path(index_path).stem + "_bm25.pkl")
+    """Save tokenized corpus and metadata to JSON format alongside the FAISS index."""
+    p = Path(index_path)
+    stem = p.name.removesuffix(".index")
+    bm25_path = p.parent / f"{stem}_bm25.json"
     bm25_path.parent.mkdir(parents=True, exist_ok=True)
-    with open(bm25_path, "wb") as f:
-        pickle.dump(bm25_index, f)
+    payload = {
+        "version": 1,
+        "chunks": [
+            {
+                "page_content": getattr(c, "page_content", ""),
+                "metadata": getattr(c, "metadata", {}) or {},
+            }
+            for c in getattr(bm25_index, "chunks", [])
+        ],
+    }
+    with open(bm25_path, "w", encoding="utf-8") as f:
+        json.dump(payload, f, ensure_ascii=False)
 
 
 def load_bm25_index(index_path: str) -> Optional[BM25Index]:
-    """Load a pickled BM25 index if it exists."""
-    bm25_path = Path(index_path).parent / (Path(index_path).stem + "_bm25.pkl")
+    """Load BM25 index from JSON format if it exists. Does not use pickle."""
+    p = Path(index_path)
+    stem = p.name.removesuffix(".index")
+    bm25_path = p.parent / f"{stem}_bm25.json"
+    if not bm25_path.exists() and p.is_dir():
+        bm25_path = p / f"{stem}_bm25.json"
+
     if bm25_path.exists():
         try:
-            with open(bm25_path, "rb") as f:
-                return pickle.load(f)
+            with open(bm25_path, "r", encoding="utf-8") as f:
+                data = json.load(f)
+            chunks = [
+                Document(page_content=item.get("page_content", ""), metadata=item.get("metadata", {}))
+                for item in data.get("chunks", [])
+                if isinstance(item, dict) and item.get("page_content")
+            ]
+            if chunks:
+                return BM25Index(chunks)
         except Exception as e:
-            logger.warning("Could not load BM25 index from %s: %s", bm25_path, e)
+            logger.warning("Could not load BM25 index from JSON %s: %s", bm25_path, e)
     return None
+
+
+def sign_faiss_index(index_dir: Path | str) -> Optional[Path]:
+    """Compute and write HMAC-SHA256 signature for FAISS index files (index.faiss, index.pkl)."""
+    target = Path(index_dir)
+    if not target.exists() or not target.is_dir():
+        return None
+    from app.core.config import settings
+    key = getattr(settings, "FERNET_KEY", None)
+    hmac_key = key.encode("utf-8") if isinstance(key, str) and key.strip() else b"mediskye-default-hmac-key"
+    h = hmac.new(hmac_key, digestmod=hashlib.sha256)
+    for fname in sorted(["index.faiss", "index.pkl"]):
+        fpath = target / fname
+        if fpath.exists():
+            h.update(fpath.read_bytes())
+    sig_path = target / "index.sig"
+    sig_path.write_text(h.hexdigest(), encoding="utf-8")
+    return sig_path
+
+
+def verify_faiss_index(index_dir: Path | str) -> bool:
+    """
+    Verify HMAC-SHA256 signature of FAISS index directory before load.
+    Returns True if valid.
+    If index.sig does not exist, logs a warning and returns True for backward compatibility.
+    If index.sig exists but does not match, returns False (tampering detected).
+    """
+    target = Path(index_dir)
+    sig_path = target / "index.sig"
+    if not sig_path.exists():
+        logger.warning("FAISS index at %s missing index.sig (legacy un-signed index). Permitting backward-compatible load.", target)
+        return True
+    from app.core.config import settings
+    key = getattr(settings, "FERNET_KEY", None)
+    hmac_key = key.encode("utf-8") if isinstance(key, str) and key.strip() else b"mediskye-default-hmac-key"
+    h = hmac.new(hmac_key, digestmod=hashlib.sha256)
+    for fname in sorted(["index.faiss", "index.pkl"]):
+        fpath = target / fname
+        if fpath.exists():
+            h.update(fpath.read_bytes())
+    expected = sig_path.read_text(encoding="utf-8").strip()
+    return hmac.compare_digest(h.hexdigest(), expected)

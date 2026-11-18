@@ -383,8 +383,9 @@ async def extract_and_cache_metrics(
     elif isinstance(doc.cached_metrics, dict) and doc.cached_metrics.get("_raw_chunks") and not _internal_reextract:
         combined_text = "\n".join(doc.cached_metrics["_raw_chunks"])
     elif doc.file_path:
+        vectorstore = None
+        bm25_index = None
         try:
-            bm25_index = None
             cached_entry = get_cached_hybrid_index(str(doc.id)) or get_cached_hybrid_index(doc.file_path)
             if cached_entry is not None:
                 vectorstore, bm25_index = cached_entry
@@ -396,46 +397,52 @@ async def extract_and_cache_metrics(
                 resolved_path = str(await aensure_index_local(doc.file_path))
                 vectorstore, bm25_index = await asyncio.to_thread(load_hybrid_index, resolved_path)
         except Exception as e:
-            logger.error("Could not load document index: %s", e)
-            raise HTTPException(status_code=500, detail="Could not load document index.")
+            logger.warning("Could not load document index for doc %s: %s; attempting in-memory recovery", doc.id, e)
+            if doc.extracted_text and doc.extracted_text.strip():
+                combined_text = doc.extracted_text.strip()
+            elif isinstance(doc.cached_metrics, dict) and doc.cached_metrics.get("_raw_chunks"):
+                combined_text = "\n".join(doc.cached_metrics["_raw_chunks"])
+            else:
+                raise HTTPException(status_code=500, detail="Could not load document index.")
 
-        def _extract_ordered_chunks(v, b) -> List[str]:
-            # 1. BM25 corpus retains original chunk ordering
-            if b is not None and hasattr(b, "chunks") and isinstance(b.chunks, (list, tuple)) and b.chunks:
-                texts = [getattr(c, "page_content", "") for c in b.chunks if isinstance(getattr(c, "page_content", None), str) and getattr(c, "page_content", "").strip()]
-                if texts:
-                    return texts
-            # 2. FAISS index_to_docstore_id order
-            if hasattr(v, "index_to_docstore_id") and isinstance(v.index_to_docstore_id, dict) and hasattr(v, "docstore"):
-                try:
-                    texts = []
-                    for i in range(len(v.index_to_docstore_id)):
-                        doc_item = v.docstore.search(v.index_to_docstore_id[i])
-                        if hasattr(doc_item, "page_content") and isinstance(doc_item.page_content, str) and doc_item.page_content.strip():
-                            texts.append(doc_item.page_content)
+        if not combined_text and vectorstore is not None:
+            def _extract_ordered_chunks(v, b) -> List[str]:
+                # 1. BM25 corpus retains original chunk ordering
+                if b is not None and hasattr(b, "chunks") and isinstance(b.chunks, (list, tuple)) and b.chunks:
+                    texts = [getattr(c, "page_content", "") for c in b.chunks if isinstance(getattr(c, "page_content", None), str) and getattr(c, "page_content", "").strip()]
                     if texts:
                         return texts
-                except Exception:
-                    pass
-            # 3. FAISS docstore _dict fallback
-            if hasattr(v, "docstore") and hasattr(v.docstore, "_dict") and isinstance(v.docstore._dict, dict):
-                texts = [getattr(c, "page_content", "") for c in v.docstore._dict.values() if isinstance(getattr(c, "page_content", None), str) and getattr(c, "page_content", "").strip()]
-                if texts:
-                    return texts
-            return []
+                # 2. FAISS index_to_docstore_id order
+                if hasattr(v, "index_to_docstore_id") and isinstance(v.index_to_docstore_id, dict) and hasattr(v, "docstore"):
+                    try:
+                        texts = []
+                        for i in range(len(v.index_to_docstore_id)):
+                            doc_item = v.docstore.search(v.index_to_docstore_id[i])
+                            if hasattr(doc_item, "page_content") and isinstance(doc_item.page_content, str) and doc_item.page_content.strip():
+                                texts.append(doc_item.page_content)
+                        if texts:
+                            return texts
+                    except Exception:
+                        pass
+                # 3. FAISS docstore _dict fallback
+                if hasattr(v, "docstore") and hasattr(v.docstore, "_dict") and isinstance(v.docstore._dict, dict):
+                    texts = [getattr(c, "page_content", "") for c in v.docstore._dict.values() if isinstance(getattr(c, "page_content", None), str) and getattr(c, "page_content", "").strip()]
+                    if texts:
+                        return texts
+                return []
 
-        ordered_texts = _extract_ordered_chunks(vectorstore, bm25_index)
-        if ordered_texts:
-            combined_text = "\n".join(ordered_texts)
-        else:
-            docs = await asyncio.to_thread(
-                retrieve_relevant_docs,
-                "blood count lab results reference ranges cholesterol liver function",
-                vectorstore,
-                bm25_index,
-                k=12,
-            )
-            combined_text = "\n".join([d.page_content for d in docs])
+            ordered_texts = _extract_ordered_chunks(vectorstore, bm25_index)
+            if ordered_texts:
+                combined_text = "\n".join(ordered_texts)
+            else:
+                docs = await asyncio.to_thread(
+                    retrieve_relevant_docs,
+                    "blood count lab results reference ranges cholesterol liver function",
+                    vectorstore,
+                    bm25_index,
+                    k=12,
+                )
+                combined_text = "\n".join([d.page_content for d in docs])
     else:
         return []
 

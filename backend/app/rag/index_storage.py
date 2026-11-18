@@ -49,7 +49,7 @@ def _resolve_local_index_dir(file_path: str | Path) -> Path:
 
 def get_bm25_path(index_path: str | Path) -> Path:
     """
-    Return local path for the corresponding BM25 index pickle file.
+    Return local path for the corresponding BM25 index JSON file (or legacy pickle if present).
     Cross-platform safe for Windows and Linux paths.
     """
     folder_name = _extract_index_folder_name(index_path)
@@ -58,11 +58,23 @@ def get_bm25_path(index_path: str | Path) -> Path:
         p = Path(index_path)
         if p.is_absolute() and (p.exists() or p.parent.exists()):
             if os.name == 'nt' or not (len(str(p)) > 1 and str(p)[1] == ':'):
-                return p.parent / f"{stem}_bm25.pkl"
+                json_p = p.parent / f"{stem}_bm25.json"
+                if json_p.exists():
+                    return json_p
+                pkl_p = p.parent / f"{stem}_bm25.pkl"
+                if pkl_p.exists():
+                    return pkl_p
+                return json_p
     except Exception:
         pass
     target_dir = _resolve_local_index_dir(index_path)
-    return target_dir.parent / f"{stem}_bm25.pkl"
+    json_target = target_dir.parent / f"{stem}_bm25.json"
+    if json_target.exists():
+        return json_target
+    pkl_target = target_dir.parent / f"{stem}_bm25.pkl"
+    if pkl_target.exists():
+        return pkl_target
+    return json_target
 
 
 def save_index_artifacts(file_path: str | Path, raise_on_error: bool = False) -> bool:
@@ -102,10 +114,11 @@ def save_index_artifacts(file_path: str | Path, raise_on_error: bool = False) ->
             blob = bucket.blob(blob_name)
             blob.upload_from_filename(str(local_path))
 
-        # 2. Upload corresponding BM25 pickle file
+        # 2. Upload corresponding BM25 file (.json or .pkl)
         bm25_file = get_bm25_path(local_path)
         if bm25_file.exists():
-            bm25_blob_name = f"indexes/{stem}_bm25.pkl"
+            ext = bm25_file.suffix
+            bm25_blob_name = f"indexes/{stem}_bm25{ext}"
             blob = bucket.blob(bm25_blob_name)
             blob.upload_from_filename(str(bm25_file))
             logger.debug("Uploaded BM25 file %s to gs://%s/%s", bm25_file.name, bucket_name, bm25_blob_name)
@@ -196,14 +209,20 @@ def ensure_index_local(file_path: str | Path) -> Path:
                     blob.download_to_filename(str(dest_file))
                     logger.debug("Downloaded %s to %s", blob.name, dest_file)
 
-        # Download BM25 pickle
-        bm25_file = get_bm25_path(target_path)
-        bm25_blob_name = f"indexes/{stem}_bm25.pkl"
-        bm25_blob = bucket.blob(bm25_blob_name)
-        if bm25_blob.exists():
+        # Download BM25 index (.json preferred, .pkl legacy fallback)
+        bm25_blob_json = bucket.blob(f"indexes/{stem}_bm25.json")
+        if bm25_blob_json.exists():
+            bm25_file = target_path.parent / f"{stem}_bm25.json"
             bm25_file.parent.mkdir(parents=True, exist_ok=True)
-            bm25_blob.download_to_filename(str(bm25_file))
-            logger.debug("Downloaded BM25 index from gs://%s/%s", bucket_name, bm25_blob_name)
+            bm25_blob_json.download_to_filename(str(bm25_file))
+            logger.debug("Downloaded BM25 JSON from gs://%s/indexes/%s_bm25.json", bucket_name, stem)
+        else:
+            bm25_blob_pkl = bucket.blob(f"indexes/{stem}_bm25.pkl")
+            if bm25_blob_pkl.exists():
+                bm25_file = target_path.parent / f"{stem}_bm25.pkl"
+                bm25_file.parent.mkdir(parents=True, exist_ok=True)
+                bm25_blob_pkl.download_to_filename(str(bm25_file))
+                logger.debug("Downloaded legacy BM25 pkl from gs://%s/indexes/%s_bm25.pkl", bucket_name, stem)
 
         if (target_path / "index.faiss").exists():
             logger.info("Successfully fetched index artifacts from GCS into %s", target_path)
@@ -245,11 +264,13 @@ def delete_index_artifacts(file_path: str | Path) -> None:
     except Exception as e:
         logger.warning("Could not delete local FAISS directory %s: %s", target_path, e)
 
-    try:
-        if bm25_file.exists():
-            os.remove(bm25_file)
-    except Exception as e:
-        logger.warning("Could not delete local BM25 file %s: %s", bm25_file, e)
+    for ext in (".json", ".pkl"):
+        f_bm25 = target_path.parent / f"{stem}_bm25{ext}"
+        try:
+            if f_bm25.exists():
+                os.remove(f_bm25)
+        except Exception as e:
+            logger.warning("Could not delete local BM25 file %s: %s", f_bm25, e)
 
     # 2. Remote GCS deletion
     bucket_name = settings.GCS_INDEX_BUCKET
@@ -264,9 +285,10 @@ def delete_index_artifacts(file_path: str | Path) -> None:
         for blob in bucket.list_blobs(prefix=prefix):
             blob.delete()
 
-        bm25_blob = bucket.blob(f"indexes/{stem}_bm25.pkl")
-        if bm25_blob.exists():
-            bm25_blob.delete()
+        for ext in (".json", ".pkl"):
+            bm25_blob = bucket.blob(f"indexes/{stem}_bm25{ext}")
+            if bm25_blob.exists():
+                bm25_blob.delete()
 
         logger.info("Deleted remote index artifacts from gs://%s for %s", bucket_name, folder_name)
     except Exception as exc:

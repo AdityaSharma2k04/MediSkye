@@ -14,6 +14,8 @@ describe('logout() local storage hygiene', () => {
 
   it('clears token, every PHI-bearing mediskye_* key, and the session consent flag', async () => {
     localStorage.setItem('token', 'jwt-abc');
+    localStorage.setItem('user', JSON.stringify({ name: 'John Doe', dob: '1980-01-01' }));
+    localStorage.setItem('dependents', JSON.stringify([{ name: 'Child', dob: '2010-01-01' }]));
     localStorage.setItem('mediskye_session_id', 'sess-1');
     localStorage.setItem('mediskye_conversations', '[]');
     localStorage.setItem('mediskye_conversations_user-1', '[]');
@@ -30,6 +32,8 @@ describe('logout() local storage hygiene', () => {
     await logout();
 
     expect(localStorage.getItem('token')).toBeNull();
+    expect(localStorage.getItem('user')).toBeNull();
+    expect(localStorage.getItem('dependents')).toBeNull();
     expect(localStorage.getItem('mediskye_session_id')).toBeNull();
     expect(localStorage.getItem('mediskye_conversations')).toBeNull();
     expect(localStorage.getItem('mediskye_conversations_user-1')).toBeNull();

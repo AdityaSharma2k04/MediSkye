@@ -875,12 +875,16 @@ export function clearLocalAuthStorage() {
       if (
         key &&
         (key === 'token' ||
+          key === 'user' ||
+          key === 'dependents' ||
           (key.startsWith('mediskye_') && !PRESERVED_STORAGE_KEYS.has(key)))
       ) {
         keysToRemove.push(key);
       }
     }
     keysToRemove.forEach((key) => localStorage.removeItem(key));
+    localStorage.removeItem('user');
+    localStorage.removeItem('dependents');
   } catch (err) {
     logger.error('Failed to clear localStorage:', err);
   }
