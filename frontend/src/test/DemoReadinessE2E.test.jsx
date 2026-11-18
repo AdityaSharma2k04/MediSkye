@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import React from 'react';
 import { render, screen, fireEvent, waitFor, act } from '@testing-library/react';
 import * as api from '../services/api';
-import ChatApp from '../components/ChatApp';
+import ChatApp, { isMatchingConversation } from '../components/ChatApp';
 
 // Mock routing and speech services
 vi.mock('react-router-dom', () => ({
@@ -285,5 +285,169 @@ All critical biomarkers have normalized since starting therapy.`;
     // Chat messages are still intact
     expect(screen.getByText("How have Rohan's lab results changed between baseline and follow-up?")).toBeInTheDocument();
     expect(screen.getByText('Is the ferritin increase safe and expected?')).toBeInTheDocument();
+  });
+
+  it('isMatchingConversation correctly matches across doc_ prefix, document_id, and session_id', () => {
+    const docConv = {
+      id: 'doc_report-123',
+      document_id: 'report-123',
+      session_id: 'srv-sess-456',
+      pdf: { id: 'report-123' },
+    };
+
+    expect(isMatchingConversation(docConv, 'report-123')).toBe(true);
+    expect(isMatchingConversation(docConv, 'doc_report-123')).toBe(true);
+    expect(isMatchingConversation(docConv, 'srv-sess-456')).toBe(true);
+    expect(isMatchingConversation(docConv, 'other-id', 'report-123')).toBe(true);
+    expect(isMatchingConversation(docConv, 'other-id', 'doc_report-123')).toBe(true);
+    expect(isMatchingConversation(docConv, 'unrelated-id')).toBe(false);
+
+    const generalConv = {
+      id: 'gen-uuid-999',
+      session_id: 'gen-uuid-999',
+    };
+    expect(isMatchingConversation(generalConv, 'gen-uuid-999')).toBe(true);
+    expect(isMatchingConversation(generalConv, 'other-gen')).toBe(false);
+  });
+
+  it('Test A (Normal General Chat): renders live streamed answer and 2nd follow-up in active window without reload or re-clicking sidebar', async () => {
+    let callCount = 0;
+    const streamSpy = vi.spyOn(api, 'sendQueryStream').mockImplementation(async (query, docId, lang, onChunk) => {
+      callCount += 1;
+      if (callCount === 1) {
+        onChunk({
+          session_id: 'gen-uuid-999',
+          title: 'Vitamin D Inquiry',
+        });
+        onChunk({ chunk: 'Early signs of Vitamin D deficiency include ' });
+        onChunk({ chunk: 'fatigue, bone pain, and muscle weakness.' });
+      } else {
+        onChunk({
+          session_id: 'gen-uuid-999',
+        });
+        onChunk({ chunk: 'You can improve levels via safe sunlight exposure and D3 supplements.' });
+      }
+    });
+
+    render(<ChatApp />);
+    await waitFor(() => expect(api.getProfile).toHaveBeenCalled());
+
+    // Verify on general chat (no report attached)
+    const chatInput = screen.getByPlaceholderText(/Ask a medical question|Ask about this report|Ask MediSkye/i);
+    expect(chatInput).toBeInTheDocument();
+
+    // 1. Send first general question
+    fireEvent.change(chatInput, {
+      target: { value: 'What are early signs of Vitamin D deficiency?' },
+    });
+    const form = chatInput.closest('form');
+    await act(async () => {
+      fireEvent.submit(form);
+    });
+
+    // Assert Question 1 appears in active thread
+    expect(await screen.findByText('What are early signs of Vitamin D deficiency?')).toBeInTheDocument();
+
+    // Assert Answer 1 renders LIVE in active thread without reloading or re-clicking sidebar
+    expect(await screen.findByText(/fatigue, bone pain, and muscle weakness\./i)).toBeInTheDocument();
+
+    // Wait for submission cooldown
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 350));
+    });
+
+    // 2. Send second follow-up question in the same general chat
+    const chatInputQ2 = screen.getByPlaceholderText(/Ask a medical question|Ask about this report|Ask MediSkye/i);
+    fireEvent.change(chatInputQ2, {
+      target: { value: 'How can I improve my Vitamin D levels?' },
+    });
+    const formQ2 = chatInputQ2.closest('form');
+    await act(async () => {
+      fireEvent.submit(formQ2);
+    });
+
+    // Assert Question 2 appears in active thread
+    expect(await screen.findByText('How can I improve my Vitamin D levels?')).toBeInTheDocument();
+
+    // Assert Answer 2 renders LIVE in active thread without reloading or re-clicking sidebar
+    expect(await screen.findByText(/You can improve levels via safe sunlight exposure and D3 supplements\./i)).toBeInTheDocument();
+
+    // Assert both Q1+A1 and Q2+A2 remain in DOM in order
+    expect(screen.getByText('What are early signs of Vitamin D deficiency?')).toBeInTheDocument();
+    expect(screen.getByText(/fatigue, bone pain, and muscle weakness\./i)).toBeInTheDocument();
+  });
+
+  it('Test B (Post-Report Follow-Up With doc_ ID Mismatch): renders streamed follow-up on existing report where c.id="doc_report-123", document_id="report-123", session_id="srv-sess-456"', async () => {
+    const reportDocId = 'report-123';
+    const reportConvId = 'doc_report-123';
+    const reportServerSessId = 'srv-sess-456';
+
+    const mockReport = {
+      id: reportDocId,
+      filename: 'Metabolic_Panel.pdf',
+      title: 'Comprehensive Metabolic Panel',
+      collected_at: '2026-03-15',
+      dependent_id: null,
+      patient_id: 'self',
+      created_at: '2026-03-15T08:00:00Z',
+    };
+
+    // Pre-seed conversation with doc_ prefix and server session_id
+    const existingMessages = [
+      api.normalizeChatMessage({ id: 'u1', sender: 'user', content: 'What is my fasting glucose?' }),
+      api.normalizeChatMessage({ id: 'a1', sender: 'ai', content: 'Your fasting glucose is 95 mg/dL, which is within the normal reference range.' }),
+    ];
+
+    api.getUserDocuments.mockResolvedValue([mockReport]);
+    api.getDocumentChats.mockResolvedValue(existingMessages);
+    api.setCachedChatMessages(`doc_${reportDocId}`, existingMessages);
+
+    let streamCalled = false;
+    vi.spyOn(api, 'sendQueryStream').mockImplementation(async (query, docId, lang, onChunk) => {
+      streamCalled = true;
+      onChunk({
+        session_id: reportServerSessId,
+      });
+      onChunk({ chunk: 'Yes, 95 mg/dL is an optimal normal fasting level.' });
+    });
+
+    render(<ChatApp />);
+    await waitFor(() => expect(api.getProfile).toHaveBeenCalled());
+
+    // Switch to the existing report in the sidebar
+    const reportItem = await screen.findByText('Comprehensive Metabolic Panel');
+    await act(async () => {
+      fireEvent.click(reportItem.closest('button'));
+    });
+
+    // Verify existing Q1 and A1 are loaded
+    expect(await screen.findByText('What is my fasting glucose?')).toBeInTheDocument();
+    expect(await screen.findByText(/Your fasting glucose is 95 mg\/dL/i)).toBeInTheDocument();
+
+    // Allow cooldown
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 350));
+    });
+
+    // Send follow-up question
+    const chatInput = screen.getByPlaceholderText(/Ask about this report|Ask MediSkye/i);
+    fireEvent.change(chatInput, {
+      target: { value: 'Is 95 mg/dL optimal for fasting glucose?' },
+    });
+    const form = chatInput.closest('form');
+    await act(async () => {
+      fireEvent.submit(form);
+    });
+
+    // Assert stream was invoked
+    await waitFor(() => expect(streamCalled).toBe(true));
+
+    // Assert follow-up question and LIVE streamed answer appear in the window immediately
+    expect(await screen.findByText('Is 95 mg/dL optimal for fasting glucose?')).toBeInTheDocument();
+    expect(await screen.findByText('Yes, 95 mg/dL is an optimal normal fasting level.')).toBeInTheDocument();
+
+    // Assert initial Q1+A1 are STILL present
+    expect(screen.getByText('What is my fasting glucose?')).toBeInTheDocument();
+    expect(screen.getByText(/Your fasting glucose is 95 mg\/dL/i)).toBeInTheDocument();
   });
 });
