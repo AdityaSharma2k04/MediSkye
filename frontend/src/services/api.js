@@ -1180,24 +1180,39 @@ export async function sendQueryStream(
   signal = undefined,
   sessionId = null
 ) {
-  // If sessionId is provided, use it. Otherwise, if documentId is provided:
-  // - If documentId starts with "new_" or "session_" or "general-health-", it is a session ID.
-  // - Otherwise, documentId is a document ID.
-  const activeSessionId = sessionId
-    ? String(sessionId).trim()
-    : (documentId || 'general-health-' + Date.now());
-
+  // Determine if documentId represents an actual medical report document.
+  // Any session-like prefix (session_, session-, new_, general-health-), falsy value,
+  // or value equal to sessionId is NEVER treated as a document ID.
+  const docStr = documentId ? String(documentId).trim() : '';
   const isDocumentId = Boolean(
-    documentId &&
-    !String(documentId).startsWith('new_') &&
-    !String(documentId).startsWith('session_') &&
-    !String(documentId).startsWith('general-health-')
+    docStr &&
+    !docStr.startsWith('new_') &&
+    !docStr.startsWith('session_') &&
+    !docStr.startsWith('session-') &&
+    !docStr.startsWith('general-health-') &&
+    (sessionId ? docStr !== String(sessionId).trim() : true)
   );
 
-  const cleanDocId = isDocumentId ? String(documentId).replace(/^doc_/, '').trim() : null;
+  const cleanDocId = isDocumentId ? docStr.replace(/^doc_/, '').trim() : null;
+
+  // Determine session ID:
+  // 1. Explicit sessionId parameter if provided
+  // 2. Or if documentId was passed as a session identifier
+  // 3. Or fallback to docStr or new session ID
+  const rawSessionId = sessionId
+    ? String(sessionId).trim()
+    : ((docStr && (
+        docStr.startsWith('new_') ||
+        docStr.startsWith('session_') ||
+        docStr.startsWith('session-') ||
+        docStr.startsWith('general-health-')
+      )) ? docStr : (docStr || 'general-health-' + Date.now()));
+
+  // Clean session ID (strip session_ prefix if present)
+  const cleanSessionId = String(rawSessionId).replace(/^session_/, '').trim() || ('general-health-' + Date.now());
 
   const payload = {
-    session_id: activeSessionId,
+    session_id: cleanSessionId,
     query: queryText,
     language: language,
   };

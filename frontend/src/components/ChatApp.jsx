@@ -2101,7 +2101,7 @@ export default function ChatApp() {
     try {
       await sendQueryStream(
         userQuery,
-        cleanDocId || activeSessionId,
+        cleanDocId ? cleanDocId : `session_${activeSessionId}`,
         language,
         (chunk) => {
           if (!chunk) return;

@@ -311,6 +311,7 @@ All critical biomarkers have normalized since starting therapy.`;
   });
 
   it('Test A (Normal General Chat): renders live streamed answer and 2nd follow-up in active window without reload or re-clicking sidebar', async () => {
+    const originalSendQueryStream = api.sendQueryStream;
     let callCount = 0;
     const streamSpy = vi.spyOn(api, 'sendQueryStream').mockImplementation(async (query, docId, lang, onChunk) => {
       callCount += 1;
@@ -348,9 +349,53 @@ All critical biomarkers have normalized since starting therapy.`;
     // Assert Question 1 appears in active thread
     expect(await screen.findByText('What are early signs of Vitamin D deficiency?')).toBeInTheDocument();
 
-    // Assert that a real UUID v4 was minted before sendQueryStream was called (not a new_ draft ID)
-    expect(streamSpy.mock.calls[0][1]).not.toMatch(/^new_/);
-    expect(streamSpy.mock.calls[0][1]).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i);
+    // Assert that in General Chat, document_id is NEVER sent as a bare UUID (has session_ prefix or null)
+    // and session_id is a minted UUID v4
+    const firstCallDocId = streamSpy.mock.calls[0][1];
+    const firstCallSessionId = streamSpy.mock.calls[0][6] || firstCallDocId?.replace(/^session_/, '');
+    expect(firstCallDocId).not.toMatch(/^new_/);
+    expect(firstCallDocId).toMatch(/^(session_)?[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i);
+    expect(firstCallSessionId).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i);
+
+    // Assert that the fetch/POST body sent to /api/v1/query/stream in General Chat has document_id: undefined (or null)
+    // and session_id: <valid-uuid>, NEVER a non-null document_id
+    const fetchSpy = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      headers: new Headers(),
+      json: () => Promise.resolve({}),
+      body: {
+        getReader: () => ({
+          read: vi.fn()
+            .mockResolvedValueOnce({ done: false, value: new TextEncoder().encode('data: {"chunk":"test"}\n\ndata: [DONE]\n\n') })
+            .mockResolvedValueOnce({ done: true, value: undefined }),
+        }),
+      },
+    });
+    const originalFetch = globalThis.fetch;
+    const originalWindowFetch = window.fetch;
+    window.fetch = fetchSpy;
+    globalThis.fetch = fetchSpy;
+    vi.stubGlobal('fetch', fetchSpy);
+    Object.defineProperty(navigator, 'onLine', { value: true, configurable: true });
+    await originalSendQueryStream(
+      streamSpy.mock.calls[0][0],
+      streamSpy.mock.calls[0][1],
+      streamSpy.mock.calls[0][2],
+      () => {},
+      streamSpy.mock.calls[0][4],
+      undefined
+    );
+    expect(fetchSpy).toHaveBeenCalled();
+    const sentGeneralPayload = JSON.parse(fetchSpy.mock.calls[0][1].body);
+    expect(sentGeneralPayload.session_id).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i);
+    expect(sentGeneralPayload.document_id).toBeUndefined(); // NEVER a non-null document_id!
+    window.fetch = originalWindowFetch;
+    if (originalFetch) {
+      vi.stubGlobal('fetch', originalFetch);
+    } else {
+      vi.unstubAllGlobals();
+    }
 
     // Assert Answer 1 renders LIVE in active thread without reloading or re-clicking sidebar
     expect(await screen.findByText(/fatigue, bone pain, and muscle weakness\./i)).toBeInTheDocument();
