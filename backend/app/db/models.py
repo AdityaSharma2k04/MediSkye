@@ -13,6 +13,7 @@ from sqlalchemy import (
     Text,
     Index,
     UniqueConstraint,
+    func,
 )
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import relationship as orm_relationship
@@ -40,8 +41,8 @@ class User(Base):
     blood_type = Column(EncryptedString, nullable=True)
     pre_existing_conditions = Column(EncryptedString, nullable=True)
     known_allergies = Column(EncryptedString, nullable=True)
-    emergency_contact_name = Column(String, nullable=True)
-    emergency_contact_phone = Column(String, nullable=True)
+    emergency_contact_name = Column(EncryptedString, nullable=True)
+    emergency_contact_phone = Column(EncryptedString, nullable=True)
 
     phi_consent_granted = Column(Boolean, default=False)
     consent_timestamp = Column(DateTime(timezone=True), nullable=True)
@@ -61,6 +62,10 @@ class User(Base):
 
     # Multi-instance logout & token revocation cutoff
     token_invalid_before = Column(DateTime(timezone=True), nullable=True)
+
+    __table_args__ = (
+        Index("ix_users_lower_email", func.lower(email), unique=True),
+    )
 
     @property
     def health_profile(self):
