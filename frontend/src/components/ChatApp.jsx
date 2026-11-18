@@ -191,11 +191,53 @@ export const createFreshDraftConversation = (patientId = 'self') => {
   };
 };
 
+let hasCompletedBootSyncInRAM = false;
+
+export function checkBootSyncCompletedInChatApp(uid) {
+  if (hasCompletedBootSyncInRAM) return true;
+  try {
+    if (typeof sessionStorage !== 'undefined' && sessionStorage.getItem('mediskye_boot_synced_v1') === 'true') {
+      hasCompletedBootSyncInRAM = true;
+      return true;
+    }
+  } catch (_) { }
+  try {
+    const stableUid = uid || (typeof getCurrentUid === 'function' ? getCurrentUid() : 'default');
+    const storageKey = typeof userKey === 'function'
+      ? userKey('mediskye_initial_sync_complete', stableUid)
+      : `mediskye_initial_sync_complete_${stableUid}`;
+    if (typeof localStorage !== 'undefined' && localStorage.getItem(storageKey) === 'true') {
+      hasCompletedBootSyncInRAM = true;
+      return true;
+    }
+  } catch (_) { }
+  return false;
+}
+
+export function markBootSyncCompletedInChatApp(uid) {
+  hasCompletedBootSyncInRAM = true;
+  try {
+    if (typeof sessionStorage !== 'undefined') {
+      sessionStorage.setItem('mediskye_boot_synced_v1', 'true');
+    }
+  } catch (_) { }
+  try {
+    const stableUid = uid || (typeof getCurrentUid === 'function' ? getCurrentUid() : 'default');
+    const storageKey = typeof userKey === 'function'
+      ? userKey('mediskye_initial_sync_complete', stableUid)
+      : `mediskye_initial_sync_complete_${stableUid}`;
+    if (typeof localStorage !== 'undefined') {
+      localStorage.setItem(storageKey, 'true');
+    }
+  } catch (_) { }
+}
+
 export default function ChatApp() {
   const navigate = useNavigate();
   const userLoadedRef = useRef(null);
 
   const handleLogout = async () => {
+    hasCompletedBootSyncInRAM = false;
     // Clear the JWT blocklist server-side, then wipe all local auth/PHI state.
     await logout();
     invalidateMetrics();
@@ -375,7 +417,7 @@ export default function ChatApp() {
   const isInitialSyncCompleted = useCallback(() => {
     try {
       const uid = typeof getCurrentUid === 'function' ? getCurrentUid() : 'default';
-      return localStorage.getItem(userKey('mediskye_initial_sync_complete', uid)) === 'true';
+      return checkBootSyncCompletedInChatApp(uid);
     } catch (_) {
       return false;
     }
@@ -383,24 +425,32 @@ export default function ChatApp() {
 
   const [isWorkspaceHydrating, setIsWorkspaceHydrating] = useState(() => {
     if (typeof navigator !== 'undefined' && !navigator.onLine) return false;
+    if (checkBootSyncCompletedInChatApp()) return false;
     return !isInitialSyncCompleted();
   });
+
+  const setWorkspaceHydratingSafe = useCallback((val) => {
+    if (val && checkBootSyncCompletedInChatApp(currentUser?.id)) {
+      return; // Permanent session guard: NEVER re-trigger workspace hydration once boot sync is complete!
+    }
+    setIsWorkspaceHydrating(val);
+  }, [currentUser?.id]);
   const [syncProgressLabel, setSyncProgressLabel] = useState('');
 
   // Safety timeout: dismiss blocking hydration overlay after at most 45s (1.5s in Vitest)
   useEffect(() => {
     if (!isWorkspaceHydrating) return;
     const safetyTimer = setTimeout(() => {
-      setIsWorkspaceHydrating(false);
+      setWorkspaceHydratingSafe(false);
     }, HYDRATION_SAFETY_TIMEOUT_MS);
     return () => clearTimeout(safetyTimer);
-  }, [isWorkspaceHydrating, HYDRATION_SAFETY_TIMEOUT_MS]);
+  }, [isWorkspaceHydrating, HYDRATION_SAFETY_TIMEOUT_MS, setWorkspaceHydratingSafe]);
 
   useEffect(() => {
     if (!isOnline) {
-      setIsWorkspaceHydrating(false);
+      setWorkspaceHydratingSafe(false);
     }
-  }, [isOnline]);
+  }, [isOnline, setWorkspaceHydratingSafe]);
 
   const computeProfileReportCountFromCache = (pid) => {
     try {
@@ -699,9 +749,24 @@ export default function ChatApp() {
     return [freshChat];
   });
 
-  // Load chat history from backend with race condition protection
-  const loadChatHistory = useCallback(async (targetDocId, targetSessionId) => {
+  // Load chat history from backend with race condition protection and 0ms RAM cache fast-path
+  const loadChatHistory = useCallback(async (targetDocId, targetSessionId, { force = false } = {}) => {
     const fetchKey = targetDocId || targetSessionId;
+    const chatKey = targetDocId ? `doc_${targetDocId}` : `session_${targetSessionId}`;
+    const cachedMsgs = typeof getCachedChatMessages === 'function' ? getCachedChatMessages(chatKey) : [];
+
+    // If already in RAM/storage cache and not forced, hydrate synchronously with 0ms delay and zero spinner!
+    if (!force && Array.isArray(cachedMsgs) && cachedMsgs.length > 0) {
+      setConversations((prev) =>
+        prev.map((item) => {
+          const isTarget = item.id === targetSessionId || (targetDocId && (item.id === targetDocId || item.document_id === targetDocId));
+          if (!isTarget) return item;
+          return { ...item, messages: cachedMsgs };
+        })
+      );
+      return;
+    }
+
     activeChatFetchRef.current = fetchKey;
     setLoadingHistory(true);
     try {
@@ -738,6 +803,9 @@ export default function ChatApp() {
           if (typeof setCachedConversations === 'function') {
             setCachedConversations(next, currentPat);
           }
+          if (typeof setCachedChatMessages === 'function' && chatKey) {
+            setCachedChatMessages(chatKey, formatted);
+          }
         } catch (_) { }
         return next;
       });
@@ -748,14 +816,14 @@ export default function ChatApp() {
         setLoadingHistory(false);
       }
     }
-  }, []);
+  }, [isGenerating, selectedPatientId]);
 
   // Background pre-warmer: pre-downloads full message histories for unvisited sidebar conversations
   const prewarmMessageHistories = useCallback(async (convsToPrewarm, targetPatientId) => {
     if (typeof window === 'undefined' || (typeof navigator !== 'undefined' && !navigator.onLine)) return;
     const patId = targetPatientId || selectedPatientId || 'self';
     const candidateConvs = (convsToPrewarm || [])
-      .filter((c) => !c.messages || c.messages.length === 0)
+      .filter((c) => !c.isDraft && (!c.messages || c.messages.length === 0))
       .slice(0, 15);
 
     if (candidateConvs.length === 0) return;
@@ -1215,13 +1283,16 @@ export default function ChatApp() {
       const runInitialSync = async () => {
         try {
           if (typeof navigator !== 'undefined' && !navigator.onLine) {
-            setIsWorkspaceHydrating(false);
+            setWorkspaceHydratingSafe(false);
             return;
           }
 
-          const needsLock = !isInitialSyncCompleted();
+          const isAlreadyBootSynced = checkBootSyncCompletedInChatApp(currentUser?.id);
+          const needsLock = !isAlreadyBootSynced && !isInitialSyncCompleted();
           if (needsLock) {
-            setIsWorkspaceHydrating(true);
+            setWorkspaceHydratingSafe(true);
+          } else {
+            setWorkspaceHydratingSafe(false);
           }
 
           const syncPromise = syncAllProfilesInBackground('self', dependents || []);
@@ -1243,21 +1314,18 @@ export default function ChatApp() {
           if (Array.isArray(cachedDeps) && cachedDeps.length > 0) {
             setDependents(cachedDeps);
           }
-          if (currentUser?.id) {
-            try {
-              localStorage.setItem(userKey('mediskye_initial_sync_complete', currentUser.id), 'true');
-            } catch (_) {}
-          }
+          markBootSyncCompletedInChatApp(currentUser?.id);
         } catch (err) {
           logger.warn('Initial workspace sync error:', err);
         } finally {
-          setIsWorkspaceHydrating(false);
+          setWorkspaceHydratingSafe(false);
+          markBootSyncCompletedInChatApp(currentUser?.id);
         }
       };
 
       runInitialSync();
     }
-  }, [currentUser?.id, refreshDocuments, dependentIdsKey, syncAllProfilesInBackground, isInitialSyncCompleted]);
+  }, [currentUser?.id, refreshDocuments, dependentIdsKey, syncAllProfilesInBackground, isInitialSyncCompleted, setWorkspaceHydratingSafe]);
 
   // ── Enforce permanent dark theme on the DOM ──
   useEffect(() => {
@@ -1340,17 +1408,50 @@ export default function ChatApp() {
     // Immediately and unconditionally clear activePdf
     setActivePdf(null);
 
-    // Read cached conversations strictly for normTarget
-    const cachedForTarget = (
-      typeof getCachedConversations === 'function' ? getCachedConversations(normTarget) || [] : []
-    ).filter((c) => normalizePatientId(c.patientId || c.patient_id) === normTarget && !c.isDraft);
+    // Read cached conversations strictly for normTarget synchronously in the exact same event tick
+    const cachedConvs = typeof getCachedConversations === 'function' ? getCachedConversations(normTarget) : null;
+    const cachedForTarget = (Array.isArray(cachedConvs) ? cachedConvs : []).filter(
+      (c) => normalizePatientId(c.patientId || c.patient_id) === normTarget && !c.isDraft
+    );
+
+    const cachedDocs = typeof getCachedDocuments === 'function' ? getCachedDocuments(normTarget) : [];
+    if (Array.isArray(cachedDocs)) {
+      setProfileReportCounts((prev) => ({
+        ...prev,
+        [String(normTarget)]: cachedDocs.length,
+      }));
+    }
 
     const freshChat = createFreshDraftConversation(normTarget);
     setSessionId(freshChat.id);
     sessionIdRef.current = freshChat.id;
 
-    // Even when cachedForTarget is empty ([]), unconditionally call:
-    setConversations([freshChat, ...cachedForTarget]);
+    if (cachedForTarget.length > 0) {
+      setConversations([freshChat, ...cachedForTarget]);
+    } else if (Array.isArray(cachedDocs) && cachedDocs.length > 0) {
+      const docConvs = cachedDocs.map((doc) => ({
+        id: doc.id,
+        document_id: doc.id,
+        title: doc.title || doc.filename || 'Medical Report',
+        messages: [],
+        pdf: {
+          id: doc.id,
+          name: doc.filename,
+          filename: doc.filename,
+          title: doc.title,
+          collected_at: doc.collected_at,
+          is_future_collection_date: doc.is_future_collection_date,
+          size: 8192,
+        },
+        patient_id: doc.dependent_id === null ? 'self' : normalizePatientId(doc.dependent_id || normTarget),
+        patientId: doc.dependent_id === null ? 'self' : normalizePatientId(doc.dependent_id || normTarget),
+        created_at: doc.created_at,
+        isDraft: false,
+      }));
+      setConversations([freshChat, ...docConvs]);
+    } else {
+      setConversations([freshChat]);
+    }
 
     // Pre-warm local cache for target profile in background
     setTimeout(() => {
@@ -2003,20 +2104,52 @@ export default function ChatApp() {
     setSessionId(id);
     sessionIdRef.current = id;
     setViewMode('chat');
+    setIsProfileOpen(false);
+
     const chat = conversations.find((c) => c.id === id);
+    const pId = chat?.patient_id || selectedPatientId || 'self';
+    const targetDocId = chat?.document_id || (chat?.pdf ? id : null);
+    const chatKey = targetDocId ? `doc_${targetDocId}` : `session_${id}`;
+
+    // 0ms Cache-first read: Check if messages exist in conversation or in RAM_CACHE / localStorage
+    const cachedMsgs = (chat?.messages && chat.messages.length > 0)
+      ? chat.messages
+      : (typeof getCachedChatMessages === 'function' ? getCachedChatMessages(chatKey) : []);
+
     if (chat) {
-      setActivePdf(chat.pdf || null);
-      const pId = chat.patient_id || 'self';
-      setSelectedPatientId(pId);
-      localStorage.setItem('mediskye_patient_id', pId);
-      const targetDocId = chat.document_id || (chat.pdf ? id : null);
+      let resolvedPdf = chat.pdf || null;
+      if (!resolvedPdf && chat.document_id) {
+        const cachedDocs = typeof getCachedDocuments === 'function' ? getCachedDocuments(pId) : [];
+        const matchedDoc = (cachedDocs || []).find((d) => d.id === chat.document_id);
+        if (matchedDoc) {
+          resolvedPdf = {
+            id: matchedDoc.id,
+            name: matchedDoc.filename,
+            filename: matchedDoc.filename,
+            title: matchedDoc.title,
+            collected_at: matchedDoc.collected_at,
+            is_future_collection_date: matchedDoc.is_future_collection_date,
+            size: matchedDoc.size || 8192,
+          };
+        }
+      }
+      setActivePdf(resolvedPdf);
+      if (pId !== selectedPatientId) {
+        setSelectedPatientId(pId);
+        localStorage.setItem('mediskye_patient_id', pId);
+      }
+      if (Array.isArray(cachedMsgs) && cachedMsgs.length > 0 && (!chat.messages || chat.messages.length === 0)) {
+        setConversations((prev) =>
+          prev.map((item) => (item.id === id ? { ...item, messages: cachedMsgs } : item))
+        );
+      }
       await loadChatHistory(targetDocId, id);
     } else {
+      setActivePdf(null);
       setSelectedPatientId('self');
       localStorage.setItem('mediskye_patient_id', 'self');
       await loadChatHistory(null, id);
     }
-    setIsProfileOpen(false);
   };
 
   const handleClearAllChats = async () => {
@@ -2360,9 +2493,6 @@ export default function ChatApp() {
   const handleManualCloudSync = useCallback(async () => {
     if (isSyncing) return;
     setIsSyncing(true);
-    if (typeof navigator !== 'undefined' && navigator.onLine) {
-      setIsWorkspaceHydrating(true);
-    }
     try {
       const patId = selectedPatientId || 'self';
       // 1. Fetch fresh profile & dependents and update React state + local cache
@@ -2412,7 +2542,6 @@ export default function ChatApp() {
       logger.warn('Manual cloud sync failed:', err);
     } finally {
       setIsSyncing(false);
-      setIsWorkspaceHydrating(false);
     }
   }, [isSyncing, currentUser, activePdf, currentChat, sessionId, selectedPatientId, refreshDocuments, loadChatHistory, labMetrics, prewarmMessageHistories, conversations, syncAllProfilesInBackground]);
 
@@ -2791,7 +2920,7 @@ export default function ChatApp() {
       />
 
       {/* ── Blocking Workspace Hydration Overlay ── */}
-      {isWorkspaceHydrating && (
+      {isWorkspaceHydrating && !checkBootSyncCompletedInChatApp(currentUser?.id) && (
         <div
           data-testid="workspace-hydration-overlay"
           className="fixed inset-0 z-[100] pointer-events-auto flex flex-col items-center justify-center bg-[#070B14]/95 backdrop-blur-md p-6 text-center select-none animate-fade-in"

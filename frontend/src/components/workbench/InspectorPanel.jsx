@@ -265,7 +265,13 @@ function ReportDetails({ activePdf, metrics, attachedDocuments, onPrintSummary, 
         {onPrintSummary && (
           <button
             type="button"
-            onClick={onPrintSummary}
+            onClick={(e) => {
+              if (e) {
+                e.preventDefault();
+                e.stopPropagation();
+              }
+              onPrintSummary(e);
+            }}
             disabled={isExporting}
             className="ms-tap w-full flex items-center gap-3 px-4 h-12 rounded-2xl text-left bg-cyan-500/10 border border-cyan-500/25 hover:bg-cyan-500/15 text-cyan-100 transition disabled:opacity-60"
           >
@@ -276,7 +282,13 @@ function ReportDetails({ activePdf, metrics, attachedDocuments, onPrintSummary, 
         {onExportChat && (
           <button
             type="button"
-            onClick={onExportChat}
+            onClick={(e) => {
+              if (e) {
+                e.preventDefault();
+                e.stopPropagation();
+              }
+              onExportChat(e);
+            }}
             className="ms-tap w-full flex items-center gap-3 px-4 h-12 rounded-2xl text-left bg-white/[0.03] border border-white/[0.08] hover:bg-white/[0.06] text-ink-soft transition"
           >
             <Download className="w-4 h-4" />

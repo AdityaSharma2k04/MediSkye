@@ -127,11 +127,12 @@ export default function MemoryVault({
     }
   }, [open, activePatientId, selectedPatientId]);
 
-  const load = useCallback(async () => {
+  const load = useCallback(async (force = false) => {
     const cached = getCachedMemoryFacts(selectedVaultPatientId);
     if (Array.isArray(cached) && cached.length > 0) {
       setFacts(cached);
       setLoading(false);
+      if (!force) return;
     } else {
       setLoading(true);
     }

@@ -157,7 +157,12 @@ const GlobalAuthListener = ({ user, setUser }) => {
             const idToken = await firebaseUser.getIdToken(false).catch(() => null);
             saveAuthSession(firebaseUser, idToken);
             if (typeof setUser === 'function') {
-              setUser(firebaseUser);
+              setUser((prevUser) => {
+                if (prevUser && (prevUser.uid === firebaseUser.uid || prevUser.id === firebaseUser.uid)) {
+                  return prevUser;
+                }
+                return firebaseUser;
+              });
             }
           } else {
             const savedSession = getSavedAuthSession();
@@ -165,11 +170,16 @@ const GlobalAuthListener = ({ user, setUser }) => {
               // DO NOT call setUser(null) and DO NOT clear localStorage!
               // Keep user set to savedSession across sleep/wake, offline boots, and WebView reloads.
               if (typeof setUser === 'function') {
-                setUser(savedSession);
+                setUser((prevUser) => {
+                  if (prevUser && (prevUser.uid === savedSession.uid || prevUser.id === savedSession.uid || prevUser.id === savedSession.id)) {
+                    return prevUser;
+                  }
+                  return savedSession;
+                });
               }
             } else {
               if (typeof setUser === 'function') {
-                setUser(null);
+                setUser((prevUser) => (prevUser === null ? prevUser : null));
               }
             }
           }
@@ -264,7 +274,12 @@ const GlobalAuthListener = ({ user, setUser }) => {
             const token = await result.user.getIdToken();
             saveAuthSession(result.user, token);
             if (typeof setUser === 'function') {
-              setUser(result.user);
+              setUser((prevUser) => {
+                if (prevUser && (prevUser.uid === result.user.uid || prevUser.id === result.user.uid)) {
+                  return prevUser;
+                }
+                return result.user;
+              });
             }
             navigate('/chat', { replace: true });
           }

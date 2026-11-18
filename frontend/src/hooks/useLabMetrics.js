@@ -108,15 +108,31 @@ export function extractBiomarkersFromMessage(text) {
 export default function useLabMetrics(documentId, { enabled = true, messages = [] } = {}) {
   const [state, setState] = useState(() => {
     const cached = documentId ? getCachedDocMetrics(documentId) : null;
+    const hasCached = Boolean(cached && cached.length > 0);
     return {
       docId: documentId,
       metrics: Array.isArray(cached) ? cached : [],
-      loading: !cached && Boolean(enabled && documentId),
-      loaded: Boolean(cached && cached.length > 0),
+      loading: !hasCached && Boolean(enabled && documentId),
+      loaded: hasCached,
       error: null,
     };
   });
   const reqRef = useRef(0);
+
+  // Synchronously update state on documentId change for 0ms frame rendering
+  const [prevDocId, setPrevDocId] = useState(documentId);
+  if (prevDocId !== documentId) {
+    setPrevDocId(documentId);
+    const cached = documentId ? getCachedDocMetrics(documentId) : null;
+    const hasData = Boolean(cached && cached.length > 0);
+    setState({
+      docId: documentId,
+      metrics: Array.isArray(cached) ? cached : [],
+      loading: !hasData && Boolean(enabled && documentId),
+      loaded: hasData,
+      error: null,
+    });
+  }
 
   const load = useCallback(
     async (force = false) => {
@@ -124,18 +140,29 @@ export default function useLabMetrics(documentId, { enabled = true, messages = [
         setState({ docId: null, metrics: [], loading: false, loaded: false, error: null });
         return [];
       }
-      const reqId = ++reqRef.current;
-      setState((s) => {
-        const cached = s.docId === documentId ? s.metrics : (getCachedDocMetrics(documentId) || []);
-        const hasData = Boolean(cached && cached.length > 0);
-        return {
+      const cached = getCachedDocMetrics(documentId) || [];
+      const hasData = Boolean(cached && cached.length > 0);
+
+      // 0ms Cache-first: If cached metrics exist and not force refreshing, DO NOT hit the backend
+      if (hasData && !force) {
+        setState({
           docId: documentId,
           metrics: cached,
-          loading: !hasData || force,
-          loaded: hasData,
+          loading: false,
+          loaded: true,
           error: null,
-        };
-      });
+        });
+        return cached;
+      }
+
+      const reqId = ++reqRef.current;
+      setState((s) => ({
+        docId: documentId,
+        metrics: cached,
+        loading: !hasData || force,
+        loaded: hasData,
+        error: null,
+      }));
       try {
         const metrics = await loadMetricsFor(documentId, { force });
         if (reqId === reqRef.current) {
@@ -145,13 +172,13 @@ export default function useLabMetrics(documentId, { enabled = true, messages = [
         return metrics;
       } catch (err) {
         if (reqId === reqRef.current) {
-          const cached = getCachedDocMetrics(documentId) || [];
+          const fallbackCached = getCachedDocMetrics(documentId) || [];
           setState({
             docId: documentId,
-            metrics: cached,
+            metrics: fallbackCached,
             loading: false,
             loaded: true,
-            error: cached.length > 0 ? null : (err?.message || 'Failed to load metrics'),
+            error: fallbackCached.length > 0 ? null : (err?.message || 'Failed to load metrics'),
           });
         }
         return [];
@@ -162,6 +189,8 @@ export default function useLabMetrics(documentId, { enabled = true, messages = [
 
   useEffect(() => {
     if (!enabled || !documentId) return;
+    const cached = getCachedDocMetrics(documentId);
+    if (cached && cached.length > 0) return; // 0ms cache-first: skip duplicate network fetch
     if (state.docId === documentId && state.loaded) return;
     load(false);
     // eslint-disable-next-line react-hooks/exhaustive-deps

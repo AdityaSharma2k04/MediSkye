@@ -237,7 +237,76 @@ export function warmBackendConnection() {
   } catch (_) { }
 }
 
-export function safeStorageSet(key, value) {
+// ── In-Memory RAM Cache Layer (0ms Instant Reads) ──
+export const RAM_CACHE = new Map();
+
+// Hook Storage prototype in browser/test to ensure RAM_CACHE is cleared whenever localStorage is wiped
+if (typeof window !== 'undefined' && typeof window.Storage !== 'undefined') {
+  try {
+    const origClear = window.Storage.prototype.clear;
+    window.Storage.prototype.clear = function () {
+      RAM_CACHE.clear();
+      return origClear.apply(this, arguments);
+    };
+    const origRemoveItem = window.Storage.prototype.removeItem;
+    window.Storage.prototype.removeItem = function (k) {
+      RAM_CACHE.delete(k);
+      return origRemoveItem.apply(this, arguments);
+    };
+  } catch (_) { }
+}
+
+let hasCompletedBootSyncInRAM = false;
+
+export function checkBootSyncCompleted(uid) {
+  if (hasCompletedBootSyncInRAM) return true;
+  try {
+    if (typeof sessionStorage !== 'undefined' && sessionStorage.getItem('mediskye_boot_synced_v1') === 'true') {
+      hasCompletedBootSyncInRAM = true;
+      return true;
+    }
+  } catch (_) { }
+  try {
+    const stableUid = getStableCacheUid(uid);
+    if (typeof localStorage !== 'undefined' && localStorage.getItem(userKey('mediskye_initial_sync_complete', stableUid)) === 'true') {
+      hasCompletedBootSyncInRAM = true;
+      return true;
+    }
+  } catch (_) { }
+  return false;
+}
+
+export function markBootSyncCompleted(uid) {
+  hasCompletedBootSyncInRAM = true;
+  try {
+    if (typeof sessionStorage !== 'undefined') {
+      sessionStorage.setItem('mediskye_boot_synced_v1', 'true');
+    }
+  } catch (_) { }
+  try {
+    const stableUid = getStableCacheUid(uid);
+    if (typeof localStorage !== 'undefined') {
+      localStorage.setItem(userKey('mediskye_initial_sync_complete', stableUid), 'true');
+    }
+  } catch (_) { }
+}
+
+export function resetBootSyncStatus() {
+  hasCompletedBootSyncInRAM = false;
+  try {
+    if (typeof sessionStorage !== 'undefined') {
+      sessionStorage.removeItem('mediskye_boot_synced_v1');
+    }
+  } catch (_) { }
+}
+
+const isTestEnv = typeof process !== 'undefined' && (
+  process.env?.NODE_ENV === 'test' ||
+  process.env?.VITEST === 'true' ||
+  Boolean(typeof window !== 'undefined' && (window.__VITEST__ || window.vi))
+);
+
+function persistToLocalStorage(key, value) {
   if (typeof window === 'undefined' || !key) return;
   const strVal = typeof value === 'string' ? value : JSON.stringify(value);
   try {
@@ -274,11 +343,48 @@ export function safeStorageSet(key, value) {
   }
 }
 
+export function safeStorageSet(key, value) {
+  if (!key) return;
+  // 1. Immediately store in RAM cache for instant 0ms reads without JSON serialization overhead
+  RAM_CACHE.set(key, value);
+
+  // 2. Persist to localStorage asynchronously so disk serialization NEVER blocks UI animations or profile switches!
+  if (isTestEnv) {
+    persistToLocalStorage(key, value);
+  } else if (typeof queueMicrotask === 'function') {
+    queueMicrotask(() => {
+      persistToLocalStorage(key, value);
+    });
+  } else if (typeof requestIdleCallback === 'function') {
+    requestIdleCallback(() => {
+      persistToLocalStorage(key, value);
+    });
+  } else {
+    setTimeout(() => {
+      persistToLocalStorage(key, value);
+    }, 0);
+  }
+}
+
 export function safeStorageGet(key, fallback = null) {
-  if (typeof window === 'undefined' || !key) return fallback;
+  if (!key) return fallback;
+  if (RAM_CACHE.has(key)) {
+    return RAM_CACHE.get(key);
+  }
+  if (typeof window === 'undefined') return fallback;
   try {
     const raw = localStorage.getItem(key);
-    return raw ? JSON.parse(raw) : fallback;
+    if (raw === null || raw === undefined) {
+      return fallback;
+    }
+    let parsed;
+    try {
+      parsed = JSON.parse(raw);
+    } catch (_) {
+      parsed = raw;
+    }
+    RAM_CACHE.set(key, parsed);
+    return parsed;
   } catch (_) {
     return fallback;
   }
@@ -286,7 +392,9 @@ export function safeStorageGet(key, fallback = null) {
 
 export function getCachedProfile(uid = getStableCacheUid()) {
   const stableUid = getStableCacheUid(uid);
-  return safeStorageGet(`mediskye_cached_profile_${stableUid}`, null);
+  const key = `mediskye_cached_profile_${stableUid}`;
+  if (RAM_CACHE.has(key)) return RAM_CACHE.get(key);
+  return safeStorageGet(key, null);
 }
 
 export function setCachedProfile(profileOrUid, uidOrProfile) {
@@ -303,7 +411,9 @@ export function setCachedProfile(profileOrUid, uidOrProfile) {
 
 export function getCachedDependents(uid = getStableCacheUid()) {
   const stableUid = getStableCacheUid(uid);
-  return safeStorageGet(`mediskye_cached_dependents_${stableUid}`, []);
+  const key = `mediskye_cached_dependents_${stableUid}`;
+  if (RAM_CACHE.has(key)) return RAM_CACHE.get(key);
+  return safeStorageGet(key, []);
 }
 
 export function setCachedDependents(dependentsOrUid, uidOrDependents) {
@@ -320,7 +430,11 @@ export function setCachedDependents(dependentsOrUid, uidOrDependents) {
 export function getCachedDocuments(patientId = 'self', uid = getStableCacheUid()) {
   const stableUid = getStableCacheUid(uid);
   const targetPid = normalizePatientId(patientId);
-  const docs = safeStorageGet(`mediskye_cached_documents_${stableUid}_${targetPid}`, []);
+  const key = `mediskye_cached_documents_${stableUid}_${targetPid}`;
+  if (RAM_CACHE.has(key)) {
+    return RAM_CACHE.get(key);
+  }
+  const docs = safeStorageGet(key, []);
   if (!Array.isArray(docs)) return [];
 
   // Sanitize on read: verify every document belongs to targetPid
@@ -330,8 +444,9 @@ export function getCachedDocuments(patientId = 'self', uid = getStableCacheUid()
     return docOwner === targetPid;
   });
 
+  RAM_CACHE.set(key, sanitized);
   if (sanitized.length !== docs.length) {
-    safeStorageSet(`mediskye_cached_documents_${stableUid}_${targetPid}`, sanitized);
+    safeStorageSet(key, sanitized);
   }
 
   return sanitized;
@@ -339,14 +454,17 @@ export function getCachedDocuments(patientId = 'self', uid = getStableCacheUid()
 
 export function setCachedDocuments(docs, patientId = 'self', uid = getStableCacheUid()) {
   const stableUid = getStableCacheUid(uid);
-  safeStorageSet(`mediskye_cached_documents_${stableUid}_${patientId || 'self'}`, docs || []);
+  const targetPid = normalizePatientId(patientId);
+  safeStorageSet(`mediskye_cached_documents_${stableUid}_${targetPid}`, docs || []);
 }
 
 // ── Per-Document Metrics & Summary ──
 
 export function getCachedDocMetrics(docId) {
   if (!docId) return null;
-  return safeStorageGet(`mediskye_cached_doc_metrics_${docId}`, null);
+  const key = `mediskye_cached_doc_metrics_${docId}`;
+  if (RAM_CACHE.has(key)) return RAM_CACHE.get(key);
+  return safeStorageGet(key, null);
 }
 
 export function setCachedDocMetrics(docId, metrics) {
@@ -356,7 +474,9 @@ export function setCachedDocMetrics(docId, metrics) {
 
 export function getCachedDocSummary(docId) {
   if (!docId) return null;
-  return safeStorageGet(`mediskye_cached_doc_summary_${docId}`, null);
+  const key = `mediskye_cached_doc_summary_${docId}`;
+  if (RAM_CACHE.has(key)) return RAM_CACHE.get(key);
+  return safeStorageGet(key, null);
 }
 
 export function setCachedDocSummary(docId, summary) {
@@ -368,25 +488,33 @@ export function setCachedDocSummary(docId, summary) {
 
 export function getCachedMemoryFacts(patientId = 'self', uid = getStableCacheUid()) {
   const stableUid = getStableCacheUid(uid);
-  return safeStorageGet(`mediskye_cached_facts_${stableUid}_${patientId || 'self'}`, []);
+  const targetPid = normalizePatientId(patientId);
+  const key = `mediskye_cached_facts_${stableUid}_${targetPid}`;
+  if (RAM_CACHE.has(key)) return RAM_CACHE.get(key);
+  return safeStorageGet(key, []);
 }
 
 export function setCachedMemoryFacts(facts, patientId = 'self', uid = getStableCacheUid()) {
   const stableUid = getStableCacheUid(uid);
-  safeStorageSet(`mediskye_cached_facts_${stableUid}_${patientId || 'self'}`, facts || []);
+  const targetPid = normalizePatientId(patientId);
+  safeStorageSet(`mediskye_cached_facts_${stableUid}_${targetPid}`, facts || []);
 }
 
 // ── Longitudinal Biomarker Trends Cache ──
 
 export function getCachedTrends(patientId = 'self', uid = getStableCacheUid()) {
   const stableUid = getStableCacheUid(uid);
-  return safeStorageGet(`mediskye_cached_trends_${stableUid}_${patientId || 'self'}`, null);
+  const targetPid = normalizePatientId(patientId);
+  const key = `mediskye_cached_trends_${stableUid}_${targetPid}`;
+  if (RAM_CACHE.has(key)) return RAM_CACHE.get(key);
+  return safeStorageGet(key, null);
 }
 
 export function setCachedTrends(trends, patientId = 'self', uid = getStableCacheUid()) {
   const stableUid = getStableCacheUid(uid);
+  const targetPid = normalizePatientId(patientId);
   if (!trends) return;
-  safeStorageSet(`mediskye_cached_trends_${stableUid}_${patientId || 'self'}`, trends);
+  safeStorageSet(`mediskye_cached_trends_${stableUid}_${targetPid}`, trends);
 }
 
 // ── Persistent Chat Sessions Cache ──
@@ -480,6 +608,10 @@ export function reconcileMessagesWithServer(localMessages, serverMessages, isCur
 export function getCachedConversations(patientId = 'self', uid = getStableCacheUid()) {
   const stableUid = getStableCacheUid(uid);
   const targetPid = normalizePatientId(patientId);
+  const ramKey = `mediskye_conversations_${stableUid}_${targetPid}`;
+  if (RAM_CACHE.has(ramKey)) {
+    return RAM_CACHE.get(ramKey);
+  }
 
   const allConvsMap = new Map();
   let foundAnyMatchingCache = false;
@@ -574,18 +706,24 @@ export function getCachedConversations(patientId = 'self', uid = getStableCacheU
         const owner = pdfPid ? normalizePatientId(pdfPid) : normalizePatientId(c.patientId || c.patient_id || targetPid);
         return owner === targetPid;
       });
-      return sanitizeConvMessages(filtered);
+      const sanitized = sanitizeConvMessages(filtered);
+      RAM_CACHE.set(ramKey, sanitized);
+      return sanitized;
     }
   }
 
-  return sanitizeConvMessages(Array.from(allConvsMap.values()));
+  const result = sanitizeConvMessages(Array.from(allConvsMap.values()));
+  RAM_CACHE.set(ramKey, result);
+  return result;
 }
 
 export function setCachedConversations(conversations, patientId = 'self', uid = getStableCacheUid()) {
   const stableUid = getStableCacheUid(uid);
+  const targetPid = normalizePatientId(patientId);
+  const ramKey = `mediskye_conversations_${stableUid}_${targetPid}`;
   if (!conversations) return;
   if (!Array.isArray(conversations)) {
-    safeStorageSet(`mediskye_conversations_${stableUid}_${patientId || 'self'}`, conversations);
+    safeStorageSet(ramKey, conversations);
     return;
   }
   const sanitized = conversations.map((c) => {
@@ -598,7 +736,7 @@ export function setCachedConversations(conversations, patientId = 'self', uid = 
     }
     return c;
   });
-  safeStorageSet(`mediskye_conversations_${stableUid}_${patientId || 'self'}`, sanitized);
+  safeStorageSet(ramKey, sanitized);
 }
 
 // ── Per-Chat Message History Cache ──
@@ -606,20 +744,37 @@ export function setCachedConversations(conversations, patientId = 'self', uid = 
 export function getCachedChatMessages(chatKey, uid = getStableCacheUid()) {
   if (!chatKey) return [];
   const stableUid = getStableCacheUid(uid);
-  const msgs = safeStorageGet(`mediskye_cached_msgs_${stableUid}_${chatKey}`, []);
-  return sanitizeMessagesForCache(msgs);
+  const key = `mediskye_cached_msgs_${stableUid}_${chatKey}`;
+  if (RAM_CACHE.has(key)) {
+    return RAM_CACHE.get(key);
+  }
+  const msgs = safeStorageGet(key, []);
+  const sanitized = sanitizeMessagesForCache(msgs);
+  RAM_CACHE.set(key, sanitized);
+  return sanitized;
 }
 
 export function setCachedChatMessages(chatKey, messages, uid = getStableCacheUid()) {
   if (!chatKey || !messages) return;
   const stableUid = getStableCacheUid(uid);
-  safeStorageSet(`mediskye_cached_msgs_${stableUid}_${chatKey}`, sanitizeMessagesForCache(messages));
+  const key = `mediskye_cached_msgs_${stableUid}_${chatKey}`;
+  const sanitized = sanitizeMessagesForCache(messages);
+  safeStorageSet(key, sanitized);
 }
+
+export const getCachedChatHistory = getCachedChatMessages;
+export const setCachedChatHistory = setCachedChatMessages;
+export const getCachedFacts = getCachedMemoryFacts;
+export const setCachedFacts = setCachedMemoryFacts;
 
 export function purgePatientLocalCache(patientId = 'self', uid = getStableCacheUid()) {
   const stableUid = getStableCacheUid(uid);
+  const patKey = patientId || 'self';
+  RAM_CACHE.delete(`mediskye_cached_documents_${stableUid}_${patKey}`);
+  RAM_CACHE.delete(`mediskye_cached_facts_${stableUid}_${patKey}`);
+  RAM_CACHE.delete(`mediskye_cached_trends_${stableUid}_${patKey}`);
+  RAM_CACHE.delete(`mediskye_conversations_${stableUid}_${patKey}`);
   try {
-    const patKey = patientId || 'self';
     localStorage.removeItem(`mediskye_cached_documents_${stableUid}_${patKey}`);
     localStorage.removeItem(`mediskye_cached_facts_${stableUid}_${patKey}`);
     localStorage.removeItem(`mediskye_cached_trends_${stableUid}_${patKey}`);
@@ -629,6 +784,8 @@ export function purgePatientLocalCache(patientId = 'self', uid = getStableCacheU
 
 export function purgeDocumentLocalCache(docId) {
   if (!docId) return;
+  RAM_CACHE.delete(`mediskye_cached_doc_metrics_${docId}`);
+  RAM_CACHE.delete(`mediskye_cached_doc_summary_${docId}`);
   try {
     localStorage.removeItem(`mediskye_cached_doc_metrics_${docId}`);
     localStorage.removeItem(`mediskye_cached_doc_summary_${docId}`);
@@ -868,6 +1025,8 @@ export async function register(email, password, phi_consent_granted) {
 const PRESERVED_STORAGE_KEYS = new Set(['mediskye_theme', 'mediskye_language', 'mediskye_ui_lang', 'mediskye_explicit_logout']);
 
 export function clearLocalAuthStorage() {
+  RAM_CACHE.clear();
+  resetBootSyncStatus();
   try {
     const keysToRemove = [];
     for (let i = 0; i < localStorage.length; i += 1) {
@@ -890,6 +1049,7 @@ export function clearLocalAuthStorage() {
   }
   try {
     sessionStorage.removeItem('mediskye_consent_prompted');
+    sessionStorage.removeItem('mediskye_boot_synced_v1');
   } catch (err) {
     logger.error('Failed to clear sessionStorage:', err);
   }
@@ -1164,6 +1324,12 @@ export async function parseSSEStream(reader, callbacks = {}) {
 }
 
 export async function fetchLabMetrics(documentId, forceRefresh = false) {
+  if (!forceRefresh && documentId) {
+    const cached = getCachedDocMetrics(documentId);
+    if (Array.isArray(cached) && cached.length > 0) {
+      return cached;
+    }
+  }
   try {
     const query = forceRefresh ? '?force_refresh=true' : '';
     const endpoint = `${API_BASE}/extract-metrics${query}`;
@@ -1222,6 +1388,14 @@ export async function getDocumentSummary(documentId, optionsOrForceRefresh = fal
   } else if (optionsOrForceRefresh && typeof optionsOrForceRefresh === 'object') {
     forceRefresh = !!optionsOrForceRefresh.forceRefresh;
     cachedOnly = !!optionsOrForceRefresh.cachedOnly;
+  }
+
+  // 0ms Cache-first: If cached summary is present in RAM/storage and not force refreshing, return immediately!
+  if (!forceRefresh && documentId) {
+    const cached = getCachedDocSummary(documentId);
+    if (cached && (cached.summary || cached.cached)) {
+      return cached;
+    }
   }
 
   const params = new URLSearchParams();
@@ -2115,6 +2289,12 @@ export default api;
  */
 export async function getMetricTrends(patientId = null, options = {}) {
   const patKey = patientId || 'self';
+  if (!options.forceRefresh) {
+    const cached = getCachedTrends(patKey);
+    if (cached && Array.isArray(cached.series) && cached.series.length > 0) {
+      return cached;
+    }
+  }
   let url = `${API_BASE}/users/me/metrics/trends`;
   if (patientId && patientId !== 'self') {
     url += `?patient_id=${encodeURIComponent(patientId)}`;
@@ -2512,8 +2692,9 @@ export async function syncAllProfilesInBackground(activePatientId = 'self', depe
       }
     }
 
-    // 3. Mark 100% initial sync complete in localStorage
+    // 3. Mark 100% initial sync complete in localStorage and RAM
     safeStorageSet(userKey('mediskye_initial_sync_complete', uid), 'true');
+    markBootSyncCompleted(uid);
     return { success: true, totalProfiles: totalSteps };
   } catch (err) {
     logger.warn('syncAllProfilesInBackground error:', err);

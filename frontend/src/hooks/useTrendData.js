@@ -84,11 +84,25 @@ export default function useTrendData({ patientId, reports, enabled }) {
   });
   const reqRef = useRef(0);
 
+  // Synchronously update on signature change for 0ms frame rendering
+  const [prevSig, setPrevSig] = useState(signature);
+  if (prevSig !== signature) {
+    setPrevSig(signature);
+    const cached = getCachedTrends(patientId);
+    if (cached && Array.isArray(cached.series) && cached.series.length) {
+      setState({
+        key: signature,
+        series: seriesFromServer(cached),
+        loading: false,
+        source: 'cache',
+        reportCount: (cached.reports || []).length,
+      });
+    }
+  }
+
   useEffect(() => {
     if (!enabled) return undefined;
     if (state.key === signature && !state.loading && state.series.size > 0) return undefined;
-    const reqId = ++reqRef.current;
-    const controller = typeof AbortController !== 'undefined' ? new AbortController() : null;
 
     const cached = getCachedTrends(patientId);
     const initialSeries =
@@ -96,13 +110,23 @@ export default function useTrendData({ patientId, reports, enabled }) {
         ? seriesFromServer(cached)
         : new Map();
 
+    const hasCachedTrends = initialSeries.size > 0;
+
     setState((prev) => ({
       key: signature,
       series: prev.series.size > 0 ? prev.series : initialSeries,
-      loading: prev.series.size === 0 && initialSeries.size === 0,
-      source: prev.series.size > 0 ? prev.source : (initialSeries.size > 0 ? 'cache' : null),
+      loading: prev.series.size === 0 && !hasCachedTrends,
+      source: prev.series.size > 0 ? prev.source : (hasCachedTrends ? 'cache' : null),
       reportCount: (cached?.reports || []).length,
     }));
+
+    // If cache already has trends, do NOT fire a duplicate fetch request to the backend! Render cached data immediately in 0ms!
+    if (hasCachedTrends) {
+      return undefined;
+    }
+
+    const reqId = ++reqRef.current;
+    const controller = typeof AbortController !== 'undefined' ? new AbortController() : null;
 
     (async () => {
       let server = null;

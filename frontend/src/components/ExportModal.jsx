@@ -203,7 +203,14 @@ export default function ExportModal({
 
             {/* JSON option */}
             <button
-              onClick={downloadJson}
+              type="button"
+              onClick={(e) => {
+                if (e) {
+                  e.preventDefault();
+                  e.stopPropagation();
+                }
+                downloadJson();
+              }}
               disabled={!!busy}
               className={`w-full flex items-center gap-3.5 p-4 rounded-xl border text-left transition-all active:scale-[0.99] ${
                 busy ? 'opacity-60 cursor-not-allowed' : ''
@@ -228,7 +235,14 @@ export default function ExportModal({
 
             {/* PDF option */}
             <button
-              onClick={downloadPdf}
+              type="button"
+              onClick={(e) => {
+                if (e) {
+                  e.preventDefault();
+                  e.stopPropagation();
+                }
+                downloadPdf();
+              }}
               disabled={!!busy}
               className={`w-full flex items-center gap-3.5 p-4 rounded-xl border text-left transition-all active:scale-[0.99] ${
                 busy ? 'opacity-60 cursor-not-allowed' : ''

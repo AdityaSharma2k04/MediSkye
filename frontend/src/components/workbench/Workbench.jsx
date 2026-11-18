@@ -207,7 +207,11 @@ export default function Workbench(props) {
   }, [mobileAnalytic, viewMode]);
 
   // ── 1-click physician summary (A4 print) ──
-  const handlePrintDoctorSummary = async () => {
+  const handlePrintDoctorSummary = async (e) => {
+    if (e && typeof e.preventDefault === 'function') {
+      e.preventDefault();
+      e.stopPropagation();
+    }
     if (isExportingSummary) return;
 
     let resolvedUser = activePatient || currentUser;
@@ -415,7 +419,14 @@ export default function Workbench(props) {
             {isDesktop && activePdf && (
               <IconButton
                 tone="outline"
-                onClick={handlePrintDoctorSummary}
+                type="button"
+                onClick={(e) => {
+                  if (e) {
+                    e.preventDefault();
+                    e.stopPropagation();
+                  }
+                  handlePrintDoctorSummary(e);
+                }}
                 disabled={isExportingSummary}
                 label="Export Summary"
                 title={isExportingSummary ? t('chat.preparing_summary', 'Preparing Summary...') : 'Print a 2-page A4 physician summary'}
@@ -425,7 +436,19 @@ export default function Workbench(props) {
             )}
 
             {isDesktop && onOpenExport && (
-              <IconButton tone="outline" onClick={onOpenExport} label="Export chat data" title="Export full chat transcript and lab metrics (PDF or JSON)">
+              <IconButton
+                tone="outline"
+                type="button"
+                onClick={(e) => {
+                  if (e) {
+                    e.preventDefault();
+                    e.stopPropagation();
+                  }
+                  onOpenExport();
+                }}
+                label="Export chat data"
+                title="Export full chat transcript and lab metrics (PDF or JSON)"
+              >
                 <Download className="w-4 h-4" />
               </IconButton>
             )}
