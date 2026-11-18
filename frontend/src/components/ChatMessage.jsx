@@ -13,9 +13,11 @@ import {
   AlertTriangle,
 } from 'lucide-react';
 import { speakText, stopSpeaking } from '../services/speech';
-import { stripOuterQuotes } from '../lib/clinical';
+import { stripOuterQuotes, formatMessageTimestamp, normalizeChatMessage } from '../lib/clinical';
 import { cn } from '../lib/cn';
 import { BrandMark } from './workbench/Brand';
+
+export { formatMessageTimestamp, normalizeChatMessage };
 
 export const stripAbnormalFlags = (text) => {
   if (!text) return '';
@@ -126,10 +128,11 @@ function areMessagePropsEqual(prevProps, nextProps) {
   if (!p || !n) return false;
   return (
     p.id === n.id &&
-    p.text === n.text &&
+    (p.content || p.text || p.message) === (n.content || n.text || n.message) &&
     p.sender === n.sender &&
     p.role === n.role &&
     p.timestamp === n.timestamp &&
+    p.created_at === n.created_at &&
     p.status === n.status &&
     p.error === n.error &&
     p.isStreaming === n.isStreaming
@@ -143,9 +146,11 @@ export function ChatMessage({ message, onRegenerate, isFollowupTurn = false }) {
   const [showThinkingSkeleton, setShowThinkingSkeleton] = useState(false);
   const speakTokenRef = useRef(null);
 
-  const isUser = message?.sender === 'user';
+  const isUser = message?.sender === 'user' || message?.role === 'user' || message?.type === 'user' || message?.isUser === true;
   // Hide the abnormal_flags JSON block and handle disclaimer deduplication/hiding
-  const content = cleanMessageText(message?.text || message?.message || '', isFollowupTurn);
+  const rawText = message?.content || message?.text || message?.message || '';
+  const content = cleanMessageText(rawText, isFollowupTurn);
+  const formattedTime = formatMessageTimestamp(message?.timestamp || message?.created_at);
 
   // Keep the Listen button in sync with speech started/stopped anywhere in the app.
   useEffect(() => {
@@ -211,7 +216,7 @@ export function ChatMessage({ message, onRegenerate, isFollowupTurn = false }) {
   };
 
   if (isUser) {
-    const cleanUserText = stripOuterQuotes(message?.text || message?.message || '');
+    const cleanUserText = stripOuterQuotes(message?.content || message?.text || message?.message || '');
     return (
       <div className="flex justify-end mb-5 animate-bubble-in">
         <div className="max-w-[85%] sm:max-w-[78%] rounded-[20px] rounded-br-md px-4 py-2.5 text-[15px] sm:text-[14.5px] leading-relaxed text-ink bg-slate2 border border-white/[0.07] shadow-specular whitespace-pre-wrap break-words">
@@ -235,7 +240,7 @@ export function ChatMessage({ message, onRegenerate, isFollowupTurn = false }) {
       <div className="min-w-0 flex-1">
         <div className="flex items-center gap-2 mb-1.5 text-xs">
           <span className="font-semibold text-ink-soft">MediSkye AI</span>
-          <span className="text-xs text-ink-faint">{message.timestamp || 'Just now'}</span>
+          <span className="text-xs text-ink-faint">{formattedTime}</span>
         </div>
 
         {isStreaming && !content && !message.error && (

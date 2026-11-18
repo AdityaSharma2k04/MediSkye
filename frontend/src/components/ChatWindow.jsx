@@ -138,7 +138,8 @@ export default function ChatWindow({
   };
 
   useLayoutEffect(() => {
-    const isUserSending = messages && messages.length > 0 && messages[messages.length - 1]?.sender === 'user';
+    const lastMsg = messages && messages.length > 0 ? messages[messages.length - 1] : null;
+    const isUserSending = lastMsg && (lastMsg.sender === 'user' || lastMsg.role === 'user');
     if (isUserSending) {
       stickRef.current = true;
       scrollToBottom();
@@ -256,14 +257,15 @@ export default function ChatWindow({
               {messages.map((msg, index) => {
                 const isLatest = index === messages.length - 1;
                 const isCompleted = !isLatest || !isGenerating;
-                const firstAssistantIndex = messages.findIndex((m) => m.sender === 'assistant' || m.role === 'ai');
+                const isAssistant = (m) => m?.sender === 'ai' || m?.sender === 'assistant' || m?.role === 'assistant' || m?.role === 'ai';
+                const firstAssistantIndex = messages.findIndex(isAssistant);
                 const isFollowupTurn = firstAssistantIndex !== -1 && index > firstAssistantIndex;
                 return (
                   <div key={msg.id || index} className={cn(isCompleted && 'ms-message-contain')}>
                     <ChatMessage
                       message={msg}
                       isFollowupTurn={isFollowupTurn}
-                      onRegenerate={isLatest && msg.sender === 'assistant' ? onRegenerate : null}
+                      onRegenerate={isLatest && isAssistant(msg) ? onRegenerate : null}
                     />
                   </div>
                 );

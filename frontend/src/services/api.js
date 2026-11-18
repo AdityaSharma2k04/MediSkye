@@ -521,6 +521,9 @@ export function setCachedTrends(trends, patientId = 'self', uid = getStableCache
   safeStorageSet(`mediskye_cached_trends_${stableUid}_${targetPid}`, trends);
 }
 
+import { formatMessageTimestamp, normalizeChatMessage } from '../lib/clinical';
+export { formatMessageTimestamp, normalizeChatMessage };
+
 // ── Persistent Chat Sessions Cache ──
 
 /**
@@ -535,7 +538,7 @@ export function sanitizeMessagesForCache(messages) {
     const isBot = m.sender === 'assistant' || m.sender === 'bot' || m.role === 'assistant' || m.role === 'ai';
     const textStr = typeof m.text === 'string'
       ? m.text.trim()
-      : (typeof m.message === 'string' ? m.message.trim() : '');
+      : (typeof m.message === 'string' ? m.message.trim() : (typeof m.content === 'string' ? m.content.trim() : ''));
 
     if (m.isStreaming) {
       if (!textStr) {

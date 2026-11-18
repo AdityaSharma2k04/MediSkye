@@ -4,6 +4,7 @@ import { render, screen, fireEvent, waitFor, act } from '@testing-library/react'
 import * as api from '../services/api';
 import ChatApp from '../components/ChatApp';
 import Workbench from '../components/workbench/Workbench';
+import ChatMessage from '../components/ChatMessage';
 
 // Mock routing and heavy services
 vi.mock('react-router-dom', () => ({
@@ -212,6 +213,72 @@ describe('MediSkye Zero-Lag Architecture Tests', () => {
       expect(await screen.findByText('Your blood pressure is completely normal.')).toBeInTheDocument();
 
       streamSpy.mockRestore();
+    });
+  });
+
+  describe('TASK 5: Message Role & Timestamp Normalization Everywhere', () => {
+    it('normalizeChatMessage canonicalizes user and assistant message shapes', () => {
+      const userRaw = { role: 'user', content: 'What is my ferritin level?', created_at: '2026-11-18T16:54:39.772258+00:00' };
+      const userNorm = api.normalizeChatMessage(userRaw);
+
+      expect(userNorm.sender).toBe('user');
+      expect(userNorm.role).toBe('user');
+      expect(userNorm.isUser).toBe(true);
+      expect(userNorm.content).toBe('What is my ferritin level?');
+      expect(userNorm.text).toBe('What is my ferritin level?');
+      expect(userNorm.message).toBe('What is my ferritin level?');
+      expect(userNorm.timestamp).not.toContain('2026-11-18T');
+
+      const asstRaw = { role: 'assistant', content: 'Ferritin is normal at 120 ng/mL.', created_at: '2026-11-18T16:54:39.772258+00:00' };
+      const asstNorm = api.normalizeChatMessage(asstRaw);
+
+      expect(asstNorm.sender).toBe('ai');
+      expect(asstNorm.role).toBe('assistant');
+      expect(asstNorm.isUser).toBe(false);
+      expect(asstNorm.content).toBe('Ferritin is normal at 120 ng/mL.');
+      expect(asstNorm.timestamp).not.toContain('2026-11-18T');
+    });
+
+    it('formatMessageTimestamp formats ISO timestamps cleanly and defaults to Just now', () => {
+      expect(api.formatMessageTimestamp(null)).toBe('Just now');
+      expect(api.formatMessageTimestamp('')).toBe('Just now');
+      expect(api.formatMessageTimestamp('09:11 PM')).toBe('09:11 PM');
+      const formatted = api.formatMessageTimestamp('2026-11-18T16:54:39.772258+00:00');
+      expect(formatted).not.toContain('2026');
+      expect(formatted).not.toContain('+00:00');
+    });
+
+    it('ChatMessage renders user questions as user bubble without MediSkye AI header or raw ISO timestamps', () => {
+      const userMsg = {
+        id: 'msg-u1',
+        role: 'user',
+        content: 'Can you check my thyroid markers?',
+        created_at: '2026-11-18T16:54:39.772258+00:00',
+      };
+
+      const { container } = render(<ChatMessage message={userMsg} />);
+
+      expect(screen.getByText('Can you check my thyroid markers?')).toBeInTheDocument();
+      // MUST NOT render MediSkye AI header for user questions!
+      expect(screen.queryByText(/MediSkye AI/i)).not.toBeInTheDocument();
+      // MUST NOT render raw ISO string
+      expect(container.textContent).not.toContain('2026-11-18T16:54:39.772258+00:00');
+    });
+
+    it('ChatMessage renders assistant response with MediSkye AI header and formatted timestamp', () => {
+      const asstMsg = {
+        id: 'msg-a1',
+        role: 'assistant',
+        content: 'Your TSH is 2.1 mIU/L, which is within the normal reference range.',
+        created_at: '2026-11-18T16:54:39.772258+00:00',
+      };
+
+      const { container } = render(<ChatMessage message={asstMsg} />);
+
+      expect(screen.getByText(/MediSkye AI/i)).toBeInTheDocument();
+      expect(screen.getByText(/Your TSH is 2\.1 mIU\/L/i)).toBeInTheDocument();
+      // MUST NOT leak raw ISO timestamp string to the UI
+      expect(container.textContent).not.toContain('2026-11-18T16:54:39.772258+00:00');
     });
   });
 });

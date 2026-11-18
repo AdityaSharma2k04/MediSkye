@@ -585,7 +585,7 @@ export default function Workbench(props) {
         <PrintableSummary
           user={printUser || activePatient || currentUser}
           document={{ ...activePdf, collected_at: activePdf?.collected_at || printMetrics?.collected_at }}
-          summary={printSummaryText || messages.filter((m) => m.sender === 'assistant').map((m) => m.text).join('\n\n')}
+          summary={printSummaryText || messages.filter((m) => m.sender === 'assistant' || m.sender === 'ai' || m.role === 'assistant').map((m) => m.content || m.text || m.message).join('\n\n')}
           metrics={printMetrics || metrics}
           specialists={messages.flatMap((m) => m.specialists || [])}
         />

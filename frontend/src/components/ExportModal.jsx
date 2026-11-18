@@ -66,9 +66,9 @@ export default function ExportModal({
         created_at: null,
       },
       messages: (messages || []).map((m) => ({
-        role: m.sender === 'user' ? 'user' : 'ai',
-        message: m.text || m.message || '',
-        created_at: null,
+        role: (m.sender === 'user' || m.role === 'user' || m.isUser) ? 'user' : 'ai',
+        message: m.content || m.text || m.message || '',
+        created_at: m.created_at || null,
       })),
       lab_metrics: [],
     };

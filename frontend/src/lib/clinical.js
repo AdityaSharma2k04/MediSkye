@@ -605,3 +605,60 @@ export function stripOuterQuotes(str) {
   return s;
 }
 
+/**
+ * Cleanly formats message timestamps to localized short time string (e.g. '09:11 PM'),
+ * never letting raw ISO strings leak to the UI.
+ */
+export function formatMessageTimestamp(rawTime) {
+  if (!rawTime) return 'Just now';
+  if (typeof rawTime === 'string') {
+    const trimmed = rawTime.trim();
+    if (!trimmed || trimmed.toLowerCase() === 'just now') return 'Just now';
+    // If it's already a short time format e.g. "09:11 PM", "9:11 AM", "14:30"
+    if (/^\d{1,2}:\d{2}(?::\d{2})?(\s*(?:[ap]\.?m\.?))?$/i.test(trimmed)) {
+      return trimmed;
+    }
+    const d = new Date(trimmed);
+    if (!isNaN(d.getTime())) {
+      try {
+        return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+      } catch {
+        return trimmed;
+      }
+    }
+    return trimmed;
+  }
+  if (rawTime instanceof Date && !isNaN(rawTime.getTime())) {
+    try {
+      return rawTime.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    } catch {
+      return 'Just now';
+    }
+  }
+  return 'Just now';
+}
+
+/**
+ * Single canonical message normalizer:
+ * Enforces correct sender/role, unified content/text/message, and clean timestamps.
+ */
+export function normalizeChatMessage(msg) {
+  if (!msg || typeof msg !== 'object') return msg;
+  const isUser = msg.sender === 'user' || msg.role === 'user' || msg.type === 'user' || msg.isUser === true;
+  const rawText = msg.content ?? msg.text ?? msg.message ?? '';
+  const textStr = typeof rawText === 'string' ? rawText : String(rawText || '');
+  const timestamp = formatMessageTimestamp(msg.timestamp || msg.created_at);
+
+  return {
+    ...msg,
+    sender: isUser ? 'user' : (msg.sender === 'assistant' ? 'assistant' : 'ai'),
+    role: isUser ? 'user' : 'assistant',
+    isUser,
+    content: textStr,
+    text: textStr,
+    message: textStr,
+    timestamp,
+    created_at: msg.created_at || msg.timestamp || new Date().toISOString(),
+  };
+}
+
