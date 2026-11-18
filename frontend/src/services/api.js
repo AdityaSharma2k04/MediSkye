@@ -240,6 +240,10 @@ export function warmBackendConnection() {
 // ── In-Memory RAM Cache Layer (0ms Instant Reads) ──
 export const RAM_CACHE = new Map();
 
+if (typeof window !== 'undefined') {
+  window.__mediskye_ram_cache__ = RAM_CACHE;
+}
+
 // Hook Storage prototype in browser/test to ensure RAM_CACHE is cleared whenever localStorage is wiped
 if (typeof window !== 'undefined' && typeof window.Storage !== 'undefined') {
   try {
@@ -744,13 +748,22 @@ export function setCachedConversations(conversations, patientId = 'self', uid = 
 export function getCachedChatMessages(chatKey, uid = getStableCacheUid()) {
   if (!chatKey) return [];
   const stableUid = getStableCacheUid(uid);
-  const key = `mediskye_cached_msgs_${stableUid}_${chatKey}`;
-  if (RAM_CACHE.has(key)) {
-    return RAM_CACHE.get(key);
+  const primaryKey = `mediskye_cached_msgs_${stableUid}_${chatKey}`;
+  if (RAM_CACHE.has(primaryKey)) {
+    return RAM_CACHE.get(primaryKey);
   }
-  const msgs = safeStorageGet(key, []);
-  const sanitized = sanitizeMessagesForCache(msgs);
-  RAM_CACHE.set(key, sanitized);
+  let msgs = safeStorageGet(primaryKey, null);
+  if ((!msgs || (Array.isArray(msgs) && msgs.length === 0)) && !chatKey.startsWith('session_') && !chatKey.startsWith('doc_')) {
+    const sessionKey = `mediskye_cached_msgs_${stableUid}_session_${chatKey}`;
+    if (RAM_CACHE.has(sessionKey)) return RAM_CACHE.get(sessionKey);
+    const docKey = `mediskye_cached_msgs_${stableUid}_doc_${chatKey}`;
+    if (RAM_CACHE.has(docKey)) return RAM_CACHE.get(docKey);
+    msgs = safeStorageGet(sessionKey, null) || safeStorageGet(docKey, null);
+  }
+  const sanitized = sanitizeMessagesForCache(msgs || []);
+  if (sanitized.length > 0) {
+    RAM_CACHE.set(primaryKey, sanitized);
+  }
   return sanitized;
 }
 
@@ -760,6 +773,29 @@ export function setCachedChatMessages(chatKey, messages, uid = getStableCacheUid
   const key = `mediskye_cached_msgs_${stableUid}_${chatKey}`;
   const sanitized = sanitizeMessagesForCache(messages);
   safeStorageSet(key, sanitized);
+}
+
+export function migrateCachedChatMessages(oldChatKey, newChatKey, uid = getStableCacheUid()) {
+  if (!oldChatKey || !newChatKey || oldChatKey === newChatKey) return;
+  const stableUid = getStableCacheUid(uid);
+  const oldKey = `mediskye_cached_msgs_${stableUid}_${oldChatKey}`;
+  const newKey = `mediskye_cached_msgs_${stableUid}_${newChatKey}`;
+
+  let msgs = [];
+  if (RAM_CACHE.has(oldKey)) {
+    msgs = RAM_CACHE.get(oldKey);
+    RAM_CACHE.delete(oldKey);
+  } else {
+    msgs = safeStorageGet(oldKey, []);
+  }
+  if (typeof localStorage !== 'undefined') {
+    try {
+      localStorage.removeItem(oldKey);
+    } catch (_) { }
+  }
+  if (Array.isArray(msgs) && msgs.length > 0) {
+    setCachedChatMessages(newChatKey, msgs, uid);
+  }
 }
 
 export const getCachedChatHistory = getCachedChatMessages;

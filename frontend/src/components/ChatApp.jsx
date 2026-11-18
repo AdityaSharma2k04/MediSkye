@@ -232,6 +232,61 @@ export function markBootSyncCompletedInChatApp(uid) {
   } catch (_) { }
 }
 
+export function safeGetCachedChatMessages(chatKey) {
+  if (!chatKey) return [];
+  try {
+    const stableUid = typeof getCurrentUid === 'function' ? getCurrentUid() : 'default';
+    const primaryKey = `mediskye_cached_msgs_${stableUid}_${chatKey}`;
+    if (typeof window !== 'undefined' && window.__mediskye_ram_cache__?.has(primaryKey)) {
+      return window.__mediskye_ram_cache__.get(primaryKey);
+    }
+    if (typeof localStorage !== 'undefined') {
+      const raw = localStorage.getItem(primaryKey);
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        if (typeof window !== 'undefined' && window.__mediskye_ram_cache__) {
+          window.__mediskye_ram_cache__.set(primaryKey, parsed);
+        }
+        return parsed;
+      }
+    }
+  } catch (_) { }
+  return [];
+}
+
+export function safeSetCachedChatMessages(chatKey, messages) {
+  if (!chatKey || !Array.isArray(messages)) return;
+  try {
+    const stableUid = typeof getCurrentUid === 'function' ? getCurrentUid() : 'default';
+    const primaryKey = `mediskye_cached_msgs_${stableUid}_${chatKey}`;
+    const sanitized = sanitizeMessagesForCache(messages);
+    if (typeof window !== 'undefined' && window.__mediskye_ram_cache__) {
+      window.__mediskye_ram_cache__.set(primaryKey, sanitized);
+    }
+    if (typeof localStorage !== 'undefined') {
+      localStorage.setItem(primaryKey, JSON.stringify(sanitized));
+    }
+  } catch (_) { }
+}
+
+export function safeMigrateCachedChatMessages(oldChatKey, newChatKey) {
+  if (!oldChatKey || !newChatKey || oldChatKey === newChatKey) return;
+  try {
+    const msgs = safeGetCachedChatMessages(oldChatKey);
+    if (Array.isArray(msgs) && msgs.length > 0) {
+      safeSetCachedChatMessages(newChatKey, msgs);
+    }
+    const stableUid = typeof getCurrentUid === 'function' ? getCurrentUid() : 'default';
+    const oldKey = `mediskye_cached_msgs_${stableUid}_${oldChatKey}`;
+    if (typeof window !== 'undefined' && window.__mediskye_ram_cache__) {
+      window.__mediskye_ram_cache__.delete(oldKey);
+    }
+    if (typeof localStorage !== 'undefined') {
+      localStorage.removeItem(oldKey);
+    }
+  } catch (_) { }
+}
+
 export default function ChatApp() {
   const navigate = useNavigate();
   const userLoadedRef = useRef(null);
@@ -753,7 +808,7 @@ export default function ChatApp() {
   const loadChatHistory = useCallback(async (targetDocId, targetSessionId, { force = false } = {}) => {
     const fetchKey = targetDocId || targetSessionId;
     const chatKey = targetDocId ? `doc_${targetDocId}` : `session_${targetSessionId}`;
-    const cachedMsgs = typeof getCachedChatMessages === 'function' ? getCachedChatMessages(chatKey) : [];
+    const cachedMsgs = safeGetCachedChatMessages(chatKey);
 
     // If already in RAM/storage cache and not forced, hydrate synchronously with 0ms delay and zero spinner!
     if (!force && Array.isArray(cachedMsgs) && cachedMsgs.length > 0) {
@@ -803,8 +858,8 @@ export default function ChatApp() {
           if (typeof setCachedConversations === 'function') {
             setCachedConversations(next, currentPat);
           }
-          if (typeof setCachedChatMessages === 'function' && chatKey) {
-            setCachedChatMessages(chatKey, formatted);
+          if (chatKey) {
+            safeSetCachedChatMessages(chatKey, formatted);
           }
         } catch (_) { }
         return next;
@@ -1167,7 +1222,6 @@ export default function ChatApp() {
             !effectiveDocs.some((d) => d.id === c.id) &&
             !standaloneChatsBySession.has(c.id) &&
             normalizePatientId(c.patientId || c.patient_id) === activePatId &&
-            !c.isDraft &&
             (c.messages && c.messages.length > 0)
         );
 
@@ -1179,10 +1233,10 @@ export default function ChatApp() {
           (c) => normalizePatientId(c.patientId || c.patient_id) === activePatId
         );
 
-        // In-flight conversations guard: never prune an actively uploading, streaming, or draft conversation
+        // In-flight conversations guard: never prune an actively uploading, streaming, or draft conversation with messages
         const inFlightConvs = prev.filter((c) => {
           if (normalizePatientId(c.patientId || c.patient_id) !== activePatId) return false;
-          if (c.isDraft) return false; // Handled via freshDraft
+          if (c.isDraft && (!c.messages || c.messages.length === 0) && c.id !== sessionIdRef.current) return false;
           const isActivelyUploading = Boolean(
             (uploadState && ['uploading', 'extracting', 'indexing'].includes(uploadState.phase) && c.id === sessionIdRef.current) ||
             c.isUploading
@@ -1209,23 +1263,30 @@ export default function ChatApp() {
           (c) => !filteredDocs.some((d) => d.id === c.id) && !filteredStandalone.some((s) => s.id === c.id)
         );
 
-        // When online and the server responded, the server's persisted set of document IDs
-        // and session IDs is authoritative, preventing resurrected deleted conversations.
-        // In-flight conversations are always preserved.
-        const cloudMerged = networkSucceeded
-          ? [...inFlightNotInServer, ...filteredDocs, ...filteredStandalone]
-          : [...inFlightNotInServer, ...filteredDocs, ...filteredStandalone, ...localNonDocConvs];
+        // When online, preserve server-authoritative items, in-flight chats, and un-synced local chats with messages
+        const nonServerLocalConvs = localNonDocConvs.filter(
+          (c) => !filteredStandalone.some((s) => s.id === c.id) && !inFlightNotInServer.some((inf) => inf.id === c.id)
+        );
+        const cloudMerged = [...inFlightNotInServer, ...filteredDocs, ...filteredStandalone, ...nonServerLocalConvs];
 
         // Check if currently on an empty fresh draft
         const currentActiveItem = prev.find((c) => c.id === sessionIdRef.current);
+        const isCurrentDocument = Boolean(
+          currentActiveItem?.document_id ||
+          currentActiveItem?.pdf ||
+          (activeDocId && currentActiveItem?.id === activeDocId)
+        );
         const isOnEmptyDraft =
           !activePdf &&
+          !isCurrentDocument &&
           (!currentActiveItem ||
             (currentActiveItem.isDraft &&
               (!currentActiveItem.messages || currentActiveItem.messages.length === 0)));
 
         const freshDraft =
-          currentActiveItem?.isDraft && String(currentActiveItem.patientId || currentActiveItem.patient_id || 'self') === String(activePatId)
+          currentActiveItem?.isDraft &&
+          !isCurrentDocument &&
+          String(currentActiveItem.patientId || currentActiveItem.patient_id || 'self') === String(activePatId)
             ? currentActiveItem
             : createFreshDraftConversation(activePatId);
 
@@ -1244,6 +1305,8 @@ export default function ChatApp() {
           const hasActiveInMerged = cloudMerged.some((c) => c.id === sessionIdRef.current);
           if (hasActiveInMerged) {
             finalConvs = cloudMerged;
+          } else if (currentActiveItem && ((currentActiveItem.messages && currentActiveItem.messages.length > 0) || isGenerating)) {
+            finalConvs = [currentActiveItem, ...cloudMerged];
           } else {
             finalConvs = [freshDraft, ...cloudMerged];
             setSessionId(freshDraft.id);
@@ -1251,6 +1314,14 @@ export default function ChatApp() {
             setActivePdf(null);
           }
         }
+
+        // Deduplicate finalConvs by id to guarantee unique React keys
+        const seenIds = new Set();
+        finalConvs = finalConvs.filter((c) => {
+          if (!c?.id || seenIds.has(c.id)) return false;
+          seenIds.add(c.id);
+          return true;
+        });
 
         try {
           if (typeof setCachedConversations === 'function') {
@@ -1665,6 +1736,7 @@ export default function ChatApp() {
             ? current.documents
             : (current.pdf ? [{ id: current.document_id || 'doc-1', name: current.pdf.name, filename: current.pdf.name }] : []);
           const updatedDocs = [...currentDocs.filter((d) => d.id !== newDocId), pdfMeta];
+          const isGenericDraftTitle = current.title === 'New Conversation' || current.title === 'New chat' || current.title === 'New Consultation';
           const updatedChat = {
             ...current,
             id: newDocId,
@@ -1672,9 +1744,10 @@ export default function ChatApp() {
             patient_id: selectedPatientId,
             title: customTitle
               ? customTitle
-              : ((current.title === 'New Conversation' || current.title === 'New chat') ? autoTitle : current.title),
+              : (isGenericDraftTitle ? autoTitle : current.title),
             pdf: pdfMeta,
             documents: updatedDocs,
+            isDraft: false,
           };
           const next = [...prev];
           next[existingIdx] = updatedChat;
@@ -1689,6 +1762,7 @@ export default function ChatApp() {
               messages: [],
               pdf: pdfMeta,
               documents: [pdfMeta],
+              isDraft: false,
             },
             ...prev,
           ];
@@ -1789,39 +1863,49 @@ export default function ChatApp() {
     };
 
     // Bug 9 Fix: Atomically create user bubble AND assistant placeholder in one update
-    const activeTargetId = docIdOverride || sessionId;
+    let currentTargetId = docIdOverride || sessionId;
     if (docIdOverride) {
+      setSessionId(docIdOverride);
       sessionIdRef.current = docIdOverride;
     }
-    const prevChat = conversations.find((c) => c.id === activeTargetId);
+    const prevChat = conversations.find((c) => c.id === currentTargetId);
     const prevTitle = preserveTitle || prevChat?.title || 'New Conversation';
     const newMessages = appendUserMessage ? [userMsgObj, assistantMsgObj] : [assistantMsgObj];
+    const initialFullMessages = appendUserMessage
+      ? [...(prevChat?.messages || []), ...newMessages]
+      : [...(prevChat?.messages || []).filter((m) => m.id !== assistantMsgId), ...newMessages];
+
     setConversations((prev) => {
-      const matchExists = prev.some((c) => c.id === activeTargetId);
+      const matchExists = prev.some((c) => c.id === currentTargetId);
       if (!matchExists) {
         return [
           {
-            id: activeTargetId,
+            id: currentTargetId,
             document_id: docIdOverride || null,
             title: preserveTitle || ((appendUserMessage && userQuery) ? autoNameFromQuery(userQuery) : 'New Conversation'),
-            messages: newMessages,
+            messages: initialFullMessages,
             pdf: null,
             documents: [],
-            patient_id: selectedPatientId,
+            patient_id: selectedPatientId || 'self',
+            patientId: selectedPatientId || 'self',
+            isDraft: false,
           },
           ...prev,
         ];
       }
       return prev.map((c) =>
-        c.id === activeTargetId
+        c.id === currentTargetId
           ? {
             ...c,
+            isDraft: false,
+            patient_id: c.patient_id || selectedPatientId || 'self',
+            patientId: c.patientId || selectedPatientId || 'self',
             title: preserveTitle
               ? preserveTitle
               : ((appendUserMessage && (c.title === 'New Conversation' || c.title === 'New chat'))
                 ? autoNameFromQuery(userQuery)
                 : c.title),
-            messages: [...c.messages, ...newMessages],
+            messages: initialFullMessages,
           }
           : c
       );
@@ -1832,62 +1916,120 @@ export default function ChatApp() {
     abortControllerRef.current = controller;
 
     let isConflict = false;
+    let chatDocId = docIdOverride || null;
+    let chatPatientId = selectedPatientId;
+    const chatObj = conversations.find((c) => c.id === currentTargetId);
+    if (!chatDocId) chatDocId = chatObj?.document_id || null;
+    if (chatObj?.patient_id) chatPatientId = chatObj.patient_id;
+
+    // Immediately cache the user bubble + assistant placeholder in RAM cache
+    const initialCacheKey = chatDocId ? `doc_${chatDocId}` : `session_${currentTargetId}`;
+    safeSetCachedChatMessages(initialCacheKey, initialFullMessages);
+
+    let assistantAccum = '';
+    let hadStreamError = false;
+    let activeSessionId = currentTargetId;
+
     try {
-      // Read document ID from current conversation
-      let chatDocId = docIdOverride || null;
-      let chatPatientId = selectedPatientId;
-      const chatObj = conversations.find((c) => c.id === activeTargetId);
-      if (!chatDocId) chatDocId = chatObj?.document_id || null;
-      if (chatObj?.patient_id) chatPatientId = chatObj.patient_id;
+      await sendQueryStream(
+        userQuery,
+        chatDocId || activeSessionId,
+        language,
+        (chunk) => {
+          if (!chunk) return;
 
-      // Bug 9 Fix: Stream query chunks directly to assistantMsgId ONLY
-      let assistantAccum = '';
-      let hadStreamError = false;
-      await sendQueryStream(userQuery, chatDocId || activeTargetId, language, (chunk) => {
-        if (typeof chunk.replace === 'string') {
-          assistantAccum = chunk.replace;
-        } else if (chunk.chunk || chunk.token) {
-          assistantAccum += chunk.chunk || chunk.token || '';
-        }
-        if (chunk.error) {
-          hadStreamError = true;
-        }
-        setConversations((prev) => {
-          return prev.map((c) => {
-            if (c.id !== activeTargetId && c.document_id !== activeTargetId) return c;
-            const updatedChat = { ...c };
-            if (preserveTitle) {
-              updatedChat.title = preserveTitle;
-            } else if (chunk.title && !c.title?.startsWith('Sample Report:')) {
-              updatedChat.title = chunk.title;
-            }
-            const targetIdx = c.messages.findIndex((m) => m.id === assistantMsgId);
-            if (targetIdx === -1) return updatedChat;
+          // 1. Handle draft-to-persisted session_id / chat_id transition from server
+          const serverSessionId = chunk.session_id || chunk.chat_id;
+          if (serverSessionId && serverSessionId !== activeSessionId) {
+            const oldId = activeSessionId;
+            activeSessionId = serverSessionId;
+            currentTargetId = serverSessionId;
+            setSessionId(serverSessionId);
+            sessionIdRef.current = serverSessionId;
 
-            const targetMsg = { ...c.messages[targetIdx] };
-            if (typeof chunk.replace === 'string') {
-              targetMsg.text = chunk.replace;
-              targetMsg.status = null;
-            } else if (chunk.stage && chunk.message) {
-              targetMsg.status = chunk.message;
-            } else if (chunk.specialists) {
-              targetMsg.specialists = chunk.specialists;
-            } else if (chunk.chunk || chunk.token) {
-              targetMsg.text = (targetMsg.text || '') + (chunk.chunk || chunk.token);
-              targetMsg.status = null;
-            } else if (chunk.error) {
-              targetMsg.error = chunk.error || 'Something went wrong. Tap to retry.';
-              targetMsg.status = null;
-              targetMsg.isStreaming = false;
-            }
+            // Migrate cache from oldId to serverSessionId
+            const oldKey = chatDocId ? `doc_${chatDocId}` : `session_${oldId}`;
+            const newKey = chatDocId ? `doc_${chatDocId}` : `session_${serverSessionId}`;
+            safeMigrateCachedChatMessages(oldKey, newKey);
 
-            const updatedMsgs = [...c.messages];
-            updatedMsgs[targetIdx] = targetMsg;
-            updatedChat.messages = updatedMsgs;
-            return updatedChat;
+            setConversations((prev) =>
+              prev.map((c) => {
+                if (c.id === oldId || (chatDocId && (c.id === chatDocId || c.document_id === chatDocId))) {
+                  return {
+                    ...c,
+                    id: serverSessionId,
+                    session_id: serverSessionId,
+                    isDraft: false,
+                  };
+                }
+                return c;
+              })
+            );
+          }
+
+          if (typeof chunk.replace === 'string') {
+            assistantAccum = chunk.replace;
+          } else if (chunk.chunk || chunk.token) {
+            assistantAccum += chunk.chunk || chunk.token || '';
+          }
+          if (chunk.error) {
+            hadStreamError = true;
+          }
+
+          // 2. Stream chunk directly into target conversation in React state
+          setConversations((prev) => {
+            return prev.map((c) => {
+              const isMatch = c.id === activeSessionId ||
+                c.id === currentTargetId ||
+                (chatDocId && (c.id === chatDocId || c.document_id === chatDocId));
+              if (!isMatch) return c;
+
+              const updatedChat = { ...c, isDraft: false };
+              if (preserveTitle) {
+                updatedChat.title = preserveTitle;
+              } else if (chunk.title && !c.title?.startsWith('Sample Report:')) {
+                updatedChat.title = chunk.title;
+              }
+
+              const targetIdx = (c.messages || []).findIndex((m) => m.id === assistantMsgId);
+              if (targetIdx === -1) return updatedChat;
+
+              const targetMsg = { ...c.messages[targetIdx] };
+              if (typeof chunk.replace === 'string') {
+                targetMsg.text = chunk.replace;
+                targetMsg.status = null;
+                targetMsg.isStreaming = true;
+              } else if (chunk.stage && chunk.message) {
+                targetMsg.status = chunk.message;
+              } else if (chunk.specialists) {
+                targetMsg.specialists = chunk.specialists;
+              } else if (chunk.sources) {
+                targetMsg.sources = chunk.sources;
+              } else if (chunk.chunk || chunk.token) {
+                targetMsg.text = (targetMsg.text || '') + (chunk.chunk || chunk.token);
+                targetMsg.status = null;
+                targetMsg.isStreaming = true;
+              } else if (chunk.error) {
+                targetMsg.error = chunk.error || 'Something went wrong. Tap to retry.';
+                targetMsg.status = null;
+                targetMsg.isStreaming = false;
+              }
+
+              const updatedMsgs = [...c.messages];
+              updatedMsgs[targetIdx] = targetMsg;
+              updatedChat.messages = updatedMsgs;
+
+              // Keep RAM cache up to date on each streamed token
+              const streamKey = chatDocId ? `doc_${chatDocId}` : `session_${updatedChat.id}`;
+              safeSetCachedChatMessages(streamKey, updatedMsgs);
+
+              return updatedChat;
+            });
           });
-        });
-      }, chatPatientId, controller.signal);
+        },
+        chatPatientId,
+        controller.signal
+      );
 
       // Auto-read: speak the finished answer aloud when enabled.
       if (autoRead && !hadStreamError && assistantAccum.trim()) {
@@ -1903,11 +2045,11 @@ export default function ChatApp() {
         // Do NOT render a second user bubble or an error state in the chat; remove the newly added messages
         setConversations((prev) => {
           return prev.map((c) => {
-            if (c.id !== activeTargetId && c.document_id !== activeTargetId) return c;
+            if (c.id !== activeSessionId && c.id !== currentTargetId && c.document_id !== activeSessionId) return c;
             return {
               ...c,
               title: prevTitle,
-              messages: c.messages.filter((m) => m.id !== userMsgId && m.id !== assistantMsgId),
+              messages: (c.messages || []).filter((m) => m.id !== userMsgId && m.id !== assistantMsgId),
             };
           });
         });
@@ -1915,8 +2057,8 @@ export default function ChatApp() {
         logger.error('Query Error:', err);
         setConversations((prev) => {
           return prev.map((c) => {
-            if (c.id !== activeTargetId && c.document_id !== activeTargetId) return c;
-            const targetIdx = c.messages.findIndex((m) => m.id === assistantMsgId);
+            if (c.id !== activeSessionId && c.id !== currentTargetId && c.document_id !== activeSessionId) return c;
+            const targetIdx = (c.messages || []).findIndex((m) => m.id === assistantMsgId);
             if (targetIdx === -1) return c;
 
             const targetMsg = { ...c.messages[targetIdx] };
@@ -1934,7 +2076,11 @@ export default function ChatApp() {
       if (!isConflict) {
         setConversations((prev) => {
           const next = prev.map((c) => {
-            if (c.id !== activeTargetId && c.document_id !== activeTargetId) return c;
+            const isMatch = c.id === activeSessionId ||
+              c.id === currentTargetId ||
+              (chatDocId && (c.id === chatDocId || c.document_id === chatDocId));
+            if (!isMatch) return c;
+
             const updatedMsgs = (c.messages || []).map((m) => {
               if (m.id === assistantMsgId || m.isStreaming) {
                 const text = (m.text || '').trim();
@@ -1952,8 +2098,14 @@ export default function ChatApp() {
               if (m.isStreaming && (!m.text || !String(m.text).trim())) return false;
               return true;
             });
-            return { ...c, messages: updatedMsgs };
+
+            // Cache the final completed message immediately into RAM_CACHE and localStorage!
+            const finalChatKey = chatDocId ? `doc_${chatDocId}` : `session_${c.id}`;
+            safeSetCachedChatMessages(finalChatKey, updatedMsgs);
+
+            return { ...c, messages: updatedMsgs, isDraft: false };
           });
+
           try {
             const targetPatient = chatPatientId || selectedPatientId || 'self';
             if (typeof setCachedConversations === 'function') {
@@ -2114,7 +2266,7 @@ export default function ChatApp() {
     // 0ms Cache-first read: Check if messages exist in conversation or in RAM_CACHE / localStorage
     const cachedMsgs = (chat?.messages && chat.messages.length > 0)
       ? chat.messages
-      : (typeof getCachedChatMessages === 'function' ? getCachedChatMessages(chatKey) : []);
+      : safeGetCachedChatMessages(chatKey);
 
     if (chat) {
       let resolvedPdf = chat.pdf || null;

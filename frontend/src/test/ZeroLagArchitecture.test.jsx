@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import React from 'react';
-import { render, screen, fireEvent, waitFor } from '@testing-library/react';
+import { render, screen, fireEvent, waitFor, act } from '@testing-library/react';
 import * as api from '../services/api';
 import ChatApp from '../components/ChatApp';
 import Workbench from '../components/workbench/Workbench';
@@ -153,6 +153,65 @@ describe('MediSkye Zero-Lag Architecture Tests', () => {
       expect(result).toEqual(metrics);
       expect(fetchSpy).not.toHaveBeenCalled();
       fetchSpy.mockRestore();
+    });
+
+    it('migrates cached chat messages from draft key to server-assigned session_id in RAM_CACHE and localStorage', () => {
+      const draftKey = 'session_new_self_9999999999';
+      const serverKey = 'session_real-server-uuid-55555';
+      const initialMsgs = [
+        { id: 'u1', sender: 'user', text: 'Hello doctor' },
+        { id: 'a1', sender: 'assistant', text: 'Hello! How can I help you today?' },
+      ];
+
+      api.setCachedChatMessages(draftKey, initialMsgs);
+      expect(api.getCachedChatMessages(draftKey)).toEqual(initialMsgs);
+
+      api.migrateCachedChatMessages(draftKey, serverKey);
+
+      expect(api.getCachedChatMessages(draftKey)).toEqual([]);
+      expect(api.getCachedChatMessages(serverKey)).toEqual(initialMsgs);
+    });
+
+    it('renders live streamed answer and completed response in active thread immediately without reload', async () => {
+      const mockProfile = { id: 'u1', email: 'test@example.com', full_name: 'Aditya' };
+      vi.spyOn(api, 'getProfile').mockResolvedValue(mockProfile);
+      vi.spyOn(api, 'getUserDocuments').mockResolvedValue([]);
+      vi.spyOn(api, 'getGeneralChats').mockResolvedValue([]);
+      vi.spyOn(api, 'getChatSessions').mockResolvedValue([]);
+      vi.spyOn(api, 'getDependents').mockResolvedValue([]);
+
+      const streamSpy = vi.spyOn(api, 'sendQueryStream').mockImplementation(async (query, docId, lang, onChunk) => {
+        onChunk({
+          session_id: 'real-session-uuid-888',
+          title: 'Blood Pressure Query',
+        });
+        onChunk({ chunk: 'Your blood pressure ' });
+        onChunk({ chunk: 'is completely normal.' });
+      });
+
+      render(<ChatApp />);
+      await waitFor(() => expect(api.getProfile).toHaveBeenCalled());
+
+      const input = screen.getByPlaceholderText(/Ask a medical question/i);
+      fireEvent.change(input, { target: { value: 'Is my blood pressure normal?' } });
+      const form = input.closest('form');
+
+      await act(async () => {
+        fireEvent.submit(form);
+      });
+
+      // Stream should have been called
+      await waitFor(() => {
+        expect(streamSpy).toHaveBeenCalled();
+      });
+
+      // User question should be visible in the active thread immediately
+      expect(await screen.findByText('Is my blood pressure normal?')).toBeInTheDocument();
+
+      // Streamed & completed assistant response MUST be immediately visible without clicking sidebar or reloading!
+      expect(await screen.findByText('Your blood pressure is completely normal.')).toBeInTheDocument();
+
+      streamSpy.mockRestore();
     });
   });
 });
