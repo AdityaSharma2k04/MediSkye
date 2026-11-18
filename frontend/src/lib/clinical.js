@@ -643,12 +643,12 @@ export function formatMessageTimestamp(rawTime) {
  */
 export function isMatchingConversation(c, targetId, docId = null) {
   if (!c || (!targetId && !docId)) return false;
-  const cleanTarget = targetId ? String(targetId).replace(/^doc_/, '') : null;
-  const cleanCid = c.id ? String(c.id).replace(/^doc_/, '') : null;
+  const cleanTarget = targetId ? String(targetId).replace(/^(?:doc_|session_)/, '') : null;
+  const cleanCid = c.id ? String(c.id).replace(/^(?:doc_|session_)/, '') : null;
   const cleanDocId = docId ? String(docId).replace(/^doc_/, '') : null;
 
   if (targetId && (c.id === targetId || (cleanTarget && cleanCid && cleanCid === cleanTarget))) return true;
-  if (targetId && c.session_id && String(c.session_id) === String(targetId)) return true;
+  if (cleanTarget && c.session_id && String(c.session_id).replace(/^(?:doc_|session_)/, '') === cleanTarget) return true;
   if (cleanDocId && c.document_id && String(c.document_id).replace(/^doc_/, '') === cleanDocId) return true;
   if (cleanDocId && c.pdf?.id && String(c.pdf.id).replace(/^doc_/, '') === cleanDocId) return true;
   if (cleanTarget && c.document_id && String(c.document_id).replace(/^doc_/, '') === cleanTarget) return true;

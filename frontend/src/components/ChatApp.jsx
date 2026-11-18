@@ -304,12 +304,12 @@ export function safeMigrateCachedChatMessages(oldChatKey, newChatKey) {
 
 export const isMatchingConversation = (c, targetId, docId = null) => {
   if (!c || (!targetId && !docId)) return false;
-  const cleanTarget = targetId ? String(targetId).replace(/^doc_/, '') : null;
-  const cleanCid = c.id ? String(c.id).replace(/^doc_/, '') : null;
+  const cleanTarget = targetId ? String(targetId).replace(/^(?:doc_|session_)/, '') : null;
+  const cleanCid = c.id ? String(c.id).replace(/^(?:doc_|session_)/, '') : null;
   const cleanDocId = docId ? String(docId).replace(/^doc_/, '') : null;
 
   if (targetId && (c.id === targetId || (cleanTarget && cleanCid && cleanCid === cleanTarget))) return true;
-  if (targetId && c.session_id && String(c.session_id) === String(targetId)) return true;
+  if (cleanTarget && c.session_id && String(c.session_id).replace(/^(?:doc_|session_)/, '') === cleanTarget) return true;
   if (cleanDocId && c.document_id && String(c.document_id).replace(/^doc_/, '') === cleanDocId) return true;
   if (cleanDocId && c.pdf?.id && String(c.pdf.id).replace(/^doc_/, '') === cleanDocId) return true;
   if (cleanTarget && c.document_id && String(c.document_id).replace(/^doc_/, '') === cleanTarget) return true;
@@ -811,7 +811,7 @@ export default function ChatApp() {
     const cachedConvs = typeof getCachedConversations === 'function' ? getCachedConversations(initPatId) : null;
     if (Array.isArray(cachedConvs) && cachedConvs.length > 0) {
       const filtered = cachedConvs.filter(
-        (c) => String(c.patientId || c.patient_id || 'self') === String(initPatId) && !c.isDraft
+        (c) => normalizePatientId(c.patientId || c.patient_id) === normalizePatientId(initPatId) && !c.isDraft
       );
       return [freshChat, ...filtered];
     }
@@ -2107,7 +2107,8 @@ export default function ChatApp() {
           if (!chunk) return;
 
           // 1. Handle draft-to-persisted session_id / chat_id transition from server
-          const serverSessionId = chunk.session_id || chunk.chat_id;
+          const rawServerSid = chunk.session_id || chunk.chat_id;
+          const serverSessionId = rawServerSid ? String(rawServerSid).replace(/^session_/, '') : null;
           if (serverSessionId && serverSessionId !== activeSessionId) {
             const oldId = activeSessionId;
             activeSessionId = serverSessionId;
@@ -2892,7 +2893,7 @@ export default function ChatApp() {
     return (conversations || []).filter((c) => {
       const chatPat = normalizePatientId(c.patient_id || c.patientId);
       if (normSelected === 'self') {
-        return chatPat === 'self' || (currentUser?.id && String(c.patient_id) === String(currentUser.id));
+        return chatPat === 'self' || (currentUser?.id && (String(chatPat) === String(currentUser.id) || String(c.patient_id) === String(currentUser.id) || String(c.patientId) === String(currentUser.id)));
       }
       return chatPat === normSelected;
     });
