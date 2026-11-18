@@ -1176,6 +1176,12 @@ export default function ChatApp() {
           let msgs = (existing?.messages && existing.messages.length > 0)
             ? sanitizeMessagesForCache(existing.messages)
             : [];
+          if (msgs.length === 0) {
+            const cachedDocMsgs = safeGetCachedChatMessages(`doc_${doc.id}`);
+            if (Array.isArray(cachedDocMsgs) && cachedDocMsgs.length > 0) {
+              msgs = cachedDocMsgs.map(normalizeChatMessage);
+            }
+          }
 
           const docPat = doc.dependent_id === null
             ? 'self'
@@ -1240,6 +1246,13 @@ export default function ChatApp() {
             (streamingConvIdRef.current && sid === streamingConvIdRef.current)
           );
           const reconciledMsgs = reconcileMessagesWithServer(existing?.messages, formattedMessages, isCurrentlyStreamingThis);
+          let finalMsgs = reconciledMsgs;
+          if (!finalMsgs || finalMsgs.length === 0) {
+            const cachedSessionMsgs = safeGetCachedChatMessages(`session_${sid}`);
+            if (Array.isArray(cachedSessionMsgs) && cachedSessionMsgs.length > 0) {
+              finalMsgs = cachedSessionMsgs.map(normalizeChatMessage);
+            }
+          }
 
           serverStandaloneConvs.push({
             id: sid,
@@ -1247,7 +1260,7 @@ export default function ChatApp() {
             patient_id: standPat,
             patientId: standPat,
             title,
-            messages: reconciledMsgs,
+            messages: finalMsgs,
             pdf: null,
             created_at: messagesList[0]?.created_at || null,
             isDraft: false,
@@ -1490,9 +1503,19 @@ export default function ChatApp() {
   useEffect(() => {
     if (isSendingRef.current || isGenerating) return;
 
+    const isSamePatient = (c) => {
+      const p = normalizePatientId(c.patientId || c.patient_id);
+      if (p === normActivePatient) return true;
+      if (normActivePatient === 'self') {
+        return p === 'self' || (currentUser?.id && String(p) === String(currentUser.id));
+      }
+      return false;
+    };
+
     const current = conversations.find(
-      (c) => isMatchingConversation(c, sessionId) && String(c.patientId || c.patient_id || 'self') === String(normActivePatient)
-    );
+      (c) => isMatchingConversation(c, sessionId, activePdf?.id) && isSamePatient(c)
+    ) || conversations.find((c) => isMatchingConversation(c, sessionId, activePdf?.id));
+
     if (!current) {
       if (!isSendingRef.current && !isGenerating) {
         setActivePdf(null);
@@ -1501,10 +1524,10 @@ export default function ChatApp() {
       setActivePdf(current.documents[0]);
     } else if (current && current.pdf) {
       setActivePdf(current.pdf);
-    } else if (current && !current.pdf) {
+    } else if (current && !current.pdf && !current.document_id) {
       setActivePdf(null);
     }
-  }, [sessionId, conversations, normActivePatient, isGenerating]);
+  }, [sessionId, conversations, normActivePatient, isGenerating, activePdf?.id, currentUser?.id]);
 
   const currentChat = useMemo(() => {
     const activeStreamId = streamingConvIdRef.current;
@@ -1962,13 +1985,6 @@ export default function ChatApp() {
 
     // Determine target conversation and document ID
     let currentTargetId = currentChat?.id || docIdOverride || activePdf?.id || sessionId;
-    if (currentTargetId !== sessionId) {
-      setSessionId(currentTargetId);
-      sessionIdRef.current = currentTargetId;
-    }
-    isSendingRef.current = true;
-    streamingConvIdRef.current = currentTargetId;
-
     let chatDocId = docIdOverride || activePdf?.id || currentChat?.document_id || null;
     let chatPatientId = selectedPatientId || 'self';
     const prevChat = conversations.find((c) => isMatchingConversation(c, currentTargetId, chatDocId));
@@ -1976,6 +1992,21 @@ export default function ChatApp() {
     if (prevChat?.patient_id) chatPatientId = prevChat.patient_id;
 
     const cleanDocId = chatDocId ? String(chatDocId).replace(/^doc_/, '') : null;
+
+    // Bug 1: If it's a general chat with a draft 'new_' ID, promote to a real UUID v4 immediately
+    const oldDraftId = currentTargetId;
+    if (!cleanDocId && String(currentTargetId).startsWith('new_')) {
+      const promotedSessionId = generateSessionId();
+      currentTargetId = promotedSessionId;
+      setSessionId(promotedSessionId);
+      sessionIdRef.current = promotedSessionId;
+    } else if (currentTargetId !== sessionId) {
+      setSessionId(currentTargetId);
+      sessionIdRef.current = currentTargetId;
+    }
+    isSendingRef.current = true;
+    streamingConvIdRef.current = currentTargetId;
+
     const prevTitle = preserveTitle || prevChat?.title || 'New Conversation';
     const newMessages = appendUserMessage ? [userMsgObj, assistantMsgObj] : [assistantMsgObj];
     const initialFullMessages = appendUserMessage
@@ -1984,7 +2015,7 @@ export default function ChatApp() {
 
     // Atomically create user bubble AND assistant placeholder in one update
     setConversations((prev) => {
-      const matchExists = prev.some((c) => isMatchingConversation(c, currentTargetId, cleanDocId));
+      const matchExists = prev.some((c) => isMatchingConversation(c, currentTargetId, cleanDocId) || (oldDraftId && c.id === oldDraftId));
       if (!matchExists) {
         const newConv = {
           id: currentTargetId,
@@ -2000,9 +2031,11 @@ export default function ChatApp() {
         return [newConv, ...prev];
       }
       return prev.map((c) =>
-        isMatchingConversation(c, currentTargetId, cleanDocId)
+        (isMatchingConversation(c, currentTargetId, cleanDocId) || (oldDraftId && c.id === oldDraftId))
           ? {
             ...c,
+            id: currentTargetId,
+            session_id: currentTargetId,
             isDraft: false,
             patient_id: c.patient_id || chatPatientId,
             patientId: c.patientId || chatPatientId,
@@ -2284,7 +2317,10 @@ export default function ChatApp() {
               }
             }).catch(() => {});
           } else if (activeSessionId && !activeSessionId.startsWith('new_')) {
-            getDocumentChats(null, activeSessionId).then((freshChats) => {
+            const fetchPromise = (chatPatientId && chatPatientId !== 'self')
+              ? getDocumentChats(null, activeSessionId, chatPatientId)
+              : getDocumentChats(null, activeSessionId);
+            fetchPromise.then((freshChats) => {
               if (Array.isArray(freshChats) && freshChats.length > 0) {
                 const formatted = freshChats.map(normalizeChatMessage);
                 setConversations((prev) =>
@@ -2386,7 +2422,7 @@ export default function ChatApp() {
     isSubmittingRef.current = false;
 
     // If current conversation already has 0 messages and no active PDF, don't create duplicate
-    const activeChat = conversations.find((c) => c.id === sessionId);
+    const activeChat = conversations.find((c) => isMatchingConversation(c, sessionId, activePdf?.id));
     if (activeChat && (!activeChat.messages || activeChat.messages.length === 0) && !activePdf) {
       return;
     }
@@ -2492,8 +2528,6 @@ export default function ChatApp() {
       await loadChatHistory(cleanDocId, id);
     } else {
       setActivePdf(null);
-      setSelectedPatientId('self');
-      localStorage.setItem('mediskye_patient_id', 'self');
       await loadChatHistory(null, id);
     }
   };
@@ -2797,7 +2831,13 @@ export default function ChatApp() {
     const target = isSelfSelected(selectedPatientId, currentUser) ? 'self' : String(selectedPatientId);
     return conversations
       .filter((c) => c.document_id || c.pdf)
-      .filter((c) => String(c.patient_id || 'self') === target)
+      .filter((c) => {
+        const chatPat = normalizePatientId(c.patient_id || c.patientId);
+        if (target === 'self') {
+          return chatPat === 'self' || (currentUser?.id && String(c.patient_id) === String(currentUser.id));
+        }
+        return String(chatPat) === String(target);
+      })
       .map((c) => ({
         id: c.document_id || c.id,
         title: c.title,
