@@ -133,9 +133,9 @@ function areMessagePropsEqual(prevProps, nextProps) {
     p.role === n.role &&
     p.timestamp === n.timestamp &&
     p.created_at === n.created_at &&
-    p.status === n.status &&
+    (p.status || p.statusText) === (n.status || n.statusText) &&
     p.error === n.error &&
-    p.isStreaming === n.isStreaming
+    Boolean(p.isStreaming || p.streaming) === Boolean(n.isStreaming || n.streaming)
   );
 }
 

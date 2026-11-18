@@ -18,6 +18,7 @@ import {
 import { useTranslation } from 'react-i18next';
 import ConfirmModal from './ConfirmModal';
 import { cn } from '../lib/cn';
+import { isMatchingConversation } from '../lib/clinical';
 import { BrandLockup } from './workbench/Brand';
 import { PatientAvatar } from './workbench/PatientSwitcher';
 import Kbd from './ui/Kbd';
@@ -86,7 +87,7 @@ export default function Sidebar({
         c.messages.length === 0 &&
         !c.pdf &&
         !c.document_id &&
-        c.id !== activeSessionId;
+        !isMatchingConversation(c, activeSessionId);
       return !isBlankPlaceholder;
     })
     .filter((c) => (c.title || 'New Conversation').toLowerCase().includes(searchQuery.toLowerCase()));
@@ -141,7 +142,7 @@ export default function Sidebar({
   };
 
   const renderChat = (chat, index) => {
-    const isActive = Boolean(chat.id) && chat.id === activeSessionId;
+    const isActive = isMatchingConversation(chat, activeSessionId, chat.document_id || chat.pdf?.id);
     const isRenaming = Boolean(renamingId) && renamingId === chat.id;
     const isMenuOpen = Boolean(openMenuId) && openMenuId === chat.id;
     const displayTitle = chat.title || 'New Conversation';

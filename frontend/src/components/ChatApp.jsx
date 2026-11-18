@@ -115,9 +115,9 @@ export function reconcileMessagesWithServer(localMessages, serverMessages, isCur
 }
 
 function normalizePatientId(id) {
-  if (!id || typeof id !== 'string') return 'self';
-  const trimmed = id.trim();
-  if (!trimmed || trimmed.toLowerCase() === 'self' || trimmed.toLowerCase() === 'none' || trimmed.toLowerCase() === 'null') {
+  if (!id) return 'self';
+  const trimmed = String(id).trim();
+  if (!trimmed || trimmed.toLowerCase() === 'self' || trimmed.toLowerCase() === 'none' || trimmed.toLowerCase() === 'null' || trimmed.toLowerCase() === 'undefined') {
     return 'self';
   }
   return trimmed;
@@ -817,25 +817,28 @@ export default function ChatApp() {
     }
     const cachedDocs = typeof getCachedDocuments === 'function' ? getCachedDocuments(initPatId) : null;
     if (Array.isArray(cachedDocs) && cachedDocs.length > 0) {
-      const docConvs = cachedDocs.map((doc) => ({
-        id: doc.id,
-        document_id: doc.id,
-        title: doc.title || doc.filename || 'Medical Report',
-        messages: [],
-        pdf: {
+      const docConvs = cachedDocs.map((doc) => {
+        const cachedDocMsgs = safeGetCachedChatMessages(`doc_${doc.id}`);
+        return {
           id: doc.id,
-          name: doc.filename,
-          filename: doc.filename,
-          title: doc.title,
-          collected_at: doc.collected_at,
-          is_future_collection_date: doc.is_future_collection_date,
-          size: 8192,
-        },
-        patient_id: initPatId,
-        patientId: initPatId,
-        created_at: doc.created_at,
-        isDraft: false,
-      }));
+          document_id: doc.id,
+          title: doc.title || doc.filename || 'Medical Report',
+          messages: Array.isArray(cachedDocMsgs) && cachedDocMsgs.length > 0 ? cachedDocMsgs.map(normalizeChatMessage) : [],
+          pdf: {
+            id: doc.id,
+            name: doc.filename,
+            filename: doc.filename,
+            title: doc.title,
+            collected_at: doc.collected_at,
+            is_future_collection_date: doc.is_future_collection_date,
+            size: 8192,
+          },
+          patient_id: initPatId,
+          patientId: initPatId,
+          created_at: doc.created_at,
+          isDraft: false,
+        };
+      });
       return [freshChat, ...docConvs];
     }
     return [freshChat];
@@ -1053,25 +1056,28 @@ export default function ChatApp() {
       if (filteredCached.length > 0) {
         setConversations([freshDraft, ...filteredCached]);
       } else if (Array.isArray(cachedDocs) && cachedDocs.length > 0) {
-        const docConvs = cachedDocs.map((doc) => ({
-          id: doc.id,
-          document_id: doc.id,
-          title: doc.title || doc.filename || 'Medical Report',
-          messages: [],
-          pdf: {
+        const docConvs = cachedDocs.map((doc) => {
+          const cachedDocMsgs = safeGetCachedChatMessages(`doc_${doc.id}`);
+          return {
             id: doc.id,
-            name: doc.filename,
-            filename: doc.filename,
-            title: doc.title,
-            collected_at: doc.collected_at,
-            is_future_collection_date: doc.is_future_collection_date,
-            size: 8192,
-          },
-          patient_id: doc.dependent_id === null ? 'self' : normalizePatientId(doc.dependent_id || activePatId),
-          patientId: doc.dependent_id === null ? 'self' : normalizePatientId(doc.dependent_id || activePatId),
-          created_at: doc.created_at,
-          isDraft: false,
-        }));
+            document_id: doc.id,
+            title: doc.title || doc.filename || 'Medical Report',
+            messages: Array.isArray(cachedDocMsgs) && cachedDocMsgs.length > 0 ? cachedDocMsgs.map(normalizeChatMessage) : [],
+            pdf: {
+              id: doc.id,
+              name: doc.filename,
+              filename: doc.filename,
+              title: doc.title,
+              collected_at: doc.collected_at,
+              is_future_collection_date: doc.is_future_collection_date,
+              size: 8192,
+            },
+            patient_id: doc.dependent_id === null ? 'self' : normalizePatientId(doc.dependent_id || activePatId),
+            patientId: doc.dependent_id === null ? 'self' : normalizePatientId(doc.dependent_id || activePatId),
+            created_at: doc.created_at,
+            isDraft: false,
+          };
+        });
         setConversations([freshDraft, ...docConvs]);
       } else {
         setConversations([freshDraft]);
@@ -1507,7 +1513,7 @@ export default function ChatApp() {
       const p = normalizePatientId(c.patientId || c.patient_id);
       if (p === normActivePatient) return true;
       if (normActivePatient === 'self') {
-        return p === 'self' || (currentUser?.id && String(p) === String(currentUser.id));
+        return p === 'self' || (currentUser?.id && (String(p) === String(currentUser.id) || String(c.patient_id) === String(currentUser.id) || String(c.patientId) === String(currentUser.id)));
       }
       return false;
     };
@@ -1524,6 +1530,29 @@ export default function ChatApp() {
       setActivePdf(current.documents[0]);
     } else if (current && current.pdf) {
       setActivePdf(current.pdf);
+    } else if (current && current.document_id) {
+      const cachedDocs = typeof getCachedDocuments === 'function' ? getCachedDocuments(normActivePatient) : [];
+      const matched = (cachedDocs || []).find((d) => d.id === current.document_id);
+      if (matched) {
+        setActivePdf({
+          id: matched.id,
+          name: matched.filename,
+          filename: matched.filename,
+          title: matched.title,
+          collected_at: matched.collected_at,
+          is_future_collection_date: matched.is_future_collection_date,
+          size: matched.size || 8192,
+        });
+      } else {
+        setActivePdf({
+          id: current.document_id,
+          name: current.title || 'report.pdf',
+          filename: current.title || 'report.pdf',
+          title: current.title,
+          collected_at: current.collected_at,
+          size: 8192,
+        });
+      }
     } else if (current && !current.pdf && !current.document_id) {
       setActivePdf(null);
     }
@@ -1545,7 +1574,7 @@ export default function ChatApp() {
       const p = normalizePatientId(c.patientId || c.patient_id);
       if (p === normActivePatient) return true;
       if (normActivePatient === 'self') {
-        return p === 'self' || (currentUser?.id && String(p) === String(currentUser.id));
+        return p === 'self' || (currentUser?.id && (String(p) === String(currentUser.id) || String(c.patient_id) === String(currentUser.id) || String(c.patientId) === String(currentUser.id)));
       }
       return false;
     };
@@ -1613,25 +1642,28 @@ export default function ChatApp() {
     if (cachedForTarget.length > 0) {
       setConversations([freshChat, ...cachedForTarget]);
     } else if (Array.isArray(cachedDocs) && cachedDocs.length > 0) {
-      const docConvs = cachedDocs.map((doc) => ({
-        id: doc.id,
-        document_id: doc.id,
-        title: doc.title || doc.filename || 'Medical Report',
-        messages: [],
-        pdf: {
+      const docConvs = cachedDocs.map((doc) => {
+        const cachedDocMsgs = safeGetCachedChatMessages(`doc_${doc.id}`);
+        return {
           id: doc.id,
-          name: doc.filename,
-          filename: doc.filename,
-          title: doc.title,
-          collected_at: doc.collected_at,
-          is_future_collection_date: doc.is_future_collection_date,
-          size: 8192,
-        },
-        patient_id: doc.dependent_id === null ? 'self' : normalizePatientId(doc.dependent_id || normTarget),
-        patientId: doc.dependent_id === null ? 'self' : normalizePatientId(doc.dependent_id || normTarget),
-        created_at: doc.created_at,
-        isDraft: false,
-      }));
+          document_id: doc.id,
+          title: doc.title || doc.filename || 'Medical Report',
+          messages: Array.isArray(cachedDocMsgs) && cachedDocMsgs.length > 0 ? cachedDocMsgs.map(normalizeChatMessage) : [],
+          pdf: {
+            id: doc.id,
+            name: doc.filename,
+            filename: doc.filename,
+            title: doc.title,
+            collected_at: doc.collected_at,
+            is_future_collection_date: doc.is_future_collection_date,
+            size: 8192,
+          },
+          patient_id: doc.dependent_id === null ? 'self' : normalizePatientId(doc.dependent_id || normTarget),
+          patientId: doc.dependent_id === null ? 'self' : normalizePatientId(doc.dependent_id || normTarget),
+          created_at: doc.created_at,
+          isDraft: false,
+        };
+      });
       setConversations([freshChat, ...docConvs]);
     } else {
       setConversations([freshChat]);
@@ -2000,6 +2032,8 @@ export default function ChatApp() {
       currentTargetId = promotedSessionId;
       setSessionId(promotedSessionId);
       sessionIdRef.current = promotedSessionId;
+      streamingConvIdRef.current = promotedSessionId;
+      safeMigrateCachedChatMessages(`session_${oldDraftId}`, `session_${promotedSessionId}`);
     } else if (currentTargetId !== sessionId) {
       setSessionId(currentTargetId);
       sessionIdRef.current = currentTargetId;
@@ -2062,7 +2096,7 @@ export default function ChatApp() {
 
     let assistantAccum = '';
     let hadStreamError = false;
-    let activeSessionId = prevChat?.session_id || currentTargetId;
+    let activeSessionId = cleanDocId ? (prevChat?.session_id || currentTargetId) : currentTargetId;
 
     try {
       await sendQueryStream(
@@ -2834,7 +2868,7 @@ export default function ChatApp() {
       .filter((c) => {
         const chatPat = normalizePatientId(c.patient_id || c.patientId);
         if (target === 'self') {
-          return chatPat === 'self' || (currentUser?.id && String(c.patient_id) === String(currentUser.id));
+          return chatPat === 'self' || (currentUser?.id && (String(chatPat) === String(currentUser.id) || String(c.patient_id) === String(currentUser.id) || String(c.patientId) === String(currentUser.id)));
         }
         return String(chatPat) === String(target);
       })
@@ -2966,12 +3000,12 @@ export default function ChatApp() {
 
   const activePatient = useMemo(() => {
     if (isSelfSelected(selectedPatientId, currentUser)) return currentUser;
-    return dependents?.find((d) => String(d.id) === String(selectedPatientId)) || currentUser;
+    return dependents?.find((d) => String(d.id || d.dependent_id) === String(selectedPatientId)) || currentUser;
   }, [selectedPatientId, currentUser, dependents]);
 
   const patientName = useMemo(() => {
     if (isSelfSelected(selectedPatientId, currentUser)) return currentUser?.full_name || null;
-    const dep = (dependents || []).find((x) => String(x.id) === String(selectedPatientId));
+    const dep = (dependents || []).find((x) => String(x.id || x.dependent_id) === String(selectedPatientId));
     return dep?.full_name || null;
   }, [currentUser, dependents, selectedPatientId]);
 

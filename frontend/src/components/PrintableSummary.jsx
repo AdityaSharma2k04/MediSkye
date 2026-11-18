@@ -162,7 +162,7 @@ export default function PrintableSummary({ user, document, summary, metrics, spe
             Known Allergies &amp; Contraindications
           </div>
           <div style={{ fontSize: '8.5pt', color: '#991b1b', lineHeight: '1.35', fontWeight: 600 }}>
-            {user?.known_allergies ? stripEmojis(user.known_allergies) : 'Not recorded'}
+            {(user?.known_allergies || user?.allergies) ? stripEmojis(user?.known_allergies || user?.allergies) : 'Not recorded'}
           </div>
         </div>
 
@@ -172,8 +172,8 @@ export default function PrintableSummary({ user, document, summary, metrics, spe
             Active Medications &amp; Conditions
           </div>
           <div style={{ fontSize: '8.5pt', lineHeight: '1.35' }}>
-            <div><strong>Meds/Supplements:</strong> {user?.current_medications ? stripEmojis(user.current_medications) : 'None reported'}</div>
-            <div><strong>Pre-Existing:</strong> {user?.pre_existing_conditions ? stripEmojis(user.pre_existing_conditions) : 'None reported'}</div>
+            <div><strong>Meds/Supplements:</strong> {(user?.current_medications || user?.medications) ? stripEmojis(user?.current_medications || user?.medications) : 'None reported'}</div>
+            <div><strong>Pre-Existing:</strong> {(user?.pre_existing_conditions || user?.conditions || user?.medical_conditions) ? stripEmojis(user?.pre_existing_conditions || user?.conditions || user?.medical_conditions) : 'None reported'}</div>
           </div>
         </div>
       </div>

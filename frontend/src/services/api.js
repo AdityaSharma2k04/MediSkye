@@ -16,9 +16,9 @@ const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:8000';
 export const API_BASE_URL = API_BASE;
 
 export function normalizePatientId(id) {
-  if (!id || typeof id !== 'string') return 'self';
-  const trimmed = id.trim();
-  if (!trimmed || trimmed.toLowerCase() === 'self' || trimmed.toLowerCase() === 'none' || trimmed.toLowerCase() === 'null') {
+  if (!id) return 'self';
+  const trimmed = String(id).trim();
+  if (!trimmed || trimmed.toLowerCase() === 'self' || trimmed.toLowerCase() === 'none' || trimmed.toLowerCase() === 'null' || trimmed.toLowerCase() === 'undefined') {
     return 'self';
   }
   return trimmed;
@@ -1207,6 +1207,7 @@ export async function sendQueryStream(
   }
   if (patientId && patientId !== 'self') {
     payload.patient_id = patientId;
+    payload.dependent_id = patientId;
   }
 
   const RETRY_DELAYS = [800, 1500, 2500, 3500, 5000];
@@ -1373,6 +1374,15 @@ export async function parseSSEStream(reader, callbacks = {}) {
       } else if (line.startsWith('data:')) {
         currentData += line.slice(5).trim();
       }
+    }
+  }
+
+  if (buffer.trim()) {
+    const line = buffer.replace(/\r$/, '');
+    if (line.startsWith('event:')) {
+      currentEvent = line.slice(6).trim();
+    } else if (line.startsWith('data:')) {
+      currentData += line.slice(5).trim();
     }
   }
 

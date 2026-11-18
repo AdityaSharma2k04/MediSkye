@@ -348,6 +348,10 @@ All critical biomarkers have normalized since starting therapy.`;
     // Assert Question 1 appears in active thread
     expect(await screen.findByText('What are early signs of Vitamin D deficiency?')).toBeInTheDocument();
 
+    // Assert that a real UUID v4 was minted before sendQueryStream was called (not a new_ draft ID)
+    expect(streamSpy.mock.calls[0][1]).not.toMatch(/^new_/);
+    expect(streamSpy.mock.calls[0][1]).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i);
+
     // Assert Answer 1 renders LIVE in active thread without reloading or re-clicking sidebar
     expect(await screen.findByText(/fatigue, bone pain, and muscle weakness\./i)).toBeInTheDocument();
 
@@ -508,5 +512,38 @@ All critical biomarkers have normalized since starting therapy.`;
 
     // Verify live answer rendered
     expect(await screen.findByText('I am here to help you.')).toBeInTheDocument();
+  });
+
+  it('refreshDocuments preserves cached messages and never wipes them with empty array when backend returns empty chats', async () => {
+    const reportDocId = 'report-preserve-99';
+    const mockReport = {
+      id: reportDocId,
+      filename: 'Liver_Function.pdf',
+      title: 'Liver Function Test',
+      collected_at: '2026-04-10',
+      dependent_id: null,
+      patient_id: 'self',
+      created_at: '2026-04-10T08:00:00Z',
+    };
+    const cachedMessages = [
+      api.normalizeChatMessage({ id: 'u-pres', sender: 'user', content: 'Explain ALT levels' }),
+      api.normalizeChatMessage({ id: 'a-pres', sender: 'ai', content: 'Your ALT is 22 U/L which is normal.' }),
+    ];
+    api.getUserDocuments.mockResolvedValue([mockReport]);
+    api.getDocumentChats.mockResolvedValue([]); // Backend returns empty array!
+    api.setCachedChatMessages(`doc_${reportDocId}`, cachedMessages);
+
+    render(<ChatApp />);
+    await waitFor(() => expect(api.getProfile).toHaveBeenCalled());
+
+    // Switch to the report
+    const reportItem = await screen.findByText('Liver Function Test');
+    await act(async () => {
+      fireEvent.click(reportItem.closest('button'));
+    });
+
+    // Cached messages should be displayed immediately and preserved
+    expect(await screen.findByText('Explain ALT levels')).toBeInTheDocument();
+    expect(await screen.findByText('Your ALT is 22 U/L which is normal.')).toBeInTheDocument();
   });
 });

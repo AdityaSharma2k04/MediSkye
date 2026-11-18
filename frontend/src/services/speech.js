@@ -165,7 +165,9 @@ const SPEECH_RECOGNITION_LOCALE_MAP = {
 export function startSpeechRecognition(onResult, onError, onEnd, lang) {
   const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
   if (!SpeechRecognition) {
-    onError('Speech recognition is not supported in this browser.');
+    if (typeof onError === 'function') {
+      onError('Speech recognition is not supported in this browser.');
+    }
     return null;
   }
 
@@ -181,15 +183,15 @@ export function startSpeechRecognition(onResult, onError, onEnd, lang) {
     for (let i = event.resultIndex; i < event.results.length; i++) {
       transcript += event.results[i][0].transcript;
     }
-    onResult(transcript);
+    if (typeof onResult === 'function') onResult(transcript);
   };
 
   recognition.onerror = (event) => {
-    onError(`Voice error: ${event.error}`);
+    if (typeof onError === 'function') onError(`Voice error: ${event.error}`);
   };
 
   recognition.onend = () => {
-    if (onEnd) onEnd();
+    if (typeof onEnd === 'function') onEnd();
   };
 
   recognition.start();

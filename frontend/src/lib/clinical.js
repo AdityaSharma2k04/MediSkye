@@ -607,13 +607,13 @@ export function stripOuterQuotes(str) {
 
 /**
  * Cleanly formats message timestamps to localized short time string (e.g. '09:11 PM'),
- * never letting raw ISO strings leak to the UI.
+ * never letting raw ISO strings or 'Invalid Date' leak to the UI.
  */
 export function formatMessageTimestamp(rawTime) {
   if (!rawTime) return 'Just now';
   if (typeof rawTime === 'string') {
     const trimmed = rawTime.trim();
-    if (!trimmed || trimmed.toLowerCase() === 'just now') return 'Just now';
+    if (!trimmed || trimmed.toLowerCase() === 'just now' || trimmed.toLowerCase().includes('invalid')) return 'Just now';
     // If it's already a short time format e.g. "09:11 PM", "9:11 AM", "14:30"
     if (/^\d{1,2}:\d{2}(?::\d{2})?(\s*(?:[ap]\.?m\.?))?$/i.test(trimmed)) {
       return trimmed;
@@ -623,10 +623,10 @@ export function formatMessageTimestamp(rawTime) {
       try {
         return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
       } catch {
-        return trimmed;
+        return 'Just now';
       }
     }
-    return trimmed;
+    return 'Just now';
   }
   if (rawTime instanceof Date && !isNaN(rawTime.getTime())) {
     try {
@@ -636,6 +636,24 @@ export function formatMessageTimestamp(rawTime) {
     }
   }
   return 'Just now';
+}
+
+/**
+ * Robust conversation matching across raw IDs, doc_ prefixes, document_ids, and session_ids.
+ */
+export function isMatchingConversation(c, targetId, docId = null) {
+  if (!c || (!targetId && !docId)) return false;
+  const cleanTarget = targetId ? String(targetId).replace(/^doc_/, '') : null;
+  const cleanCid = c.id ? String(c.id).replace(/^doc_/, '') : null;
+  const cleanDocId = docId ? String(docId).replace(/^doc_/, '') : null;
+
+  if (targetId && (c.id === targetId || (cleanTarget && cleanCid && cleanCid === cleanTarget))) return true;
+  if (targetId && c.session_id && String(c.session_id) === String(targetId)) return true;
+  if (cleanDocId && c.document_id && String(c.document_id).replace(/^doc_/, '') === cleanDocId) return true;
+  if (cleanDocId && c.pdf?.id && String(c.pdf.id).replace(/^doc_/, '') === cleanDocId) return true;
+  if (cleanTarget && c.document_id && String(c.document_id).replace(/^doc_/, '') === cleanTarget) return true;
+  if (cleanTarget && c.pdf?.id && String(c.pdf.id).replace(/^doc_/, '') === cleanTarget) return true;
+  return false;
 }
 
 /**

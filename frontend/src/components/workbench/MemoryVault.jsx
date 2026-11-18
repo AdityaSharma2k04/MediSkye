@@ -162,7 +162,7 @@ export default function MemoryVault({
     if (selectedVaultPatientId === 'self') {
       return currentUser?.full_name || 'My Profile';
     }
-    const match = dependentsList.find((d) => String(d.id) === String(selectedVaultPatientId));
+    const match = dependentsList.find((d) => String(d.id || d.dependent_id) === String(selectedVaultPatientId));
     return match?.full_name || patientName || 'this patient';
   }, [selectedVaultPatientId, currentUser, dependentsList, patientName]);
 
