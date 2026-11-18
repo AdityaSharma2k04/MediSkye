@@ -1171,16 +1171,39 @@ function sleepWithAbort(ms, signal) {
   });
 }
 
-export async function sendQueryStream(queryText, documentId, language = 'English', onChunk, patientId = null, signal = undefined, sessionId = null) {
-  // documentId can be null for general-health queries (no PDF uploaded)
-  const activeSessionId = sessionId || documentId || 'general-health-' + Date.now();
+export async function sendQueryStream(
+  queryText,
+  documentId = null,
+  language = 'English',
+  onChunk,
+  patientId = null,
+  signal = undefined,
+  sessionId = null
+) {
+  // If sessionId is provided, use it. Otherwise, if documentId is provided:
+  // - If documentId starts with "new_" or "session_" or "general-health-", it is a session ID.
+  // - Otherwise, documentId is a document ID.
+  const activeSessionId = sessionId
+    ? String(sessionId).trim()
+    : (documentId || 'general-health-' + Date.now());
+
+  const isDocumentId = Boolean(
+    documentId &&
+    !String(documentId).startsWith('new_') &&
+    !String(documentId).startsWith('session_') &&
+    !String(documentId).startsWith('general-health-')
+  );
+
+  const cleanDocId = isDocumentId ? String(documentId).replace(/^doc_/, '').trim() : null;
+
   const payload = {
     session_id: activeSessionId,
     query: queryText,
     language: language,
   };
-  if (documentId && documentId !== activeSessionId) {
-    payload.document_id = documentId;
+
+  if (cleanDocId) {
+    payload.document_id = cleanDocId;
   }
   if (patientId && patientId !== 'self') {
     payload.patient_id = patientId;

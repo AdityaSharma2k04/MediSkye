@@ -467,4 +467,46 @@ All critical biomarkers have normalized since starting therapy.`;
     // 4. Verify Rohan's name is rendered as the active profile
     expect(await screen.findByText('Rohan Deshmukh')).toBeInTheDocument();
   });
+
+  it('persists active dependent on cold reload when getCachedDependents is initially empty and verifies sendQueryStream call signatures', async () => {
+    // 1. Simulate cold reload: mediskye_patient_id exists in localStorage, but RAM cache / cachedDependents is empty
+    localStorage.setItem('mediskye_patient_id', mockRohan.id);
+    expect(api.getCachedDependents()).toEqual([]);
+
+    // Spy on sendQueryStream
+    let capturedArgs = null;
+    vi.spyOn(api, 'sendQueryStream').mockImplementation(async (query, docId, lang, onChunk, patientId, signal, sessionId) => {
+      capturedArgs = { query, docId, lang, patientId, signal, sessionId };
+      onChunk({ chunk: 'I am here to help you.' });
+    });
+
+    // 2. Mount ChatApp
+    render(<ChatApp />);
+    await waitFor(() => expect(api.getProfile).toHaveBeenCalled());
+    await waitFor(() => expect(api.getDependents).toHaveBeenCalled());
+
+    // 3. Verify that mediskye_patient_id stays Rohan's ID (not wiped to 'self')
+    expect(localStorage.getItem('mediskye_patient_id')).toBe(mockRohan.id);
+    expect(await screen.findByText('Rohan Deshmukh')).toBeInTheDocument();
+
+    // 4. Send a query in normal general chat for Rohan
+    const chatInput = screen.getByPlaceholderText(/Ask a medical question|Ask about this report|Ask MediSkye/i);
+    fireEvent.change(chatInput, {
+      target: { value: 'How is Rohan doing today?' },
+    });
+    const form = chatInput.closest('form');
+    await act(async () => {
+      fireEvent.submit(form);
+    });
+
+    // 5. Verify sendQueryStream was called with patientId = mockRohan.id and valid session identifier
+    await waitFor(() => expect(capturedArgs).not.toBeNull());
+    expect(capturedArgs.query).toBe('How is Rohan doing today?');
+    expect(typeof capturedArgs.docId).toBe('string');
+    expect(capturedArgs.patientId).toBe(mockRohan.id); // Transmits active dependent!
+    expect(capturedArgs.signal).toBeDefined();
+
+    // Verify live answer rendered
+    expect(await screen.findByText('I am here to help you.')).toBeInTheDocument();
+  });
 });
