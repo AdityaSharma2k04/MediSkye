@@ -211,8 +211,8 @@ const ChatInput = forwardRef(
         <form
           onSubmit={handleSubmit}
           className={cn(
-            'relative rounded-[24px] bg-graphite/95 border border-white/[0.09] shadow-[0_12px_40px_-16px_rgba(0,0,0,0.8)] shadow-specular',
-            'focus-within:border-cyan-500/40 focus-within:shadow-glow transition-[border-color,box-shadow] duration-200',
+            'relative rounded-[24px] bg-white border border-slate-200 shadow-md',
+            'focus-within:border-cyan-600 focus-within:ring-2 focus-within:ring-cyan-500/20 transition-[border-color,box-shadow] duration-200',
             'backdrop-blur-xl'
           )}
         >
@@ -225,12 +225,12 @@ const ChatInput = forwardRef(
                 return (
                   <div
                     key={doc.id || idx}
-                    className="inline-flex items-center gap-2 rounded-xl bg-white/[0.05] border border-white/[0.08] pl-2 pr-1 h-8 text-xs text-ink max-w-full"
+                    className="inline-flex items-center gap-2 rounded-xl bg-slate-100 border border-slate-200 pl-2 pr-1 h-8 text-xs text-slate-800 max-w-full"
                   >
                     {isImage ? (
-                      <Camera className="w-3.5 h-3.5 text-cyan-300 shrink-0" />
+                      <Camera className="w-3.5 h-3.5 text-cyan-700 shrink-0" />
                     ) : (
-                      <FileText className="w-3.5 h-3.5 text-cyan-300 shrink-0" />
+                      <FileText className="w-3.5 h-3.5 text-cyan-700 shrink-0" />
                     )}
                     <span className="truncate max-w-[160px] sm:max-w-[260px]">{displayName}</span>
                     <button
@@ -241,7 +241,7 @@ const ChatInput = forwardRef(
                       }}
                       aria-label={`Detach ${docName}`}
                       title={`Detach ${docName}`}
-                      className="w-6 h-6 rounded-lg text-ink-mute hover:text-white hover:bg-white/[0.08] flex items-center justify-center shrink-0 transition"
+                      className="w-6 h-6 rounded-lg text-slate-400 hover:text-slate-700 hover:bg-slate-200 flex items-center justify-center shrink-0 transition"
                     >
                       <X className="w-3.5 h-3.5" />
                     </button>
@@ -276,7 +276,7 @@ const ChatInput = forwardRef(
               onClick={() => fileInputRef.current?.click()}
               title={t('chat.upload_title', 'Upload medical report (PDF, JPG, PNG · up to 50MB)')}
               aria-label="Upload report"
-              className="ms-tap w-10 h-10 rounded-full text-ink-mute hover:text-white hover:bg-white/[0.06] flex items-center justify-center transition shrink-0 active:scale-95"
+              className="ms-tap w-10 h-10 rounded-full text-slate-500 hover:text-slate-900 hover:bg-slate-100 flex items-center justify-center transition shrink-0 active:scale-95"
             >
               <Paperclip className="w-[18px] h-[18px]" />
             </button>
@@ -286,7 +286,7 @@ const ChatInput = forwardRef(
                 onClick={() => cameraInputRef.current?.click()}
                 title={t('chat.take_photo_title', 'Take photo of report with camera')}
                 aria-label="Take Photo"
-                className="ms-tap w-10 h-10 rounded-full text-ink-mute hover:text-white hover:bg-white/[0.06] flex items-center justify-center transition shrink-0 active:scale-95"
+                className="ms-tap w-10 h-10 rounded-full text-slate-500 hover:text-slate-900 hover:bg-slate-100 flex items-center justify-center transition shrink-0 active:scale-95"
               >
                 <Camera className="w-[18px] h-[18px]" />
               </button>
@@ -300,7 +300,7 @@ const ChatInput = forwardRef(
               placeholder={activeFile ? t('chat.input_placeholder_report', 'Ask about this report...') : t('chat.input_placeholder', 'Ask MediSkye...')}
               rows={1}
               enterKeyHint={isTouch ? 'enter' : 'send'}
-              className="ms-composer-input flex-1 min-w-0 self-center text-base sm:text-[15px] text-white placeholder:text-ink-faint bg-transparent border-0 focus:ring-0 focus:outline-none resize-none leading-6 py-2 max-h-[200px]"
+              className="ms-composer-input flex-1 min-w-0 self-center text-base sm:text-[15px] text-slate-900 placeholder:text-slate-400 bg-transparent border-0 focus:ring-0 focus:outline-none resize-none leading-6 py-2 max-h-[200px]"
             />
 
             <div className="flex items-center gap-1 shrink-0">
@@ -312,7 +312,7 @@ const ChatInput = forwardRef(
                 aria-pressed={isListening}
                 className={cn(
                   'ms-tap w-10 h-10 rounded-full flex items-center justify-center transition-colors active:scale-95',
-                  isListening ? 'text-rose-200 bg-rose-500/15 animate-pulse' : 'text-ink-mute hover:text-white hover:bg-white/[0.06]'
+                  isListening ? 'text-rose-700 bg-rose-100 animate-pulse' : 'text-slate-500 hover:text-slate-900 hover:bg-slate-100'
                 )}
               >
                 {isListening ? <MicOff className="w-[18px] h-[18px]" /> : <Mic className="w-[18px] h-[18px]" />}
@@ -324,7 +324,7 @@ const ChatInput = forwardRef(
                   onClick={onStopGeneration}
                   title={t('chat.stop_generation', 'Stop generation')}
                   aria-label={t('chat.stop_generation', 'Stop generation')}
-                  className="ms-tap w-10 h-10 rounded-full flex items-center justify-center transition-all active:scale-95 bg-white text-slate-950 hover:bg-cyan-100"
+                  className="ms-tap w-10 h-10 rounded-full flex items-center justify-center transition-all active:scale-95 bg-slate-900 text-white hover:bg-slate-800"
                 >
                   <Square className="w-3.5 h-3.5 fill-current" />
                 </button>
@@ -337,7 +337,7 @@ const ChatInput = forwardRef(
                   aria-label={t('chat.send_message', 'Send message')}
                   className={cn(
                     'ms-tap w-10 h-10 rounded-full flex items-center justify-center transition-all active:scale-95 shrink-0',
-                    canSend ? 'bg-clinical-cyan text-slate-950 hover:bg-cyan-300 shadow-[0_6px_20px_-6px_rgba(6,182,212,0.8)]' : 'bg-white/[0.06] text-ink-faint',
+                    canSend ? 'bg-cyan-600 text-white hover:bg-cyan-700 shadow-sm' : 'bg-slate-100 text-slate-400',
                     'disabled:cursor-not-allowed'
                   )}
                 >

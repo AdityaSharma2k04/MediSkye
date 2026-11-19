@@ -45,11 +45,11 @@ export default function Login() {
   const [resetSuccessMessage, setResetSuccessMessage] = useState('');
   const [step, setStep] = useState('email'); // 'email' or 'password'
 
-  // Enforce permanent Obsidian dark theme
+  // Enforce permanent clinical light theme
   useEffect(() => {
-    document.documentElement.classList.add('dark');
+    document.documentElement.classList.remove('dark');
     try {
-      localStorage.setItem('theme', 'dark');
+      localStorage.setItem('theme', 'light');
     } catch (_) {}
   }, []);
 
@@ -354,7 +354,7 @@ export default function Login() {
                     id="login-verified-continue-btn"
                     onClick={handleCheckVerified}
                     disabled={checkingVerification}
-                    className="text-xs font-semibold px-2.5 py-1 rounded-lg bg-cyan-500 hover:bg-cyan-400 text-slate-950 transition cursor-pointer disabled:opacity-60"
+                    className="text-xs font-semibold px-2.5 py-1 rounded-lg bg-cyan-600 hover:bg-cyan-700 text-white transition cursor-pointer disabled:opacity-60"
                   >
                     {checkingVerification ? 'Checking...' : "I've Verified My Email — Continue"}
                   </button>
@@ -437,7 +437,7 @@ export default function Login() {
               />
             </div>
 
-            <button type="submit" className="login-btn-primary bg-cyan-500 hover:bg-cyan-400 text-slate-950 font-semibold transition">
+            <button type="submit" className="login-btn-primary bg-cyan-600 hover:bg-cyan-700 text-white font-semibold transition">
               {t('auth.continue', 'Continue')}
             </button>
           </form>
@@ -496,7 +496,7 @@ export default function Login() {
               </div>
             )}
 
-            <button type="submit" className="login-btn-primary bg-cyan-500 hover:bg-cyan-400 text-slate-950 font-semibold transition" disabled={loading}>
+            <button type="submit" className="login-btn-primary bg-cyan-600 hover:bg-cyan-700 text-white font-semibold transition" disabled={loading}>
               {loading ? (
                 <span className="login-spinner" />
               ) : (

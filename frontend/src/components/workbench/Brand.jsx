@@ -38,7 +38,7 @@ export function BrandLockup({ size = 28, className, subtitle }) {
     <span className={cn('inline-flex items-center gap-2.5 min-w-0', className)}>
       <BrandMark size={size} />
       <span className="min-w-0 leading-none">
-        <span className="block text-[15px] font-semibold tracking-tight text-white">MediSkye</span>
+        <span className="block text-[15px] font-semibold tracking-tight text-slate-900">MediSkye</span>
         {subtitle && <span className="block text-xs text-ink-faint mt-1 truncate">{subtitle}</span>}
       </span>
     </span>

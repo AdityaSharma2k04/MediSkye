@@ -111,7 +111,7 @@ export default function LabMetrics({
       {showHeader && (
         <div className={cn('mb-4 flex flex-col gap-2', layout !== 'list' && 'sm:flex-row sm:items-end sm:justify-between')}>
           <div>
-            <h2 className="ms-display text-[22px] leading-tight text-white">Clinical Lab Metrics</h2>
+            <h2 className="ms-display text-[22px] leading-tight text-slate-900">Clinical Lab Metrics</h2>
             {hasMetrics && (
               <p className="text-xs mt-1 text-ink-mute">
                 {metrics.length} test{metrics.length !== 1 ? 's' : ''} extracted, flagged values first
@@ -122,12 +122,12 @@ export default function LabMetrics({
           {collectedAt && (
             <div className="flex items-center gap-1.5 self-start sm:self-auto">
               {isFuture ? (
-                <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-medium bg-amber-500/10 text-amber-300 border border-amber-500/25">
+                <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-medium bg-amber-50 text-amber-700 border border-amber-200">
                   <AlertTriangle className="w-3.5 h-3.5" />
                   Synthetic / Future-Dated Specimen: {collectedAt}
                 </span>
               ) : (
-                <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-medium bg-white/[0.04] text-ink-soft border border-white/[0.08]">
+                <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-medium bg-slate-100 text-ink-soft border border-slate-200">
                   <Calendar className="w-3.5 h-3.5 text-ink-mute" />
                   Specimen Collected: <span className="ms-num">{collectedAt}</span>
                 </span>
@@ -147,13 +147,13 @@ export default function LabMetrics({
               onChange={(e) => setSearch(e.target.value)}
               placeholder="Search tests or systems, e.g. Ferritin, Lipids…"
               aria-label="Search lab tests"
-              className="w-full h-10 pl-9 pr-9 text-sm rounded-xl bg-graphite text-white placeholder:text-ink-faint border border-white/[0.08] focus:outline-none focus:border-cyan-500/45 focus:ring-4 focus:ring-cyan-500/10 transition"
+              className="w-full h-10 pl-9 pr-9 text-sm rounded-xl bg-graphite text-slate-900 placeholder:text-slate-400 border border-slate-200 focus:outline-none focus:border-cyan-600 focus:ring-4 focus:ring-cyan-500/10 transition"
             />
             {search && (
               <button
                 type="button"
                 onClick={() => setSearch('')}
-                className="absolute right-1.5 top-1/2 -translate-y-1/2 w-8 h-8 rounded-lg flex items-center justify-center text-ink-mute hover:text-white hover:bg-white/[0.06]"
+                className="absolute right-1.5 top-1/2 -translate-y-1/2 w-8 h-8 rounded-lg flex items-center justify-center text-ink-mute hover:text-slate-900 hover:bg-slate-100"
                 aria-label="Clear search"
               >
                 <X className="w-3.5 h-3.5" />
@@ -174,23 +174,23 @@ export default function LabMetrics({
                   className={cn(
                     'ms-tap shrink-0 inline-flex items-center gap-1.5 h-8 px-3 rounded-full text-xs font-medium border transition',
                     active
-                      ? 'bg-cyan-500/15 border-cyan-500/40 text-cyan-100'
-                      : 'bg-white/[0.03] border-white/[0.08] text-ink-mute hover:text-white hover:border-white/[0.16]'
+                      ? 'bg-cyan-50 border-cyan-200 text-cyan-800'
+                      : 'bg-slate-50 border-slate-200 text-slate-600 hover:text-slate-900 hover:border-slate-300'
                   )}
                 >
                   {f.label}
-                  <span className={cn('ms-num text-xs px-1.5 rounded-full', active ? 'bg-cyan-400/20' : 'bg-white/[0.06]')}>{counts[f.value]}</span>
+                  <span className={cn('ms-num text-xs px-1.5 rounded-full', active ? 'bg-cyan-100 text-cyan-800' : 'bg-slate-200 text-slate-600')}>{counts[f.value]}</span>
                 </button>
               );
             })}
-            {layout !== 'list' && <span className="w-px h-5 bg-white/[0.08] shrink-0 mx-0.5" aria-hidden="true" />}
+            {layout !== 'list' && <span className="w-px h-5 bg-slate-200 shrink-0 mx-0.5" aria-hidden="true" />}
             <button
               type="button"
               aria-pressed={grouped}
               onClick={() => setGrouped((g) => !g)}
               className={cn(
                 'ms-tap shrink-0 inline-flex items-center gap-1.5 h-8 px-3 rounded-full text-xs font-medium border transition',
-                grouped ? 'bg-white/[0.09] border-white/[0.16] text-white' : 'bg-white/[0.03] border-white/[0.08] text-ink-mute hover:text-white'
+                grouped ? 'bg-slate-200 border-slate-300 text-slate-900' : 'bg-slate-50 border-slate-200 text-slate-600 hover:text-slate-900'
               )}
             >
               <Layers className="w-3.5 h-3.5" />
@@ -214,7 +214,7 @@ export default function LabMetrics({
               <div ref={tableContainerRef} onScroll={checkScroll} className="w-full overflow-x-auto">
                 <table className="min-w-[680px] w-full text-left text-[13px] border-collapse">
                   <thead className="bg-graphite">
-                    <tr className="border-b border-white/[0.07]">
+                    <tr className="border-b border-slate-200">
                       <Th>Test Name</Th>
                       <Th>Value</Th>
                       <Th>Unit</Th>
@@ -229,9 +229,9 @@ export default function LabMetrics({
                     </tr>
                   </thead>
                   {groups.map((g) => (
-                    <tbody key={g.key} className="divide-y divide-white/[0.045]">
+                    <tbody key={g.key} className="divide-y divide-slate-100">
                       {g.label && (
-                        <tr className="bg-white/[0.015]">
+                        <tr className="bg-slate-50">
                           <td colSpan={hasPriorData ? 7 : 5} className="px-3.5 pt-3 pb-1.5 text-xs font-semibold text-ink-mute">
                             {g.label} <span className="ms-num text-ink-faint">({g.rows.length})</span>
                           </td>
@@ -253,7 +253,7 @@ export default function LabMetrics({
               {canScrollRight && (
                 <div
                   aria-hidden="true"
-                  className="pointer-events-none absolute inset-y-0 right-0 w-8 bg-gradient-to-l from-[#0c0e14] to-transparent"
+                  className="pointer-events-none absolute inset-y-0 right-0 w-8 bg-gradient-to-l from-white to-transparent"
                 />
               )}
             </div>
@@ -296,8 +296,8 @@ function MetricRow({ row, hasPriorData, highlighted, onAskAbout }) {
   const testName = metricName(row);
   const d = deltaPct(row);
   return (
-    <tr data-testid="metric-row" className={cn('group transition-colors hover:bg-white/[0.02]', highlighted && 'bg-cyan-500/[0.06]')}>
-      <td className="px-3.5 py-3 font-medium text-white">
+    <tr data-testid="metric-row" className={cn('group transition-colors hover:bg-slate-50', highlighted && 'bg-cyan-50/50')}>
+      <td className="px-3.5 py-3 font-medium text-slate-900">
         <div className="flex items-center gap-2">
           <span>{testName}</span>
           {onAskAbout && (
@@ -306,14 +306,14 @@ function MetricRow({ row, hasPriorData, highlighted, onAskAbout }) {
               onClick={() => onAskAbout(row)}
               aria-label={`Ask MediSkye about ${testName}`}
               title={`Ask MediSkye about ${testName}`}
-              className="opacity-0 group-hover:opacity-100 focus:opacity-100 w-7 h-7 rounded-lg flex items-center justify-center text-ink-mute hover:text-cyan-300 hover:bg-cyan-500/10 transition"
+              className="opacity-0 group-hover:opacity-100 focus:opacity-100 w-7 h-7 rounded-lg flex items-center justify-center text-slate-400 hover:text-cyan-700 hover:bg-cyan-50 transition"
             >
               <MessageSquarePlus className="w-3.5 h-3.5" />
             </button>
           )}
         </div>
       </td>
-      <td className="px-3.5 py-3 font-semibold text-white whitespace-nowrap ms-num">{row.value ?? '—'}</td>
+      <td className="px-3.5 py-3 font-semibold text-slate-900 whitespace-nowrap ms-num">{row.value ?? '—'}</td>
       <td className="px-3.5 py-3 text-ink-mute whitespace-nowrap ms-num text-xs">{row.unit || '—'}</td>
       <td className="px-3.5 py-3 text-ink-mute">
         <div className="ms-num text-xs whitespace-nowrap">{metricRange(row) || '—'}</div>
@@ -333,7 +333,7 @@ function MetricRow({ row, hasPriorData, highlighted, onAskAbout }) {
           </td>
           <td className="px-3.5 py-3 whitespace-nowrap">
             {d !== null ? (
-              <span className={cn('ms-num text-xs font-medium', row.delta_alert || isNotableShift(row) ? 'text-amber-300 font-semibold' : 'text-ink-mute')}>
+              <span className={cn('ms-num text-xs font-medium', row.delta_alert || isNotableShift(row) ? 'text-amber-700 font-semibold' : 'text-ink-mute')}>
                 {row.delta_abs ? `${row.delta_abs} ` : ''}({formatDeltaPct(d)})
               </span>
             ) : (
@@ -359,19 +359,19 @@ function BiomarkerCard({ row, highlighted, onAskAbout }) {
       data-testid="biomarker-card"
       className={cn(
         'p-3.5 rounded-2xl ms-surface transition-colors',
-        highlighted && 'border-cyan-500/40 bg-cyan-500/[0.04]'
+        highlighted && 'border-cyan-200 bg-cyan-50/50'
       )}
     >
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
-          <div className="text-[14px] font-semibold text-white leading-snug">{testName}</div>
+          <div className="text-[14px] font-semibold text-slate-900 leading-snug">{testName}</div>
           <div className="text-xs text-ink-faint mt-0.5">{organSystemOf(row).label}</div>
         </div>
         <StatusPill row={row} size="sm" className="shrink-0" />
       </div>
 
       <div className="mt-3 flex items-baseline gap-1.5">
-        <span className="ms-num text-[22px] leading-none font-semibold text-white">{row.value ?? '—'}</span>
+        <span className="ms-num text-[22px] leading-none font-semibold text-slate-900">{row.value ?? '—'}</span>
         {row.unit && <span className="ms-num text-xs text-ink-mute">{row.unit}</span>}
       </div>
 
@@ -389,7 +389,7 @@ function BiomarkerCard({ row, highlighted, onAskAbout }) {
       </div>
 
       {(hasPrev || onAskAbout) && (
-        <div className="mt-2.5 pt-2.5 border-t border-white/[0.05] flex items-center justify-between gap-2">
+        <div className="mt-2.5 pt-2.5 border-t border-slate-200 flex items-center justify-between gap-2">
           {hasPrev ? (
             <div className="min-w-0">
               <DeltaIndicator row={row} compact />
@@ -403,7 +403,7 @@ function BiomarkerCard({ row, highlighted, onAskAbout }) {
               type="button"
               onClick={() => onAskAbout(row)}
               aria-label={`Ask MediSkye about ${testName}`}
-              className="ms-tap shrink-0 inline-flex items-center gap-1.5 h-9 px-3 rounded-xl text-xs font-medium text-cyan-200 bg-cyan-500/10 border border-cyan-500/20 hover:bg-cyan-500/15 transition"
+              className="ms-tap shrink-0 inline-flex items-center gap-1.5 h-9 px-3 rounded-xl text-xs font-medium text-cyan-800 bg-cyan-50 border border-cyan-200 hover:bg-cyan-100 transition"
             >
               <MessageSquarePlus className="w-3.5 h-3.5" />
               Ask
@@ -417,11 +417,11 @@ function BiomarkerCard({ row, highlighted, onAskAbout }) {
 
 function EmptyBlock({ title, body }) {
   return (
-    <div className="py-10 px-6 text-center rounded-2xl border border-dashed border-white/[0.1] animate-fade-in">
-      <div className="w-11 h-11 rounded-2xl flex items-center justify-center mx-auto mb-3 bg-white/[0.04] text-ink-mute">
+    <div className="py-10 px-6 text-center rounded-2xl border border-dashed border-slate-200 animate-fade-in">
+      <div className="w-11 h-11 rounded-2xl flex items-center justify-center mx-auto mb-3 bg-slate-100 text-ink-mute">
         <Search className="w-5 h-5" />
       </div>
-      <div className="text-sm font-semibold mb-1 text-white">{title}</div>
+      <div className="text-sm font-semibold mb-1 text-slate-900">{title}</div>
       <div className="text-xs max-w-xs mx-auto text-ink-mute">{body}</div>
     </div>
   );

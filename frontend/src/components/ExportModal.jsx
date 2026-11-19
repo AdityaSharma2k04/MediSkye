@@ -25,7 +25,7 @@ function safeFilename(name) {
 export default function ExportModal({
   isOpen,
   onClose,
-  darkMode,
+  darkMode = false,
   documentId,
   documentTitle,
   messages = [],
@@ -159,7 +159,7 @@ export default function ExportModal({
   return (
     <>
       <div
-        className="fixed inset-0 z-[65] flex items-end sm:items-center justify-center p-0 sm:p-4 bg-black/60 backdrop-blur-sm animate-backdrop-in"
+        className="fixed inset-0 z-[65] flex items-end sm:items-center justify-center p-0 sm:p-4 bg-slate-900/40 backdrop-blur-sm animate-backdrop-in"
         onMouseDown={(e) => {
           if (e.target === e.currentTarget) onClose();
         }}

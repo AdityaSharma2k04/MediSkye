@@ -32,7 +32,7 @@ function FactText({ text }) {
       <button
         type="button"
         onClick={() => setExpanded((prev) => !prev)}
-        className="mt-1 text-xs font-medium text-cyan-400 hover:text-cyan-300 underline underline-offset-2"
+        className="mt-1 text-xs font-medium text-cyan-700 hover:text-cyan-800 underline underline-offset-2"
       >
         {expanded ? 'Show less' : 'Show more'}
       </button>
@@ -41,14 +41,14 @@ function FactText({ text }) {
 }
 
 const CATEGORY_STYLES = {
-  condition: 'bg-rose-500/10 text-rose-200 border-rose-500/25',
-  medication: 'bg-sky-500/10 text-sky-200 border-sky-500/25',
-  allergy: 'bg-amber-500/10 text-amber-200 border-amber-500/25',
-  measurement: 'bg-cyan-500/10 text-cyan-200 border-cyan-500/25',
-  lab_trend: 'bg-cyan-500/10 text-cyan-200 border-cyan-500/25',
-  weight: 'bg-emerald-500/10 text-emerald-200 border-emerald-500/25',
-  lifestyle: 'bg-violet-500/10 text-violet-200 border-violet-500/25',
-  sport_hobby: 'bg-violet-500/10 text-violet-200 border-violet-500/25',
+  condition: 'bg-rose-50 text-rose-700 border-rose-200',
+  medication: 'bg-sky-50 text-sky-700 border-sky-200',
+  allergy: 'bg-amber-50 text-amber-700 border-amber-200',
+  measurement: 'bg-cyan-50 text-cyan-800 border-cyan-200',
+  lab_trend: 'bg-cyan-50 text-cyan-800 border-cyan-200',
+  weight: 'bg-emerald-50 text-emerald-700 border-emerald-200',
+  lifestyle: 'bg-violet-50 text-violet-700 border-violet-200',
+  sport_hobby: 'bg-violet-50 text-violet-700 border-violet-200',
 };
 
 const categoryOf = (f) => String(f?.fact_type || f?.category || 'other').toLowerCase();
@@ -249,7 +249,7 @@ export default function MemoryVault({
     const src = String(f.source_type || '').toLowerCase();
     if (title || src.includes('report') || src.includes('document') || src.includes('upload')) {
       return (
-        <span className="inline-flex items-center gap-1 text-xs px-1.5 py-0.5 rounded-md bg-white/[0.04] border border-white/[0.07] text-ink-mute max-w-[180px]">
+        <span className="inline-flex items-center gap-1 text-xs px-1.5 py-0.5 rounded-md bg-slate-100 border border-slate-200 text-slate-600 max-w-[180px]">
           <FileText className="w-3 h-3 shrink-0" />
           <span className="truncate">{title || 'From a lab report'}</span>
         </span>
@@ -257,7 +257,7 @@ export default function MemoryVault({
     }
     if (src) {
       return (
-        <span className="inline-flex items-center gap-1 text-xs px-1.5 py-0.5 rounded-md bg-white/[0.04] border border-white/[0.07] text-ink-mute">
+        <span className="inline-flex items-center gap-1 text-xs px-1.5 py-0.5 rounded-md bg-slate-100 border border-slate-200 text-slate-600">
           <MessageSquare className="w-3 h-3" />
           {src.includes('chat') ? 'From a conversation' : prettyCategory(src)}
         </span>
@@ -280,7 +280,7 @@ export default function MemoryVault({
             confirmClear ? (
               <div className="space-y-2">
                 <label htmlFor="vault-clear-confirm" className="block text-xs text-ink-mute">
-                  Type <span className="ms-num text-rose-300">CLEAR</span> to permanently delete {facts.length} remembered fact{facts.length === 1 ? '' : 's'}.
+                  Type <span className="ms-num text-rose-700 font-bold">CLEAR</span> to permanently delete {facts.length} remembered fact{facts.length === 1 ? '' : 's'}.
                 </label>
                 <div className="flex gap-2">
                   <input
@@ -291,7 +291,7 @@ export default function MemoryVault({
                     autoCapitalize="off"
                     autoCorrect="off"
                     spellCheck={false}
-                    className="flex-1 min-w-0 h-10 px-3 rounded-xl bg-graphite border border-white/[0.1] text-sm text-white ms-num focus:outline-none focus:border-rose-500/50"
+                    className="flex-1 min-w-0 h-10 px-3 rounded-xl bg-slate-50 border border-slate-200 text-sm text-slate-900 ms-num focus:outline-none focus:border-rose-600"
                   />
                   <button
                     type="button"
@@ -299,7 +299,7 @@ export default function MemoryVault({
                       setConfirmClear(false);
                       setConfirmText('');
                     }}
-                    className="ms-tap h-10 px-3 rounded-xl text-xs text-ink-soft border border-white/[0.1] hover:bg-white/[0.05]"
+                    className="ms-tap h-10 px-3 rounded-xl text-xs text-slate-700 border border-slate-200 hover:bg-slate-100"
                   >
                     Keep
                   </button>
@@ -307,7 +307,7 @@ export default function MemoryVault({
                     type="button"
                     disabled={confirmText.trim() !== 'CLEAR'}
                     onClick={handleClearAll}
-                    className="ms-tap h-10 px-3 rounded-xl text-xs font-semibold text-white bg-rose-600 hover:bg-rose-500 disabled:opacity-40 disabled:pointer-events-none"
+                    className="ms-tap h-10 px-3 rounded-xl text-xs font-semibold text-white bg-rose-600 hover:bg-rose-700 disabled:opacity-40 disabled:pointer-events-none"
                   >
                     Clear memory
                   </button>
@@ -317,7 +317,7 @@ export default function MemoryVault({
               <button
                 type="button"
                 onClick={() => setConfirmClear(true)}
-                className="ms-tap w-full h-10 rounded-xl text-xs font-medium text-rose-300 border border-rose-500/25 hover:bg-rose-500/10 transition"
+                className="ms-tap w-full h-10 rounded-xl text-xs font-medium text-rose-700 border border-rose-200 bg-rose-50 hover:bg-rose-100 transition"
               >
                 Clear all remembered facts
               </button>
@@ -327,9 +327,9 @@ export default function MemoryVault({
       >
         <div className="px-5 py-4 space-y-4" data-testid="memory-vault">
           {/* Patient Selector */}
-          <div className="flex items-center justify-between gap-3 p-3 rounded-2xl bg-white/[0.03] border border-white/[0.08]">
+          <div className="flex items-center justify-between gap-3 p-3 rounded-2xl bg-slate-50 border border-slate-200">
             <div className="flex items-center gap-2 min-w-0">
-              <User className="w-4 h-4 text-cyan-400 shrink-0" />
+              <User className="w-4 h-4 text-cyan-700 shrink-0" />
               <label htmlFor="memory-vault-patient-select" className="text-xs font-medium text-ink-soft whitespace-nowrap">
                 {t('common.patient', 'Patient')}:
               </label>
@@ -340,7 +340,7 @@ export default function MemoryVault({
               data-testid="memory-vault-patient-select"
               value={selectedVaultPatientId}
               onChange={(e) => setSelectedVaultPatientId(e.target.value)}
-              className="flex-1 max-w-[280px] h-8 px-2.5 text-xs font-medium rounded-xl bg-graphite border border-white/[0.14] text-white focus:outline-none focus:border-cyan-500/50 cursor-pointer truncate"
+              className="flex-1 max-w-[280px] h-8 px-2.5 text-xs font-medium rounded-xl bg-white border border-slate-200 text-slate-900 focus:outline-none focus:border-cyan-600 cursor-pointer truncate"
             >
               <option value="self">
                 {currentUser?.full_name || 'My Profile'} (Self)
@@ -353,11 +353,11 @@ export default function MemoryVault({
             </select>
           </div>
 
-          <div className="flex items-center justify-between gap-3 p-3.5 rounded-2xl ms-raised">
+          <div className="flex items-center justify-between gap-3 p-3.5 rounded-2xl ms-raised border border-slate-200 bg-white">
             <div className="flex items-start gap-2.5 min-w-0">
-              <ShieldCheck className={cn('w-4 h-4 mt-0.5 shrink-0', consent ? 'text-emerald-400' : 'text-ink-faint')} />
+              <ShieldCheck className={cn('w-4 h-4 mt-0.5 shrink-0', consent ? 'text-emerald-600' : 'text-slate-400')} />
               <div className="min-w-0">
-                <div className="text-xs font-semibold text-white">Cross-session memory {consent ? 'on' : 'off'}</div>
+                <div className="text-xs font-semibold text-slate-900">Cross-session memory {consent ? 'on' : 'off'}</div>
                 <p className="text-xs text-ink-mute mt-0.5 leading-relaxed">
                   {consent ? 'New conditions, medications and lab trends are remembered.' : 'Nothing new will be remembered until you turn this on.'}
                 </p>
@@ -369,14 +369,14 @@ export default function MemoryVault({
               aria-checked={consent}
               aria-label="Memory vault consent"
               onClick={toggleConsent}
-              className={cn('relative inline-flex h-6 w-11 shrink-0 rounded-full transition-colors', consent ? 'bg-emerald-500' : 'bg-white/[0.12]')}
+              className={cn('relative inline-flex h-6 w-11 shrink-0 rounded-full transition-colors', consent ? 'bg-emerald-600' : 'bg-slate-200')}
             >
               <span className={cn('absolute top-0.5 left-0.5 h-5 w-5 rounded-full bg-white shadow transition-transform', consent && 'translate-x-5')} />
             </button>
           </div>
 
           {error && (
-            <div role="alert" className="text-xs text-rose-200 bg-rose-500/10 border border-rose-500/25 rounded-xl px-3 py-2">
+            <div role="alert" className="text-xs text-rose-700 bg-rose-50 border border-rose-200 rounded-xl px-3 py-2">
               {error}
             </div>
           )}
@@ -388,10 +388,10 @@ export default function MemoryVault({
               onChange={(e) => setQuery(e.target.value)}
               placeholder="Search remembered facts"
               aria-label="Search remembered facts"
-              className="w-full h-10 pl-9 pr-9 rounded-xl bg-graphite border border-white/[0.08] text-sm text-white placeholder:text-ink-faint focus:outline-none focus:border-cyan-500/45"
+              className="w-full h-10 pl-9 pr-9 rounded-xl bg-slate-50 border border-slate-200 text-sm text-slate-900 placeholder:text-slate-400 focus:outline-none focus:border-cyan-600"
             />
             {query && (
-              <button type="button" onClick={() => setQuery('')} aria-label="Clear fact search" className="absolute right-1.5 top-1/2 -translate-y-1/2 w-8 h-8 rounded-lg flex items-center justify-center text-ink-mute hover:text-white">
+              <button type="button" onClick={() => setQuery('')} aria-label="Clear fact search" className="absolute right-1.5 top-1/2 -translate-y-1/2 w-8 h-8 rounded-lg flex items-center justify-center text-slate-400 hover:text-slate-800">
                 <X className="w-3.5 h-3.5" />
               </button>
             )}
@@ -407,7 +407,7 @@ export default function MemoryVault({
                   onClick={() => setCategory(c)}
                   className={cn(
                     'ms-tap shrink-0 h-8 px-3 rounded-full text-xs border transition inline-flex items-center gap-1.5',
-                    category === c ? 'bg-white/[0.09] border-white/[0.16] text-white' : 'bg-white/[0.02] border-white/[0.07] text-ink-mute hover:text-white'
+                    category === c ? 'bg-cyan-50 border-cyan-200 text-cyan-900' : 'bg-slate-50 border-slate-200 text-slate-600 hover:text-slate-900'
                   )}
                 >
                   {c === 'all' ? 'Everything' : prettyCategory(c)}
@@ -423,10 +423,10 @@ export default function MemoryVault({
             </div>
           ) : facts.length === 0 ? (
             <div className="py-10 text-center">
-              <div className="w-11 h-11 mx-auto mb-3 rounded-2xl flex items-center justify-center bg-white/[0.04] text-ink-mute">
+              <div className="w-11 h-11 mx-auto mb-3 rounded-2xl flex items-center justify-center bg-slate-100 text-slate-500">
                 <Brain className="w-5 h-5" />
               </div>
-              <div className="text-sm font-semibold text-white">Nothing remembered yet</div>
+              <div className="text-sm font-semibold text-slate-900">Nothing remembered yet</div>
               <p className="text-xs text-ink-mute mt-1 max-w-xs mx-auto">
                 {consent
                   ? 'Key findings from reports and conversations will appear here as a timeline.'
@@ -440,18 +440,18 @@ export default function MemoryVault({
               {timeline.map(([month, items]) => (
                 <li key={month}>
                   <h3 className="text-xs font-semibold text-ink-mute mb-2 px-0.5">{month}</h3>
-                  <ul className="relative border-l border-white/[0.08] ml-1.5 space-y-2">
+                  <ul className="relative border-l border-slate-200 ml-1.5 space-y-2">
                     {items.map((f) => {
                       const c = categoryOf(f);
                       const date = f.created_at ? new Date(f.created_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) : null;
                       return (
                         <li key={f.id} className="relative pl-4">
-                          <span className="absolute -left-[4.5px] top-3.5 w-2 h-2 rounded-full bg-carbon border border-white/30" aria-hidden="true" />
+                          <span className="absolute -left-[4.5px] top-3.5 w-2 h-2 rounded-full bg-white border border-slate-400" aria-hidden="true" />
                           <div className="group p-3 rounded-xl ms-surface flex items-start gap-3">
                             <div className="min-w-0 flex-1 space-y-1.5">
                               <FactText text={f.fact_text || f.fact_value} />
                               <div className="flex flex-wrap items-center gap-1.5">
-                                <span className={cn('text-xs font-medium px-1.5 py-0.5 rounded-md border', CATEGORY_STYLES[c] || 'bg-white/[0.04] text-ink-mute border-white/[0.08]')}>
+                                <span className={cn('text-xs font-medium px-1.5 py-0.5 rounded-md border', CATEGORY_STYLES[c] || 'bg-slate-100 text-slate-700 border-slate-200')}>
                                   {prettyCategory(c)}
                                 </span>
                                 {sourceBadge(f)}
@@ -464,7 +464,7 @@ export default function MemoryVault({
                               disabled={deletingId === f.id}
                               aria-label={`Forget: ${String(f.fact_text || f.fact_value || 'fact').slice(0, 40)}`}
                               title="Forget this fact"
-                              className="ms-tap w-8 h-8 rounded-lg flex items-center justify-center text-ink-faint hover:text-rose-300 hover:bg-rose-500/10 transition shrink-0 disabled:opacity-40"
+                              className="ms-tap w-8 h-8 rounded-lg flex items-center justify-center text-slate-400 hover:text-rose-700 hover:bg-rose-50 transition shrink-0 disabled:opacity-40"
                             >
                               {deletingId === f.id ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Trash2 className="w-3.5 h-3.5" />}
                             </button>

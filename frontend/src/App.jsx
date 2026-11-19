@@ -313,7 +313,7 @@ export default function App() {
 
   if (isExternalGoogleAuth) {
     return (
-      <Suspense fallback={<div className="fixed inset-0 bg-[#070B14]" />}>
+      <Suspense fallback={<div className="fixed inset-0 bg-[#F8FAFC]" />}>
         <ExternalAuthLanding />
       </Suspense>
     );
@@ -331,7 +331,7 @@ export default function App() {
   return (
     <BrowserRouter>
       <GlobalAuthListener user={user} setUser={setUser} />
-      <Suspense fallback={<div className="fixed inset-0 bg-[#070B14]" />}>
+      <Suspense fallback={<div className="fixed inset-0 bg-[#F8FAFC]" />}>
         <Routes>
           <Route
             path="/"

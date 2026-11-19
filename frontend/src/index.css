@@ -9,24 +9,24 @@
 
 :root {
   /* Surfaces */
-  --ms-obsidian: #05070b;
-  --ms-carbon: #0a0e17;
-  --ms-graphite: #0f1623;
-  --ms-slate: #151d2c;
-  --ms-ridge: #1c2638;
+  --ms-obsidian: #f8fafc;
+  --ms-carbon: #ffffff;
+  --ms-graphite: #f1f5f9;
+  --ms-slate: #eff6ff;
+  --ms-ridge: #cbd5e1;
   /* Lines */
-  --ms-hairline: rgba(255, 255, 255, 0.07);
-  --ms-hairline-strong: rgba(255, 255, 255, 0.12);
+  --ms-hairline: #cbd5e1;
+  --ms-hairline-strong: #94a3b8;
   /* Text */
-  --ms-ink: #e6edf5;
-  --ms-ink-soft: #c3cedb;
-  --ms-ink-mute: #8a97a8;
-  --ms-ink-faint: #7b8798;
+  --ms-ink: #0f172a;
+  --ms-ink-soft: #1e293b;
+  --ms-ink-mute: #475569;
+  --ms-ink-faint: #64748b;
   /* Clinical semantics */
-  --ms-cyan: #06b6d4;
-  --ms-emerald: #10b981;
-  --ms-amber: #f59e0b;
-  --ms-rose: #f43f5e;
+  --ms-cyan: #0891b2;
+  --ms-emerald: #059669;
+  --ms-amber: #d97706;
+  --ms-rose: #e11d48;
   /* Layout */
   --ms-header-h: 56px;
   --ms-safe-bottom: env(safe-area-inset-bottom, 0px);
@@ -36,16 +36,17 @@
   --bg-app: var(--ms-obsidian);
   --bg-surface: var(--ms-carbon);
   --text-app: var(--ms-ink);
-  color-scheme: dark;
+  color-scheme: light;
 }
 
 @layer base {
+
   html,
   body,
   #root {
     background-color: var(--ms-obsidian);
     color: var(--ms-ink);
-    color-scheme: dark;
+    color-scheme: light;
   }
 
   html {
@@ -57,7 +58,7 @@
     -webkit-tap-highlight-color: transparent;
     /* Firefox thin scrollbars */
     scrollbar-width: thin;
-    scrollbar-color: rgba(148, 163, 184, 0.22) transparent;
+    scrollbar-color: rgba(148, 163, 184, 0.35) transparent;
   }
 
   body {
@@ -65,25 +66,26 @@
     overscroll-behavior-y: none;
   }
 
-  /* Firefox: every scroll container gets a thin dark track */
+  /* Firefox: every scroll container gets a thin track */
   * {
     scrollbar-width: thin;
-    scrollbar-color: rgba(148, 163, 184, 0.22) transparent;
+    scrollbar-color: rgba(148, 163, 184, 0.35) transparent;
   }
 
   ::selection {
-    background: rgba(6, 182, 212, 0.3);
-    color: #fff;
+    background: rgba(8, 145, 178, 0.2);
+    color: #0f172a;
   }
 
   :focus-visible {
-    outline: 2px solid rgba(34, 211, 238, 0.85);
+    outline: 2px solid rgba(8, 145, 178, 0.85);
     outline-offset: 2px;
     border-radius: 6px;
   }
 
   /* Prevent Android Chrome / iOS from zooming into inputs under 16px */
   @media (max-width: 767px) {
+
     input,
     textarea,
     select {
@@ -92,48 +94,53 @@
   }
 }
 
-/* ── Ultra-thin dark scrollbars (Chromium / Edge on Windows) ── */
+/* ── Ultra-thin scrollbars (Chromium / Edge on Windows) ── */
 ::-webkit-scrollbar {
   width: 8px;
   height: 8px;
 }
+
 ::-webkit-scrollbar-track {
   background: transparent;
 }
+
 ::-webkit-scrollbar-thumb {
-  background-color: rgba(148, 163, 184, 0.18);
+  background-color: rgba(148, 163, 184, 0.35);
   border-radius: 9999px;
   border: 2px solid transparent;
   background-clip: content-box;
 }
+
 ::-webkit-scrollbar-thumb:hover {
-  background-color: rgba(148, 163, 184, 0.36);
+  background-color: rgba(100, 116, 139, 0.6);
 }
+
 ::-webkit-scrollbar-corner {
   background: transparent;
 }
 
 @layer components {
+
   /* Glass panel: used for floating menus, palettes, sheets */
   .ms-glass {
-    background: rgba(13, 19, 30, 0.78);
+    background: rgba(255, 255, 255, 0.95);
     -webkit-backdrop-filter: blur(24px) saturate(140%);
     backdrop-filter: blur(24px) saturate(140%);
-    border: 1px solid var(--ms-hairline-strong);
-    box-shadow: 0 24px 64px -16px rgba(0, 0, 0, 0.75), inset 0 1px 0 rgba(255, 255, 255, 0.05);
+    border: 1px solid var(--ms-hairline);
+    box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.08), 0 8px 10px -6px rgba(0, 0, 0, 0.04);
   }
 
-  /* Specular surface: 1px top highlight that makes panels feel lit */
+  /* Specular surface: clean white card with subtle light shadow */
   .ms-surface {
     background: var(--ms-carbon);
     border: 1px solid var(--ms-hairline);
-    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04);
+    box-shadow: 0 1px 3px 0 rgba(0, 0, 0, 0.05);
   }
 
   .ms-raised {
     background: var(--ms-graphite);
     border: 1px solid var(--ms-hairline);
-    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.05);
+    box-shadow: 0 1px 2px 0 rgba(0, 0, 0, 0.04);
   }
 
   /* Numeric data: tabular figures everywhere a value is printed */
@@ -156,6 +163,7 @@
     min-width: 36px;
     min-height: 36px;
   }
+
   @media (pointer: coarse) {
     .ms-tap {
       min-width: 44px;
@@ -172,8 +180,9 @@
     border-radius: 14px;
     border: 1px solid var(--ms-hairline);
     background: var(--ms-carbon);
-    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04);
+    box-shadow: 0 1px 3px 0 rgba(0, 0, 0, 0.05);
   }
+
   .ms-table-card table {
     width: 100%;
     min-width: max-content;
@@ -182,29 +191,34 @@
     border-spacing: 0;
     font-size: 13px;
   }
+
   .ms-table-card thead th {
     background: var(--ms-graphite);
-    color: var(--ms-ink-mute);
-    font-weight: 600;
+    color: var(--ms-ink);
+    font-weight: 700;
     font-size: 12px;
     text-align: left;
     white-space: nowrap;
     padding: 10px 14px;
     border-bottom: 1px solid var(--ms-hairline);
   }
+
   .ms-table-card tbody td {
     padding: 10px 14px;
     white-space: nowrap;
     color: var(--ms-ink-soft);
-    border-bottom: 1px solid rgba(255, 255, 255, 0.045);
+    border-bottom: 1px solid #e2e8f0;
     font-variant-numeric: tabular-nums;
   }
+
   .ms-table-card tbody tr:last-child td {
     border-bottom: 0;
   }
+
   .ms-table-card tbody tr:hover td {
-    background: rgba(255, 255, 255, 0.018);
+    background: #f8fafc;
   }
+
   /* Sticky first column: biomarker names never scroll out of view */
   .ms-table-card th:first-child,
   .ms-table-card td:first-child {
@@ -216,6 +230,7 @@
     font-weight: 600;
     box-shadow: 1px 0 0 var(--ms-hairline);
   }
+
   .ms-table-card thead th:first-child {
     background: var(--ms-graphite);
     z-index: 2;
@@ -227,90 +242,144 @@
     height: 100vh;
     height: 100dvh;
   }
+
   .min-h-app {
     min-height: 100vh;
     min-height: 100dvh;
   }
+
   .pb-safe-composer {
     padding-bottom: max(0.5rem, env(safe-area-inset-bottom));
   }
+
   .pt-safe {
     padding-top: env(safe-area-inset-top, 0px);
   }
+
   .safe-top {
     padding-top: env(safe-area-inset-top, 0px);
   }
+
   .safe-bottom {
     padding-bottom: env(safe-area-inset-bottom, 0px);
   }
+
   .safe-insets {
     padding-top: env(safe-area-inset-top, 0px);
     padding-bottom: env(safe-area-inset-bottom, 0px);
   }
+
   .no-scrollbar {
     scrollbar-width: none;
   }
+
   .no-scrollbar::-webkit-scrollbar {
     display: none;
   }
+
   .mask-fade-x {
     -webkit-mask-image: linear-gradient(to right, transparent, #000 16px, #000 calc(100% - 16px), transparent);
     mask-image: linear-gradient(to right, transparent, #000 16px, #000 calc(100% - 16px), transparent);
   }
+
   .bg-ambient {
-    background:
-      radial-gradient(900px 480px at 85% -10%, rgba(6, 182, 212, 0.07), transparent 60%),
-      radial-gradient(700px 420px at -10% 110%, rgba(16, 185, 129, 0.045), transparent 60%),
-      var(--ms-obsidian);
+    background: var(--ms-obsidian);
   }
 }
 
 /* ── Keyframe Animations ── */
 @keyframes shimmer {
-  0% { opacity: 0.3; }
-  50% { opacity: 0.7; }
-  100% { opacity: 0.3; }
+  0% {
+    opacity: 0.3;
+  }
+
+  50% {
+    opacity: 0.7;
+  }
+
+  100% {
+    opacity: 0.3;
+  }
 }
+
 .animate-shimmer {
   animation: shimmer 1.5s infinite ease-in-out;
 }
 
 @keyframes fadeIn {
-  from { opacity: 0; transform: translateY(6px); }
-  to { opacity: 1; transform: translateY(0); }
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
 }
+
 .animate-fade-in {
   animation: fadeIn 0.25s ease-out;
 }
 
 @keyframes slideIn {
-  from { opacity: 0; transform: translateY(8px); }
-  to { opacity: 1; transform: translateY(0); }
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
 }
+
 .animate-slide-in {
   animation: slideIn 0.2s ease-out;
 }
 
 @keyframes bubbleIn {
-  0% { opacity: 0; transform: translateY(10px); }
-  100% { opacity: 1; transform: translateY(0); }
+  0% {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+
+  100% {
+    opacity: 1;
+    transform: translateY(0);
+  }
 }
+
 .animate-bubble-in {
   animation: bubbleIn 0.32s cubic-bezier(0.22, 1, 0.36, 1) both;
 }
 
 @keyframes modalIn {
-  from { opacity: 0; transform: translateY(10px) scale(0.97); }
-  to { opacity: 1; transform: translateY(0) scale(1); }
+  from {
+    opacity: 0;
+    transform: translateY(10px) scale(0.97);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
 }
+
 .animate-modal-in {
   animation: modalIn 0.22s cubic-bezier(0.22, 1, 0.36, 1) both;
 }
 
 @keyframes sheetUp {
-  from { transform: translateY(100%); }
-  to { transform: translateY(0); }
+  from {
+    transform: translateY(100%);
+  }
+
+  to {
+    transform: translateY(0);
+  }
 }
+
 @media (max-width: 639px) {
   .ms-sheet-mobile {
     animation: sheetUp 0.32s cubic-bezier(0.22, 1, 0.36, 1) both;
@@ -318,33 +387,51 @@
 }
 
 @keyframes backdropIn {
-  from { opacity: 0; }
-  to { opacity: 1; }
+  from {
+    opacity: 0;
+  }
+
+  to {
+    opacity: 1;
+  }
 }
+
 .animate-backdrop-in {
   animation: backdropIn 0.18s ease-out both;
 }
 
 @keyframes skeletonSweep {
-  0% { background-position: 200% 0; }
-  100% { background-position: -200% 0; }
+  0% {
+    background-position: 200% 0;
+  }
+
+  100% {
+    background-position: -200% 0;
+  }
 }
+
 .skeleton-shimmer {
-  background: linear-gradient(
-    90deg,
-    rgba(28, 38, 56, 0.55) 25%,
-    rgba(45, 58, 80, 0.75) 50%,
-    rgba(28, 38, 56, 0.55) 75%
-  );
+  background: linear-gradient(90deg,
+      #f1f5f9 25%,
+      #e2e8f0 50%,
+      #f1f5f9 75%);
   background-size: 200% 100%;
   animation: skeletonSweep 1.6s linear infinite;
 }
 
 /* Range-bar marker: settles into position once on mount */
 @keyframes markerIn {
-  from { opacity: 0; transform: translate(-50%, -50%) scale(0.4); }
-  to { opacity: 1; transform: translate(-50%, -50%) scale(1); }
+  from {
+    opacity: 0;
+    transform: translate(-50%, -50%) scale(0.4);
+  }
+
+  to {
+    opacity: 1;
+    transform: translate(-50%, -50%) scale(1);
+  }
 }
+
 .ms-marker-in {
   animation: markerIn 0.45s cubic-bezier(0.22, 1, 0.36, 1) both;
 }
@@ -353,6 +440,7 @@
 .pb-safe {
   padding-bottom: max(1rem, env(safe-area-inset-bottom));
 }
+
 @media (min-width: 640px) {
   .pb-safe {
     padding-bottom: max(1.5rem, env(safe-area-inset-bottom));
@@ -361,6 +449,7 @@
 
 /* Accessibility: honor reduced-motion preferences */
 @media (prefers-reduced-motion: reduce) {
+
   .animate-shimmer,
   .animate-fade-in,
   .animate-slide-in,
@@ -375,6 +464,7 @@
   .animate-stage-sweep {
     animation: none !important;
   }
+
   * {
     scroll-behavior: auto !important;
   }
@@ -387,13 +477,16 @@
   font-weight: 600;
   color: var(--ms-ink-faint);
 }
+
 [cmdk-item] {
   cursor: pointer;
 }
+
 [cmdk-item][data-selected='true'] {
-  background: rgba(255, 255, 255, 0.06);
-  color: #fff;
+  background: #f1f5f9;
+  color: #0f172a;
 }
+
 [cmdk-item][data-disabled='true'] {
   opacity: 0.4;
   cursor: not-allowed;
@@ -403,12 +496,14 @@
 [data-vaul-drawer] {
   touch-action: none;
 }
+
 [data-vaul-drawer-direction='bottom'] {
   padding-bottom: env(safe-area-inset-bottom, 0px);
 }
 
 /* Hide the print summary on screen — it appears only during window.print() */
 @media screen {
+
   #print-summary,
   #print-transcript {
     display: none;
@@ -417,7 +512,14 @@
 
 /* Print Styles for 1-Click Doctor Consultation Summary Export */
 @media print {
-  html, body, #root, .h-app, .min-h-app, main, [data-testid="conversation-pane"] {
+
+  html,
+  body,
+  #root,
+  .h-app,
+  .min-h-app,
+  main,
+  [data-testid="conversation-pane"] {
     height: auto !important;
     min-height: 0 !important;
     max-height: none !important;
@@ -428,12 +530,14 @@
   body * {
     visibility: hidden;
   }
+
   #print-summary,
   #print-summary *,
   #print-transcript,
   #print-transcript * {
     visibility: visible;
   }
+
   #print-summary,
   #print-transcript {
     position: static !important;
@@ -464,6 +568,7 @@
     font-size: 9pt;
     margin-bottom: 8pt;
   }
+
   #print-summary th,
   #print-summary td,
   #print-transcript th,
@@ -472,6 +577,7 @@
     padding: 4pt 6pt;
     text-align: left;
   }
+
   #print-summary thead tr,
   #print-transcript thead tr {
     background: #f0f0f0 !important;
@@ -483,21 +589,25 @@
   #print-transcript {
     font-family: 'Inter Variable', Inter, -apple-system, 'Segoe UI', sans-serif;
   }
+
   #print-transcript .ts-header {
     border-bottom: 2px solid #000;
     padding-bottom: 10pt;
     margin-bottom: 12pt;
   }
+
   #print-transcript .ts-logo {
     font-size: 18pt;
     font-weight: 700;
     letter-spacing: -0.01em;
   }
+
   #print-transcript .ts-subtitle {
     font-size: 10pt;
     color: #444;
     margin-top: 2pt;
   }
+
   #print-transcript .ts-meta {
     display: flex;
     gap: 18pt;
@@ -506,6 +616,7 @@
     color: #222;
     margin-bottom: 14pt;
   }
+
   #print-transcript .ts-section-title {
     font-size: 11pt;
     font-weight: 700;
@@ -513,37 +624,44 @@
     border-bottom: 1px solid #999;
     padding-bottom: 3pt;
   }
+
   #print-transcript .ts-msg {
     margin-bottom: 8pt;
     padding: 6pt 9pt;
     border-radius: 6pt;
     page-break-inside: avoid;
   }
+
   #print-transcript .ts-msg-ai {
     background: #f7f7f7;
     border-left: 3pt solid #111;
   }
+
   #print-transcript .ts-msg-user {
     background: #efefef;
     border-left: 3pt solid #888;
   }
+
   #print-transcript .ts-msg-meta {
     font-size: 8pt;
     font-weight: 700;
     color: #555;
     margin-bottom: 2pt;
   }
+
   #print-transcript .ts-msg-body {
     font-size: 9.5pt;
     line-height: 1.45;
     white-space: pre-wrap;
     color: #111;
   }
+
   #print-transcript .ts-empty {
     font-size: 9pt;
     color: #555;
     font-style: italic;
   }
+
   #print-transcript .ts-generated {
     font-size: 8pt;
     color: #666;
@@ -577,7 +695,7 @@
   height: 640px;
   pointer-events: none;
   z-index: 0;
-  background: radial-gradient(circle, rgba(6, 182, 212, 0.07) 0%, rgba(6, 182, 212, 0.02) 40%, transparent 70%);
+  background: radial-gradient(circle, rgba(8, 145, 178, 0.04) 0%, transparent 70%);
 }
 
 .login-card {
@@ -587,15 +705,22 @@
   max-width: 400px;
   padding: 36px 32px 28px;
   border-radius: 20px;
-  background: var(--ms-carbon);
-  border: 1px solid var(--ms-hairline);
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.05), 0 32px 64px -24px rgba(0, 0, 0, 0.8);
+  background: #ffffff;
+  border: 1px solid #cbd5e1;
+  box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.06), 0 8px 10px -6px rgba(0, 0, 0, 0.04);
   animation: cardFadeIn 0.4s ease-out;
 }
 
 @keyframes cardFadeIn {
-  from { opacity: 0; transform: translateY(12px); }
-  to { opacity: 1; transform: translateY(0); }
+  from {
+    opacity: 0;
+    transform: translateY(12px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
 }
 
 .login-logo {
@@ -603,6 +728,7 @@
   justify-content: flex-start;
   margin-bottom: 22px;
 }
+
 .login-logo-icon {
   width: 40px;
   height: 40px;
@@ -623,7 +749,7 @@
   text-align: left;
   margin: 0 0 8px;
   letter-spacing: -0.02em;
-  color: #ffffff;
+  color: #0f172a;
 }
 
 .login-subtitle {
@@ -643,6 +769,7 @@
 .login-field {
   position: relative;
 }
+
 .login-field input {
   width: 100%;
   min-height: 48px;
@@ -652,17 +779,19 @@
   border-radius: 12px;
   outline: none;
   box-sizing: border-box;
-  color: #ffffff;
-  background: var(--ms-graphite);
-  border: 1px solid var(--ms-hairline-strong);
+  color: #0f172a;
+  background: #f8fafc;
+  border: 1px solid #cbd5e1;
   transition: border-color 0.18s ease, box-shadow 0.18s ease;
 }
+
 .login-field input::placeholder {
-  color: var(--ms-ink-faint);
+  color: #94a3b8;
 }
+
 .login-field input:focus {
-  border-color: rgba(6, 182, 212, 0.55);
-  box-shadow: 0 0 0 4px rgba(6, 182, 212, 0.12);
+  border-color: #0891b2;
+  box-shadow: 0 0 0 4px rgba(8, 145, 178, 0.12);
 }
 
 .login-field-toggle {
@@ -682,9 +811,10 @@
   color: var(--ms-ink-mute);
   transition: color 0.15s ease, background 0.15s ease;
 }
+
 .login-field-toggle:hover {
-  color: #fff;
-  background: rgba(255, 255, 255, 0.05);
+  color: #0f172a;
+  background: #f1f5f9;
 }
 
 .login-email-display {
@@ -696,16 +826,18 @@
   border-radius: 12px;
   font-size: 13px;
   cursor: pointer;
-  background: rgba(6, 182, 212, 0.06);
-  border: 1px solid rgba(6, 182, 212, 0.2);
-  color: var(--ms-ink-soft);
+  background: #eff6ff;
+  border: 1px solid #bfdbfe;
+  color: #1e293b;
   transition: border-color 0.2s ease;
 }
+
 .login-email-display:hover {
-  border-color: rgba(6, 182, 212, 0.45);
+  border-color: #60a5fa;
 }
+
 .login-email-display svg {
-  color: var(--ms-ink-mute);
+  color: #475569;
 }
 
 .login-password-hint {
@@ -728,18 +860,21 @@
   justify-content: center;
   gap: 8px;
   margin-top: 4px;
-  color: #031016;
-  background: #06b6d4;
+  color: #ffffff;
+  background: #0891b2;
   font-weight: 600;
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.25), 0 8px 24px -10px rgba(6, 182, 212, 0.7);
+  box-shadow: 0 4px 14px rgba(8, 145, 178, 0.25);
   transition: background 0.15s ease, transform 0.1s ease;
 }
+
 .login-btn-primary:hover:not(:disabled) {
-  background: #22d3ee;
+  background: #0e7490;
 }
+
 .login-btn-primary:active:not(:disabled) {
   transform: scale(0.985);
 }
+
 .login-btn-primary:disabled {
   opacity: 0.5;
   cursor: not-allowed;
@@ -756,7 +891,9 @@
 }
 
 @keyframes spin {
-  to { transform: rotate(360deg); }
+  to {
+    transform: rotate(360deg);
+  }
 }
 
 .login-divider {
@@ -765,6 +902,7 @@
   gap: 12px;
   margin: 20px 0;
 }
+
 .login-divider::before,
 .login-divider::after {
   content: '';
@@ -772,11 +910,13 @@
   height: 1px;
   background: var(--ms-hairline);
 }
+
 .login-divider span {
   font-size: 12px;
   font-weight: 500;
   color: var(--ms-ink-faint);
 }
+
 .login-divider.login-divider-subtle {
   margin: 18px 0;
 }
@@ -795,19 +935,22 @@
   justify-content: center;
   gap: 12px;
   box-sizing: border-box;
-  color: var(--ms-ink);
-  background: var(--ms-graphite);
-  border: 1px solid var(--ms-hairline-strong);
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04);
+  color: #0f172a;
+  background: #ffffff;
+  border: 1px solid #cbd5e1;
+  box-shadow: 0 1px 2px 0 rgba(0, 0, 0, 0.05);
   transition: background 0.15s ease, border-color 0.15s ease, transform 0.1s ease;
 }
+
 .login-btn-google:hover:not(:disabled) {
-  background: var(--ms-slate);
-  border-color: rgba(255, 255, 255, 0.2);
+  background: #f8fafc;
+  border-color: #94a3b8;
 }
+
 .login-btn-google:active:not(:disabled) {
   transform: scale(0.985);
 }
+
 .login-btn-google:disabled {
   opacity: 0.6;
   cursor: not-allowed;
@@ -833,20 +976,21 @@
   font-size: 14px;
   font-weight: 500;
   font-family: inherit;
-  background: transparent;
+  background: #ffffff;
   border-radius: 12px;
   cursor: pointer;
   text-align: center;
   text-decoration: none;
   box-sizing: border-box;
-  color: var(--ms-ink-soft);
-  border: 1px solid var(--ms-hairline-strong);
+  color: #1e293b;
+  border: 1px solid #cbd5e1;
   transition: background 0.2s ease, border-color 0.2s ease, color 0.2s ease;
 }
+
 .login-btn-secondary:hover {
-  background: rgba(255, 255, 255, 0.03);
-  border-color: rgba(255, 255, 255, 0.2);
-  color: #ffffff;
+  background: #f1f5f9;
+  border-color: #94a3b8;
+  color: #0f172a;
 }
 
 .login-error {
@@ -855,9 +999,9 @@
   gap: 8px;
   padding: 10px 14px;
   font-size: 13px;
-  color: #fda4af;
-  background: rgba(244, 63, 94, 0.08);
-  border: 1px solid rgba(244, 63, 94, 0.22);
+  color: #be123c;
+  background: #fff1f2;
+  border: 1px solid #fecdd3;
   border-radius: 12px;
   margin-bottom: 8px;
 }
@@ -868,9 +1012,9 @@
   gap: 8px;
   padding: 10px 14px;
   font-size: 13px;
-  color: #6ee7b7;
-  background: rgba(16, 185, 129, 0.08);
-  border: 1px solid rgba(16, 185, 129, 0.2);
+  color: #047857;
+  background: #ecfdf5;
+  border: 1px solid #a7f3d0;
   border-radius: 12px;
   margin-bottom: 8px;
   animation: cardFadeIn 0.3s ease-out;
@@ -882,6 +1026,7 @@
   margin-top: 2px;
   margin-bottom: 8px;
 }
+
 .login-forgot-btn {
   background: transparent;
   border: none;
@@ -892,10 +1037,12 @@
   transition: color 0.15s ease;
   text-decoration: none;
 }
+
 .login-forgot-btn:hover:not(:disabled) {
-  color: #ffffff;
+  color: #0891b2;
   text-decoration: underline;
 }
+
 .login-forgot-btn:disabled {
   opacity: 0.5;
   cursor: not-allowed;
@@ -930,6 +1077,7 @@
   transition: opacity 0.6s cubic-bezier(0.16, 1, 0.3, 1), transform 0.6s cubic-bezier(0.16, 1, 0.3, 1);
   will-change: opacity, transform;
 }
+
 .fade-in-section.is-visible,
 .fade-in-up.is-visible {
   opacity: 1;
@@ -937,8 +1085,15 @@
 }
 
 @keyframes sheetSide {
-  from { transform: translateX(100%); opacity: 0.6; }
-  to { transform: translateX(0); opacity: 1; }
+  from {
+    transform: translateX(100%);
+    opacity: 0.6;
+  }
+
+  to {
+    transform: translateX(0);
+    opacity: 1;
+  }
 }
 
 /* Composer: keep the placeholder on one line so the textarea never grows on load */
@@ -952,13 +1107,14 @@
    Mobile & Android WebView Performance Optimizations (120 FPS Target)
    ═══════════════════════════════════════════════════════════════════════════ */
 @media (max-width: 768px) {
-  /* Replace stacked GPU-expensive backdrop-blur with opaque obsidian surfaces */
+
+  /* Replace stacked GPU-expensive backdrop-blur with opaque crisp white surfaces */
   header,
   nav,
   [class*="backdrop-blur"] {
     backdrop-filter: none !important;
     -webkit-backdrop-filter: none !important;
-    background-color: rgba(10, 15, 28, 0.96) !important;
+    background-color: rgba(255, 255, 255, 0.98) !important;
   }
 
   /* Eliminate mobile tap delay & gray selection flash */
@@ -986,5 +1142,3 @@
   content-visibility: auto;
   contain-intrinsic-size: auto 140px;
 }
-
-

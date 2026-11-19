@@ -27,7 +27,7 @@ export default function ConfirmModal({
   cancelLabel = 'Cancel',
   requireTyping = null,
   closeable = true,
-  darkMode = true,
+  darkMode = false,
 }) {
   const [typed, setTyped] = useState('');
   const inputRef = useRef(null);

@@ -22,7 +22,7 @@ export default function TrendsView({ series, loading, source, reportCount = 0, l
   if (loading && !ranked.length) {
     return (
       <div className="py-12 flex flex-col items-center text-center gap-3" role="status">
-        <Loader2 className="w-5 h-5 animate-spin text-cyan-300" />
+        <Loader2 className="w-5 h-5 animate-spin text-cyan-600" />
         <div className="text-sm text-ink-soft">Lining up readings across your reports…</div>
       </div>
     );
@@ -30,11 +30,11 @@ export default function TrendsView({ series, loading, source, reportCount = 0, l
 
   if (!ranked.length || !multiPoint.length) {
     return (
-      <div className="py-10 px-6 text-center rounded-2xl border border-dashed border-white/[0.1]">
-        <div className="w-11 h-11 rounded-2xl mx-auto mb-3 flex items-center justify-center bg-white/[0.04] text-ink-mute">
+      <div className="py-10 px-6 text-center rounded-2xl border border-dashed border-slate-200">
+        <div className="w-11 h-11 rounded-2xl mx-auto mb-3 flex items-center justify-center bg-slate-100 text-ink-mute">
           <LineChart className="w-5 h-5" />
         </div>
-        <div className="text-sm font-semibold text-white mb-1">Trends need two readings</div>
+        <div className="text-sm font-semibold text-slate-900 mb-1">Trends need two readings</div>
         <p className="text-xs text-ink-mute max-w-xs mx-auto mb-4">
           Upload an earlier or later report for this patient and MediSkye will chart how each biomarker moved between them.
         </p>
@@ -42,7 +42,7 @@ export default function TrendsView({ series, loading, source, reportCount = 0, l
           <button
             type="button"
             onClick={onUpload}
-            className="ms-tap inline-flex items-center gap-2 h-10 px-4 rounded-xl text-xs font-semibold bg-clinical-cyan text-slate-950 hover:bg-cyan-300 transition"
+            className="ms-tap inline-flex items-center gap-2 h-10 px-4 rounded-xl text-xs font-semibold bg-cyan-600 text-white hover:bg-cyan-700 transition"
           >
             <Upload className="w-3.5 h-3.5" /> Add another report
           </button>
@@ -57,7 +57,7 @@ export default function TrendsView({ series, loading, source, reportCount = 0, l
         <section className="rounded-2xl ms-surface p-4">
           <div className="flex items-start justify-between gap-3 mb-2">
             <div className="min-w-0">
-              <h3 className="text-[15px] font-semibold text-white truncate">{current.name}</h3>
+              <h3 className="text-[15px] font-semibold text-slate-900 truncate">{current.name}</h3>
               <div className="text-xs text-ink-mute mt-0.5">
                 Reference <span className="ms-num">{current.range || 'not stated'}</span>
                 {current.unit ? <span className="ms-num"> {current.unit}</span> : null}
@@ -65,7 +65,7 @@ export default function TrendsView({ series, loading, source, reportCount = 0, l
             </div>
             {current.change !== null && (
               <div className="text-right shrink-0">
-                <div className={cn('ms-num text-lg font-semibold leading-none', Math.abs(current.change) >= 10 ? 'text-amber-300' : 'text-white')}>
+                <div className={cn('ms-num text-lg font-semibold leading-none', Math.abs(current.change) >= 10 ? 'text-amber-700' : 'text-slate-900')}>
                   {current.change < 0 ? '↓' : '↑'} {formatDeltaPct(Math.abs(current.change)).replace('+', '')}
                 </div>
                 <div className="text-xs text-ink-faint mt-1">first → latest</div>
@@ -74,7 +74,7 @@ export default function TrendsView({ series, loading, source, reportCount = 0, l
           </div>
           <TrendChart series={current} />
           <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-xs text-ink-faint">
-            <span className="inline-flex items-center gap-1.5"><span className="w-3 h-2 rounded-sm bg-emerald-500/25" /> Reference interval</span>
+            <span className="inline-flex items-center gap-1.5"><span className="w-3 h-2 rounded-sm bg-emerald-500/25 border border-emerald-500/50" /> Reference interval</span>
             <span className="inline-flex items-center gap-1.5"><span className="w-2 h-2 rounded-full border border-dashed border-slate-400" /> Baseline from report</span>
           </div>
         </section>
@@ -97,7 +97,7 @@ export default function TrendsView({ series, loading, source, reportCount = 0, l
                   aria-pressed={isActive}
                   className={cn(
                     'w-full flex items-center gap-3 px-3 py-2 rounded-xl text-left border transition',
-                    isActive ? 'bg-white/[0.06] border-white/[0.12]' : 'border-transparent hover:bg-white/[0.035]'
+                    isActive ? 'bg-cyan-50 border-cyan-200 text-cyan-900' : 'border-transparent hover:bg-slate-100'
                   )}
                 >
                   <span className="min-w-0 flex-1">
@@ -107,7 +107,7 @@ export default function TrendsView({ series, loading, source, reportCount = 0, l
                     </span>
                   </span>
                   <Sparkline points={s.points} />
-                  <span className={cn('ms-num text-xs font-semibold w-14 text-right', notable ? 'text-amber-300' : 'text-ink-mute')}>
+                  <span className={cn('ms-num text-xs font-semibold w-14 text-right', notable ? 'text-amber-700' : 'text-ink-mute')}>
                     {s.change === null ? '—' : formatDeltaPct(s.change)}
                   </span>
                 </button>

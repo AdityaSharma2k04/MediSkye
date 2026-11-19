@@ -170,7 +170,7 @@ export default function Sidebar({
               type="button"
               onClick={() => commitRename(chat.id)}
               aria-label="Confirm rename"
-              className="ms-tap shrink-0 w-8 h-8 rounded-lg flex items-center justify-center text-emerald-300 hover:bg-white/[0.06]"
+              className="ms-tap shrink-0 w-8 h-8 rounded-lg flex items-center justify-center text-emerald-700 hover:bg-slate-100"
             >
               <Check className="w-3.5 h-3.5" />
             </button>
@@ -178,7 +178,7 @@ export default function Sidebar({
               type="button"
               onClick={cancelRename}
               aria-label="Cancel rename"
-              className="ms-tap shrink-0 w-8 h-8 rounded-lg flex items-center justify-center text-ink-mute hover:text-white hover:bg-white/[0.06]"
+              className="ms-tap shrink-0 w-8 h-8 rounded-lg flex items-center justify-center text-slate-500 hover:text-slate-900 hover:bg-slate-100"
             >
               <X className="w-3.5 h-3.5" />
             </button>
@@ -191,14 +191,14 @@ export default function Sidebar({
               aria-current={isActive ? 'page' : undefined}
               className={cn(
                 'relative flex-1 min-w-0 text-left pl-2.5 pr-9 py-2 rounded-xl text-[13px] flex items-start gap-2.5 transition-colors',
-                isActive ? 'bg-white/[0.07] text-white' : 'text-ink-mute hover:bg-white/[0.035] hover:text-ink'
+                isActive ? 'bg-cyan-50 text-cyan-900 border border-cyan-200' : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900'
               )}
             >
-              {isActive && <span className="absolute left-0 top-2 bottom-2 w-[2px] rounded-full bg-clinical-cyan" aria-hidden="true" />}
+              {isActive && <span className="absolute left-0 top-2 bottom-2 w-[2px] rounded-full bg-cyan-600" aria-hidden="true" />}
               {isReport ? (
-                <FileText className={cn('w-4 h-4 mt-px shrink-0', isActive ? 'text-cyan-300' : 'text-ink-faint')} />
+                <FileText className={cn('w-4 h-4 mt-px shrink-0', isActive ? 'text-cyan-700' : 'text-slate-400')} />
               ) : (
-                <MessageSquare className={cn('w-4 h-4 mt-px shrink-0', isActive ? 'text-ink-soft' : 'text-ink-faint')} />
+                <MessageSquare className={cn('w-4 h-4 mt-px shrink-0', isActive ? 'text-cyan-700' : 'text-slate-400')} />
               )}
               <span className="min-w-0 flex-1">
                 <span className="block truncate font-medium">{displayTitle}</span>
@@ -206,7 +206,7 @@ export default function Sidebar({
                   <span className="flex items-center gap-1.5 mt-1">
                     {dep && <PatientAvatar name={dep.name} index={dep.index} size="sm" className="!w-4 !h-4 !text-[8px]" />}
                     {chat.collected_at ? (
-                      <span className="text-xs ms-num px-1.5 py-px rounded-md bg-cyan-500/10 text-cyan-200/90 border border-cyan-500/15">{chat.collected_at}</span>
+                      <span className="text-xs ms-num px-1.5 py-px rounded-md bg-cyan-100 text-cyan-800 border border-cyan-200">{chat.collected_at}</span>
                     ) : null}
                     {chat.created_at && <span className="text-xs text-ink-faint">{formatRelativeTime(chat.created_at)}</span>}
                   </span>
@@ -225,7 +225,7 @@ export default function Sidebar({
               aria-haspopup="menu"
               aria-expanded={isMenuOpen}
               className={cn(
-                'absolute right-1 top-1.5 w-7 h-7 rounded-lg flex items-center justify-center text-ink-mute hover:text-white hover:bg-white/[0.08] transition-opacity',
+                'absolute right-1 top-1.5 w-7 h-7 rounded-lg flex items-center justify-center text-slate-400 hover:text-slate-800 hover:bg-slate-100 transition-opacity',
                 'opacity-0 group-hover:opacity-100 focus:opacity-100 [@media(pointer:coarse)]:opacity-100',
                 isMenuOpen && '!opacity-100'
               )}
@@ -239,12 +239,12 @@ export default function Sidebar({
                   if (chat.id) menuRefs.current[chat.id] = el;
                 }}
                 role="menu"
-                className="absolute right-0 top-9 z-50 w-40 rounded-xl ms-glass overflow-hidden text-[13px] p-1 animate-slide-in"
+                className="absolute right-0 top-9 z-50 w-40 rounded-xl bg-white shadow-xl border border-slate-200 overflow-hidden text-[13px] p-1 animate-slide-in"
               >
                 <button
                   type="button"
                   onClick={() => startRename(chat)}
-                  className="w-full flex items-center gap-2 px-2.5 h-9 rounded-lg text-ink-soft hover:bg-white/[0.06] hover:text-white transition-colors"
+                  className="w-full flex items-center gap-2 px-2.5 h-9 rounded-lg text-slate-800 hover:bg-slate-100 hover:text-slate-950 transition-colors"
                 >
                   <Pencil className="w-3.5 h-3.5" />
                   <span>{t('sidebar.rename', 'Rename')}</span>
@@ -256,7 +256,7 @@ export default function Sidebar({
                     setOpenMenuId(null);
                     setPendingDeleteId(chat.id);
                   }}
-                  className="w-full flex items-center gap-2 px-2.5 h-9 rounded-lg text-rose-300 hover:bg-rose-500/10 transition-colors"
+                  className="w-full flex items-center gap-2 px-2.5 h-9 rounded-lg text-rose-700 hover:bg-rose-50 transition-colors"
                 >
                   <Trash2 className="w-3.5 h-3.5" />
                   <span>{t('sidebar.delete', 'Delete')}</span>
@@ -269,12 +269,12 @@ export default function Sidebar({
     );
   };
 
-  const footerBtn = 'ms-tap w-full flex items-center gap-2.5 px-2.5 h-9 rounded-xl text-[13px] text-ink-mute hover:bg-white/[0.04] hover:text-white transition-colors';
+  const footerBtn = 'ms-tap w-full flex items-center gap-2.5 px-2.5 h-9 rounded-xl text-[13px] text-slate-600 hover:bg-slate-100 hover:text-slate-900 transition-colors';
   const identity = currentUser?.full_name || (currentUser?.email ? currentUser.email.split('@')[0] : 'Patient Session');
 
   return (
     <>
-      <aside className="w-full h-full flex flex-col border-r border-white/[0.06] bg-obsidian pt-safe">
+      <aside className="w-full h-full flex flex-col border-r border-slate-200 bg-white pt-safe">
         <div className="h-14 px-3.5 flex items-center justify-between shrink-0">
           <BrandLockup size={28} subtitle={t('sidebar.medical_assistant', 'Medical Assistant')} />
           {isOpen && onToggle && (
@@ -283,7 +283,7 @@ export default function Sidebar({
               onClick={onToggle}
               aria-label="Collapse sidebar"
               title="Collapse sidebar"
-              className="ms-tap w-8 h-8 rounded-lg flex items-center justify-center text-ink-faint hover:text-white hover:bg-white/[0.06] transition"
+              className="ms-tap w-8 h-8 rounded-lg flex items-center justify-center text-slate-400 hover:text-slate-800 hover:bg-slate-100 transition"
             >
               <PanelLeftClose className="w-4 h-4" />
             </button>
@@ -297,7 +297,7 @@ export default function Sidebar({
                 type="button"
                 data-testid="sidebar-new-chat-button"
                 onClick={onNewChat}
-                className="ms-tap flex-1 flex items-center justify-center gap-2 h-10 px-3 rounded-xl font-semibold text-[13px] bg-clinical-cyan hover:bg-cyan-300 text-slate-950 shadow-[0_8px_24px_-12px_rgba(6,182,212,0.9)] transition active:scale-[0.98]"
+                className="ms-tap flex-1 flex items-center justify-center gap-2 h-10 px-3 rounded-xl font-semibold text-[13px] bg-cyan-600 hover:bg-cyan-700 text-white shadow-sm transition active:scale-[0.98]"
               >
                 <Plus className="w-4 h-4" />
                 <span>{t('sidebar.new_consultation', 'New Conversation')}</span>
@@ -308,7 +308,7 @@ export default function Sidebar({
                   onClick={onOpenPalette}
                   aria-label="Open command palette"
                   title={`Search everything (${MOD_LABEL}+K)`}
-                  className="ms-tap w-10 h-10 rounded-xl flex items-center justify-center bg-white/[0.03] border border-white/[0.08] text-ink-mute hover:text-white hover:bg-white/[0.06] transition"
+                  className="ms-tap w-10 h-10 rounded-xl flex items-center justify-center bg-slate-50 border border-slate-200 text-slate-600 hover:text-slate-900 hover:bg-slate-100 transition"
                 >
                   <Search className="w-4 h-4" />
                 </button>
@@ -316,14 +316,14 @@ export default function Sidebar({
             </div>
 
             <div className="relative px-0.5">
-              <Search className="w-3.5 h-3.5 absolute left-3.5 top-1/2 -translate-y-1/2 text-ink-faint" />
+              <Search className="w-3.5 h-3.5 absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400" />
               <input
                 type="text"
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
                 placeholder={t('sidebar.search', 'Search chats...')}
                 aria-label="Search chat history"
-                className="w-full h-9 pl-8 pr-12 text-[13px] rounded-xl bg-white/[0.03] text-white placeholder:text-ink-faint border border-white/[0.06] focus:outline-none focus:border-white/[0.16] transition"
+                className="w-full h-9 pl-8 pr-12 text-[13px] rounded-xl bg-slate-50 text-slate-900 placeholder:text-slate-400 border border-slate-200 focus:outline-none focus:border-cyan-600 transition"
               />
               <span className="absolute right-2.5 top-1/2 -translate-y-1/2 hidden lg:inline-flex">
                 <Kbd>{`${MOD_LABEL} K`}</Kbd>
@@ -334,17 +334,17 @@ export default function Sidebar({
               {filteredChats.length === 0 ? (
                 (conversations || []).length === 0 ? (
                   <div className="flex flex-col items-center text-center py-10 px-3 animate-fade-in">
-                    <div className="w-10 h-10 rounded-2xl flex items-center justify-center mb-3 bg-white/[0.04] text-ink-mute">
+                    <div className="w-10 h-10 rounded-2xl flex items-center justify-center mb-3 bg-slate-100 text-slate-500">
                       <MessageSquare className="w-5 h-5" />
                     </div>
-                    <div className="text-xs font-semibold mb-1 text-ink-soft">{t('sidebar.no_conversations_title', 'No conversations yet')}</div>
+                    <div className="text-xs font-semibold mb-1 text-slate-900">{t('sidebar.no_conversations_title', 'No conversations yet')}</div>
                     <div className="text-xs leading-relaxed mb-4 text-ink-faint">
                       {t('sidebar.no_conversations_subtitle', 'Upload a medical report or start a new conversation to see it here.')}
                     </div>
                     <button
                       type="button"
                       onClick={onNewChat}
-                      className="px-3 h-8 rounded-lg text-xs font-medium border border-white/[0.1] text-ink-soft hover:bg-white/[0.05] hover:text-white transition"
+                      className="px-3 h-8 rounded-lg text-xs font-medium border border-slate-200 text-slate-700 hover:bg-slate-100 hover:text-slate-900 transition"
                     >
                       {t('sidebar.new_consultation', 'New Conversation')}
                     </button>
@@ -373,15 +373,15 @@ export default function Sidebar({
               )}
             </div>
 
-            <div className="pt-2 border-t border-white/[0.06] space-y-0.5">
+            <div className="pt-2 border-t border-slate-200 space-y-0.5">
               {onOpenMemory && (
                 <button type="button" onClick={onOpenMemory} className={footerBtn}>
-                  <Brain className="w-4 h-4 text-violet-300" />
+                  <Brain className="w-4 h-4 text-violet-700" />
                   <span>Memory vault</span>
                 </button>
               )}
               <button type="button" onClick={onOpenProfile} className={footerBtn}>
-                <Users className="w-4 h-4 text-cyan-300" />
+                <Users className="w-4 h-4 text-cyan-700" />
                 <span>{t('sidebar.profile', 'Profile & Caregiver Hub')}</span>
               </button>
               <button type="button" onClick={onOpenSettings} className={footerBtn}>
@@ -389,14 +389,14 @@ export default function Sidebar({
                 <span>{t('sidebar.settings', 'Settings')}</span>
               </button>
               <button type="button" onClick={() => setPendingLogout(true)} className={footerBtn}>
-                <LogOut className="w-4 h-4 text-rose-400" />
+                <LogOut className="w-4 h-4 text-rose-700" />
                 <span>{t('sidebar.logout', 'Log out')}</span>
               </button>
 
-              <div className="mt-1.5 flex items-center gap-2.5 px-2 py-2 rounded-xl bg-white/[0.02] border border-white/[0.05]">
+              <div className="mt-1.5 flex items-center gap-2.5 px-2 py-2 rounded-xl bg-slate-50 border border-slate-200">
                 <PatientAvatar name={identity} size="md" />
                 <div className="min-w-0 text-xs">
-                  <div className="font-medium truncate text-ink">{identity}</div>
+                  <div className="font-medium truncate text-slate-900">{identity}</div>
                 </div>
               </div>
             </div>
@@ -413,7 +413,7 @@ export default function Sidebar({
         confirmLabel="Delete"
         requireTyping={null}
         closeable={true}
-        darkMode
+        darkMode={false}
       />
 
       <ConfirmModal
@@ -428,7 +428,7 @@ export default function Sidebar({
         confirmLabel="Log out"
         requireTyping={null}
         closeable={true}
-        darkMode
+        darkMode={false}
       />
     </>
   );

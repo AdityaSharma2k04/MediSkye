@@ -19,18 +19,18 @@ const SPECIMEN = [
 export default function AuthShell({ children }) {
   return (
     <div className="relative min-h-app w-full overflow-hidden bg-obsidian font-sans lg:grid lg:grid-cols-[minmax(0,1.05fr)_minmax(440px,1fr)] lg:items-stretch">
-      <aside data-testid="auth-brand-panel" className="hidden lg:flex relative flex-col justify-between overflow-hidden border-r border-white/[0.06] px-12 py-10 bg-ambient">
+      <aside data-testid="auth-brand-panel" className="hidden lg:flex relative flex-col justify-between overflow-hidden border-r border-slate-200 px-12 py-10 bg-slate-50">
         <Link to="/" aria-label="MediSkye home" className="relative z-[1] w-fit">
           <BrandLockup size={32} />
         </Link>
 
         <div className="relative z-[1] max-w-[460px]">
-          <p className="ms-display text-[40px] leading-[1.05] text-white mb-4">Every value, placed in context.</p>
-          <p className="text-[15px] leading-relaxed text-ink-mute mb-8">
+          <p className="ms-display text-[40px] leading-[1.05] text-slate-900 mb-4">Every value, placed in context.</p>
+          <p className="text-[15px] leading-relaxed text-slate-600 mb-8">
             MediSkye reads your lab report, shows where each biomarker sits in its reference interval, and tracks how it moved since your last test.
           </p>
 
-          <div className="rounded-3xl ms-glass p-5 space-y-4" aria-hidden="true">
+          <div className="rounded-3xl bg-white border border-slate-200 shadow-sm p-5 space-y-4" aria-hidden="true">
             <div className="flex items-center justify-between text-xs text-ink-faint">
               <span>Follow-up panel, 04 Nov 2026</span>
               <span className="ms-num">3 of 24 shown</span>
@@ -38,11 +38,11 @@ export default function AuthShell({ children }) {
             {SPECIMEN.map((row) => (
               <div key={row.test} className="space-y-1.5">
                 <div className="flex items-center justify-between gap-3">
-                  <span className="text-[13px] font-medium text-white">{row.test}</span>
+                  <span className="text-[13px] font-medium text-slate-900">{row.test}</span>
                   <StatusPill row={row} size="sm" />
                 </div>
                 <div className="flex items-baseline justify-between gap-3">
-                  <span className="ms-num text-lg text-white">
+                  <span className="ms-num text-lg text-slate-900">
                     {row.value} <span className="text-xs text-ink-mute">{row.unit}</span>
                   </span>
                   {row.previous_value ? <DeltaIndicator row={row} compact showValues={false} /> : <span className="ms-num text-xs text-ink-faint">ref {row.range}</span>}

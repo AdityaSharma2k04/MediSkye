@@ -270,11 +270,11 @@ export function statusTone(row) {
 }
 
 export const TONE = {
-  rose: { text: 'text-rose-300', bg: 'bg-rose-500/10', border: 'border-rose-500/25', dot: 'bg-rose-500', hex: '#f43f5e' },
-  amber: { text: 'text-amber-300', bg: 'bg-amber-500/10', border: 'border-amber-500/25', dot: 'bg-amber-500', hex: '#f59e0b' },
-  emerald: { text: 'text-emerald-300', bg: 'bg-emerald-500/10', border: 'border-emerald-500/25', dot: 'bg-emerald-500', hex: '#10b981' },
-  cyan: { text: 'text-cyan-300', bg: 'bg-cyan-500/10', border: 'border-cyan-500/25', dot: 'bg-cyan-500', hex: '#06b6d4' },
-  neutral: { text: 'text-slate-300', bg: 'bg-slate-500/10', border: 'border-slate-500/25', dot: 'bg-slate-400', hex: '#94a3b8' },
+  rose: { text: 'text-rose-700', bg: 'bg-rose-50', border: 'border-rose-200', dot: 'bg-rose-600', hex: '#be123c' },
+  amber: { text: 'text-amber-700', bg: 'bg-amber-50', border: 'border-amber-200', dot: 'bg-amber-600', hex: '#b45309' },
+  emerald: { text: 'text-emerald-700', bg: 'bg-emerald-50', border: 'border-emerald-200', dot: 'bg-emerald-600', hex: '#047857' },
+  cyan: { text: 'text-cyan-800', bg: 'bg-cyan-50', border: 'border-cyan-200', dot: 'bg-cyan-600', hex: '#0e7490' },
+  neutral: { text: 'text-slate-700', bg: 'bg-slate-100', border: 'border-slate-200', dot: 'bg-slate-500', hex: '#475569' },
 };
 
 // ── Range geometry ───────────────────────────────────────────────────────────

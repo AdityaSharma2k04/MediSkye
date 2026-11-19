@@ -89,23 +89,23 @@ export default function TrendChart({ series, height = 200, className }) {
 
   return (
     <div ref={wrapRef} data-testid="trend-chart" className={cn('relative w-full', className)}>
-      <svg width={W} height={H} viewBox={`0 0 ${W} ${H}`} className="block w-full" role="img" aria-label={`${series.name} trend across ${coords.length} readings`}>
+      <svg width={W} height={H} viewBox={`0 0 ${W} ${H}`} className="block w-full bg-white rounded-xl" role="img" aria-label={`${series.name} trend across ${coords.length} readings`}>
         {band && (
-          <rect x={pad.l} width={W - pad.l - pad.r} y={Math.min(band.y1, band.y2)} height={Math.abs(band.y2 - band.y1)} fill="rgba(16,185,129,0.09)" />
+          <rect x={pad.l} width={W - pad.l - pad.r} y={Math.min(band.y1, band.y2)} height={Math.abs(band.y2 - band.y1)} fill="rgba(16, 185, 129, 0.12)" />
         )}
-        {band && range.high !== null && <line x1={pad.l} x2={W - pad.r} y1={band.y1} y2={band.y1} stroke="rgba(16,185,129,0.35)" strokeDasharray="3 4" />}
-        {band && range.low !== null && <line x1={pad.l} x2={W - pad.r} y1={band.y2} y2={band.y2} stroke="rgba(16,185,129,0.35)" strokeDasharray="3 4" />}
+        {band && range.high !== null && <line x1={pad.l} x2={W - pad.r} y1={band.y1} y2={band.y1} stroke="#059669" strokeDasharray="3 4" strokeWidth="1.2" />}
+        {band && range.low !== null && <line x1={pad.l} x2={W - pad.r} y1={band.y2} y2={band.y2} stroke="#059669" strokeDasharray="3 4" strokeWidth="1.2" />}
 
         {ticks.map((tv, i) => (
           <g key={i}>
-            <line x1={pad.l} x2={W - pad.r} y1={y(tv)} y2={y(tv)} stroke="rgba(255,255,255,0.04)" />
-            <text x={pad.l - 8} y={y(tv) + 3} textAnchor="end" fontSize="10" fill="#5d6a7c" fontFamily="JetBrains Mono Variable, monospace">
+            <line x1={pad.l} x2={W - pad.r} y1={y(tv)} y2={y(tv)} stroke="#e2e8f0" />
+            <text x={pad.l - 8} y={y(tv) + 3} textAnchor="end" fontSize="10" fill="#475569" fontFamily="JetBrains Mono Variable, monospace">
               {formatNumber(tv)}
             </text>
           </g>
         ))}
 
-        <path d={path} fill="none" stroke="#67e8f9" strokeWidth="2" strokeLinejoin="round" strokeLinecap="round" />
+        <path d={path} fill="none" stroke="#0891b2" strokeWidth="2.5" strokeLinejoin="round" strokeLinecap="round" />
 
         {coords.map((c, i) => (
           <g key={`${c.t}-${i}`}>
@@ -113,8 +113,8 @@ export default function TrendChart({ series, height = 200, className }) {
               cx={c.cx}
               cy={c.cy}
               r={active === i ? 7 : 5}
-              fill={c.synthetic ? '#05070b' : pointColor(c.value)}
-              stroke={c.synthetic ? '#94a3b8' : '#05070b'}
+              fill={c.synthetic ? '#ffffff' : pointColor(c.value)}
+              stroke={c.synthetic ? '#64748b' : '#ffffff'}
               strokeWidth={c.synthetic ? 1.75 : 2}
               strokeDasharray={c.synthetic ? '2 2' : undefined}
               tabIndex={0}
@@ -126,14 +126,14 @@ export default function TrendChart({ series, height = 200, className }) {
               onBlur={() => setActive(null)}
               style={{ cursor: 'pointer', outline: 'none', transition: 'r 120ms ease' }}
             />
-            <text x={c.cx} y={H - 8} textAnchor="middle" fontSize="10" fill="#5d6a7c">
+            <text x={c.cx} y={H - 8} textAnchor="middle" fontSize="10" fill="#475569">
               {c.t > 1e11 ? new Date(c.t).toLocaleDateString('en-GB', { month: 'short', year: '2-digit' }) : `#${i + 1}`}
             </text>
           </g>
         ))}
 
         {last && !activePt && (
-          <text x={Math.min(last.cx + 8, W - pad.r)} y={last.cy - 10} textAnchor={last.cx > W - 80 ? 'end' : 'start'} fontSize="11" fill="#e6edf5" fontFamily="JetBrains Mono Variable, monospace">
+          <text x={Math.min(last.cx + 8, W - pad.r)} y={last.cy - 10} textAnchor={last.cx > W - 80 ? 'end' : 'start'} fontSize="11" fill="#0f172a" fontFamily="JetBrains Mono Variable, monospace">
             {formatNumber(last.value)}
           </text>
         )}
@@ -141,10 +141,10 @@ export default function TrendChart({ series, height = 200, className }) {
 
       {activePt && (
         <div
-          className="pointer-events-none absolute -translate-x-1/2 -translate-y-full ms-glass rounded-lg px-2.5 py-1.5 text-xs whitespace-nowrap"
+          className="pointer-events-none absolute -translate-x-1/2 -translate-y-full ms-glass rounded-lg px-2.5 py-1.5 text-xs whitespace-nowrap shadow-md border border-slate-200"
           style={{ left: `${(activePt.cx / W) * 100}%`, top: `${(activePt.cy / H) * 100}%`, marginTop: -10 }}
         >
-          <div className="ms-num text-white font-semibold">
+          <div className="ms-num text-slate-900 font-semibold">
             {activePt.raw ?? formatNumber(activePt.value)} <span className="text-ink-mute font-normal">{series.unit}</span>
           </div>
           <div className="text-ink-mute">{activePt.synthetic ? `Baseline, ${activePt.label}` : activePt.label || formatShortDate(activePt.t)}</div>
@@ -166,7 +166,7 @@ export function Sparkline({ points = [], width = 72, height = 22, className }) {
   const rising = vals[vals.length - 1] >= vals[0];
   return (
     <svg width={width} height={height} viewBox={`0 0 ${width} ${height}`} className={className} aria-hidden="true">
-      <path d={d} fill="none" stroke={rising ? '#67e8f9' : '#fbbf24'} strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+      <path d={d} fill="none" stroke={rising ? '#0891b2' : '#d97706'} strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
     </svg>
   );
 }

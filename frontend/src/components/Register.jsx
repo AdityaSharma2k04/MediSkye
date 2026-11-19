@@ -104,11 +104,11 @@ export default function Register() {
     return () => clearInterval(timer);
   }, [resendCooldown]);
 
-  // Enforce permanent Obsidian dark theme
+  // Enforce permanent clinical light theme
   useEffect(() => {
-    document.documentElement.classList.add('dark');
+    document.documentElement.classList.remove('dark');
     try {
-      localStorage.setItem('theme', 'dark');
+      localStorage.setItem('theme', 'light');
     } catch (_) {}
   }, []);
 
@@ -394,7 +394,7 @@ export default function Register() {
                 id="register-verified-continue-btn"
                 onClick={handleCheckVerified}
                 disabled={checkingVerification}
-                className="login-btn-primary bg-cyan-500 hover:bg-cyan-400 text-slate-950 font-semibold transition w-full"
+                className="login-btn-primary bg-cyan-600 hover:bg-cyan-700 text-white font-semibold shadow-sm transition w-full"
               >
                 {checkingVerification ? 'Checking verification...' : "I've Verified My Email — Continue"}
               </button>
@@ -415,7 +415,7 @@ export default function Register() {
                 type="button"
                 id="register-go-to-login-btn"
                 onClick={() => navigate('/login')}
-                className="text-xs text-slate-400 hover:text-slate-200 underline pt-1"
+                className="text-xs text-slate-500 hover:text-slate-800 underline pt-1"
               >
                 {t('auth.go_to_login', 'Go to Login')}
               </button>
@@ -474,7 +474,7 @@ export default function Register() {
                   />
                 </div>
 
-                <button type="submit" className="login-btn-primary bg-cyan-500 hover:bg-cyan-400 text-slate-950 font-semibold transition">
+                <button type="submit" className="login-btn-primary bg-cyan-600 hover:bg-cyan-700 text-white font-semibold shadow-sm transition">
                   {t('auth.continue', 'Continue')}
                 </button>
               </form>
@@ -668,7 +668,7 @@ export default function Register() {
                   </span>
                 </label>
 
-                <button type="submit" className="login-btn-primary bg-cyan-500 hover:bg-cyan-400 text-slate-950 font-semibold transition" disabled={loading || !!success || isPasswordMismatch}>
+                <button type="submit" className="login-btn-primary bg-cyan-600 hover:bg-cyan-700 text-white font-semibold shadow-sm transition" disabled={loading || !!success || isPasswordMismatch}>
                   {loading ? (
                     <span className="login-spinner" />
                   ) : success ? (

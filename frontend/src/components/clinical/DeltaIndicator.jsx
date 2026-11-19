@@ -24,7 +24,7 @@ export default function DeltaIndicator({ row, compact = false, showValues = true
         </span>
       )}
       {d !== null && (
-        <span className={cn('font-semibold', notable ? 'text-amber-300' : 'text-ink-mute')}>
+        <span className={cn('font-semibold', notable ? 'text-amber-700' : 'text-ink-mute')}>
           {arrow} {pct}
         </span>
       )}
