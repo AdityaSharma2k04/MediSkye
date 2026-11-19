@@ -324,7 +324,7 @@ export default function Workbench(props) {
   return (
     <div className="flex-1 min-h-0 flex flex-col h-full">
       {/* ━━━ Header ━━━ */}
-      <header data-testid="workbench-header" className="shrink-0 relative z-40 border-b border-slate-200 bg-white/90 backdrop-blur-xl pt-safe overflow-visible">
+      <header data-testid="workbench-header" className="shrink-0 relative z-40 border-b border-white/[0.06] bg-obsidian/85 backdrop-blur-xl pt-safe overflow-visible">
         <div className="h-14 px-2 sm:px-3 flex items-center gap-1.5 sm:gap-2 overflow-visible relative shrink-0">
           {!isDesktop && (
             <IconButton label="Toggle sidebar" onClick={toggleSidebar} className="shrink-0">
@@ -351,8 +351,8 @@ export default function Workbench(props) {
           )}
 
           {isDesktop && activePdf && (
-            <div className="hidden xl:flex items-center gap-2 min-w-0 pl-2 ml-1 border-l border-slate-200">
-              <FileText className="w-3.5 h-3.5 text-cyan-700 shrink-0" />
+            <div className="hidden xl:flex items-center gap-2 min-w-0 pl-2 ml-1 border-l border-white/[0.07]">
+              <FileText className="w-3.5 h-3.5 text-cyan-300 shrink-0" />
               <span className="text-xs text-ink-soft truncate max-w-[240px]">{`${activePdf.filename || activePdf.name || 'Lab report'}`}</span>
               {reportDate && <span className="ms-num text-xs text-ink-faint shrink-0">{`Collected ${reportDate}`}</span>}
             </div>
@@ -365,9 +365,9 @@ export default function Workbench(props) {
                 aria-label="Offline"
                 data-testid="offline-status-badge"
                 title="Offline - Local Cache Active"
-                className="w-8 h-8 rounded-lg flex items-center justify-center bg-rose-50 border border-rose-200 text-rose-700 select-none shrink-0 animate-fade-in"
+                className="w-8 h-8 rounded-lg flex items-center justify-center bg-rose-500/15 border border-rose-500/35 text-rose-400 select-none shrink-0 animate-fade-in"
               >
-                <WifiOff className="w-4 h-4 text-rose-700" />
+                <WifiOff className="w-4 h-4 text-rose-400" />
                 <span className="sr-only">Offline</span>
               </div>
             )}
@@ -376,7 +376,7 @@ export default function Workbench(props) {
                 type="button"
                 onClick={onOpenPalette}
                 aria-label="Open command palette"
-                className="ms-tap inline-flex items-center gap-2 h-9 pl-3 pr-1.5 rounded-xl bg-slate-50 border border-slate-200 text-xs text-slate-600 hover:text-slate-900 hover:border-slate-300 transition"
+                className="ms-tap inline-flex items-center gap-2 h-9 pl-3 pr-1.5 rounded-xl bg-white/[0.03] border border-white/[0.08] text-xs text-ink-mute hover:text-white hover:border-white/[0.14] transition"
               >
                 <Search className="w-3.5 h-3.5" />
                 <span className="mr-6 hidden xl:inline">{t('workbench.search_or_jump', 'Search or jump to…')}</span>
@@ -394,9 +394,9 @@ export default function Workbench(props) {
               disabled={isSyncing}
               title="Sync latest chats & reports from cloud"
               aria-label="Sync latest chats and reports from cloud"
-              className="ms-tap inline-flex items-center justify-center w-9 h-9 rounded-xl bg-slate-50 border border-slate-200 text-slate-600 hover:text-slate-900 hover:border-slate-300 transition disabled:opacity-50"
+              className="ms-tap inline-flex items-center justify-center w-9 h-9 rounded-xl bg-white/[0.03] border border-white/[0.08] text-ink-mute hover:text-white hover:border-white/[0.14] transition disabled:opacity-50"
             >
-              <RefreshCw size={16} className={cn(isSyncing && "animate-spin text-cyan-600")} />
+              <RefreshCw size={16} className={cn(isSyncing && "animate-spin text-sky-400")} />
             </button>
 
             {isDesktop && activePdf && (
@@ -408,7 +408,7 @@ export default function Workbench(props) {
                 title={`Clinical inspector (${MOD_LABEL}+\\)`}
                 className={cn(
                   'ms-tap inline-flex items-center gap-1.5 h-9 px-3 rounded-xl border text-xs font-medium transition',
-                  inspectorVisible ? 'bg-cyan-50 border-cyan-200 text-cyan-800' : 'bg-slate-50 border-slate-200 text-slate-700 hover:text-slate-900'
+                  inspectorVisible ? 'bg-cyan-500/15 border-cyan-500/35 text-cyan-100' : 'bg-white/[0.03] border-white/[0.08] text-ink-soft hover:text-white'
                 )}
               >
                 <FlaskConical className="w-3.5 h-3.5" />
@@ -503,9 +503,9 @@ export default function Workbench(props) {
           {(uploadError || uploadState) && (
             <div className="w-full max-w-3xl mx-auto px-3 sm:px-6 pb-1.5 space-y-2">
               {uploadError && (
-                <div role="alert" className="flex items-center justify-between gap-2.5 px-3.5 py-2.5 rounded-2xl text-xs font-medium bg-rose-50 border border-rose-200 text-rose-700 animate-fade-in">
+                <div role="alert" className="flex items-center justify-between gap-2.5 px-3.5 py-2.5 rounded-2xl text-xs font-medium bg-rose-500/10 border border-rose-500/25 text-rose-200 animate-fade-in">
                   <span>{uploadError}</span>
-                  <button type="button" onClick={onDismissUploadError} aria-label="Dismiss upload error" className="w-7 h-7 rounded-lg flex items-center justify-center text-rose-700 hover:text-rose-900 hover:bg-rose-100">
+                  <button type="button" onClick={onDismissUploadError} aria-label="Dismiss upload error" className="w-7 h-7 rounded-lg flex items-center justify-center text-rose-200 hover:text-white hover:bg-white/[0.06]">
                     <X className="w-3.5 h-3.5" />
                   </button>
                 </div>
@@ -530,9 +530,9 @@ export default function Workbench(props) {
           </div>
 
           {dragActive && (
-            <div className="absolute inset-3 z-30 rounded-3xl border-2 border-dashed border-cyan-500/60 bg-cyan-50/80 backdrop-blur-sm flex flex-col items-center justify-center text-center pointer-events-none animate-fade-in">
-              <UploadCloud className="w-8 h-8 text-cyan-600 mb-2" />
-              <div className="ms-display text-xl text-slate-900">{t('workbench.drop_to_analyze', 'Drop to analyze')}</div>
+            <div className="absolute inset-3 z-30 rounded-3xl border-2 border-dashed border-cyan-400/60 bg-cyan-500/[0.07] backdrop-blur-sm flex flex-col items-center justify-center text-center pointer-events-none animate-fade-in">
+              <UploadCloud className="w-8 h-8 text-cyan-300 mb-2" />
+              <div className="ms-display text-xl text-white">{t('workbench.drop_to_analyze', 'Drop to analyze')}</div>
               <div className="text-xs text-ink-mute mt-1">{t('workbench.drop_hint', 'PDF, JPG or PNG up to 50 MB')}</div>
             </div>
           )}
@@ -558,10 +558,10 @@ export default function Workbench(props) {
               data-testid="inspector-resize-handle"
               className={cn(
                 'group relative w-[9px] -mx-1 z-10 shrink-0 cursor-col-resize flex items-stretch justify-center outline-none touch-none select-none',
-                'focus-visible:[&>span]:bg-cyan-600'
+                'focus-visible:[&>span]:bg-cyan-400'
               )}
             >
-              <span className={cn('w-px h-full transition-colors', pane.isDragging ? 'bg-cyan-600' : 'bg-slate-200 group-hover:bg-cyan-500/60')} />
+              <span className={cn('w-px h-full transition-colors', pane.isDragging ? 'bg-cyan-400' : 'bg-white/[0.07] group-hover:bg-cyan-500/60')} />
             </div>
             <aside data-testid="inspector-pane" aria-label="Clinical inspector" style={{ width: pane.width }} className="shrink-0 min-h-0 flex flex-col animate-fade-in">
               <InspectorPanel

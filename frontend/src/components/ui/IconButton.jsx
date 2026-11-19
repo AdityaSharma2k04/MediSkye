@@ -12,12 +12,12 @@ const IconButton = forwardRef(function IconButton(
   const sizes = { sm: 'w-8 h-8', md: 'w-9 h-9', lg: 'w-11 h-11' };
   const tones = {
     default: active
-      ? 'bg-slate-200 text-slate-900 border-slate-300'
-      : 'text-slate-500 hover:text-slate-900 hover:bg-slate-100 border-transparent',
+      ? 'bg-white/[0.08] text-white border-white/[0.12]'
+      : 'text-ink-mute hover:text-white hover:bg-white/[0.06] border-transparent',
     outline: active
-      ? 'bg-cyan-50 text-cyan-800 border-cyan-200'
-      : 'bg-slate-50 text-slate-700 hover:text-slate-900 hover:bg-slate-100 border-slate-200',
-    primary: 'bg-cyan-600 text-white hover:bg-cyan-700 border-cyan-600 shadow-sm',
+      ? 'bg-cyan-500/15 text-cyan-200 border-cyan-500/35'
+      : 'bg-white/[0.03] text-ink-soft hover:text-white hover:bg-white/[0.07] border-white/[0.08]',
+    primary: 'bg-clinical-cyan text-slate-950 hover:bg-cyan-300 border-cyan-300/40',
   };
   return (
     <button

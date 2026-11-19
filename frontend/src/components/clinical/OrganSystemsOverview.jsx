@@ -34,13 +34,13 @@ export default function OrganSystemsOverview({ metrics = [], onSelectMetric, onA
           <div
             className={cn(
               'w-9 h-9 rounded-xl flex items-center justify-center shrink-0 border',
-              triage.flagged ? 'bg-amber-50 border-amber-200 text-amber-700' : 'bg-emerald-50 border-emerald-200 text-emerald-700'
+              triage.flagged ? 'bg-amber-500/10 border-amber-500/25 text-amber-300' : 'bg-emerald-500/10 border-emerald-500/25 text-emerald-300'
             )}
           >
             {triage.flagged ? <TriangleAlert className="w-4 h-4" /> : <ShieldCheck className="w-4 h-4" />}
           </div>
           <div className="min-w-0">
-            <h3 className="ms-display text-[17px] text-slate-900 leading-snug">{headline}</h3>
+            <h3 className="ms-display text-[17px] text-white leading-snug">{headline}</h3>
             <p className="text-xs text-ink-mute mt-1">
               {triage.shifts > 0
                 ? `${triage.shifts} moved by 10% or more since the previous report.`
@@ -49,7 +49,7 @@ export default function OrganSystemsOverview({ metrics = [], onSelectMetric, onA
           </div>
         </div>
 
-        <div className="mt-4 flex h-2.5 w-full overflow-hidden rounded-full bg-slate-200" role="img" aria-label={segments.map((s) => `${s.n} ${s.label}`).join(', ')}>
+        <div className="mt-4 flex h-2.5 w-full overflow-hidden rounded-full bg-white/[0.05]" role="img" aria-label={segments.map((s) => `${s.n} ${s.label}`).join(', ')}>
           {segments.map((s) => (
             <div key={s.key} style={{ width: `${(s.n / triage.total) * 100}%`, background: TONE[s.key].hex }} className="h-full first:rounded-l-full last:rounded-r-full opacity-90" />
           ))}
@@ -86,9 +86,9 @@ function QuickFilter({ label, n, onClick, tone, icon: Icon }) {
     <button
       type="button"
       onClick={onClick}
-      className="ms-tap text-left rounded-xl px-3 py-2 bg-slate-50 border border-slate-200 hover:border-slate-300 hover:bg-slate-100 transition"
+      className="ms-tap text-left rounded-xl px-3 py-2 bg-white/[0.025] border border-white/[0.07] hover:border-white/[0.16] hover:bg-white/[0.05] transition"
     >
-      <div className={cn('ms-num text-lg font-semibold leading-none', tone === 'amber' && n > 0 ? 'text-amber-700' : 'text-slate-900')}>{n}</div>
+      <div className={cn('ms-num text-lg font-semibold leading-none', tone === 'amber' && n > 0 ? 'text-amber-300' : 'text-white')}>{n}</div>
       <div className="mt-1 text-xs text-ink-mute flex items-center gap-1">
         {Icon && <Icon className="w-3 h-3" />}
         {label}
@@ -106,9 +106,9 @@ function SystemCard({ system, onSelectMetric }) {
       <header className="flex items-center justify-between gap-2 mb-2.5">
         <div className="flex items-center gap-2 min-w-0">
           <span className={cn('w-1.5 h-4 rounded-full', TONE[worstTone].dot)} aria-hidden="true" />
-          <h4 className="text-[13px] font-semibold text-slate-900 truncate">{system.label}</h4>
+          <h4 className="text-[13px] font-semibold text-white truncate">{system.label}</h4>
         </div>
-        <span className={cn('text-xs ms-num px-2 py-0.5 rounded-full border', system.flagged ? `${TONE[worstTone].bg} ${TONE[worstTone].text} ${TONE[worstTone].border}` : 'bg-slate-100 text-ink-mute border-slate-200')}>
+        <span className={cn('text-xs ms-num px-2 py-0.5 rounded-full border', system.flagged ? `${TONE[worstTone].bg} ${TONE[worstTone].text} ${TONE[worstTone].border}` : 'bg-white/[0.04] text-ink-mute border-white/[0.08]')}>
           {system.flagged ? `${system.flagged} flagged` : `${system.metrics.length} in range`}
         </span>
       </header>
@@ -118,7 +118,7 @@ function SystemCard({ system, onSelectMetric }) {
             <button
               type="button"
               onClick={() => onSelectMetric?.(row)}
-              className="w-full grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-3 gap-y-1 rounded-xl px-2 py-1.5 -mx-1 text-left hover:bg-slate-50 transition"
+              className="w-full grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-3 gap-y-1 rounded-xl px-2 py-1.5 -mx-1 text-left hover:bg-white/[0.04] transition"
             >
               <span className="text-xs text-ink-soft truncate">{metricName(row)}</span>
               <span className={cn('ms-num text-xs font-semibold text-right', TONE[statusTone(row)].text)}>
@@ -133,7 +133,7 @@ function SystemCard({ system, onSelectMetric }) {
         <button
           type="button"
           onClick={() => onSelectMetric?.(system.metrics[shown.length], system)}
-          className="mt-1.5 inline-flex items-center gap-1 text-xs text-ink-mute hover:text-slate-900"
+          className="mt-1.5 inline-flex items-center gap-1 text-xs text-ink-mute hover:text-white"
         >
           {rest} more in {system.label} <ChevronRight className="w-3 h-3" />
         </button>

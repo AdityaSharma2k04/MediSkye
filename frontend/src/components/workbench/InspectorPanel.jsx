@@ -66,8 +66,8 @@ export default function InspectorPanel({
   const isPane = variant === 'pane';
 
   return (
-    <div className={cn('h-full min-h-0 flex flex-col', isPane ? 'bg-carbon' : 'bg-transparent')}>
-      <div className={cn('shrink-0 flex items-center gap-2 border-b border-slate-200', isPane ? 'h-12 px-3' : 'h-12 px-4')}>
+    <div className={cn('h-full min-h-0 flex flex-col', isPane ? 'bg-carbon/60' : 'bg-transparent')}>
+      <div className={cn('shrink-0 flex items-center gap-2 border-b border-white/[0.06]', isPane ? 'h-12 px-3' : 'h-12 px-4')}>
         <div role="tablist" aria-label="Inspector views" data-testid="inspector-tabs" className="flex items-center gap-0.5 min-w-0 overflow-x-auto no-scrollbar">
           {tabs.map((tabDef) => {
             const active = tab === tabDef.value;
@@ -81,13 +81,13 @@ export default function InspectorPanel({
                 onClick={() => onTabChange(tabDef.value)}
                 className={cn(
                   'relative ms-tap shrink-0 inline-flex items-center gap-1.5 h-8 px-2.5 rounded-lg text-xs font-medium transition-colors',
-                  active ? 'text-slate-900 font-semibold' : 'text-slate-600 hover:text-slate-900'
+                  active ? 'text-white' : 'text-ink-mute hover:text-ink'
                 )}
               >
                 {active && (
                   <motion.span
                     layoutId={`inspector-tab-${variant}`}
-                    className="absolute inset-0 rounded-lg bg-slate-100 border border-slate-200 shadow-sm"
+                    className="absolute inset-0 rounded-lg bg-white/[0.07] border border-white/[0.08]"
                     transition={{ type: 'spring', stiffness: 520, damping: 40 }}
                   />
                 )}
@@ -104,7 +104,7 @@ export default function InspectorPanel({
               onClick={onReloadMetrics}
               aria-label="Re-run biomarker extraction"
               title="Re-run biomarker extraction"
-              className="ms-tap w-8 h-8 rounded-lg flex items-center justify-center text-slate-500 hover:text-slate-900 hover:bg-slate-100 transition"
+              className="ms-tap w-8 h-8 rounded-lg flex items-center justify-center text-ink-mute hover:text-white hover:bg-white/[0.06] transition"
             >
               <RefreshCw className={cn('w-3.5 h-3.5', metricsLoading && 'animate-spin')} />
             </button>
@@ -115,7 +115,7 @@ export default function InspectorPanel({
               onClick={onClose}
               aria-label="Close clinical inspector"
               title={t('workbench.close_inspector', 'Close inspector')}
-              className="ms-tap w-8 h-8 rounded-lg flex items-center justify-center text-slate-500 hover:text-slate-900 hover:bg-slate-100 transition"
+              className="ms-tap w-8 h-8 rounded-lg flex items-center justify-center text-ink-mute hover:text-white hover:bg-white/[0.06] transition"
             >
               <X className="w-4 h-4" />
             </button>
@@ -128,8 +128,8 @@ export default function InspectorPanel({
           <NoReport onUpload={onUpload} t={t} />
         ) : metricsError && !hasMetrics && tab !== 'report' ? (
           <div data-testid="inspector-metrics-error" className="py-12 px-4 flex flex-col items-center justify-center text-center">
-            <AlertTriangle className="w-8 h-8 text-amber-600 mb-3" />
-            <div className="text-sm text-slate-900 font-semibold mb-1">
+            <AlertTriangle className="w-8 h-8 text-amber-400/80 mb-3" />
+            <div className="text-sm text-white font-medium mb-1">
               {t('inspector.metrics_error', 'Unable to load biomarker metrics')}
             </div>
             <div className="text-xs text-ink-mute max-w-xs mb-4">
@@ -139,7 +139,7 @@ export default function InspectorPanel({
               <button
                 type="button"
                 onClick={onReloadMetrics}
-                className="ms-tap px-3 py-1.5 rounded-lg text-xs font-medium text-slate-800 bg-slate-100 hover:bg-slate-200 border border-slate-200 flex items-center gap-1.5 transition"
+                className="ms-tap px-3 py-1.5 rounded-lg text-xs font-medium text-white bg-white/[0.08] hover:bg-white/[0.14] border border-white/[0.10] flex items-center gap-1.5 transition"
               >
                 <RefreshCw className="w-3.5 h-3.5" />
                 {t('common.retry', 'Retry')}
@@ -225,11 +225,11 @@ function ReportDetails({ activePdf, metrics, attachedDocuments, onPrintSummary, 
     <div className="space-y-4">
       <section className="rounded-2xl ms-surface p-4">
         <div className="flex items-start gap-3">
-          <div className="w-10 h-12 rounded-lg bg-slate-50 border border-slate-200 flex items-center justify-center shrink-0">
-            <FileText className="w-4 h-4 text-cyan-700" />
+          <div className="w-10 h-12 rounded-lg bg-gradient-to-b from-white/[0.08] to-white/[0.02] border border-white/[0.1] flex items-center justify-center shrink-0">
+            <FileText className="w-4 h-4 text-cyan-300" />
           </div>
           <div className="min-w-0">
-            <div className="text-[13px] font-semibold text-slate-900 break-words">{activePdf?.filename || activePdf?.name || 'Lab report'}</div>
+            <div className="text-[13px] font-semibold text-white break-words">{activePdf?.filename || activePdf?.name || 'Lab report'}</div>
             <div className="text-xs text-ink-mute mt-0.5">{`Indexed for hybrid FAISS + BM25 retrieval`}</div>
           </div>
         </div>
@@ -240,7 +240,7 @@ function ReportDetails({ activePdf, metrics, attachedDocuments, onPrintSummary, 
           <Fact icon={Sparkles} label="Answer grounding" value="Cited from this report" />
         </dl>
         {isFuture && (
-          <div className="mt-3 flex items-start gap-2 text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-xl px-3 py-2">
+          <div className="mt-3 flex items-start gap-2 text-xs text-amber-200 bg-amber-500/10 border border-amber-500/20 rounded-xl px-3 py-2">
             <AlertTriangle className="w-3.5 h-3.5 mt-px shrink-0" />
             The collection date on this report is in the future. It may be a synthetic or sample report.
           </div>
@@ -273,7 +273,7 @@ function ReportDetails({ activePdf, metrics, attachedDocuments, onPrintSummary, 
               onPrintSummary(e);
             }}
             disabled={isExporting}
-            className="ms-tap w-full flex items-center gap-3 px-4 h-12 rounded-2xl text-left bg-cyan-50 border border-cyan-200 hover:bg-cyan-100 text-cyan-800 transition disabled:opacity-60"
+            className="ms-tap w-full flex items-center gap-3 px-4 h-12 rounded-2xl text-left bg-cyan-500/10 border border-cyan-500/25 hover:bg-cyan-500/15 text-cyan-100 transition disabled:opacity-60"
           >
             <Printer className={cn('w-4 h-4', isExporting && 'animate-pulse')} />
             <span className="text-[13px] font-medium">{isExporting ? 'Preparing physician report…' : 'Print physician report (A4)'}</span>
@@ -289,7 +289,7 @@ function ReportDetails({ activePdf, metrics, attachedDocuments, onPrintSummary, 
               }
               onExportChat(e);
             }}
-            className="ms-tap w-full flex items-center gap-3 px-4 h-12 rounded-2xl text-left bg-slate-50 border border-slate-200 hover:bg-slate-100 text-slate-800 transition"
+            className="ms-tap w-full flex items-center gap-3 px-4 h-12 rounded-2xl text-left bg-white/[0.03] border border-white/[0.08] hover:bg-white/[0.06] text-ink-soft transition"
           >
             <Download className="w-4 h-4" />
             <span className="text-[13px] font-medium">Download transcript and metrics</span>
@@ -314,13 +314,13 @@ function Fact({ icon: Icon, label, value, mono }) {
 function NoReport({ onUpload, t }) {
   return (
     <div className="py-12 px-6 text-center">
-      <div className="w-12 h-12 rounded-2xl mx-auto mb-3 flex items-center justify-center bg-slate-100 border border-slate-200 text-slate-500">
+      <div className="w-12 h-12 rounded-2xl mx-auto mb-3 flex items-center justify-center bg-white/[0.04] border border-white/[0.07] text-ink-mute">
         <FlaskConical className="w-5 h-5" />
       </div>
-      <div className="ms-display text-lg text-slate-900 mb-1">{t('workbench.no_report_title', 'No report open')}</div>
+      <div className="ms-display text-lg text-white mb-1">{t('workbench.no_report_title', 'No report open')}</div>
       <p className="text-xs text-ink-mute max-w-[260px] mx-auto mb-5">{t('workbench.no_report_desc', 'Open a lab report from history or upload one to see biomarkers, ranges and trends here.')}</p>
       {onUpload && (
-        <button type="button" onClick={onUpload} className="ms-tap inline-flex items-center gap-2 h-10 px-4 rounded-xl text-xs font-semibold bg-cyan-600 text-white hover:bg-cyan-700 shadow-sm transition">
+        <button type="button" onClick={onUpload} className="ms-tap inline-flex items-center gap-2 h-10 px-4 rounded-xl text-xs font-semibold bg-clinical-cyan text-slate-950 hover:bg-cyan-300 transition">
           <Upload className="w-3.5 h-3.5" /> Upload a report
         </button>
       )}
@@ -330,22 +330,22 @@ function NoReport({ onUpload, t }) {
 
 function NoMetrics({ onUpload, onReload }) {
   return (
-    <div className="py-10 px-6 text-center rounded-2xl border border-dashed border-slate-200">
-      <div className="w-11 h-11 rounded-2xl mx-auto mb-3 flex items-center justify-center bg-slate-100 text-slate-500">
+    <div className="py-10 px-6 text-center rounded-2xl border border-dashed border-white/[0.1]">
+      <div className="w-11 h-11 rounded-2xl mx-auto mb-3 flex items-center justify-center bg-white/[0.04] text-ink-mute">
         <AlertTriangle className="w-5 h-5" />
       </div>
-      <div className="text-sm font-semibold text-slate-900 mb-1">No lab values found yet</div>
+      <div className="text-sm font-semibold text-white mb-1">No lab values found yet</div>
       <p className="text-xs text-ink-mute max-w-xs mx-auto mb-4">
         Extraction works on text-based reports such as a CBC or lipid panel. If this report was just uploaded, values may still be warming up.
       </p>
       <div className="flex items-center justify-center gap-2">
         {onReload && (
-          <button type="button" onClick={onReload} className="ms-tap h-9 px-3.5 rounded-xl text-xs font-medium text-slate-700 border border-slate-200 hover:bg-slate-100">
+          <button type="button" onClick={onReload} className="ms-tap h-9 px-3.5 rounded-xl text-xs font-medium text-ink-soft border border-white/[0.1] hover:bg-white/[0.05]">
             Try extraction again
           </button>
         )}
         {onUpload && (
-          <button type="button" onClick={onUpload} className="ms-tap h-9 px-3.5 rounded-xl text-xs font-semibold bg-cyan-600 text-white hover:bg-cyan-700 shadow-sm">
+          <button type="button" onClick={onUpload} className="ms-tap h-9 px-3.5 rounded-xl text-xs font-semibold bg-clinical-cyan text-slate-950 hover:bg-cyan-300">
             Upload a Report
           </button>
         )}
@@ -358,7 +358,7 @@ function MetricsSkeleton() {
   return (
     <div className="space-y-3 animate-fade-in" data-testid="metrics-skeleton" role="status" aria-label="Loading lab metrics">
       <div className="flex items-center gap-2.5 text-xs text-ink-mute">
-        <Sparkles className="w-4 h-4 animate-pulse text-cyan-600" />
+        <Sparkles className="w-4 h-4 animate-pulse text-cyan-300" />
         Analyzing clinical biomarkers and reference ranges…
       </div>
       {[0, 1, 2, 3].map((i) => (

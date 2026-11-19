@@ -10,7 +10,7 @@ export default function MemoryConsentModal({ isOpen, onAllow, onSkip, darkMode =
 
   return (
     <div
-      className="fixed inset-0 z-[75] flex items-end sm:items-center justify-center p-0 sm:p-4 bg-slate-900/40 backdrop-blur-sm animate-backdrop-in"
+      className="fixed inset-0 z-[75] flex items-end sm:items-center justify-center p-0 sm:p-4 bg-black/60 backdrop-blur-sm animate-backdrop-in"
       role="dialog"
       aria-modal="true"
       aria-labelledby="memory-consent-title"

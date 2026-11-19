@@ -42,13 +42,13 @@ export default function RangeBar({ row, size = 'md', showScale = false, showPrev
   return (
     <div className={cn('w-full', className)}>
       <div role="img" aria-label={label} data-testid="range-bar" className={cn('relative w-full', size === 'sm' ? 'py-1' : 'py-1.5')}>
-        <div className={cn('relative w-full rounded-full bg-slate-200 overflow-hidden', trackH)}>
+        <div className={cn('relative w-full rounded-full bg-white/[0.06] overflow-hidden', trackH)}>
           {/* Out-of-range shading */}
-          <div className="absolute inset-y-0 left-0 bg-amber-500/15" style={{ width: `${geo.lowPct}%` }} />
-          <div className="absolute inset-y-0 right-0 bg-rose-500/15" style={{ width: `${100 - geo.highPct}%` }} />
+          <div className="absolute inset-y-0 left-0 bg-amber-500/[0.10]" style={{ width: `${geo.lowPct}%` }} />
+          <div className="absolute inset-y-0 right-0 bg-rose-500/[0.10]" style={{ width: `${100 - geo.highPct}%` }} />
           {/* Reference interval */}
           <div
-            className="absolute inset-y-0 bg-emerald-200 border-x border-emerald-400"
+            className="absolute inset-y-0 bg-emerald-400/35 border-x border-emerald-300/60"
             style={{ left: `${geo.lowPct}%`, width: `${Math.max(0.5, geo.highPct - geo.lowPct)}%` }}
           />
           {/* Change segment */}
@@ -60,14 +60,14 @@ export default function RangeBar({ row, size = 'md', showScale = false, showPrev
         {prevGeo && (
           <span
             aria-hidden="true"
-            className={cn('absolute top-1/2 rounded-full border-2 bg-white', size === 'sm' ? 'w-2 h-2' : 'w-2.5 h-2.5')}
-            style={{ left: `${prevGeo.valuePct}%`, transform: 'translate(-50%, -50%)', borderColor: '#64748b' }}
+            className={cn('absolute top-1/2 rounded-full border-2 bg-obsidian', size === 'sm' ? 'w-2 h-2' : 'w-2.5 h-2.5')}
+            style={{ left: `${prevGeo.valuePct}%`, transform: 'translate(-50%, -50%)', borderColor: 'rgba(148,163,184,0.7)' }}
           />
         )}
         <span
           aria-hidden="true"
-          className={cn('ms-marker-in absolute top-1/2 rounded-full ring-2 ring-white', markerSize)}
-          style={{ left: `${geo.valuePct}%`, transform: 'translate(-50%, -50%)', background: tone.hex, boxShadow: '0 1px 3px rgba(0,0,0,0.2)' }}
+          className={cn('ms-marker-in absolute top-1/2 rounded-full ring-2 ring-obsidian', markerSize)}
+          style={{ left: `${geo.valuePct}%`, transform: 'translate(-50%, -50%)', background: tone.hex, boxShadow: `0 0 12px ${tone.hex}88` }}
         />
       </div>
 

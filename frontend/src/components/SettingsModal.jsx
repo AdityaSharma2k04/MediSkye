@@ -59,20 +59,20 @@ function getCategoryBadgeStyle(type = '') {
   const t = (type || '').toLowerCase();
   switch (t) {
     case 'condition':
-      return 'bg-rose-50 text-rose-700 border-rose-200';
+      return 'bg-rose-500/10 text-rose-400 border-rose-500/20';
     case 'medication':
-      return 'bg-blue-50 text-blue-700 border-blue-200';
+      return 'bg-blue-500/10 text-blue-400 border-blue-500/20';
     case 'weight':
-      return 'bg-emerald-50 text-emerald-700 border-emerald-200';
+      return 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20';
     case 'sport_hobby':
     case 'lifestyle':
-      return 'bg-purple-50 text-purple-700 border-purple-200';
+      return 'bg-purple-500/10 text-purple-400 border-purple-500/20';
     case 'allergy':
-      return 'bg-amber-50 text-amber-700 border-amber-200';
+      return 'bg-amber-500/10 text-amber-400 border-amber-500/20';
     case 'measurement':
-      return 'bg-cyan-50 text-cyan-800 border-cyan-200';
+      return 'bg-cyan-500/10 text-cyan-400 border-cyan-500/20';
     default:
-      return 'bg-slate-100 text-slate-700 border-slate-200';
+      return 'bg-zinc-500/10 text-ink-mute border-zinc-500/20';
   }
 }
 
@@ -340,7 +340,7 @@ export function DisclaimerModal({ isOpen, onClose, darkMode }) {
 export default function SettingsModal({
   isOpen,
   onClose,
-  darkMode = false,
+  darkMode,
   setDarkMode,
   themePreference,
   setThemePreference,

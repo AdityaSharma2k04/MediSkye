@@ -74,22 +74,22 @@ export default function CommandPalette({
   return (
     <Dialog.Root open={open} onOpenChange={onOpenChange}>
       <Dialog.Portal>
-        <Dialog.Overlay className="fixed inset-0 z-[70] bg-slate-900/40 backdrop-blur-[3px] animate-backdrop-in" />
+        <Dialog.Overlay className="fixed inset-0 z-[70] bg-black/55 backdrop-blur-[3px] animate-backdrop-in" />
         <Dialog.Content
           data-testid="command-palette"
-          className="fixed z-[71] inset-x-0 mx-auto top-[12dvh] w-[min(640px,calc(100vw-24px))] rounded-3xl bg-white border border-slate-200 shadow-2xl overflow-hidden animate-modal-in outline-none"
+          className="fixed z-[71] inset-x-0 mx-auto top-[12dvh] w-[min(640px,calc(100vw-24px))] rounded-3xl ms-glass overflow-hidden animate-modal-in outline-none"
           aria-describedby={undefined}
         >
           <Dialog.Title className="sr-only">Command palette</Dialog.Title>
           <Command label="Command palette" loop className="flex flex-col max-h-[min(560px,72dvh)]">
-            <div className="flex items-center gap-3 px-4 h-14 border-b border-slate-200 shrink-0">
+            <div className="flex items-center gap-3 px-4 h-14 border-b border-white/[0.07] shrink-0">
               <Search className="w-4 h-4 text-ink-mute" />
               <Command.Input
                 autoFocus
                 value={query}
                 onValueChange={setQuery}
                 placeholder={t('workbench.palette_placeholder', 'Search reports, biomarkers, patients, or type a question…')}
-                className="flex-1 bg-transparent text-[15px] text-slate-900 placeholder:text-slate-400 outline-none border-0 focus:ring-0"
+                className="flex-1 bg-transparent text-[15px] text-white placeholder:text-ink-faint outline-none border-0 focus:ring-0"
               />
               <Kbd>Esc</Kbd>
             </div>
@@ -100,9 +100,9 @@ export default function CommandPalette({
               {query.trim().length > 2 && actions.ask && (
                 <Command.Group heading="Ask">
                   <Command.Item value={`ask ${query}`} onSelect={run(() => actions.ask(query.trim()))} className={item}>
-                    <Sparkles className="w-4 h-4 text-cyan-700 shrink-0" />
+                    <Sparkles className="w-4 h-4 text-cyan-300 shrink-0" />
                     <span className="truncate">
-                      Ask MediSkye: <span className="text-slate-900 font-semibold">{query.trim()}</span>
+                      Ask MediSkye: <span className="text-white">{query.trim()}</span>
                     </span>
                     <CornerDownLeft className="ml-auto w-3.5 h-3.5 text-ink-faint" />
                   </Command.Item>
@@ -169,7 +169,7 @@ export default function CommandPalette({
                         <PatientAvatar name={p.name} index={i} size="sm" />
                         <span className="truncate">{p.name}</span>
                         <span className="text-xs text-ink-faint">{p.relationship}</span>
-                        {isActive && <span className="ml-auto text-xs text-emerald-700 font-medium">Active</span>}
+                        {isActive && <span className="ml-auto text-xs text-emerald-300">Active</span>}
                       </Command.Item>
                     );
                   })}
@@ -225,14 +225,14 @@ export default function CommandPalette({
 
               {actions.logout && (
                 <Command.Group heading="Account">
-                  <Command.Item value="log out sign out" onSelect={run(actions.logout)} className={cn(item, 'text-rose-700')}>
-                    <LogOut className="w-4 h-4 text-rose-600 shrink-0" /> Sign out of MediSkye
+                  <Command.Item value="log out sign out" onSelect={run(actions.logout)} className={cn(item, 'text-rose-300')}>
+                    <LogOut className="w-4 h-4 text-rose-400 shrink-0" /> Sign out of MediSkye
                   </Command.Item>
                 </Command.Group>
               )}
             </Command.List>
 
-            <div className="hidden sm:flex items-center gap-4 px-4 h-10 border-t border-slate-200 text-xs text-ink-faint shrink-0">
+            <div className="hidden sm:flex items-center gap-4 px-4 h-10 border-t border-white/[0.07] text-xs text-ink-faint shrink-0">
               <span className="inline-flex items-center gap-1.5"><Kbd>↑</Kbd><Kbd>↓</Kbd> navigate</span>
               <span className="inline-flex items-center gap-1.5"><Kbd>↵</Kbd> open</span>
               <span className="ml-auto inline-flex items-center gap-1.5"><Kbd>{MOD_LABEL}</Kbd><Kbd>K</Kbd> toggle</span>

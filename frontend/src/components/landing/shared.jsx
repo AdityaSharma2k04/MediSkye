@@ -2,20 +2,20 @@ import React from 'react';
 
 /* ─── Palette (mirrors tailwind.config: obsidian + medical) ─── */
 export const C = {
-  obsidian: '#F8FAFC',
-  obsidianLight: '#F1F5F9',
-  panel: '#FFFFFF',
-  border: '#CBD5E1',
-  borderStrong: '#94A3B8',
-  cyan: '#0891b2',
-  cyanDark: '#0e7490',
-  cyanText: '#0e7490',
-  heading: '#0F172A',
-  body: '#334155',
-  muted: '#64748B',
-  amber: '#d97706',
-  green: '#059669',
-  red: '#e11d48',
+  obsidian: '#05070b',
+  obsidianLight: '#0f1623',
+  panel: '#0a0e17',
+  border: 'rgba(255,255,255,0.08)',
+  borderStrong: 'rgba(255,255,255,0.16)',
+  cyan: '#06b6d4', // medical.cyan
+  cyanDark: '#0891b2', // medical.dark
+  cyanText: '#22d3ee', // cyan tint for text on dark (AA contrast)
+  heading: '#ffffff',
+  body: '#c3cedb',
+  muted: '#8a97a8',
+  amber: '#fbbf24',
+  green: '#34d399',
+  red: '#f87171',
 };
 
 export const SERIF = "'Fraunces Variable', Fraunces, Georgia, serif";

@@ -80,24 +80,24 @@ export default function ExternalAuthLanding() {
   };
 
   return (
-    <div className="min-h-screen bg-[#F8FAFC] text-slate-900 flex items-center justify-center p-6 selection:bg-cyan-500/30">
-      <div className="w-full max-w-md bg-white border border-slate-200 rounded-2xl p-8 shadow-xl text-center space-y-6">
+    <div className="min-h-screen bg-[#070B14] text-slate-100 flex items-center justify-center p-6 selection:bg-cyan-500/30">
+      <div className="w-full max-w-md bg-slate-900/90 border border-cyan-500/30 rounded-2xl p-8 shadow-2xl text-center space-y-6 backdrop-blur-md">
         {/* Brand Header */}
         <div className="flex items-center justify-center gap-3">
           <BrandMark size={38} />
-          <span className="text-xl font-bold tracking-tight text-slate-900">MediSkye</span>
+          <span className="text-xl font-bold tracking-tight text-white">MediSkye</span>
         </div>
 
         {signedInEmail ? (
           <div className="space-y-4 animate-fade-in" data-testid="auth-success-container">
-            <div className="w-12 h-12 rounded-full bg-emerald-50 border border-emerald-200 text-emerald-700 flex items-center justify-center mx-auto shadow-sm">
+            <div className="w-12 h-12 rounded-full bg-emerald-500/20 border border-emerald-400/40 text-emerald-300 flex items-center justify-center mx-auto shadow-lg shadow-emerald-500/20">
               <svg className="w-6 h-6" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
                 <path d="M20 6L9 17l-5-5" />
               </svg>
             </div>
             <div className="space-y-1">
-              <h2 className="text-lg font-semibold text-slate-900">Signed in as {signedInEmail}</h2>
-              <p className="text-sm text-cyan-800 font-medium">Sign-in verified! Redirecting you back to MediSkye...</p>
+              <h2 className="text-lg font-semibold text-white">Signed in as {signedInEmail}</h2>
+              <p className="text-sm text-cyan-300">Sign-in verified! Redirecting you back to MediSkye...</p>
             </div>
 
             {redirectTargetUrl && (
@@ -109,7 +109,7 @@ export default function ExternalAuthLanding() {
                       window.location.href = redirectTargetUrl;
                     } catch (_) {}
                   }}
-                  className="inline-block py-3 px-5 rounded-xl bg-cyan-600 text-white font-semibold text-sm hover:bg-cyan-700 active:scale-[0.98] transition shadow-md cursor-pointer"
+                  className="inline-block py-3 px-5 rounded-xl bg-cyan-500 text-slate-950 font-semibold text-sm hover:bg-cyan-400 active:scale-[0.98] transition shadow-lg cursor-pointer"
                 >
                   Open MediSkye App — Click here if not redirected automatically
                 </a>
@@ -119,14 +119,14 @@ export default function ExternalAuthLanding() {
         ) : (
           <>
             <div className="space-y-2">
-              <h2 className="text-lg font-semibold text-cyan-800">Google Account Sign-In</h2>
-              <p className="text-sm text-slate-600">
+              <h2 className="text-lg font-semibold text-cyan-300">Google Account Sign-In</h2>
+              <p className="text-sm text-slate-400">
                 Sign in securely with Google to continue to your MediSkye health records.
               </p>
             </div>
 
             {error && (
-              <div className="p-3 bg-rose-50 border border-rose-200 rounded-xl text-rose-700 text-xs text-left">
+              <div className="p-3 bg-red-950/60 border border-red-500/40 rounded-xl text-red-200 text-xs text-left">
                 {error}
               </div>
             )}
@@ -135,7 +135,7 @@ export default function ExternalAuthLanding() {
               type="button"
               onClick={handleSelectAccount}
               disabled={loading}
-              className="w-full py-3.5 px-5 rounded-xl font-medium text-sm flex items-center justify-center gap-3 bg-white border border-slate-200 text-slate-900 hover:bg-slate-50 active:scale-[0.98] transition shadow-sm disabled:opacity-50 cursor-pointer"
+              className="w-full py-3.5 px-5 rounded-xl font-medium text-sm flex items-center justify-center gap-3 bg-white text-slate-900 hover:bg-slate-100 active:scale-[0.98] transition shadow-lg disabled:opacity-50 cursor-pointer"
             >
               <svg className="w-4 h-4 shrink-0" viewBox="0 0 24 24">
                 <path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" />

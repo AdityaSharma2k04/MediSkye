@@ -122,7 +122,7 @@ export function getBmiData(heightCm, weightKg) {
 
 export default function Profile({
   onClose,
-  darkMode = false,
+  darkMode,
   initialTab = 'profile',
   onProfileUpdated,
   onDependentDeleted,

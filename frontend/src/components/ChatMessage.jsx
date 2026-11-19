@@ -86,9 +86,9 @@ function cellTone(text) {
 }
 
 const TONE_CLASSES = {
-  rose: 'bg-rose-50 text-rose-700 border-rose-200',
-  amber: 'bg-amber-50 text-amber-700 border-amber-200',
-  emerald: 'bg-emerald-50 text-emerald-700 border-emerald-200',
+  rose: 'bg-rose-500/10 text-rose-200 border-rose-500/25',
+  amber: 'bg-amber-500/10 text-amber-200 border-amber-500/25',
+  emerald: 'bg-emerald-500/10 text-emerald-200 border-emerald-500/25',
 };
 
 const markdownComponents = {
@@ -111,9 +111,9 @@ const markdownComponents = {
       </td>
     );
   },
-  a: ({ node, ...props }) => <a {...props} target="_blank" rel="noopener noreferrer" className="text-cyan-700 underline decoration-cyan-500/40 underline-offset-2 hover:decoration-cyan-700" />,
+  a: ({ node, ...props }) => <a {...props} target="_blank" rel="noopener noreferrer" className="text-cyan-300 underline decoration-cyan-500/40 underline-offset-2 hover:decoration-cyan-300" />,
   code: ({ node, inline, className, children, ...props }) => (
-    <code className={cn('ms-num text-[0.86em] px-1.5 py-0.5 rounded-md bg-slate-100 text-cyan-900 border border-slate-200', className)} {...props}>
+    <code className={cn('ms-num text-[0.86em] px-1.5 py-0.5 rounded-md bg-white/[0.06] text-cyan-100', className)} {...props}>
       {children}
     </code>
   ),
@@ -219,15 +219,15 @@ export function ChatMessage({ message, onRegenerate, isFollowupTurn = false }) {
     const cleanUserText = stripOuterQuotes(message?.content || message?.text || message?.message || '');
     return (
       <div className="flex justify-end mb-5 animate-bubble-in">
-        <div className="max-w-[85%] sm:max-w-[78%] rounded-[20px] rounded-br-md px-4 py-2.5 text-[15px] sm:text-[14.5px] leading-relaxed text-slate-900 bg-slate2 border border-slate-200 shadow-sm whitespace-pre-wrap break-words">
+        <div className="max-w-[85%] sm:max-w-[78%] rounded-[20px] rounded-br-md px-4 py-2.5 text-[15px] sm:text-[14.5px] leading-relaxed text-ink bg-slate2 border border-white/[0.07] shadow-specular whitespace-pre-wrap break-words">
           {cleanUserText}
         </div>
       </div>
     );
   }
 
-  const actionBtn = 'ms-tap inline-flex items-center gap-1.5 h-8 px-2 rounded-lg text-slate-500 hover:text-slate-900 hover:bg-slate-100 transition active:scale-[0.94]';
-  const actionBtnActive = 'ms-tap inline-flex items-center gap-1.5 h-8 px-2 rounded-lg text-slate-900 bg-slate-200 transition active:scale-[0.94]';
+  const actionBtn = 'ms-tap inline-flex items-center gap-1.5 h-8 px-2 rounded-lg text-ink-mute hover:text-white hover:bg-white/[0.06] transition active:scale-[0.94]';
+  const actionBtnActive = 'ms-tap inline-flex items-center gap-1.5 h-8 px-2 rounded-lg text-white bg-white/[0.08] transition active:scale-[0.94]';
 
   const isStreaming = message.isStreaming;
   const statusText = message.status || 'Analyzing your question...';
@@ -245,11 +245,11 @@ export function ChatMessage({ message, onRegenerate, isFollowupTurn = false }) {
 
         {isStreaming && !content && !message.error && (
           <div className="py-1">
-            <div className="inline-flex items-center gap-2.5 text-xs font-medium text-slate-600 px-3 py-1.5 rounded-full bg-slate-100 border border-slate-200">
+            <div className="inline-flex items-center gap-2.5 text-xs font-medium text-ink-mute px-3 py-1.5 rounded-full bg-white/[0.03] border border-white/[0.06]">
               <span className="flex items-center gap-1" aria-hidden="true">
-                <span className="w-1.5 h-1.5 rounded-full bg-cyan-600 animate-token-pulse" />
-                <span className="w-1.5 h-1.5 rounded-full bg-cyan-600 animate-token-pulse [animation-delay:180ms]" />
-                <span className="w-1.5 h-1.5 rounded-full bg-cyan-600 animate-token-pulse [animation-delay:360ms]" />
+                <span className="w-1.5 h-1.5 rounded-full bg-cyan-400 animate-token-pulse" />
+                <span className="w-1.5 h-1.5 rounded-full bg-cyan-400 animate-token-pulse [animation-delay:180ms]" />
+                <span className="w-1.5 h-1.5 rounded-full bg-cyan-400 animate-token-pulse [animation-delay:360ms]" />
               </span>
               <span className="transition-opacity duration-300">{statusText}</span>
             </div>
@@ -266,16 +266,16 @@ export function ChatMessage({ message, onRegenerate, isFollowupTurn = false }) {
         )}
 
         {message.error && (
-          <div className="p-3 my-2 rounded-2xl text-xs flex items-center justify-between gap-3 border bg-rose-50 border-rose-200 text-rose-700">
+          <div className="p-3 my-2 rounded-2xl text-xs flex items-center justify-between gap-3 border bg-rose-500/[0.07] border-rose-500/25 text-rose-200">
             <div className="flex items-center gap-2">
-              <AlertTriangle className="w-4 h-4 shrink-0 text-rose-600" />
+              <AlertTriangle className="w-4 h-4 shrink-0 text-rose-400" />
               <span>{message.error === true ? 'Something went wrong. Tap to retry.' : message.error || 'Something went wrong. Tap to retry.'}</span>
             </div>
             {onRegenerate && (
               <button
                 type="button"
                 onClick={onRegenerate}
-                className="ms-tap px-3 h-8 text-xs font-semibold rounded-lg bg-rose-600 text-white hover:bg-rose-700 transition-colors shrink-0"
+                className="ms-tap px-3 h-8 text-xs font-semibold rounded-lg bg-rose-600 text-white hover:bg-rose-500 transition-colors shrink-0"
               >
                 Retry
               </button>
@@ -286,16 +286,16 @@ export function ChatMessage({ message, onRegenerate, isFollowupTurn = false }) {
         {content && (
           <div
             className={cn(
-              'prose prose-slate max-w-none w-full text-[15px] sm:text-[14.5px] leading-[1.7] text-ink-soft',
-              'prose-headings:text-slate-900 prose-headings:font-semibold prose-h1:text-lg prose-h2:text-base prose-h3:text-[15px]',
-              'prose-strong:text-slate-900 prose-li:my-0.5 prose-p:my-2.5 prose-hr:border-slate-200'
+              'prose prose-invert max-w-none w-full text-[15px] sm:text-[14.5px] leading-[1.7] text-ink-soft',
+              'prose-headings:text-white prose-headings:font-semibold prose-h1:text-lg prose-h2:text-base prose-h3:text-[15px]',
+              'prose-strong:text-white prose-li:my-0.5 prose-p:my-2.5 prose-hr:border-white/[0.08]'
             )}
           >
             <ReactMarkdown remarkPlugins={[remarkGfm]} components={markdownComponents}>
               {content}
             </ReactMarkdown>
             {isStreaming && (
-              <span aria-hidden="true" className="inline-block align-[-2px] w-[7px] h-4 ml-0.5 rounded-[2px] bg-cyan-600 animate-token-pulse" />
+              <span aria-hidden="true" className="inline-block align-[-2px] w-[7px] h-4 ml-0.5 rounded-[2px] bg-cyan-300 animate-token-pulse" />
             )}
           </div>
         )}
@@ -304,7 +304,7 @@ export function ChatMessage({ message, onRegenerate, isFollowupTurn = false }) {
           <div className="mt-2 -ml-2 flex items-center justify-between text-xs">
             <div className="flex items-center gap-0.5">
               <button type="button" onClick={handleCopy} title="Copy response" aria-label="Copy response" className={actionBtn}>
-                {copied ? <Check className="w-3.5 h-3.5 text-emerald-600" /> : <Copy className="w-3.5 h-3.5" />}
+                {copied ? <Check className="w-3.5 h-3.5 text-emerald-300" /> : <Copy className="w-3.5 h-3.5" />}
                 <span className="hidden sm:inline">{copied ? 'Copied' : 'Copy'}</span>
               </button>
 

@@ -8,11 +8,11 @@ import Sheet from '../ui/Sheet';
 import { getCachedDocuments, getCachedConversations } from '../../services/api';
 
 const AVATAR_TONES = [
-  'bg-cyan-100 text-cyan-900 ring-cyan-200',
-  'bg-emerald-100 text-emerald-900 ring-emerald-200',
-  'bg-violet-100 text-violet-900 ring-violet-200',
-  'bg-amber-100 text-amber-900 ring-amber-200',
-  'bg-rose-100 text-rose-900 ring-rose-200',
+  'from-cyan-500/30 to-cyan-700/30 text-cyan-100 ring-cyan-400/30',
+  'from-emerald-500/30 to-emerald-700/30 text-emerald-100 ring-emerald-400/30',
+  'from-violet-500/30 to-violet-700/30 text-violet-100 ring-violet-400/30',
+  'from-amber-500/30 to-amber-700/30 text-amber-100 ring-amber-400/30',
+  'from-rose-500/30 to-rose-700/30 text-rose-100 ring-rose-400/30',
 ];
 
 export function initialsOf(name = '', fallback = 'U') {
@@ -177,20 +177,20 @@ export default function PatientSwitcher({
             className={cn(
               'w-full flex items-center gap-3 rounded-2xl px-2.5 text-left transition border',
               isMobile ? 'py-3' : 'py-2',
-              isActive ? 'bg-cyan-50 border-cyan-200 text-cyan-950' : 'border-transparent hover:bg-slate-50'
+              isActive ? 'bg-white/[0.06] border-white/[0.1]' : 'border-transparent hover:bg-white/[0.04]'
             )}
           >
             <PatientAvatar name={p.name} index={i} size={isMobile ? 'lg' : 'md'} />
             <span className="min-w-0 flex-1">
               <span className="flex items-center gap-1.5">
-                <span className="text-[13px] font-medium text-slate-900 truncate">{p.name}</span>
-                <span className="text-xs px-1.5 py-px rounded-full bg-slate-100 text-slate-600 shrink-0">{p.relationship}</span>
+                <span className="text-[13px] font-medium text-white truncate">{p.name}</span>
+                <span className="text-xs px-1.5 py-px rounded-full bg-white/[0.06] text-ink-mute shrink-0">{p.relationship}</span>
               </span>
               <span className="block text-xs text-ink-faint mt-0.5 truncate">
                 {[p.meta, count ? `${count} report${count === 1 ? '' : 's'}` : 'No reports yet'].filter(Boolean).join(', ')}
               </span>
             </span>
-            {isActive && <Check className="w-4 h-4 text-emerald-600 shrink-0" />}
+            {isActive && <Check className="w-4 h-4 text-emerald-400 shrink-0" />}
           </button>
         );
       })}
@@ -204,7 +204,7 @@ export default function PatientSwitcher({
         setOpen(false);
         onOpenDependents?.();
       }}
-      className="ms-tap w-full flex items-center justify-center gap-2 h-10 rounded-xl text-xs font-medium text-slate-700 hover:text-slate-900 bg-slate-50 hover:bg-slate-100 border border-slate-200 transition"
+      className="ms-tap w-full flex items-center justify-center gap-2 h-10 rounded-xl text-xs font-medium text-ink-soft hover:text-white bg-white/[0.03] hover:bg-white/[0.06] border border-white/[0.07] transition"
     >
       <Plus className="w-3.5 h-3.5" /> {t('workbench.manage_dependents', 'Manage / Add Dependents')}
     </button>
@@ -229,16 +229,16 @@ export default function PatientSwitcher({
         aria-disabled={isLocked}
         className={cn(
           'ms-tap min-w-0 max-w-[220px] sm:max-w-[280px] whitespace-nowrap shrink-0 flex items-center gap-2 rounded-full pl-1 pr-2.5 h-9 border transition',
-          'bg-white border-slate-200 hover:bg-slate-50 hover:border-slate-300 shadow-sm',
-          !selfSelected && 'border-violet-200 bg-violet-50 text-violet-900',
-          isLocked && 'border-amber-200 bg-amber-50 hover:border-amber-300 hover:bg-amber-100 text-amber-900 cursor-not-allowed'
+          'bg-white/[0.03] border-white/[0.08] hover:bg-white/[0.06] hover:border-white/[0.14]',
+          !selfSelected && 'border-violet-400/30 bg-violet-500/[0.06]',
+          isLocked && 'border-amber-400/30 bg-amber-500/[0.06] hover:border-amber-400/40 hover:bg-amber-500/[0.08] cursor-not-allowed'
         )}
       >
         <PatientAvatar name={active?.name} index={activeIdx} size="sm" />
         {!compact && <span className="truncate text-xs font-medium text-ink">{active?.name}</span>}
         {!compact && <span className="hidden sm:inline text-xs text-ink-faint shrink-0">{active?.relationship}</span>}
         {isLocked ? (
-          <Lock className="w-3.5 h-3.5 text-amber-600 shrink-0" aria-hidden="true" />
+          <Lock className="w-3.5 h-3.5 text-amber-400 shrink-0" aria-hidden="true" />
         ) : (
           <ChevronDown className={cn('w-3.5 h-3.5 text-ink-mute shrink-0 transition-transform', open && 'rotate-180')} />
         )}
@@ -265,11 +265,11 @@ export default function PatientSwitcher({
               animate={{ opacity: 1, y: 0, scale: 1 }}
               exit={{ opacity: 0, y: -4, scale: 0.98 }}
               transition={{ duration: 0.16, ease: [0.22, 1, 0.36, 1] }}
-              className="absolute left-0 top-full mt-2 w-72 sm:w-80 rounded-2xl bg-white z-[100] shadow-2xl border border-slate-200 overflow-hidden"
+              className="absolute left-0 top-full mt-2 w-72 sm:w-80 rounded-2xl ms-glass z-[100] shadow-2xl border border-white/[0.12] overflow-hidden"
             >
-              <div className="px-3.5 pt-3 pb-1 text-xs font-semibold text-slate-600">Clinical analysis lens</div>
+              <div className="px-3.5 pt-3 pb-1 text-xs font-semibold text-ink-mute">Clinical analysis lens</div>
               {list}
-              <div className="p-2 border-t border-slate-200">{manage}</div>
+              <div className="p-2 border-t border-white/[0.06]">{manage}</div>
             </motion.div>
           )}
         </AnimatePresence>

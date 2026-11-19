@@ -143,9 +143,9 @@ export const SAMPLE_REPORTS = [
   { path: '/samples/report-5.pdf', panel: 'Diabetes Panel' },
 ];
 
-// ── Theme: permanent clinical light ─────────────────────────
+// ── Theme: permanent Obsidian dark ─────────────────────────
 function applyThemeToDOM() {
-  document.documentElement.classList.remove('dark');
+  document.documentElement.classList.add('dark');
 }
 
 // ── Auto-naming heuristics ─────────────────────────────────
@@ -384,9 +384,9 @@ export default function ChatApp() {
   }, []);
 
   // ── Theme state: 'light' | 'dark' | 'system' — the raw preference is persisted ──
-  // Permanent clinical light theme.
-  const themePreference = 'light';
-  const darkMode = false;
+  // Permanent Obsidian dark theme — light mode has been removed.
+  const themePreference = 'dark';
+  const darkMode = true;
   const setThemePreference = useCallback(() => { }, []);
   const [language, setLanguage] = useState('English');
 
@@ -3349,18 +3349,18 @@ export default function ChatApp() {
       {isWorkspaceHydrating && !checkBootSyncCompletedInChatApp(currentUser?.id) && (
         <div
           data-testid="workspace-hydration-overlay"
-          className="fixed inset-0 z-[100] pointer-events-auto flex flex-col items-center justify-center bg-white/95 backdrop-blur-md p-6 text-center select-none animate-fade-in"
+          className="fixed inset-0 z-[100] pointer-events-auto flex flex-col items-center justify-center bg-[#070B14]/95 backdrop-blur-md p-6 text-center select-none animate-fade-in"
         >
-          <div className="w-16 h-16 rounded-2xl bg-gradient-to-tr from-cyan-500 to-sky-400 p-0.5 shadow-2xl shadow-cyan-500/20 mb-6 flex items-center justify-center">
-            <div className="w-full h-full bg-white rounded-[14px] flex items-center justify-center">
+          <div className="w-16 h-16 rounded-2xl bg-gradient-to-tr from-cyan-500 to-sky-400 p-0.5 shadow-2xl shadow-cyan-500/30 mb-6 flex items-center justify-center">
+            <div className="w-full h-full bg-[#070B14] rounded-[14px] flex items-center justify-center">
               <BrandMark size={36} />
             </div>
           </div>
-          <h2 className="text-xl font-bold tracking-tight text-slate-900 mb-6">
+          <h2 className="text-xl font-bold tracking-tight text-white mb-6">
             Please wait while we load your clinical database
           </h2>
           <div className="flex items-center justify-center">
-            <div className="w-8 h-8 rounded-full border-2 border-cyan-500/20 border-t-cyan-600 animate-spin" />
+            <div className="w-8 h-8 rounded-full border-2 border-cyan-400/20 border-t-cyan-400 animate-spin" />
           </div>
         </div>
       )}
