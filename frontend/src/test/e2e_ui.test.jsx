@@ -433,7 +433,7 @@ describe('TEST SUITE 2: Frontend E2E UI Journeys', () => {
 
       // Verify empty state welcome prompt renders cleanly
       await waitFor(() => {
-        expect(screen.getAllByText(/MediSkye AI Medical Assistant/i).length).toBeGreaterThanOrEqual(1);
+        expect(screen.getAllByText(/MediSkye: Personal and Family Health Intelligence App/i).length).toBeGreaterThanOrEqual(1);
       });
     });
 

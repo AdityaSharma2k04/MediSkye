@@ -183,7 +183,7 @@ export default function ChatWindow({
             </div>
           ) : messages.length === 0 ? (
             <div className="flex-1 flex flex-col justify-center py-8 animate-fade-in">
-              <span className="sr-only">MediSkye AI Medical Assistant</span>
+              <span className="sr-only">MediSkye: Personal and Family Health Intelligence App</span>
 
               <div className="mb-7">
                 <p className="text-sm text-ink-mute mb-2">{greetingName ? `${greeting()}, ${greetingName}.` : `${greeting()}.`}</p>

@@ -230,7 +230,7 @@ pub fn run() {
       let app_handle_for_window = app_handle.clone();
 
       WebviewWindowBuilder::new(app, "main", WebviewUrl::App("index.html".into()))
-        .title("MediSkye — Clinical Lab Intelligence")
+        .title("MediSkye: Personal and Family Health Intelligence App")
         .inner_size(1440.0, 900.0)
         .min_inner_size(390.0, 640.0)
         .resizable(true)

@@ -71,7 +71,7 @@ def normalize_async_database_url(url: str) -> str:
 
 
 class Settings(BaseSettings):
-    PROJECT_NAME: str = "MediSkye AI Medical Assistant"
+    PROJECT_NAME: str = "MediSkye: Personal and Family Health Intelligence App"
     VERSION: str = "2.0.0"
     API_V1_STR: str = ""
 

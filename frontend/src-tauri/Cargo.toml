@@ -1,7 +1,7 @@
 [package]
 name = "mediskye"
 version = "1.0.0"
-description = "MediSkye — Clinical Lab Intelligence & Diagnostic Assistant"
+description = "MediSkye: Personal and Family Health Intelligence App"
 authors = ["Aditya Sharma"]
 edition = "2021"
 

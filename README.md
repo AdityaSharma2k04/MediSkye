@@ -1,7 +1,6 @@
 <div align="center">
 
-# 🩺 MediSkye AI
-### Autonomous Full-Stack Clinical Intelligence Platform & Longitudinal Health Companion
+# 🩺 MediSkye: Personal and Family Health Intelligence App
 #### Web • Windows Desktop (Tauri v2) • Android (Capacitor 8) • Google Cloud Run
 
 [![FastAPI](https://img.shields.io/badge/FastAPI-0.115+-009688?style=for-the-badge&logo=fastapi&logoColor=white)](https://fastapi.tiangolo.com/)
@@ -11,8 +10,8 @@
 [![Google Cloud Run](https://img.shields.io/badge/Google_Cloud_Run-asia--southeast1-4285F4?style=for-the-badge&logo=googlecloud&logoColor=white)](https://cloud.google.com/run)
 [![Google Gemini](https://img.shields.io/badge/Gemini_3.8_Flash-8--Model_Fallback-4285F4?style=for-the-badge&logo=googlecloud&logoColor=white)](https://cloud.google.com/vertex-ai)
 [![Neon PostgreSQL](https://img.shields.io/badge/Neon_PostgreSQL-Serverless_Pooler-336791?style=for-the-badge&logo=postgresql&logoColor=white)](https://neon.tech/)
-[![Vitest](https://img.shields.io/badge/Vitest-293_Passed-6E9F18?style=for-the-badge&logo=vitest&logoColor=white)](https://vitest.dev/)
-[![Pytest](https://img.shields.io/badge/Pytest-628_Passed-0A9EDC?style=for-the-badge&logo=pytest&logoColor=white)](https://pytest.org/)
+[![Vitest](https://img.shields.io/badge/Vitest-314_Passed-6E9F18?style=for-the-badge&logo=vitest&logoColor=white)](https://vitest.dev/)
+[![Pytest](https://img.shields.io/badge/Pytest-645_Passed-0A9EDC?style=for-the-badge&logo=pytest&logoColor=white)](https://pytest.org/)
 
 **MediSkye** is an enterprise-grade clinical intelligence platform and longitudinal companion that ingests laboratory reports, digital PDFs, mobile camera captures, and radiographic scans. It extracts structured biomarker data, tracks multi-visit trends across family members with strict profile isolation, and conducts safe, contextual clinical conversations powered by a **Hybrid FAISS + BM25 RAG pipeline** and **Google Gemini 3.8 Flash** with an 8-model fallback hierarchy.
 
@@ -31,7 +30,7 @@ Diagnostic medical reports and laboratory tests are frequently fragmented, overw
 3. **Deterministic Anthropometrics & Real-Time BMI Engine:** Computes real-time BMI and standard WHO categorization (`Underweight`, `Normal weight`, `Overweight`, `Obese`) across account owners and family dependents, injecting a standardized `**Patient Profile & BMI Snapshot:**` header across report summaries and conversational prompts.
 4. **Adaptive Conversational Guidance:** Delivers exhaustive 7-section clinical walkthroughs on initial report queries, transitioning seamlessly into warm, concise bedside dialogue on follow-up turns without repetitive boilerplate or lost safety boundaries.
 5. **Longitudinal Family Health Tracking:** Offers strict, physical data isolation between the account owner (`self`) and family dependents (`UUID`), comparing multi-visit biomarker trajectories with automated delta calculation ($\Delta_{abs}$, $\Delta_{\%}$, directional alerts).
-6. **Encrypted Patient Memory Vault:** Persists verified clinical facts (allergies, chronic conditions, surgical history, medications) with document provenance in 18 Fernet-encrypted database columns (`AES-128-CBC` + `HMAC-SHA256`).
+6. **Encrypted Patient Memory Vault:** Persists verified clinical facts (allergies, chronic conditions, surgical history, medications) with document provenance in 21 Fernet-encrypted database columns (`AES-128-CBC` + `HMAC-SHA256`).
 7. **100% Upfront Cloud Hydration & Local-First Resilience:** Downloads complete multi-profile clinical databases on launch, guaranteeing zero-latency profile switching and full offline availability with anti-glitch connectivity debouncing (`1200ms`).
 
 ---
@@ -39,17 +38,17 @@ Diagnostic medical reports and laboratory tests are frequently fragmented, overw
 ## 🚀 Core Capabilities
 
 ### 1. Multimodal Ingestion & Camera Normalization
-* **Format Versatility:** Native extraction from digital PDFs (`PyMuPDF`), scanned forms (`Tesseract OCR 5`), direct camera captures (`.jpg`, `.jpeg`, `.png`, `.webp`), and chest radiographs.
+* **Format Versatility:** Native extraction from digital PDFs (`PyMuPDF`), scanned forms (`Tesseract OCR`), direct camera captures (`.jpg`, `.jpeg`, `.png`, `.webp`), and chest radiographs.
 * **Intelligent Camera Normalization (`normalizeCameraFile`):** Mobile camera photos (e.g. `image.jpg`, `blob`) are dynamically normalized into standardized lab artifacts (`Lab_Report_Photo_YYYY-MM-DD.jpg`) with hardware environment camera targeting (`capture="environment"`).
 * **Radiology Preprocessing:** Automatically identifies radiographic images and applies Contrast Limited Adaptive Histogram Equalization (**CLAHE**) to enhance lung parenchymal and skeletal contours prior to clinical review.
 * **Table Header Propagation:** Detects multi-page laboratory tables and propagates column headers across page breaks so continuation rows retain analyte, result, and reference range semantics.
-* **Specimen Collection Chronology:** Robustly parses specimen collection dates (`extract_specimen_collection_date`) using strict chronological validation, rejecting future dates and properly ordering multi-visit longitudinal records.
+* **Specimen Collection Chronology:** Extracts specimen collection dates (`extract_specimen_collection_date`), flags future-dated collections (`check_is_future_date`) for clinical review, and chronologically orders multi-visit longitudinal records (`parse_report_chronology`).
 
 ### 2. Deterministic Biomarker & Triage Engine
-* **25+ Canonical Analyte Resolution:** Recognizes core metabolic, hematologic, hepatic, renal, lipid, and thyroid biomarkers (`hemoglobin`, `fasting_glucose`, `hba1c`, `creatinine`, `egfr`, `platelets`, `ferritin`, `vitamin_b12`, `vitamin_d`, `tsh`, `lipid_panel`, `liver_enzymes`, `urinalysis`).
+* **100 Canonical Analyte Keys:** Resolves core hematologic, metabolic, hepatic, renal, lipid, thyroid, cardiac, and urinalysis biomarkers (`hemoglobin`, `glucose`, `hba1c`, `creatinine`, `egfr`, `platelets`, `ferritin`, `vitamin_b12`, `vitamin_d`, `tsh`, `ldl`, `hdl`, `triglycerides`, `alt`, `ast`, `urine_protein`, etc.) via regex-anchored `canonical_biomarker_key` matching.
 * **International Number Parsing:** Handles Indian lakhs formatting (`2,38,000 /uL`), western thousand commas (`238,000`), European decimal commas (`12,5 g/dL`), and relational comparators (`< 0.5`, `> 60`).
 * **Urinalysis Dipstick Disambiguation:** Disambiguates urine qualitative tests (`Urine Protein: Nil`, `Urine Sugar: Negative`) from serum quantitative panels, preventing false abnormal collisions.
-* **Near-Boundary Alerting:** Clinically tags values situated within 5% of reference limits (e.g. Fasting Glucose at `99 mg/dL` where normal is `70–99`), prompting proactive follow-up recommendations.
+* **Near-Boundary Alerting:** Clinically tags normal values near reference thresholds (within 15% of bounded ranges, 10% of upper-bounded limits, or 5% of lower-bounded limits — e.g. Fasting Glucose at `99 mg/dL` where normal is `70–99`), prompting proactive follow-up recommendations.
 * **Longitudinal Delta Tracking:** Automatically compares successive tests, computing absolute differences ($\Delta_{abs}$), percentage shifts ($\Delta_{\%}$), and clinical directional alerts (e.g. `Notable Drop (-11.7%)`).
 
 ### 3. Real-Time Anthropometrics & BMI Engine
@@ -66,9 +65,9 @@ Diagnostic medical reports and laboratory tests are frequently fragmented, overw
 
 ### 4. Hybrid Clinical RAG Pipeline
 * **Medical-Aware Chunking (`MedicalTextSplitter`):** Splits clinical narratives on structural paragraph boundaries (chunk size: 1200 chars, overlap: 200 chars) while preserving markdown table row integrity.
-* **Dense Semantic Embeddings:** Encodes document chunks via Google Gemini Embeddings (`models/gemini-embedding-2`), batched in slices of 100 with semaphore concurrency, backed by an embedding fallback chain (`gemini-embedding-2` $\to$ `gemini-embedding-001` $\to$ `text-embedding-004`).
+* **Dense Semantic Embeddings:** Encodes document chunks via Google Gemini Embeddings (`gemini-embedding-2`), batched in slices of 100 with semaphore concurrency (`EMBED_CONCURRENCY`), backed by an embedding fallback chain (`gemini-embedding-2` $\to$ `gemini-embedding-001` $\to$ `text-embedding-004`).
 * **Lexical BM25 Search (`BM25Index`):** Evaluates exact token matches to prevent misidentifying medical abbreviations (`HbA1c`, `eGFR`, `TSH`, `SGOT`, `SGPT`).
-* **Reciprocal Rank Fusion (RRF):** Fuses dense vector and sparse lexical ranks using $RRF(k=60)$ to surface the top clinical passages with sub-millisecond retrieval execution (`0.27ms` p50).
+* **Reciprocal Rank Fusion (RRF):** Fuses dense vector and sparse lexical ranks using $RRF(k=60)$ to surface the top clinical passages with sub-millisecond retrieval execution (`0.21ms` p50).
 
 ### 5. Adaptive Conversational Guidance
 * **Turn 1 Walkthrough:** Delivers a comprehensive 7-section clinical briefing:
@@ -80,15 +79,15 @@ Diagnostic medical reports and laboratory tests are frequently fragmented, overw
   6. *Dietary & Lifestyle Considerations*
   7. *Targeted Physician Discussion Questions*
 * **Turn 2+ Bedside Guidance:** Follow-up queries condense chat history via `condense_chat_history`, omitting structured headings in favor of concise, empathetic, non-repetitive answers while maintaining clinical disclaimers for medication change inquiries.
-* **Instant Emergency Interception:** 0ms multilingual regex triage detects emergency symptoms (chest pain, stroke signs, severe trauma) across English, Hindi, Spanish, French, and German, immediately returning localized emergency helpline numbers (911, 112, 102).
+* **Instant Emergency Interception:** 0ms multilingual regex triage detects emergency symptoms (chest pain, breathing difficulty, severe bleeding, stroke signs, self-harm) across English, Hindi, Spanish, French, and German, immediately returning localized emergency helpline numbers (112, 911, 999, 15).
 
 ### 6. Multi-Profile Family Isolation & Memory Vault
 * **Cryptographic Tenant Scoping:** Every document, chat session, trend trajectory, and memory fact is strictly bound to `user_id` and either `dependent_id = NULL` (`self`) or a specific `dependent_id = <UUID>`.
 * **Zero Cross-Profile Contamination:** Verified across comprehensive isolation test specifications (S1–S9): switching active family members never bleeds documents, cached summaries, or metric deltas.
-* **Encrypted Patient Memory Vault:** Extracts persistent clinical facts (allergies, chronic conditions, medications) into 18 Fernet-encrypted database columns (`AES-128-CBC` + `HMAC-SHA256`) with document provenance tracking.
+* **Encrypted Patient Memory Vault:** Extracts persistent clinical facts (allergies, chronic conditions, medications) into 21 Fernet-encrypted database columns (`AES-128-CBC` + `HMAC-SHA256`) with document provenance tracking.
 
 ### 7. 100% Upfront Cloud Hydration & Local-First UX
-* **100% Complete Hydration:** On initial login, `syncAllProfilesInBackground` pre-fetches documents, chat histories, lab metrics, report summaries (`cached_summary`), longitudinal trends (`/trends`), and Memory Vault facts (`/facts`) for all 5 profiles into `localStorage`.
+* **100% Complete Hydration:** On initial login, `syncAllProfilesInBackground` pre-fetches documents, chat histories, lab metrics, report summaries (`cached_summary`), longitudinal trends (`/users/me/metrics/trends`), and Memory Vault facts (`/users/me/facts`) for `self` and all dependent profiles into `localStorage`.
 * **Clean Loading Overlay:** Displays a clean, professional modal (`"Please wait while we load your clinical database"`) without ugly UUIDs or technical progress fractions.
 * **Anti-Glitch Network Debouncing:** Monitors hardware (`ConnectivityManager`) and browser network events with a 1200ms debounce timer (`DEBOUNCE_OFFLINE_MS`), preventing transient Wi-Fi drops from flashing offline warning pills.
 * **1-Click Clinical Export & Print:**
@@ -109,8 +108,8 @@ flowchart TB
 
     subgraph Edge["Security & Ingestion Edge"]
         CORS["FastAPI ASGI Middleware<br/>(CORS max_age=3600, Security Headers)"]
-        RATE["SlowAPI Distributed Limiter<br/>(IP & User-Token Buckets)"]
-        AUTH_GATE["60s Token Cache & DTO Resolver<br/>(Fast-Fail Unauthenticated in <130ms)"]
+        RATE["SlowAPI Rate Limiter<br/>(In-Memory IP Buckets via XFF)"]
+        AUTH_GATE["10s UserDTO Cache & Resolver<br/>(Fast-Fail Unauthenticated in <130ms)"]
     end
 
     subgraph Core["MediSkye Core Engine (Cloud Run asia-southeast1)"]
@@ -121,7 +120,7 @@ flowchart TB
     end
 
     subgraph Storage["Persistent & Cloud Storage Layer"]
-        NEON[("Neon Serverless PostgreSQL<br/>PgBouncer Pooler (ap-southeast-1)<br/>Auto-Normalized asyncpg URL<br/>18 Fernet-Encrypted Columns")]
+        NEON[("Neon Serverless PostgreSQL<br/>PgBouncer Pooler (ap-southeast-1)<br/>Auto-Normalized asyncpg URL<br/>21 Fernet-Encrypted Columns")]
         GCS[("Google Cloud Storage<br/>Multi-Region Index Archives")]
         LOCAL_CACHE[("Local-First Client Storage<br/>(localStorage Pre-Warmed Cache)")]
     end
@@ -150,11 +149,11 @@ flowchart TB
 
 ## 📊 Performance & QA Verification Summary
 
-The complete codebase undergoes rigorous automated verification across **628 backend test specifications** and **293 frontend vitest specifications**.
+The complete codebase undergoes rigorous automated verification across **645 backend test specifications** and **314 frontend Vitest specifications**.
 
 ### Granular Pipeline Benchmark Metrics
 
-All metrics recorded across 50 iterations using Python 3.14 runtime and live Google Cloud Run instances:
+All pipeline micro-benchmarks (50 iterations, Python 3.14 runtime) and live Cloud Run probes (`asia-southeast1`) were recorded during the production QA sign-off:
 
 | Component / Operation | Metric Tested | Result | Industry Benchmark | Compliance Status |
 | :--- | :--- | :---: | :---: | :---: |
@@ -178,31 +177,32 @@ All metrics recorded across 50 iterations using Python 3.14 runtime and live Goo
 
 ```text
 ============================= Pytest Backend Results =============================
-628 passed, 8 deselected in 79.18s (0:01:19) - 100% GREEN
+645 passed, 8 deselected in 123.71s (0:02:03) - 100% GREEN
 
 Key Test Suites:
-• test_async_concurrency.py         -> Non-blocking SSE stream & fallback resilience
-• test_biomarker_hints.py           -> 25+ canonical markers, near-boundary flags, lakhs commas
-• test_clinical_units.py            -> Unit conversions, chronological sort, delta calculations
-• test_patient_memory.py            -> Encrypted fact persistence, fact types, TTL expiry
-• test_prompt_quality.py            -> Synthesis shape, Turn 1 vs Turn 2 prompt rules
-• test_upload_hardening.py          -> Magic byte verification, pixel dimensions, OCR fallbacks
-• test_auth_cache.py                -> Token caches, email verification, rate limits
-• test_longitudinal_deltas.py       -> Chronological ordering, baseline delta calculations
+• test_async_concurrency.py               -> Non-blocking SSE stream & fallback resilience
+• test_biomarker_hints.py                 -> Canonical markers, near-boundary flags, lakhs commas
+• test_metrics_chronology_and_collision.py -> Chronological sorting, unit conversions, delta alerts
+• test_memory_models.py                   -> Encrypted fact persistence & dependent personalization
+• test_prompt_quality_regression.py       -> Synthesis shape, Turn 1 vs Turn 2 prompt rules
+• test_upload_hardening.py                -> Magic byte verification, pixel dimensions, OCR fallbacks
+• test_auth_cache.py                      -> Token caches, email verification, rate limits
+• test_phi_column_encryption.py           -> Fernet round-trip & undecryptable token error safety
+• test_bmi_calculation.py                 -> BMI computation, WHO categorization, context injection
 
 ============================= Vitest Frontend Results =============================
-Test Files  36 passed (36)
-Tests       293 passed (293) - 100% GREEN
-Duration    86.10s
+Test Files  38 passed (38)
+Tests       314 passed (314) - 100% GREEN
+Duration    116.08s
 
 Key Test Suites:
 • ProfileIsolation.test.jsx         -> Strict S1-S9 multi-profile document & chat scoping
-• BmiAndHydrationSync.test.jsx       -> Real-time BMI badges, 100% sync lock, network debouncing
+• BmiAndHydrationSync.test.jsx       -> Offline debounce & 100% profile hydration sync
 • WorkbenchHeader.test.jsx          -> Overflow-visible header, dropdown rendering, no clipping
 • LocalFirstCacheSync.test.js       -> Multi-profile local storage pre-warming & sync
 • ChatApp.test.jsx                  -> Immediate upload promotion & stream buffer safety
 • ExportModal.test.jsx              -> Full transcript & metrics JSON/PDF export
-• PatientSwitcher.test.jsx          -> Accurate report counts & BMI tags across family members
+• WorkbenchComponents.test.jsx      -> UploadStepper, RangeBar, LabMetrics filters, OrganSystemsOverview
 • SettingsModal.test.jsx            -> Safe account deletion & credential hygiene
 • LabMetrics.test.jsx               -> Semantic clinical tables & delta badges
 ```
@@ -218,17 +218,17 @@ Key Test Suites:
 | **Desktop Shell** | Tauri v2 (Rust + WebView2) | Ultra-lightweight Windows desktop binary (`.exe`) with loopback OAuth |
 | **Mobile Shell** | Capacitor 8 | Native Android compilation with custom hardware connectivity bridges |
 | **Backend Framework** | FastAPI 0.115+ (Python 3.14) | High-throughput asynchronous ASGI microservice with Pydantic v2 validation |
-| **ASGI Web Server** | Uvicorn + Gunicorn Workers | Multi-worker asynchronous process manager |
+| **ASGI Web Server** | Uvicorn | High-throughput asynchronous ASGI web server (`uvicorn[standard]`) |
 | **Database** | Neon Serverless PostgreSQL | Pooled serverless PostgreSQL with PgBouncer connection reuse (`ap-southeast-1`) |
 | **ORM & Migrations** | SQLAlchemy 2.0 (Async) + Alembic | Asynchronous querying via `asyncpg` with automated schema migrations |
 | **Database URL Handling**| `normalize_async_database_url` | Strips `channel_binding`, handles `ssl=require`, sets `statement_cache_size=0` |
 | **Vector Search** | FAISS (Facebook AI Similarity Search) | Dense vector cosine similarity search |
 | **Lexical Search** | BM25 (`rank-bm25`) | Probabilistic sparse keyword relevance scoring for medical terms |
-| **OCR & PDF Extraction** | PyMuPDF (fitz) + Tesseract 5 | High-fidelity table and scanned character extraction |
+| **OCR & PDF Extraction** | PyMuPDF (fitz) + Tesseract | High-fidelity table and scanned character extraction |
 | **Primary LLM** | Google Gemini 3.8 Flash | Low-latency multimodal clinical reasoning with `ThinkingConfig` auto-adaptation |
 | **Model Fallback Chain** | Gemini 3.8 $\to$ 3.6 $\to$ 3.5 $\to$ 2.5 $\to$ 2.0 $\to$ 1.5 | Resilient 8-model fallback hierarchy preventing outage disruptions |
 | **Embedding Models** | Gemini Embedding 2 $\to$ 001 $\to$ Text-004 | 3-model embedding fallback chain for high-dimensional clinical vectorization |
-| **Authentication** | Firebase Authentication + JWT | Google OAuth 2.0, verified email/password, SHA-256 tokens |
+| **Authentication** | Firebase Authentication + JWT | Google OAuth 2.0, verified email/password, HS256/RS256 JWTs, SHA-256 revocation/cache digests |
 | **Monitoring & Telemetry**| Sentry SDK (React & FastAPI) | Distributed exception tracking and performance tracing |
 | **Cloud Hosting** | Google Cloud Run (`asia-southeast1`) | Auto-scaling containerized microservice environment with 8s fault-tolerant boot |
 
@@ -238,7 +238,7 @@ Key Test Suites:
 
 ### Prerequisites
 * **Python:** `3.11` to `3.14` (with virtual environment support)
-* **Node.js:** `v20.x` or `v24.x` (LTS recommended)
+* **Node.js:** `v20.x` – `v24.x` (`v22` in CI)
 * **Rust:** `1.75+` (required only for compiling Windows Tauri `.exe`)
 * **Android Studio & SDK:** Platform 34+ (required only for compiling Android APK)
 
@@ -247,7 +247,7 @@ Key Test Suites:
 ### 1. Backend Setup (Local FastAPI Server)
 
 ```bash
-# Navigate to backend directory
+# Navigate to backend directory (or install from root requirements.txt)
 cd backend
 
 # Create and activate Python virtual environment
@@ -262,7 +262,7 @@ pip install -r requirements.txt
 
 # Configure environment variables
 cp .env.example .env
-# Edit .env with your GEMINI_API_KEY, DATABASE_URL, and FERNET_KEY
+# Edit .env with your GOOGLE_API_KEY, DATABASE_URL, FERNET_KEY, and JWT_SECRET_KEY
 
 # Run database migrations
 alembic upgrade head
@@ -298,7 +298,10 @@ npm run dev
 ```bash
 # Run Backend Pytest Suite (excluding live integration tests)
 cd backend
+# On Windows PowerShell:
 .\.venv\Scripts\pytest.exe tests -m "not integration" -q
+# On Linux/macOS:
+.venv/bin/pytest tests -m "not integration" -q
 
 # Run Frontend Vitest Suite
 cd frontend
@@ -321,7 +324,7 @@ npm run tauri:dev
 # Build production Windows installer (.exe / .msi)
 npm run tauri:build
 # The output binary will be located in:
-# frontend/src-tauri/target/release/bundle/nsis/MediSkye_x64-setup.exe
+# frontend/src-tauri/target/release/bundle/nsis/MediSkye_1.0.0_x64-setup.exe
 ```
 
 ---
@@ -337,8 +340,10 @@ npm run cap:sync
 # Open project in Android Studio
 npm run cap:open
 
-# Assemble debug APK directly from command line
+# Assemble debug APK directly from command line (Windows)
 npm run android:build
+# On Linux/macOS:
+# npm run cap:sync && cd android && ./gradlew assembleDebug
 # The output APK will be located in:
 # frontend/android/app/build/outputs/apk/debug/app-debug.apk
 ```
@@ -362,7 +367,7 @@ gcloud builds submit --config cloudbuild.yaml
 
 ## 🔒 Security, Privacy & HIPAA-Aligned Architecture
 
-* **Fernet Symmetric Encryption at Rest:** 18 sensitive patient columns—including diagnoses, medications, allergies, blood markers, and conversational facts—are encrypted with Fernet (`AES-128-CBC` + `HMAC-SHA256`) prior to SQL persistence.
+* **Fernet Symmetric Encryption at Rest:** 21 sensitive patient columns—including diagnoses, medications, allergies, blood markers, and conversational facts—are encrypted with Fernet (`AES-128-CBC` + `HMAC-SHA256`) prior to SQL persistence.
 * **Transient PHI in Hot Cache:** High-throughput in-memory token caches utilize `UserDTO` to strip decrypted clinical PHI, preventing plaintext medical data from lingering in RAM.
 * **Strict Single-Tenant Patient Boundaries:** All database queries are explicitly filtered by `user_id` and validated against dependent profile ownership before query execution.
 * **Instant Token Revocation:** Password resets, manual logouts, and account deletions instantly invalidate tokens via in-memory SHA-256 digest blacklists, a durable PostgreSQL `revoked_tokens` blocklist, and database timestamp cutoffs (`token_invalid_before`).
@@ -373,7 +378,7 @@ gcloud builds submit --config cloudbuild.yaml
 
 ## 📄 License & Medical Disclaimer
 
-**License:** Distributed under the MIT License. See `LICENSE` for details.
+**License:** Distributed under the MIT License. See [LICENSE](LICENSE) for details.
 
 > [!IMPORTANT]
-> **Clinical Disclaimer:** MediSkye is an artificial intelligence assistant designed for educational and informational health exploration. MediSkye does not provide medical diagnoses, treatment plans, or emergency intervention. Always consult a qualified physician or healthcare provider regarding any medical condition or laboratory report. In case of a medical emergency, call your local emergency services (911, 112, 102) immediately.
+> **Clinical Disclaimer:** MediSkye is an artificial intelligence assistant designed for educational and informational health exploration. MediSkye does not provide medical diagnoses, treatment plans, or emergency intervention. Always consult a qualified physician or healthcare provider regarding any medical condition or laboratory report. In case of a medical emergency, call your local emergency services (112, 911, 999) immediately.

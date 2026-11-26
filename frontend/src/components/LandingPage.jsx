@@ -175,7 +175,7 @@ export default function LandingPage() {
   // Apply dark mode & page title
   useEffect(() => {
     document.documentElement.classList.add('dark');
-    document.title = 'MediSkye — Understand Your Medical Reports in Seconds';
+    document.title = 'MediSkye: Personal and Family Health Intelligence App';
   }, []);
 
   // Prefetch below-the-fold chunks on idle so they are cached before user scrolls
